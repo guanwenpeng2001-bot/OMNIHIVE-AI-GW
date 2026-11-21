@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/capabilitysources"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/capabilitysources"
 )
 
 const capabilityDisplayTTL = 7 * 24 * time.Hour

@@ -14,11 +14,11 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/accountgroup"
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/google/uuid"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/accountgroup"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,7 +39,9 @@ func bindGroupsTestRepository(t *testing.T) (*accountRepository, *sql.DB) {
 	t.Cleanup(func() { _ = database.Close() })
 	require.NoError(t, ApplyMigrations(context.Background(), database))
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, database)))
-	return newAccountRepositoryWithSQL(client, database, nil), database
+	repo := newAccountRepositoryWithSQL(client, database, nil)
+	repo.credentialEncryptor = persistentTestAES(t, true)
+	return repo, database
 }
 
 func lockBindGroupsAccount(ctx context.Context, transaction *dbent.Tx, accountID int64) (resultErr error) {
@@ -77,7 +79,12 @@ func TestBindGroupsAmbientTransaction(t *testing.T) {
 		{name: "clear_commit", commit: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			account, err := repository.client.Account.Create().SetName(scenario.name + "-" + uuid.NewString()).SetPlatform(service.PlatformAnthropic).SetType(service.AccountTypeOAuth).SetCredentials(map[string]any{"access_token": "fake"}).Save(ctx)
+			account := &service.Account{Name: scenario.name + "-" + uuid.NewString(), Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Status: service.StatusActive, Credentials: map[string]any{"access_token": "fake"}}
+			err := repository.Create(ctx, account)
+			require.NoError(t, err)
+			account, err = repository.GetByID(ctx, account.ID)
+			require.NoError(t, err)
+			_, err = database.Exec("DELETE FROM scheduler_outbox WHERE account_id=$1", account.ID)
 			require.NoError(t, err)
 			_, err = repository.client.AccountGroup.Create().SetAccountID(account.ID).SetGroupID(originalGroup.ID).SetPriority(7).Save(ctx)
 			require.NoError(t, err)
@@ -91,7 +98,7 @@ func TestBindGroupsAmbientTransaction(t *testing.T) {
 			writeContext, cancel := context.WithTimeout(dbent.NewTxContext(ctx, transaction), 8*time.Second)
 			defer cancel()
 			require.NoError(t, lockBindGroupsAccount(writeContext, transaction, account.ID))
-			require.NoError(t, transaction.Account.UpdateOneID(account.ID).SetCredentials(map[string]any{"access_token": "updated"}).Exec(writeContext))
+			require.NoError(t, repository.UpdateCredentialsCAS(writeContext, account, map[string]any{"access_token": "updated"}))
 			// This binding is visible only inside the caller transaction. Its presence
 			// in the outbox proves the old-group read also respects that transaction.
 			_, err = transaction.AccountGroup.Create().SetAccountID(account.ID).SetGroupID(stagedGroup.ID).SetPriority(8).Save(writeContext)
@@ -113,7 +120,7 @@ func TestBindGroupsAmbientTransaction(t *testing.T) {
 				require.Equal(t, scenario.groupIDs[index], binding.GroupID)
 				require.Equal(t, index+1, binding.Priority)
 			}
-			rows, err := transaction.Client().QueryContext(writeContext, "SELECT payload FROM scheduler_outbox WHERE account_id=$1", account.ID)
+			rows, err := transaction.Client().QueryContext(writeContext, "SELECT payload FROM scheduler_outbox WHERE account_id=$1 AND event_type=$2", account.ID, service.SchedulerOutboxEventAccountGroupsChanged)
 			require.NoError(t, err)
 			require.True(t, rows.Next())
 			var raw []byte
@@ -140,13 +147,15 @@ func TestBindGroupsAmbientTransaction(t *testing.T) {
 				require.Len(t, actual, len(scenario.groupIDs))
 			} else {
 				require.Len(t, actual, 1)
-				require.Equal(t, "fake", repository.client.Account.GetX(ctx, account.ID).Credentials["access_token"])
+				current, err := repository.GetByID(ctx, account.ID)
+				require.NoError(t, err)
+				require.Equal(t, "fake", current.GetCredential("access_token"))
 				require.Equal(t, originalGroup.ID, actual[0].GroupID)
 				require.Equal(t, 7, actual[0].Priority)
 			}
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT COUNT(*) FROM scheduler_outbox WHERE account_id=$1", account.ID).Scan(&published))
 			if scenario.commit {
-				require.Equal(t, 1, published)
+				require.Equal(t, 2, published) // Credential and group changes both commit.
 			} else {
 				require.Zero(t, published)
 			}
@@ -165,7 +174,10 @@ func TestBindGroupsCredentialDraftConcurrentConfirmation(t *testing.T) {
 			name = "same_submission"
 		}
 		t.Run(name, func(t *testing.T) {
-			account, err := repository.client.Account.Create().SetName(name + "-" + uuid.NewString()).SetPlatform(service.PlatformAnthropic).SetType(service.AccountTypeOAuth).SetCredentials(map[string]any{"access_token": "old"}).Save(ctx)
+			account := &service.Account{Name: name + "-" + uuid.NewString(), Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Status: service.StatusActive, Credentials: map[string]any{"access_token": "old"}}
+			err := repository.Create(ctx, account)
+			require.NoError(t, err)
+			account, err = repository.GetByID(ctx, account.ID)
 			require.NoError(t, err)
 			pending := service.NewAuthPendingIdentityService(repository.client)
 			draft, err := pending.IssueAccountCredentialDraft(ctx, "browser", service.PlatformAnthropic, service.AccountTypeOAuth, map[string]any{"access_token": "new"})
@@ -175,7 +187,7 @@ func TestBindGroupsCredentialDraftConcurrentConfirmation(t *testing.T) {
 				if err := lockBindGroupsAccount(writeContext, transaction, account.ID); err != nil {
 					return 0, err
 				}
-				if err := transaction.Account.UpdateOneID(account.ID).SetCredentials(candidate.Credentials).Exec(writeContext); err != nil {
+				if err := repository.UpdateCredentialsCAS(writeContext, account, candidate.Credentials); err != nil {
 					return 0, err
 				}
 				if err := repository.BindGroups(writeContext, account.ID, []int64{group.ID}); err != nil {
@@ -199,7 +211,9 @@ func TestBindGroupsCredentialDraftConcurrentConfirmation(t *testing.T) {
 				return 0, failure
 			})
 			require.ErrorIs(t, err, failure)
-			require.Equal(t, "old", repository.client.Account.GetX(ctx, account.ID).Credentials["access_token"])
+			current, err := repository.GetByID(ctx, account.ID)
+			require.NoError(t, err)
+			require.Equal(t, "old", current.GetCredential("access_token"))
 			require.Zero(t, repository.client.AccountGroup.Query().Where(accountgroup.AccountIDEQ(account.ID)).CountX(ctx))
 			_, err = pending.PreviewAccountCredentialDraft(ctx, draft.Reference, "browser")
 			require.NoError(t, err)
@@ -246,7 +260,9 @@ func TestBindGroupsCredentialDraftConcurrentConfirmation(t *testing.T) {
 				require.Equal(t, 1, successes)
 				require.Equal(t, 1, conflicts)
 			}
-			require.Equal(t, "new", repository.client.Account.GetX(ctx, account.ID).Credentials["access_token"])
+			current, err = repository.GetByID(ctx, account.ID)
+			require.NoError(t, err)
+			require.Equal(t, "new", current.GetCredential("access_token"))
 			require.Equal(t, 1, repository.client.AccountGroup.Query().Where(accountgroup.AccountIDEQ(account.ID)).CountX(ctx))
 		})
 	}

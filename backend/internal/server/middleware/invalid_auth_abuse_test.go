@@ -9,9 +9,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -115,7 +115,7 @@ func TestInvalidAuthAbuseDoesNotCountValidOrOperationalFailures(t *testing.T) {
 	for _, tc := range []struct {
 		key  string
 		want int
-	}{{"invalid", 401}, {"valid-key", 200}, {"db-error", 500}, {"db-error", 500}} {
+	}{{"invalid", 401}, {"valid-key", 200}, {"db-error", 503}, {"db-error", 503}} {
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, httpRequest(t, "/t", "", tc.key))
 		require.Equal(t, tc.want, w.Code)

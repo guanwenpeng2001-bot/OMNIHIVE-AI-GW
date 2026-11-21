@@ -6,23 +6,24 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/authidentity"
-	"github.com/Wei-Shaw/sub2api/ent/enttest"
-	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
-	"github.com/Wei-Shaw/sub2api/ent/pendingauthsession"
-	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
-	dbuser "github.com/Wei-Shaw/sub2api/ent/user"
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/authidentity"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/enttest"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/identityadoptiondecision"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/pendingauthsession"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/redeemcode"
+	dbuser "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/user"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/require"
 
@@ -3578,6 +3579,18 @@ func (s *oauthPendingFlowTotpCacheStub) GetVerifyAttempts(_ context.Context, use
 func (s *oauthPendingFlowTotpCacheStub) ClearVerifyAttempts(_ context.Context, userID int64) error {
 	delete(s.verifyAttempts, userID)
 	return nil
+}
+
+func (s *oauthPendingFlowTotpCacheStub) ConsumeCodeTimeStep(_ context.Context, userID int64, timeStep int64, _ time.Duration) (bool, error) {
+	key := fmt.Sprintf("%d:%d", userID, timeStep)
+	if s.loginSessions == nil {
+		s.loginSessions = map[string]*service.TotpLoginSession{}
+	}
+	if _, exists := s.loginSessions[key]; exists {
+		return false, nil
+	}
+	s.loginSessions[key] = &service.TotpLoginSession{}
+	return true, nil
 }
 
 func (s *oauthPendingFlowTotpCacheStub) SetStepUpGrant(_ context.Context, _ int64, _ string, _ time.Duration) error {

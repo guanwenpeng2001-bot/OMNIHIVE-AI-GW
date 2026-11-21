@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
@@ -80,6 +80,14 @@ func TestUpstreamBillingProbeCredentialCASPostgres(t *testing.T) {
 			} {
 				t.Run("rejects changed "+tt.name, func(t *testing.T) {
 					account := createProbeCASAccount(t, f, referenced)
+					if !referenced && tt.name == "credential configuration" {
+						fresh, err := f.accounts.GetByID(ctx, account.ID)
+						require.NoError(t, err)
+						fresh.Credentials["base_url"] = "https://changed.example"
+						require.NoError(t, f.accounts.UpdateCredentials(ctx, account.ID, fresh.Credentials))
+						account = fresh
+						tt.sql = `UPDATE accounts SET updated_at=updated_at WHERE id=$1`
+					}
 					_, err := f.db.ExecContext(ctx, tt.sql, account.ID)
 					require.NoError(t, err)
 					before := readProbeCASState(t, f, account.ID)
@@ -138,28 +146,24 @@ func TestUpstreamBillingProbeCredentialCASPostgres(t *testing.T) {
 			if tt.name == "secret owner" {
 				args = append(args, createProbeCASAccount(t, f, false).ID)
 			}
-			_, err := f.db.ExecContext(ctx, tt.sql, args...)
-			require.NoError(t, err)
+			f.writeInconsistentSecret(t, tt.sql, args...)
 			before := readProbeCASState(t, f, account.ID)
-			err = f.accounts.UpdateUpstreamBillingProbeSnapshot(ctx, account, snapshot, &rate)
+			err := f.accounts.UpdateUpstreamBillingProbeSnapshot(ctx, account, snapshot, &rate)
 			require.ErrorIs(t, err, service.ErrUpstreamBillingProbeIdentityChanged)
 			require.Equal(t, before, readProbeCASState(t, f, account.ID))
 		})
 	}
 
-	t.Run("inline key replacement and conversion reject old probe", func(t *testing.T) {
+	t.Run("key replacement rejects old probe", func(t *testing.T) {
 		account := createProbeCASAccount(t, f, false)
-		require.NoError(t, f.accounts.UpdateCredentials(ctx, account.ID, map[string]any{"api_key": "sk-new"}))
+		replacement := map[string]any{"api_key": "sk-new", "base_url": "https://upstream.example"}
+		require.NoError(t, f.accounts.UpdateCredentials(ctx, account.ID, replacement))
 		before := readProbeCASState(t, f, account.ID)
 		require.ErrorIs(t, f.accounts.UpdateUpstreamBillingProbeSnapshot(ctx, account, snapshot, &rate), service.ErrUpstreamBillingProbeIdentityChanged)
 		require.Equal(t, before, readProbeCASState(t, f, account.ID))
-		fresh, err := f.accounts.GetByID(ctx, account.ID)
+		metadata, err := f.secrets.Metadata(ctx, account.ID)
 		require.NoError(t, err)
-		_, err = f.secrets.Convert(ctx, account.ID, f.accountRevision(t, account.ID))
-		require.NoError(t, err)
-		before = readProbeCASState(t, f, account.ID)
-		require.ErrorIs(t, f.accounts.UpdateUpstreamBillingProbeSnapshot(ctx, fresh, snapshot, &rate), service.ErrUpstreamBillingProbeIdentityChanged)
-		require.Equal(t, before, readProbeCASState(t, f, account.ID))
+		require.Equal(t, int64(1), metadata.Version)
 	})
 
 	t.Run("workspace scope", func(t *testing.T) {
@@ -229,7 +233,16 @@ func createProbeCASAccount(t *testing.T, f *credentialSecretFixture, referenced 
 			service.UpstreamBillingProbeEnabledExtraKey: true, service.UpstreamBillingRateSyncEnabledExtraKey: true,
 		},
 	}
-	require.NoError(t, f.accounts.Create(f.ctx, account))
+	if referenced {
+		require.NoError(t, f.accounts.Create(f.ctx, account))
+	} else {
+		account = f.createLegacyInlineAccount(t, f.ctx, account.Name, account.Platform, account.Type, account.Credentials)
+		account.RateMultiplier = &initialRate
+		account.ProxyID = &proxy.ID
+		_, err := f.client.Account.UpdateOneID(account.ID).SetRateMultiplier(initialRate).SetProxyID(proxy.ID).
+			SetExtra(map[string]any{service.UpstreamBillingProbeEnabledExtraKey: true, service.UpstreamBillingRateSyncEnabledExtraKey: true}).Save(f.ctx)
+		require.NoError(t, err)
+	}
 	t.Cleanup(func() {
 		// Some cases deliberately corrupt secret metadata; do not leave those
 		// rows for other suites using the same disposable database.

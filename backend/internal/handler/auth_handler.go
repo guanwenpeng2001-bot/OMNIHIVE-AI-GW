@@ -6,14 +6,14 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/dto"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ip"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/response"
+	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 // AuthHandler handles authentication-related requests
@@ -48,6 +48,7 @@ func NewAuthHandler(cfg *config.Config, authService *service.AuthService, userSe
 
 // RegisterRequest represents the registration request payload
 type RegisterRequest struct {
+	service.SignupAgreement
 	Email                 string `json:"email" binding:"required,email"`
 	Password              string `json:"password" binding:"required,min=6"`
 	VerifyCode            string `json:"verify_code"`
@@ -191,7 +192,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 
 	_, user, err := h.authService.RegisterWithVerification(
-		c.Request.Context(),
+		req.Context(c.Request.Context()),
 		req.Email,
 		req.Password,
 		req.VerifyCode,

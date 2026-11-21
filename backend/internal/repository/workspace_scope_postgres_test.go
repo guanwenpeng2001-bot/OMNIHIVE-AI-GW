@@ -8,11 +8,11 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/Wei-Shaw/sub2api/migrations"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/migrations"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,19 +28,28 @@ func TestWorkspaceMigrationAndRepositoryIsolation(t *testing.T) {
 	require.NoError(t, applyMigrationsFS(ctx, database, migrations.FS))
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, database)))
 	repository := NewWorkspaceRepository(database)
-	workspace, err := repository.Create(ctx, "Delegated")
+	fixture := uniqueName("workspace-isolation")
+	workspace, err := repository.Create(ctx, fixture)
 	require.NoError(t, err)
+	defer func() {
+		for _, table := range []string{"accounts", "groups", "proxies"} {
+			_, err := database.ExecContext(ctx, "DELETE FROM "+table+" WHERE name=$1", fixture)
+			require.NoError(t, err)
+		}
+		_, err := database.ExecContext(ctx, "DELETE FROM workspaces WHERE id=$1", workspace.ID)
+		require.NoError(t, err)
+	}()
 	scoped := domain.WithWorkspaceScope(ctx, workspace.ID)
 	other := domain.WithWorkspaceScope(ctx, domain.DefaultWorkspaceID)
 	accountRepo := NewAccountRepository(client, database, nil)
 	groupRepo := NewGroupRepository(client, database)
 	proxyRepo := NewProxyRepository(client, database)
 	for _, resourceContext := range []context.Context{other, scoped} {
-		account := &service.Account{Name: "Scoped account", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Concurrency: 1}
+		account := &service.Account{Name: fixture, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Concurrency: 1}
 		require.NoError(t, accountRepo.Create(resourceContext, account))
-		group := &service.Group{Name: "Scoped group", Platform: service.PlatformOpenAI, Status: service.StatusActive, RateMultiplier: 1}
+		group := &service.Group{Name: fixture, Platform: service.PlatformOpenAI, Status: service.StatusActive, RateMultiplier: 1}
 		require.NoError(t, groupRepo.Create(resourceContext, group))
-		proxy := &service.Proxy{Name: "Scoped proxy", Protocol: "http", Host: "127.0.0.1", Port: 8081, Status: service.StatusActive}
+		proxy := &service.Proxy{Name: fixture, Protocol: "http", Host: "127.0.0.1", Port: 8081, Status: service.StatusActive}
 		require.NoError(t, proxyRepo.Create(resourceContext, proxy))
 	}
 	accounts, page, err := accountRepo.List(scoped, pagination.PaginationParams{Page: 1, PageSize: 10})
@@ -70,7 +79,7 @@ func TestWorkspaceMigrationAndRepositoryIsolation(t *testing.T) {
 	require.NoError(t, database.QueryRowContext(ctx, "SELECT count(*) FROM workspaces WHERE is_default").Scan(&defaultCount))
 	require.Equal(t, 1, defaultCount)
 	var foreignGroup int64
-	require.NoError(t, database.QueryRowContext(ctx, "SELECT id FROM groups WHERE workspace_id=1 ORDER BY id LIMIT 1").Scan(&foreignGroup))
+	require.NoError(t, database.QueryRowContext(ctx, "SELECT id FROM groups WHERE workspace_id=$1 AND name=$2", domain.DefaultWorkspaceID, fixture).Scan(&foreignGroup))
 	_, err = database.ExecContext(ctx, "INSERT INTO account_groups(account_id,group_id) VALUES($1,$2)", accounts[0].ID, foreignGroup)
 	require.Error(t, err, "cross-workspace references must be rejected even outside HTTP")
 	_, err = database.ExecContext(ctx, "UPDATE accounts SET workspace_id=1 WHERE id=$1", accounts[0].ID)

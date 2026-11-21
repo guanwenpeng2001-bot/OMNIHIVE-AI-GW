@@ -6,9 +6,9 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
 	ws "github.com/coder/websocket"
+
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/cursor"
 	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
@@ -43,7 +43,7 @@ func TestProxyGroupCursorUsesSelectedProxy(t *testing.T) {
 	a.Type = AccountTypeUpstream
 	a.Credentials = map[string]any{"base_url": origin.URL, "api_key": "fixture"}
 	a.AttachEgress(r)
-	models, err := NewCursorGatewayService(nil, nil).AvailableModels(context.Background(), a)
+	models, err := cursorRelayTestGateway(origin).AvailableModels(context.Background(), a)
 	require.NoError(t, err)
 	require.Equal(t, []string{"fixture"}, models)
 	require.EqualValues(t, 1, proxied.Load())
@@ -83,7 +83,7 @@ func TestProxyGroupWebSocketPinsPhysicalConnection(t *testing.T) {
 	a.ProxyGroupID = binding.ProxyGroupID
 	a.Credentials["base_url"] = origin.URL
 	a.AttachEgress(r)
-	svc := &OpenAIGatewayService{cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{AllowInsecureHTTP: true}}}}
+	svc := &OpenAIGatewayService{cfg: loopbackHTTPTestConfig()}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	connection, err := svc.OpenOpenAIRealtime(ctx, a, "gpt-realtime")
@@ -106,6 +106,7 @@ func TestProxyGroupWebSocketPinsPhysicalConnection(t *testing.T) {
 }
 
 func TestProxyGroupBatchImageProvidersUsePinnedEgress(t *testing.T) {
+	useLoopbackClient(t, &batchImageProxyClient)
 	for _, vendor := range []string{"gemini", "vertex"} {
 		t.Run(vendor, func(t *testing.T) {
 			var direct, proxied atomic.Int32

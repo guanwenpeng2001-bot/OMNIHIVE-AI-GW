@@ -2,7 +2,7 @@
   <AppLayout>
     <div
       data-testid="profile-shell"
-      class="w-full space-y-6"
+      class="w-full min-w-0 space-y-6"
     >
       <!-- 界面风格「账户与安全中心」工作台概览横幅 -->
       <section
@@ -37,13 +37,13 @@
                 <span class="pulse-dot pulse-ok" aria-hidden="true" />
                 <span>登录密码保护</span>
               </span>
-              <span class="chip text-xs">
+              <span data-testid="profile-totp-summary-chip" class="chip text-xs">
                 <span
                   class="pulse-dot"
-                  :class="userTotpEnabled ? 'pulse-ok' : 'pulse-warn'"
+                  :class="totpSummaryDotClass"
                   aria-hidden="true"
                 />
-                <span>TOTP 2FA · {{ userTotpEnabled ? '已开启' : '可配置' }}</span>
+                <span>TOTP 2FA · {{ totpSummaryLabel }}</span>
               </span>
               <span class="chip text-xs">
                 <span
@@ -71,14 +71,14 @@
             <div>
               <div class="text-[11px] text-[var(--muted-foreground)]">当前可用余额</div>
               <div class="font-mono text-lg font-bold tabular-nums text-[var(--foreground)]">
-                ${{ (user.balance ?? 0).toFixed(2) }}
+                {{ typeof user.balance === 'number' && Number.isFinite(user.balance) ? `$${user.balance.toFixed(2)}` : '—' }}
               </div>
             </div>
-            <div class="h-7 w-px bg-[var(--surface-2)]" aria-hidden="true" />
+            <div class="h-7 w-px bg-[var(--border)]" aria-hidden="true" />
             <div>
               <div class="text-[11px] text-[var(--muted-foreground)]">并发配额</div>
               <div class="font-mono text-sm font-semibold tabular-nums text-amber-700 dark:text-amber-400">
-                {{ user.concurrency ?? 0 }} 路
+                {{ typeof user.concurrency === 'number' && Number.isFinite(user.concurrency) ? `${user.concurrency} 路` : '—' }}
               </div>
             </div>
           </div>
@@ -96,7 +96,7 @@
             v-for="anchor in sectionAnchors"
             :key="anchor.id"
             :href="`#${anchor.id}`"
-            class="oh-anchor-pill"
+            class="oh-anchor-pill oh-focus-ring"
           >
             <span class="font-mono text-[10px] opacity-60">#</span>
             <span>{{ anchor.label }}</span>
@@ -117,33 +117,7 @@
         />
       </div>
 
-      <!-- 界面琥珀金微光联系客服卡片 -->
-      <div
-        v-if="contactInfo"
-        class="card oh-amber-support-card relative overflow-hidden p-5 sm:p-6"
-      >
-        <div class="flex flex-wrap items-center justify-between gap-4">
-          <div class="flex items-center gap-4">
-            <div class="oh-amber-icon-box flex h-11 w-11 shrink-0 items-center justify-center rounded-xl">
-              <Icon name="chat" size="lg" />
-            </div>
-            <div>
-              <div class="flex items-center gap-2">
-                <h3 class="font-semibold text-amber-950 dark:text-amber-200">
-                  {{ t('common.contactSupport') }}
-                </h3>
-                <span class="pill pill-ghost font-mono text-[11px]">
-                  <span class="pulse-dot pulse-warn" aria-hidden="true" />
-                  <span>SUPPORT</span>
-                </span>
-              </div>
-              <p class="mt-1 font-mono text-sm font-medium text-amber-900 dark:text-amber-100">
-                {{ contactInfo }}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
+      <HumanSupportCard :contact-info="contactInfo" />
 
       <div id="profile-section-billing" class="scroll-mt-20">
         <ProfileBillingTimelineCard />
@@ -168,25 +142,69 @@
       </div>
 
       <div id="profile-section-totp" class="scroll-mt-20">
-        <ProfileTotpCard />
+        <ProfileTotpCard @status-loaded="handleTotpStatusLoaded" />
+      </div>
+      <div id="profile-section-sessions" class="scroll-mt-20">
+        <ProfileSessions />
       </div>
       <div id="profile-section-passkey" class="scroll-mt-20">
         <ProfilePasskeyCard :enabled="passkeyEnabled" />
+      </div>
+      <div
+        id="profile-section-lifecycle"
+        data-testid="profile-account-lifecycle"
+        class="card scroll-mt-20 p-5 sm:p-6"
+      >
+        <div class="flex flex-wrap items-start justify-between gap-4">
+          <div class="space-y-1">
+            <h3 class="text-base font-semibold text-gray-900 dark:text-white">
+              {{ t('publicPortal.accountService.lifecycleTitle') }}
+            </h3>
+            <p class="text-sm text-gray-500 dark:text-dark-400">
+              {{ t('publicPortal.accountService.lifecycleSummary') }}
+            </p>
+          </div>
+          <router-link
+            to="/docs#support"
+            class="btn btn-secondary shrink-0 text-xs"
+          >
+            {{ t('publicPortal.accountService.supportLinkLabel') }}
+          </router-link>
+        </div>
+        <div class="mt-4 grid gap-4 border-t border-gray-100 pt-4 dark:border-dark-700 sm:grid-cols-2">
+          <div class="space-y-1">
+            <h4 class="text-sm font-medium text-gray-900 dark:text-white">
+              {{ t('publicPortal.accountService.exportTitle') }}
+            </h4>
+            <p class="text-xs leading-relaxed text-gray-600 dark:text-dark-300">
+              {{ t('publicPortal.accountService.exportDesc') }}
+            </p>
+          </div>
+          <div class="space-y-1">
+            <h4 class="text-sm font-medium text-gray-900 dark:text-white">
+              {{ t('publicPortal.accountService.deletionTitle') }}
+            </h4>
+            <p class="text-xs leading-relaxed text-gray-600 dark:text-dark-300">
+              {{ t('publicPortal.accountService.deletionDesc') }}
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   </AppLayout>
 </template>
 
 <script setup lang="ts">
+import HumanSupportCard from '@/components/intro/HumanSupportCard.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Icon } from '@/components/icons'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import ProfileBalanceNotifyCard from '@/components/user/profile/ProfileBalanceNotifyCard.vue'
 import ProfileBillingTimelineCard from '@/components/user/profile/ProfileBillingTimelineCard.vue'
 import ProfileInfoCard from '@/components/user/profile/ProfileInfoCard.vue'
 import ProfilePasswordForm from '@/components/user/profile/ProfilePasswordForm.vue'
 import ProfileTotpCard from '@/components/user/profile/ProfileTotpCard.vue'
+import ProfileSessions from '@/features/operations/ProfileSessions.vue'
 import ProfilePasskeyCard from '@/components/user/profile/ProfilePasskeyCard.vue'
 import { isWeChatWebOAuthEnabled } from '@/api/auth'
 import { useAppStore } from '@/stores/app'
@@ -199,6 +217,36 @@ const user = computed(() => authStore.user)
 const userTotpEnabled = computed(() =>
   Boolean((user.value as Record<string, unknown> | null)?.totp_enabled)
 )
+const totpFeatureEnabled = ref<boolean | null>(null)
+const totpCardEnabled = ref<boolean | null>(null)
+
+function handleTotpStatusLoaded(status: { enabled?: boolean; feature_enabled?: boolean }) {
+  if (typeof status.feature_enabled === 'boolean') {
+    totpFeatureEnabled.value = status.feature_enabled
+  }
+  if (typeof status.enabled === 'boolean') {
+    totpCardEnabled.value = status.enabled
+  }
+}
+
+const totpSummaryLabel = computed(() => {
+  if (totpFeatureEnabled.value === false) {
+    return t('publicPortal.totpSummary.disabled')
+  }
+  if (totpCardEnabled.value === true || userTotpEnabled.value) {
+    return t('publicPortal.totpSummary.enabled')
+  }
+  if (totpFeatureEnabled.value === true) {
+    return t('publicPortal.totpSummary.configurable')
+  }
+  return t('publicPortal.totpSummary.checking')
+})
+
+const totpSummaryDotClass = computed(() => {
+  if (totpFeatureEnabled.value === false) return 'bg-gray-400'
+  if (totpCardEnabled.value === true || userTotpEnabled.value) return 'pulse-ok'
+  return 'pulse-warn'
+})
 
 const contactInfo = ref('')
 const balanceLowNotifyEnabled = ref(false)
@@ -223,6 +271,7 @@ const sectionAnchors = computed(() => {
   }
   items.push(
     { id: 'profile-section-totp', label: '两步验证 (2FA)' },
+    { id: 'profile-section-sessions', label: '登录会话' },
     { id: 'profile-section-passkey', label: 'Passkey 通行密钥' }
   )
   return items

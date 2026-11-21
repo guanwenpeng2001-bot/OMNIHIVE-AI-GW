@@ -1,0 +1,21 @@
+{
+  "billing_source": null,
+  "state": "settled",
+  "currency": null,
+  "price_version": null,
+  "pricing_state": null,
+  "reservation_id": null,
+  "reservation_state": null,
+  "release_pending": null,
+  "reserved": null,
+  "estimate": null,
+  "platform_charge": null,
+  "catalog_reference": null,
+  "entitlement_consumption": null,
+  "byok_external_estimate": null,
+  "platform_service_fee": null,
+  "settlement_id": null,
+  "receipt_state": "settled",
+  "ledger_entry_ids": [],
+  "rounding_rule": null
+}

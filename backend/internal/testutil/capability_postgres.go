@@ -4,15 +4,17 @@ import (
 	"context"
 	"database/sql"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
-	"github.com/Wei-Shaw/sub2api/internal/repository"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	_ "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/runtime"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
@@ -35,5 +37,14 @@ func NewCapabilityPostgres(t *testing.T) (*sql.DB, *dbent.Client, service.Accoun
 	require.Equal(t, "job_test", database)
 	require.NoError(t, repository.ApplyMigrations(ctx, db))
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
-	return db, client, repository.NewAccountRepository(client, db, nil)
+	return db, client, repository.ProvideAccountRepositoryWithSecrets(client, db, nil, CredentialEncryptor(t), nil)
+}
+
+// CredentialEncryptor returns the persistent test encryptor shared by every
+// repository built over the capability fixture, mirroring production wiring.
+func CredentialEncryptor(t *testing.T) *repository.AESEncryptor {
+	t.Helper()
+	encryptor, err := repository.NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32), EncryptionKeyConfigured: true}})
+	require.NoError(t, err)
+	return encryptor
 }

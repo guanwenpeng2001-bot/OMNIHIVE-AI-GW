@@ -20,16 +20,16 @@ import (
 	"strings"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	dbaccount "github.com/Wei-Shaw/sub2api/ent/account"
-	dbaccountgroup "github.com/Wei-Shaw/sub2api/ent/accountgroup"
-	dbgroup "github.com/Wei-Shaw/sub2api/ent/group"
-	dbpredicate "github.com/Wei-Shaw/sub2api/ent/predicate"
-	dbproxy "github.com/Wei-Shaw/sub2api/ent/proxy"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	dbaccount "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/account"
+	dbaccountgroup "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/accountgroup"
+	dbgroup "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/group"
+	dbpredicate "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/predicate"
+	dbproxy "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/proxy"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/lib/pq"
 
 	entsql "entgo.io/ent/dialect/sql"
@@ -46,6 +46,7 @@ import (
 type accountRepository struct {
 	egressRuntime       *service.ProxyGroupRuntime
 	credentialEncryptor service.SecretEncryptor
+	bulkUpdateSecrets   func(context.Context, []int64, service.AccountBulkUpdate) (int64, error)
 	client              *dbent.Client // Ent ORM 客户端
 	sql                 sqlExecutor   // 原生 SQL 执行接口
 	// schedulerCache 用于在账号状态变更时主动同步快照到缓存，
@@ -123,12 +124,14 @@ func NewAdminAccountRepository(client *dbent.Client, sqlDB *sql.DB, schedulerCac
 // newAccountRepositoryWithSQL 是内部构造函数，支持依赖注入 SQL 执行器。
 // 这种设计便于单元测试时注入 mock 对象。
 func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedulerCache service.SchedulerCache) *accountRepository {
-	return &accountRepository{client: client, sql: sqlq, schedulerCache: schedulerCache}
+	repository := &accountRepository{client: client, sql: sqlq, schedulerCache: schedulerCache}
+	repository.bulkUpdateSecrets = repository.bulkUpdateCredentialSecrets
+	return repository
 }
 
 func (r *accountRepository) Create(ctx context.Context, account *service.Account) error {
 	defer invalidateCatalogAfterWrite(ctx)
-	if account != nil && (hasManagementQuerySecrets(account.Credentials) || service.IsStagedAccountImport(ctx)) {
+	if account != nil && (hasCredentialSecrets(account.Credentials) || service.IsStagedAccountImport(ctx)) {
 		return r.CreateWithAccountGroups(ctx, account, nil)
 	}
 	if transaction := dbent.TxFromContext(ctx); transaction != nil {
@@ -330,7 +333,7 @@ func (r *accountRepository) GetByID(ctx context.Context, id int64) (*service.Acc
 		return nil, translatePersistenceError(err, service.ErrAccountNotFound, nil)
 	}
 
-	accounts, err := r.accountsToService(ctx, []*dbent.Account{m})
+	accounts, err := r.accountToServiceStrict(ctx, m)
 	if err != nil {
 		return nil, err
 	}
@@ -341,7 +344,7 @@ func (r *accountRepository) GetByID(ctx context.Context, id int64) (*service.Acc
 }
 
 func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*service.Account, error) {
-	return r.getByIDs(ctx, ids, false)
+	return r.getByIDs(ctx, ids, service.UnusableCredentialRowsOmitted(ctx))
 }
 
 func (r *accountRepository) getByIDs(ctx context.Context, ids []int64, skipUnavailableCredentials bool) ([]*service.Account, error) {
@@ -470,7 +473,7 @@ func (r *accountRepository) GetByCRSAccountID(ctx context.Context, crsAccountID 
 		return nil, err
 	}
 
-	accounts, err := r.accountsToService(ctx, []*dbent.Account{m})
+	accounts, err := r.accountToServiceStrict(ctx, m)
 	if err != nil {
 		return nil, err
 	}
@@ -596,7 +599,7 @@ func (r *accountRepository) updateAccount(
 	}
 
 	account.UpdatedAt = updated.UpdatedAt
-	if hasManagementQuerySecrets(account.Credentials) {
+	if hasCredentialSecrets(account.Credentials) {
 		// Return the committed encrypted revision alongside the resolved values,
 		// so the next edit does not submit the pre-rotation reference version.
 		for _, key := range []string{service.CredentialSecretReferenceKey, service.CredentialSecretVersionKey} {
@@ -626,6 +629,24 @@ func (r *accountRepository) updateLockedAccount(
 	extra, err := lockAndMergeAccountProbeExtra(ctx, client, account, explicitProbeEnabled, explicitRateSyncEnabled)
 	if err != nil {
 		return nil, err
+	}
+	// Adoption takes FOR UPDATE on the same account row. Check ownership after
+	// locking it and before changing credentials or triggering the legacy fence.
+	if configurationOnly {
+		rows, err := client.QueryContext(ctx, `SELECT account_id FROM provider_connections WHERE account_id=$1 AND NOT legacy_dirty`, account.ID)
+		if err != nil {
+			return nil, err
+		}
+		managed := rows.Next()
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		if managed {
+			return nil, service.ErrAccountConnectionManaged
+		}
 	}
 	current, err := client.Account.Get(ctx, account.ID)
 	if err != nil {
@@ -665,6 +686,11 @@ func (r *accountRepository) updateLockedAccount(
 	if err != nil {
 		return nil, err
 	}
+	// The probe merge compares stored documents before a secret rotation
+	// advances the reference version. Invalidate its snapshot on that change too.
+	if service.CredentialVersion(current.Credentials) != service.CredentialVersion(persistedCredentials) {
+		delete(extra, service.UpstreamBillingProbeExtraKey)
+	}
 	beforeRuntime := accountEntityToService(current)
 	incomingRuntime := *account
 	// The encrypted reference version, including a just-rotated management
@@ -682,6 +708,7 @@ func (r *accountRepository) updateLockedAccount(
 		account.Extra = quotaState.Extra
 		extra = account.Extra
 	}
+	account.Credentials = persistedCredentials
 	service.AdvanceAccountModelCatalogRevisionsForUpdate(&service.Account{ParentAccountID: current.ParentAccountID, ProxyID: current.ProxyID, Platform: current.Platform, Type: current.Type, Credentials: current.Credentials, Extra: current.Extra}, account, configurationOnly)
 
 	schedulable := account.Schedulable
@@ -804,7 +831,7 @@ func lockAndMergeAccountProbeExtra(
 	explicitProbeEnabled *bool,
 	explicitRateSyncEnabled *bool,
 ) (map[string]any, error) {
-	credentials, err := json.Marshal(normalizeJSONMap(account.Credentials))
+	credentials, err := json.Marshal(normalizeJSONMap(service.StoredCredentialDocument(account.Credentials)))
 	if err != nil {
 		return nil, err
 	}
@@ -823,7 +850,8 @@ func lockAndMergeAccountProbeExtra(
 				AND $2 IN (`+ollamaCloudUsagePlatformsSQL+`)
 				AND type = 'apikey'
 				AND $3 = 'apikey'
-				AND credentials -> 'api_key' IS NOT DISTINCT FROM $4::jsonb -> 'api_key'
+				AND (`+ollamaKeyDigestSQL+` IS NOT DISTINCT FROM NULLIF($7,''))
+ AND credentials -> 'api_key' IS NOT DISTINCT FROM $4::jsonb -> 'api_key'
 				AND `+ollamaCloudBaseURLMatchesSQL("credentials ->> 'base_url'")+`
 				AND `+ollamaCloudBaseURLMatchesSQL("$4::jsonb ->> 'base_url'")+`,
 				false
@@ -838,7 +866,7 @@ func lockAndMergeAccountProbeExtra(
 		FROM accounts
 		WHERE id = $1 AND deleted_at IS NULL
 		FOR NO KEY UPDATE
-	`, account.ID, account.Platform, account.Type, string(credentials), proxyID, account.ProxyGroupID)
+	`, account.ID, account.Platform, account.Type, string(credentials), proxyID, account.ProxyGroupID, service.AccountAPIKeyDigest(account.Credentials))
 	if err != nil {
 		return nil, err
 	}
@@ -1047,7 +1075,7 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 			client = tx.Client()
 		}
 	}
-	if r.credentialEncryptor != nil || service.ExpectedCredentialRevision(ctx) != "" || hasManagementQuerySecrets(credentials) {
+	if r.credentialEncryptor != nil || service.ExpectedCredentialRevision(ctx) != "" || hasCredentialSecrets(credentials) {
 		var err error
 		credentials, err = r.prepareCredentialUpdate(ctx, client, id, credentials)
 		if err != nil {
@@ -1061,35 +1089,46 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 	if err != nil {
 		return err
 	}
+	var runtimeSQL accountExtraSQL
+	catalogExtra := runtimeSQL.bind("catalog_extra", `(COALESCE((CASE
+		-- 凭证整体未变化 ⇒ Ollama 组身份必然未变化；顶层 DISTINCT 守卫防止
+		-- 非 Ollama 账号的无变化持久化误清探测快照或重写 NULL extra。
+		WHEN platform IN (`+ollamaCloudUsagePlatformsSQL+`)
+			AND type = 'apikey'
+			AND credentials IS DISTINCT FROM $1::jsonb
+			AND (
+				credentials -> 'credential_secret_version' IS DISTINCT FROM $1::jsonb -> 'credential_secret_version' OR credentials -> 'api_key' IS DISTINCT FROM $1::jsonb -> 'api_key'
+				OR NOT (
+					`+ollamaCloudBaseURLMatchesSQL("credentials ->> 'base_url'")+`
+					AND `+ollamaCloudBaseURLMatchesSQL("$1::jsonb ->> 'base_url'")+`
+				)
+			)
+		THEN COALESCE(extra, '{}'::jsonb)
+			- 'upstream_billing_probe'
+			- 'ollama_cloud_usage_session'
+			- 'ollama_cloud_usage_auto_refresh'
+			- 'ollama_cloud_usage_snapshot'
+		-- 上游倍率探测已放宽到全部 API-key 平台：凭证变化即视为探测
+		-- 身份变化，丢弃 stale 快照。
+		WHEN (type = 'apikey' OR (platform = 'cursor' AND type = 'upstream'))
+			AND credentials IS DISTINCT FROM $1::jsonb
+		THEN COALESCE(extra, '{}'::jsonb) - 'upstream_billing_probe'
+		ELSE extra
+	END), '{}'::jsonb) || `+accountCatalogRevisionPatchSQL("$1::jsonb", "", "", false)+`) - `+cloudQuotaInvalidationSQL("$1::jsonb"))
+	openCodeIdentityChanged := runtimeSQL.bind("opencode_identity_changed", openCodeQuotaIdentityChangeSQL("$1::jsonb", catalogExtra, ""))
+	quotaColumns, quotaValues := openCodeQuotaInvalidationSQL(openCodeIdentityChanged)
+	runtimeExtra := runtimeSQL.bind("runtime_extra", clearChangedAccountRuntimeObservationsSQL("$1::jsonb", catalogExtra, ""))
+	if ctx.Value(runtimeCredentialRefresh{}) != nil {
+		runtimeExtra = runtimeSQL.bind("refreshed_runtime_extra", runtimeExtra+" || CASE WHEN credentials IS DISTINCT FROM $1::jsonb THEN jsonb_build_object('session_window_utilization',extra->'session_window_utilization') ELSE '{}'::jsonb END")
+	}
+	runtimeExtra = clearOpenCodeModelQuotaLimitsSQL(runtimeExtra, openCodeIdentityChanged)
+	columns := append([]string{"extra"}, quotaColumns...)
+	values := append([]string{runtimeExtra}, quotaValues...)
 	result, err := client.ExecContext(ctx, `
 		UPDATE accounts
 		SET
 			credentials = $1::jsonb,
-			extra = (COALESCE((CASE
-				-- 凭证整体未变化 ⇒ Ollama 组身份必然未变化；顶层 DISTINCT 守卫防止
-				-- 非 Ollama 账号的无变化持久化误清探测快照或重写 NULL extra。
-				WHEN platform IN (`+ollamaCloudUsagePlatformsSQL+`)
-					AND type = 'apikey'
-					AND credentials IS DISTINCT FROM $1::jsonb
-					AND (
-						credentials -> 'api_key' IS DISTINCT FROM $1::jsonb -> 'api_key'
-						OR NOT (
-							`+ollamaCloudBaseURLMatchesSQL("credentials ->> 'base_url'")+`
-							AND `+ollamaCloudBaseURLMatchesSQL("$1::jsonb ->> 'base_url'")+`
-						)
-					)
-				THEN COALESCE(extra, '{}'::jsonb)
-					- 'upstream_billing_probe'
-					- 'ollama_cloud_usage_session'
-					- 'ollama_cloud_usage_auto_refresh'
-					- 'ollama_cloud_usage_snapshot'
-				-- 上游倍率探测已放宽到全部 API-key 平台：凭证变化即视为探测
-				-- 身份变化，丢弃 stale 快照。
-				WHEN (type = 'apikey' OR (platform = 'cursor' AND type = 'upstream'))
-					AND credentials IS DISTINCT FROM $1::jsonb
-				THEN COALESCE(extra, '{}'::jsonb) - 'upstream_billing_probe'
-				ELSE extra
-			END), '{}'::jsonb) || `+accountCatalogRevisionPatchSQL("$1::jsonb", "", "", false)+`) - `+cloudQuotaInvalidationSQL("$1::jsonb")+`,
+			(`+strings.Join(columns, ", ")+`) = `+runtimeSQL.selectSQL(values...)+`,
 			updated_at = NOW()
 		WHERE id = $2 AND deleted_at IS NULL
 	`, string(payload), id)
@@ -3404,8 +3443,8 @@ func ollamaCloudUsageSnapshotClearRequested(extra map[string]any) bool {
 func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates service.AccountBulkUpdate) (int64, error) {
 	// Management secrets require the per-account encrypted/reference write path;
 	// the generic bulk JSONB merge must never persist them inline.
-	if hasManagementQuerySecrets(updates.Credentials) {
-		return 0, service.ErrCredentialSecretInvalid
+	if hasCredentialSecrets(updates.Credentials) {
+		return r.bulkUpdateSecrets(ctx, ids, updates)
 	}
 	defer invalidateCatalogAfterWrite(ctx)
 	if len(ids) == 0 {
@@ -3773,7 +3812,19 @@ func (r *accountRepository) queryAccountsByGroup(ctx context.Context, groupID in
 	return r.accountsToService(ctx, accounts)
 }
 
+// accountsToService serves list reads: a row whose stored credential is
+// unusable is omitted (or shown redacted to operators) instead of failing the list.
 func (r *accountRepository) accountsToService(ctx context.Context, accounts []*dbent.Account) ([]service.Account, error) {
+	return r.accountsToServiceMode(ctx, accounts, false)
+}
+
+// accountToServiceStrict serves single-account reads, which report the
+// credential failure explicitly.
+func (r *accountRepository) accountToServiceStrict(ctx context.Context, account *dbent.Account) ([]service.Account, error) {
+	return r.accountsToServiceMode(ctx, []*dbent.Account{account}, true)
+}
+
+func (r *accountRepository) accountsToServiceMode(ctx context.Context, accounts []*dbent.Account, strict bool) ([]service.Account, error) {
 	if len(accounts) == 0 {
 		return []service.Account{}, nil
 	}
@@ -3812,8 +3863,23 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		if out.ProxyGroupID != nil && proxyGroups[*out.ProxyGroupID] != nil && proxyGroups[*out.ProxyGroupID].WorkspaceID == out.WorkspaceID {
 			out.ProxyGroup = proxyGroups[*out.ProxyGroupID]
 		}
-		if err := r.resolveAccountCredentials(ctx, clientFromContext(ctx, r.client), out); err != nil {
-			return nil, err
+		if unusable, err := r.resolveListedAccountCredentials(ctx, clientFromContext(ctx, r.client), out); err != nil {
+			if strict || !unusable {
+				return nil, err
+			}
+			// One unusable stored credential must not hide every other account
+			// or stall scheduler snapshots. The row is never returned with
+			// unresolved or inline secret material.
+			logger.LegacyPrintf("repository.account", "[Credentials] account=%d stored credential unavailable: %v", out.ID, err)
+			if !service.UnresolvedCredentialRowsVisible(ctx) {
+				continue
+			}
+			for field := range out.Credentials {
+				if service.IsSensitiveCredentialKey(field) {
+					delete(out.Credentials, field)
+				}
+			}
+			out.CredentialUnavailable = true
 		}
 		if acc.ProxyID != nil {
 			if proxy, ok := proxyMap[*acc.ProxyID]; ok {
@@ -4750,6 +4816,8 @@ func clearChangedAccountRuntimeObservationsSQL(incomingCredentials, incomingExtr
 func accountCatalogRevisionPatchSQL(incoming, incomingExtra, proxyChanged string, manual bool) string {
 	fields := service.AccountCatalogIdentityCredentialFields()
 	changes := make([]string, 0, len(fields)+1)
+	versionChanged := "(credentials->'credential_secret_version' IS DISTINCT FROM " + incoming + "->'credential_secret_version')"
+	changes = append(changes, "(type <> 'oauth' AND "+versionChanged+")")
 	for _, field := range fields {
 		changes = append(changes, "credentials->'"+field+"' IS DISTINCT FROM "+incoming+"->'"+field+"'")
 	}
@@ -4761,7 +4829,7 @@ func accountCatalogRevisionPatchSQL(incoming, incomingExtra, proxyChanged string
 	if manual {
 		stable = []string{"FALSE"}
 	}
-	changes = append(changes, "(credentials->'access_token' IS DISTINCT FROM "+incoming+"->'access_token' AND NOT ("+strings.Join(stable, " OR ")+"))")
+	changes = append(changes, "(("+versionChanged+" OR credentials->'access_token' IS DISTINCT FROM "+incoming+"->'access_token') AND NOT ("+strings.Join(stable, " OR ")+"))")
 	identity := "(" + strings.Join(changes, " OR ") + ")"
 	ruleChanges := []string{identity}
 	for _, field := range service.AccountCatalogRuleCredentialFields() {

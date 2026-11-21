@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	coderws "github.com/coder/websocket"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 	"go.uber.org/zap"
 )
 
@@ -288,7 +288,7 @@ func (s *OpenAIGatewayService) getOpenAIWSPassthroughDialer() openAIWSClientDial
 	}
 	s.openaiWSPassthroughDialerOnce.Do(func() {
 		if s.openaiWSPassthroughDialer == nil {
-			s.openaiWSPassthroughDialer = newDefaultOpenAIWSClientDialer()
+			s.openaiWSPassthroughDialer = newDefaultOpenAIWSClientDialer(s.cfg)
 		}
 	})
 	return s.openaiWSPassthroughDialer

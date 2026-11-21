@@ -11,9 +11,9 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/Wei-Shaw/sub2api/internal/testutil/testresources"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testresources"
 	"github.com/stretchr/testify/require"
 )
 
@@ -183,25 +183,34 @@ func TestAccountExtraSQLPostgresFingerprintPerRow(t *testing.T) {
 }
 
 func TestAccountExtraSQLPostgresBulkCredentialCleanup(t *testing.T) {
-	db, repo := accountExtraPostgresFixture(t)
-	ctx := context.Background()
+	f := newCredentialSecretFixture(t)
+	ctx, db, repo := f.ctx, f.db, f.accounts
 	ids := make([]int64, 3)
+	initialExtra, err := json.Marshal(map[string]any{
+		"quota_used": 17, "note": "keep", "upstream_billing_probe": "old",
+		"ollama_cloud_usage_session": "session", "ollama_cloud_usage_auto_refresh": true,
+		"ollama_cloud_usage_snapshot": "snapshot",
+	})
+	require.NoError(t, err)
 	for i := range ids {
-		ids[i] = insertAccountExtraFixture(t, db, map[string]any{
-			"quota_used": 17, "note": "keep", "upstream_billing_probe": "old",
-			"ollama_cloud_usage_session": "session", "ollama_cloud_usage_auto_refresh": true,
-			"ollama_cloud_usage_snapshot": "snapshot",
+		platform, kind, key := service.PlatformOpenAI, service.AccountTypeAPIKey, "new"
+		if i == 1 {
+			key = "old"
+		}
+		if i == 2 {
+			platform, kind = service.PlatformCursor, service.AccountTypeOAuth
+		}
+		account := f.createAccount(t, ctx, "bulk-credential-cleanup", platform, kind, map[string]any{"api_key": key, "base_url": "https://www.ollama.com:443/v1", "keep": "credential", "billing_plan": "old", "model_mapping": map[string]string{"alias": "target"}})
+		ids[i] = account.ID
+		t.Cleanup(func() {
+			for _, query := range []string{"DELETE FROM scheduler_outbox WHERE account_id=$1", "DELETE FROM credential_secrets WHERE account_id=$1", "DELETE FROM accounts WHERE id=$1"} {
+				_, err := db.Exec(query, account.ID)
+				require.NoError(t, err)
+			}
 		})
-		_, err := db.Exec(`UPDATE accounts SET platform='openai', type='apikey', credentials='{
-			"api_key":"new", "base_url":"https://www.ollama.com:443/v1", "keep":"credential",
-			"billing_plan":"old", "model_mapping":{"alias":"target"}
-		}'::jsonb WHERE id=$1`, ids[i])
+		_, err = db.Exec("UPDATE accounts SET extra=$2 WHERE id=$1", account.ID, initialExtra)
 		require.NoError(t, err)
 	}
-	_, err := db.Exec(`UPDATE accounts SET credentials=credentials || '{"api_key":"old"}'::jsonb WHERE id=$1`, ids[1])
-	require.NoError(t, err)
-	_, err = db.Exec("UPDATE accounts SET platform='cursor', type='oauth' WHERE id=$1", ids[2])
-	require.NoError(t, err)
 	count, err := repo.BulkUpdate(ctx, ids, service.AccountBulkUpdate{
 		Credentials: map[string]any{"api_key": "new", "base_url": "https://ollama.com", "model_mapping": nil, "billing_plan": nil},
 		Extra:       map[string]any{"upstream_billing_probe": nil}, EnsureCodexFingerprintSeed: true,
@@ -233,7 +242,10 @@ func TestAccountExtraSQLPostgresBulkCredentialCleanup(t *testing.T) {
 		require.Contains(t, credentials, "model_mapping")
 		require.Nil(t, credentials["model_mapping"])
 	}
-	_, err = db.Exec("UPDATE accounts SET proxy_id=9 WHERE id=$1", ids[0])
+	proxy, err := f.client.Proxy.Create().SetName("bulk-credential-cleanup").SetHost("fixture.invalid").SetPort(8080).SetProtocol("http").SetStatus(service.StatusActive).Save(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, f.client.Proxy.DeleteOneID(proxy.ID).Exec(ctx)) })
+	_, err = db.Exec("UPDATE accounts SET proxy_id=$2 WHERE id=$1", ids[0], proxy.ID)
 	require.NoError(t, err)
 	clearProxy := int64(0)
 	_, err = repo.BulkUpdate(ctx, ids[:1], service.AccountBulkUpdate{ProxyID: &clearProxy})

@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/timezone"
 )
 
 func normalizeLoginAgreementMode(raw string) string {
@@ -28,12 +28,22 @@ func defaultLoginAgreementDocuments() []LoginAgreementDocument {
 		{
 			ID:        "terms",
 			Title:     "服务条款",
-			ContentMD: "",
+			ContentMD: legalDocumentPlaceholder("Terms of Service", "service scope, operator identity, support contact, liability and termination"),
+		},
+		{
+			ID:        "privacy-policy",
+			Title:     "隐私政策",
+			ContentMD: legalDocumentPlaceholder("Privacy Policy", "operator identity, contact, processing purposes, data categories, retention, upstream/cross-border transfers and privacy rights"),
+		},
+		{
+			ID:        "refund-policy",
+			Title:     "退款政策",
+			ContentMD: legalDocumentPlaceholder("Refund Policy", "eligible purchases, refund window, calculation, exclusions, payment channel and support contact"),
 		},
 		{
 			ID:        "usage-policy",
-			Title:     "使用政策",
-			ContentMD: "",
+			Title:     "可接受使用政策",
+			ContentMD: legalDocumentPlaceholder("Acceptable Use Policy", "prohibited conduct, abuse prevention, enforcement and appeal contact"),
 		},
 		{
 			ID:        "supported-regions",
@@ -46,6 +56,30 @@ func defaultLoginAgreementDocuments() []LoginAgreementDocument {
 			ContentMD: "",
 		},
 	}
+}
+
+func legalDocumentPlaceholder(title, sections string) string {
+	return "[TEMPLATE — replace before enabling registration agreements]\n\n" +
+		"# " + title + "\n\n" +
+		"[OPERATOR LEGAL NAME]\n[OPERATOR CONTACT EMAIL]\n[EFFECTIVE DATE]\n\n" +
+		"Operator: replace this placeholder with the text approved for this deployment. " +
+		"Document the following where applicable: " + sections + ". Do not present this template as published legal terms."
+}
+
+// LoginAgreementReady reports whether every document has a title and final
+// text. Template documents are never presented to registrants.
+func LoginAgreementReady(docs []LoginAgreementDocument) bool { return loginAgreementReady(docs) }
+
+func loginAgreementReady(docs []LoginAgreementDocument) bool {
+	if len(docs) == 0 {
+		return false
+	}
+	for _, doc := range docs {
+		if strings.TrimSpace(doc.Title) == "" || strings.TrimSpace(doc.ContentMD) == "" || strings.Contains(doc.ContentMD, "[TEMPLATE — replace before enabling registration agreements]") {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeLoginAgreementDocumentID(raw string) string {
@@ -311,7 +345,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		InvitationCodeEnabled:               settings[SettingKeyInvitationCodeEnabled] == "true",
 		TotpEnabled:                         settings[SettingKeyTotpEnabled] == "true",
 		PasskeyEnabled:                      s.passkeyConfigured() && s.passkeySettingEnabled(settings),
-		LoginAgreementEnabled:               settings[SettingKeyLoginAgreementEnabled] == "true" && len(loginAgreementDocuments) > 0,
+		LoginAgreementEnabled:               settings[SettingKeyLoginAgreementEnabled] == "true" && loginAgreementReady(loginAgreementDocuments),
 		LoginAgreementMode:                  normalizeLoginAgreementMode(settings[SettingKeyLoginAgreementMode]),
 		LoginAgreementUpdatedAt:             loginAgreementUpdatedAt,
 		LoginAgreementRevision:              buildLoginAgreementRevision(loginAgreementUpdatedAt, loginAgreementDocuments),
@@ -325,9 +359,9 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		AliyunCaptchaSceneID:                settings[SettingKeyAliyunCaptchaSceneID],
 		AliyunCaptchaPrefix:                 settings[SettingKeyAliyunCaptchaPrefix],
 		AliyunCaptchaRegion:                 normalizeAliyunCaptchaRegion(settings[SettingKeyAliyunCaptchaRegion]),
-		SiteName:                            s.getStringOrDefault(settings, SettingKeySiteName, "Sub2API"),
+		SiteName:                            s.getStringOrDefault(settings, SettingKeySiteName, "OmniHive"),
 		SiteLogo:                            settings[SettingKeySiteLogo],
-		SiteSubtitle:                        s.getStringOrDefault(settings, SettingKeySiteSubtitle, "Subscription to API Conversion Platform"),
+		SiteSubtitle:                        s.getStringOrDefault(settings, SettingKeySiteSubtitle, defaultSiteSubtitle),
 		SiteICP:                             s.getStringOrDefault(settings, SettingKeySiteICP, ""),
 		APIBaseURL:                          settings[SettingKeyAPIBaseURL],
 		ContactInfo:                         settings[SettingKeyContactInfo],

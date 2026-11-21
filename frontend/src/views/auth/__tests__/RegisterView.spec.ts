@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import RegisterView from '@/views/auth/RegisterView.vue'
+import { authStorage } from '@/api/tokenRefresh'
 
 const { getPublicSettingsMock, registerMock, showErrorMock, appStoreMock, pushMock, validateInvitationCodeMock, routeMock, verifyActionMock } = vi.hoisted(() => ({
   getPublicSettingsMock: vi.fn(),
@@ -26,7 +27,7 @@ const publicSettings = {
   affiliate_enabled: true,
   turnstile_enabled: true,
   turnstile_site_key: 'site-key',
-  site_name: 'Sub2API',
+  site_name: 'OmniHive',
   registration_email_suffix_whitelist: [],
   linuxdo_oauth_enabled: false,
   wechat_oauth_enabled: false,
@@ -476,5 +477,188 @@ describe('RegisterView', () => {
       expect.objectContaining({ email: 'user@allowed.com' })
     )
     expect(showErrorMock).not.toHaveBeenCalled()
+  })
+})
+
+function mountRegisterWithAgreementStub() {
+  return mount(RegisterView, {
+    global: {
+      stubs: {
+        AuthLayout: { template: '<div><slot /><slot name="footer" /></div>' },
+        Icon: true,
+        TurnstileWidget: {
+          template: '<div data-testid="turnstile-widget" />',
+          methods: { verifyAction: verifyActionMock, reset: vi.fn() }
+        },
+        LoginAgreementPrompt: {
+          props: ['enabled', 'accepted', 'documents', 'mode', 'updatedAt', 'visible'],
+          emits: ['accept', 'reject', 'open'],
+          template: `
+            <div data-testid="agreement-stub" :data-enabled="String(enabled)" :data-accepted="String(accepted)">
+              <button type="button" data-testid="agreement-accept" @click="$emit('accept')">accept</button>
+              <button type="button" data-testid="agreement-reject" @click="$emit('reject')">reject</button>
+            </div>
+          `
+        },
+        EmailOAuthButtons: true,
+        LinuxDoOAuthSection: true,
+        WechatOAuthSection: true,
+        OidcOAuthSection: true,
+        RouterLink: true,
+        transition: false
+      }
+    }
+  })
+}
+
+describe('RegisterView E1-1 login agreement', () => {
+  beforeEach(() => {
+    getPublicSettingsMock.mockReset()
+    registerMock.mockReset()
+    showErrorMock.mockReset()
+    appStoreMock.showWarning.mockReset()
+    pushMock.mockReset()
+    sessionStorage.clear()
+    localStorage.clear()
+    registerMock.mockResolvedValue({})
+  })
+
+  it('requires explicit consent per registration (ignores cached localStorage consent) and submits revision', async () => {
+    authStorage.loginAgreement.setJSON({ revision: 'rev-1', accepted_at: '2026-11-20T00:00:00Z' })
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      turnstile_enabled: false,
+      login_agreement_enabled: true,
+      login_agreement_mode: 'checkbox',
+      login_agreement_revision: 'rev-1',
+      login_agreement_documents: [
+        { id: 'terms', title: 'Terms', content_md: 'Terms body' },
+        { id: 'privacy-policy', title: 'Privacy Policy', content_md: 'Privacy body' }
+      ]
+    })
+
+    const wrapper = mountRegisterWithAgreementStub()
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="agreement-stub"]').attributes('data-accepted')).toBe('false')
+
+    await wrapper.get('#email').setValue('second-account@example.com')
+    await wrapper.get('#password').setValue('test-pass-123')
+    await wrapper.get('#confirmPassword').setValue('test-pass-123')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(registerMock).not.toHaveBeenCalled()
+
+    await wrapper.get('[data-testid="agreement-accept"]').trigger('click')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(registerMock).toHaveBeenCalledWith(expect.objectContaining({
+      email: 'second-account@example.com',
+      login_agreement_accepted: true,
+      login_agreement_revision: 'rev-1'
+    }))
+  })
+
+  it('blocks registration and allows retry when loading public settings fails', async () => {
+    getPublicSettingsMock
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValueOnce({
+        ...publicSettings,
+        turnstile_enabled: false,
+        login_agreement_enabled: true,
+        login_agreement_mode: 'checkbox',
+        login_agreement_revision: 'rev-1',
+        login_agreement_documents: [{ id: 'terms', title: 'Terms', content_md: 'T' }]
+      })
+
+    const wrapper = mountRegisterWithAgreementStub()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="register-settings-error"]').exists()).toBe(true)
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('#password').setValue('test-pass-123')
+    await wrapper.get('#confirmPassword').setValue('test-pass-123')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(registerMock).not.toHaveBeenCalled()
+
+    await wrapper.get('[data-testid="register-settings-retry"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="register-settings-error"]').exists()).toBe(false)
+  })
+
+  it('refreshes agreement revision and forces re-acceptance when backend returns LOGIN_AGREEMENT_REQUIRED', async () => {
+    getPublicSettingsMock
+      .mockResolvedValueOnce({
+        ...publicSettings,
+        turnstile_enabled: false,
+        login_agreement_enabled: true,
+        login_agreement_mode: 'checkbox',
+        login_agreement_revision: 'rev-v1',
+        login_agreement_documents: [{ id: 'terms', title: 'Terms v1', content_md: 'v1' }]
+      })
+      .mockResolvedValueOnce({
+        ...publicSettings,
+        turnstile_enabled: false,
+        login_agreement_enabled: true,
+        login_agreement_mode: 'checkbox',
+        login_agreement_revision: 'rev-v2',
+        login_agreement_documents: [{ id: 'terms', title: 'Terms v2', content_md: 'v2' }]
+      })
+    registerMock.mockRejectedValueOnce({
+      response: { status: 400, data: { reason: 'LOGIN_AGREEMENT_REQUIRED', message: 'Agreement updated' } }
+    })
+
+    const wrapper = mountRegisterWithAgreementStub()
+    await flushPromises()
+    await wrapper.get('[data-testid="agreement-accept"]').trigger('click')
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('#password').setValue('test-pass-123')
+    await wrapper.get('#confirmPassword').setValue('test-pass-123')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(getPublicSettingsMock).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('[data-testid="agreement-stub"]').attributes('data-accepted')).toBe('false')
+
+    await wrapper.get('[data-testid="agreement-accept"]').trigger('click')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(registerMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      login_agreement_accepted: true,
+      login_agreement_revision: 'rev-v2'
+    }))
+  })
+
+  it('persists agreement acceptance and revision into registerDraft when email verification is enabled', async () => {
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      email_verify_enabled: true,
+      turnstile_enabled: false,
+      login_agreement_enabled: true,
+      login_agreement_mode: 'checkbox',
+      login_agreement_revision: 'rev-draft-1',
+      login_agreement_documents: [
+        { id: 'terms', title: 'Terms', content_md: 'T' },
+        { id: 'privacy-policy', title: 'Privacy Policy', content_md: 'P' }
+      ]
+    })
+
+    const wrapper = mountRegisterWithAgreementStub()
+    await flushPromises()
+    await wrapper.get('[data-testid="agreement-accept"]').trigger('click')
+    await wrapper.get('#email').setValue('verify-flow@example.com')
+    await wrapper.get('#password').setValue('test-pass-123')
+    await wrapper.get('#confirmPassword').setValue('test-pass-123')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(pushMock).toHaveBeenCalledWith('/email-verify')
+    expect(authStorage.registerDraft.getJSON<Record<string, unknown> | null>(null)).toMatchObject({
+      email: 'verify-flow@example.com',
+      login_agreement_accepted: true,
+      login_agreement_revision: 'rev-draft-1'
+    })
   })
 })

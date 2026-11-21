@@ -1,0 +1,6 @@
+[
+  {"stage":"admitted","dispatched":false,"candidate":false},
+  {"stage":"dispatching","dispatched":true,"candidate":true},
+  {"stage":"before_receipt","dispatched":true,"candidate":true},
+  {"stage":"receipt_committed","dispatched":true,"candidate":false}
+]

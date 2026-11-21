@@ -169,6 +169,7 @@ export default {
     dashboard: '仪表盘',
     announcements: '公告',
     apiKeys: 'API 密钥',
+    byok: '自带密钥',
     batchImage: '批量生图',
     usage: '使用记录',
     redeem: '兑换',
@@ -220,6 +221,15 @@ export default {
     contentModeration: '内容审核',
     promptAudit: '提示词审计',
     auditLogs: '操作日志',
+    home: '首页',
+    pools: '资源池',
+    playground: 'Playground 调试台',
+    keyUsage: '额度查询',
+    pricing: '定价',
+    status: '服务状态',
+    modelCompare: '模型对比',
+    modelDetail: '模型详情',
+    legalDocument: '法律文档',
   },
 
   // Auth
@@ -292,6 +302,8 @@ export default {
     invalidCode: '请输入有效的6位验证码',
     promoCodeLabel: '优惠码',
     promoCodePlaceholder: '输入优惠码（可选）',
+    referralCodeLabel: '推荐码',
+    referralCodePlaceholder: '输入推荐码（可选）',
     promoCodeValid: '有效！注册后将获得 ${amount} 赠送余额',
     promoCodeInvalid: '无效的优惠码',
     promoCodeNotFound: '优惠码不存在',
@@ -459,6 +471,16 @@ export default {
     verifyFailed: '验证失败，请重试',
     notEnabled: '此操作需要开启二次验证，请先在个人资料中启用 TOTP。',
     adminApiKeyForbidden: '管理 API Key 无法执行此操作，请使用已通过二次验证的管理员会话。'
+  },
+
+  playgroundConsole: {
+    title: 'Playground 调试台',
+    description: '独立冻结预算的原生协议流式调试台，支持推理、工具调用、左右独立对比与幂等重连。'
+  },
+
+  taskCenter: {
+    title: '任务中心',
+    description: '异步图像与批处理任务管理、受控票据产物下载、取消与付费重试。'
   },
 
   // Dashboard

@@ -1,7 +1,6 @@
 package securityaudit
 
 import (
-	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
@@ -10,9 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/urlvalidator"
 )
 
 const maxGuardResponseBytes int64 = 256 * 1024
@@ -65,12 +65,11 @@ func NewSecureHTTPClient(endpoint ActiveEndpoint, policy config.URLAllowlistConf
 		return nil, err
 	}
 	validateURL := func(raw string) error {
-		if !policy.Enabled {
-			return nil
+		opts := urlvalidator.ValidationOptions{RequireAllowlist: policy.Enabled, AllowPrivate: policy.AllowPrivateHosts}
+		if policy.Enabled {
+			opts.AllowedHosts = policy.UpstreamHosts
 		}
-		_, err := urlvalidator.ValidateHTTPURL(raw, policy.AllowInsecureHTTP, urlvalidator.ValidationOptions{
-			AllowedHosts: policy.UpstreamHosts, RequireAllowlist: true, AllowPrivate: policy.AllowPrivateHosts,
-		})
+		_, err := urlvalidator.ValidateHTTPURL(raw, policy.AllowInsecureHTTP, opts)
 		return err
 	}
 	if err := validateURL(endpoint.BaseURL); err != nil {
@@ -90,48 +89,12 @@ func NewSecureHTTPClient(endpoint ActiveEndpoint, policy config.URLAllowlistConf
 		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
 	}
 	transport.DialContext = dialer.DialContext
-	if policy.Enabled {
-		transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
-			// Validate each destination, including redirects, before opening a socket.
-			if err := validateURL("https://" + address); err != nil {
-				return nil, err
-			}
-			if policy.AllowPrivateHosts {
-				return dialer.DialContext(ctx, network, address)
-			}
-			host, port, err := net.SplitHostPort(address)
-			if err != nil {
-				return nil, err
-			}
-			addresses, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-			if err != nil {
-				return nil, err
-			}
-			for _, resolved := range addresses {
-				if urlvalidator.IsBlockedHost(resolved.IP.String()) {
-					return nil, fmt.Errorf("resolved address is not allowed for %s", host)
-				}
-			}
-			var dialErr error
-			for _, resolved := range addresses {
-				connection, err := dialer.DialContext(ctx, network, net.JoinHostPort(resolved.String(), port))
-				if err == nil {
-					return connection, nil
-				}
-				dialErr = err
-			}
-			if dialErr == nil {
-				dialErr = fmt.Errorf("no resolved addresses for %s", host)
-			}
-			return nil, dialErr
-		}
-	}
 	timeout := time.Duration(endpoint.TimeoutMS) * time.Millisecond
 	if timeout <= 0 {
 		timeout = DefaultTimeoutMS * time.Millisecond
 	}
 	return &http.Client{
-		Transport: transport,
+		Transport: httpclient.NewUpstreamTransport(transport, policy.PrivateUpstreamHosts()),
 		Timeout:   timeout,
 		CheckRedirect: func(request *http.Request, via []*http.Request) error {
 			if len(via) >= 10 {

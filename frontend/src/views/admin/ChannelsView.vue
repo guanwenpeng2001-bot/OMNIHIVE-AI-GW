@@ -90,6 +90,7 @@
           <template #cell-status="{ row }">
             <Toggle
               :modelValue="row.status === 'active'"
+              :aria-label="`${t('admin.channels.columns.status')}: ${row.name}`"
               @update:modelValue="toggleChannelStatus(row)"
             />
           </template>
@@ -295,6 +296,7 @@
                 </div>
                 <Toggle
                   :modelValue="form.apply_pricing_to_account_stats"
+                  :aria-label="t('admin.channels.form.applyPricingToAccountStats')"
                   @update:modelValue="form.apply_pricing_to_account_stats = $event"
                 />
               </div>
@@ -365,7 +367,10 @@
                     {{ t('admin.channels.form.webSearchEmulationHint') }}
                   </p>
                 </div>
-                <Toggle v-model="section.web_search_emulation" />
+                <Toggle
+                  v-model="section.web_search_emulation"
+                  :aria-label="t('admin.channels.form.webSearchEmulation')"
+                />
               </div>
             </div>
 
@@ -380,7 +385,10 @@
                     {{ t('admin.channels.form.codexImageGenerationBridgeHint') }}
                   </p>
                 </div>
-                <Toggle v-model="section.codex_image_generation_bridge" />
+                <Toggle
+                  v-model="section.codex_image_generation_bridge"
+                  :aria-label="t('admin.channels.form.codexImageGenerationBridge')"
+                />
               </div>
             </div>
 
@@ -395,7 +403,10 @@
                     {{ t('admin.channels.form.bedrockCCCompatHint') }}
                   </p>
                 </div>
-                <Toggle v-model="section.bedrock_cc_compat" />
+                <Toggle
+                  v-model="section.bedrock_cc_compat"
+                  :aria-label="t('admin.channels.form.bedrockCCCompat')"
+                />
               </div>
             </div>
 

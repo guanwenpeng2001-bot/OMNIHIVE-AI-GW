@@ -9,7 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -157,6 +157,8 @@ func runCRSOpenAILongContextSync(t *testing.T, repo AccountRepository, source cr
 	t.Cleanup(server.Close)
 
 	cfg := &config.Config{}
+	cfg.Security.URLAllowlist.AllowPrivateHosts = true
+	cfg.Security.URLAllowlist.CRSHosts = []string{"127.0.0.1"}
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 	service := NewCRSSyncService(repo, nil, nil, nil, nil, cfg)
 	result, err := service.SyncFromCRS(context.Background(), SyncFromCRSInput{

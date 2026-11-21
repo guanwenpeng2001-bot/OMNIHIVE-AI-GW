@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/claude"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )

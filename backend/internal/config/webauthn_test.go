@@ -1,7 +1,6 @@
 package config
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -19,7 +18,7 @@ func TestValidateWebAuthnConfig(t *testing.T) {
 			configure: func(cfg *Config) {
 				cfg.WebAuthn = WebAuthnConfig{
 					Enabled:       true,
-					RPDisplayName: "Sub2API",
+					RPDisplayName: "OmniHive",
 					RPID:          "sub2api.example.com",
 					RPOrigins:     []string{"https://sub2api.example.com"},
 				}
@@ -30,7 +29,7 @@ func TestValidateWebAuthnConfig(t *testing.T) {
 			configure: func(cfg *Config) {
 				cfg.WebAuthn = WebAuthnConfig{
 					Enabled:       true,
-					RPDisplayName: "Sub2API Dev",
+					RPDisplayName: "OmniHive Dev",
 					RPID:          "localhost",
 					RPOrigins:     []string{"http://localhost:5173"},
 				}
@@ -41,7 +40,7 @@ func TestValidateWebAuthnConfig(t *testing.T) {
 			configure: func(cfg *Config) {
 				cfg.WebAuthn = WebAuthnConfig{
 					Enabled:       true,
-					RPDisplayName: "Sub2API",
+					RPDisplayName: "OmniHive",
 					RPOrigins:     []string{"https://sub2api.example.com"},
 				}
 			},
@@ -52,7 +51,7 @@ func TestValidateWebAuthnConfig(t *testing.T) {
 			configure: func(cfg *Config) {
 				cfg.WebAuthn = WebAuthnConfig{
 					Enabled:       true,
-					RPDisplayName: "Sub2API",
+					RPDisplayName: "OmniHive",
 					RPID:          "https://sub2api.example.com",
 					RPOrigins:     []string{"https://sub2api.example.com"},
 				}
@@ -64,7 +63,7 @@ func TestValidateWebAuthnConfig(t *testing.T) {
 			configure: func(cfg *Config) {
 				cfg.WebAuthn = WebAuthnConfig{
 					Enabled:       true,
-					RPDisplayName: "Sub2API",
+					RPDisplayName: "OmniHive",
 					RPID:          "sub2api.example.com",
 					RPOrigins:     []string{"http://sub2api.example.com"},
 				}
@@ -76,7 +75,7 @@ func TestValidateWebAuthnConfig(t *testing.T) {
 			configure: func(cfg *Config) {
 				cfg.WebAuthn = WebAuthnConfig{
 					Enabled:       true,
-					RPDisplayName: "Sub2API",
+					RPDisplayName: "OmniHive",
 					RPID:          "example.com",
 					RPOrigins:     []string{"https://example.net"},
 				}
@@ -88,7 +87,7 @@ func TestValidateWebAuthnConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			viper.Reset()
-			t.Setenv("JWT_SECRET", strings.Repeat("x", 32))
+			t.Setenv("JWT_SECRET", "test-config-key-with-distinct-bytes-for-validation")
 			cfg, err := Load()
 			require.NoError(t, err)
 			tt.configure(cfg)

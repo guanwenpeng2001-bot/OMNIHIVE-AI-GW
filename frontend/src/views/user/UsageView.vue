@@ -11,7 +11,7 @@
             </h1>
             <span class="oh-activity-pill font-mono tabular-nums">
               <span class="pulse-dot pulse-ok" aria-hidden="true" />
-              <span>ACTIVITY</span>
+              <span>{{ isZh ? '实时活动' : 'ACTIVITY' }}</span>
             </span>
             <span class="pill pill-ghost font-mono text-xs tabular-nums">
               {{ startDate }} → {{ endDate }}
@@ -21,7 +21,7 @@
             <ReportTimeContext :time-zone="reportTimeZone" />
             <span aria-hidden="true">·</span>
             <span class="font-mono tabular-nums">
-              {{ activeTab === 'errors' ? errorTotal : pagination.total }} RECORDS
+              {{ activeTab === 'errors' ? errorTotal : pagination.total }} {{ isZh ? '条记录' : 'RECORDS' }}
             </span>
           </div>
         </div>
@@ -76,7 +76,7 @@
                 @change="onDateRangeChange"
               />
               <span class="pill pill-ghost hidden font-mono text-[11px] tabular-nums sm:inline-flex">
-                {{ granularity === 'hour' ? '1H BUCKET' : '1D BUCKET' }}
+                {{ granularity === 'hour' ? (isZh ? '按小时聚合' : '1H BUCKET') : (isZh ? '按天聚合' : '1D BUCKET') }}
               </span>
             </div>
             <div class="ml-auto flex items-center gap-2">
@@ -238,7 +238,7 @@
               {{ activeTab === 'errors' ? errorTotal : pagination.total }}
             </span>
             <span class="pill pill-ghost font-mono text-[11px] tabular-nums">
-              {{ visibleColumnsCount }} COLS
+              {{ visibleColumnsCount }} {{ isZh ? '列' : 'COLS' }}
             </span>
           </div>
           <span class="font-mono text-xs tabular-nums text-[var(--muted-foreground)]">
@@ -338,7 +338,14 @@ import type {
 import type { Column } from '@/components/common/types'
 import { COMMON_ERROR_STATUS_CODES } from '@/utils/errorBadges'
 
-const { t } = useI18n()
+const i18n = useI18n()
+const { t } = i18n
+const isZh = computed(() => {
+  const rawLocale = typeof i18n.locale === 'string' ? i18n.locale : i18n.locale?.value
+  if (rawLocale) return String(rawLocale).toLowerCase().startsWith('zh')
+  const probe = t('usage.tabs.usage')
+  return Boolean(probe && probe !== 'usage.tabs.usage' && /[\u4e00-\u9fa5]/.test(probe))
+})
 const historyGap = ref<HistoryGap | null>(null)
 const statsError = ref(false)
 const chartError = ref(false)

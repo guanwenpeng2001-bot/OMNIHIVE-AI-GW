@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -183,4 +183,17 @@ func (c *refreshTokenCache) GetFamilyTokenHashes(ctx context.Context, familyID s
 func (c *refreshTokenCache) IsTokenInFamily(ctx context.Context, familyID string, tokenHash string) (bool, error) {
 	key := tokenFamilyKey(familyID)
 	return c.rdb.SIsMember(ctx, key, tokenHash).Result()
+}
+
+func (c *refreshTokenCache) RevokeSessionFamily(ctx context.Context, familyID string, ttl time.Duration) error {
+	return c.rdb.Set(ctx, revokedTokenFamilyKey(familyID), "1", ttl).Err()
+}
+
+func (c *refreshTokenCache) IsSessionFamilyRevoked(ctx context.Context, familyID string) (bool, error) {
+	value, err := c.rdb.Exists(ctx, revokedTokenFamilyKey(familyID)).Result()
+	return value != 0, err
+}
+
+func revokedTokenFamilyKey(familyID string) string {
+	return "revoked_token_family:" + familyID
 }

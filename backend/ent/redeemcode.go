@@ -9,9 +9,9 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
-	"github.com/Wei-Shaw/sub2api/ent/group"
-	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
-	"github.com/Wei-Shaw/sub2api/ent/user"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/group"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/redeemcode"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/user"
 )
 
 // RedeemCode is the model entity for the RedeemCode schema.

@@ -17,9 +17,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	modelcapabilities "github.com/Wei-Shaw/sub2api/resources/model-capabilities"
-	modelpricing "github.com/Wei-Shaw/sub2api/resources/model-pricing"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	modelcapabilities "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/resources/model-capabilities"
+	modelpricing "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/resources/model-pricing"
 )
 
 // LiteLLMCapabilityFields retains presence and source semantics. MaxTokens is
@@ -115,6 +115,24 @@ func (s *ModelCapabilitySnapshot) Len() int {
 		return 0
 	}
 	return len(s.records)
+}
+
+// KnowsModel reports whether any profile registers modelID or an alias of it.
+func (s *ModelCapabilitySnapshot) KnowsModel(modelID string) bool {
+	if s == nil || modelID == "" {
+		return false
+	}
+	for _, record := range s.records {
+		if record.ModelID == modelID {
+			return true
+		}
+	}
+	for key := range s.aliases {
+		if _, alias, ok := strings.Cut(key, "\x00"); ok && alias == modelID {
+			return true
+		}
+	}
+	return false
 }
 
 // LookupExact is case-sensitive and scope-preserving. No prefix, date, family,

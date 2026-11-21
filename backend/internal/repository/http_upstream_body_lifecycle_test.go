@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,7 +23,7 @@ import (
 // transport so the test remains local and does not depend on system trust roots.
 func lifecycleClient(t *testing.T, srv *httptest.Server, withTLS bool) (*httpUpstreamService, func(*http.Request) (*http.Response, error)) {
 	t.Helper()
-	upstreamService, ok := NewHTTPUpstream(nil).(*httpUpstreamService)
+	upstreamService, ok := NewHTTPUpstream(loopbackUpstreamConfig()).(*httpUpstreamService)
 	require.True(t, ok)
 	profile := &tlsfingerprint.Profile{Name: "body-lifecycle-test"}
 	var entry *upstreamClientEntry
@@ -337,7 +337,7 @@ func TestHTTPUpstreamDetachedRequestDrainsAfterClientDisconnect(t *testing.T) {
 func BenchmarkHTTPUpstreamBodyLifecycle(benchmark *testing.B) {
 	for _, size := range []int{256, 64 * 1024} {
 		benchmark.Run(fmt.Sprintf("bytes=%d", size), func(benchmark *testing.B) {
-			upstreamService, ok := NewHTTPUpstream(nil).(*httpUpstreamService)
+			upstreamService, ok := NewHTTPUpstream(loopbackUpstreamConfig()).(*httpUpstreamService)
 			require.True(benchmark, ok)
 			entry, err := upstreamService.getOrCreateClient("", 1, 1)
 			require.NoError(benchmark, err)

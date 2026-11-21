@@ -6,7 +6,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -114,4 +114,33 @@ func TestOpenAIFreeFastSimplePricedUsageRemainsUnbilled(testingContext *testing.
 	require.Zero(testingContext, receipts.settles)
 	require.Zero(testingContext, oldBilling.calls)
 	require.Zero(testingContext, users.deductCalls)
+}
+
+func TestRecordUsagePiReferenceRequiresPublishedPrice(t *testing.T) {
+	const model = "gemini-1.5-flash"
+	receipts := &settlementCapture{}
+	users := &openAIRecordUsageUserRepoStub{}
+	gateway := newOpenAIRecordUsageServiceForTest(&openAIRecordUsageLogRepoStub{}, users, &openAIRecordUsageSubRepoStub{}, nil)
+	gateway.cfg.Default.RateMultiplier = 1
+	gateway.billingService.pricingService = NewPricingService(gateway.cfg, nil)
+	gateway.resolver = NewModelPricingResolver(nil, gateway.billingService)
+	gateway.usageSettlement = NewUsageSettlementService(receipts, nil, nil)
+	groupID := int64(4)
+	group := &Group{ID: groupID, Platform: PlatformOpenAI, RateMultiplier: 1}
+	input := &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{RequestID: "reference", Model: model, Usage: OpenAIUsage{InputTokens: 100, OutputTokens: 20}},
+		APIKey: &APIKey{ID: 2, GroupID: &groupID, Group: group}, User: &User{ID: 1}, Account: &Account{ID: 3, Platform: PlatformOpenAI},
+	}
+	require.ErrorIs(t, gateway.RecordUsage(context.Background(), input), ErrUsageSettlementNeedsReview)
+	require.Equal(t, PricingStateUnpriced, receipts.receipt.Usage.PricingState)
+	require.Equal(t, UsageSettlementNeedsReview, receipts.receipt.State)
+	require.Zero(t, receipts.settles)
+	require.Zero(t, users.deductCalls)
+
+	in, out := 0.000002, 0.000004
+	group.ModelPricing = []ChannelModelPricing{{Models: []string{model}, InputPrice: &in, OutputPrice: &out}}
+	input.Result.RequestID = "published"
+	require.NoError(t, gateway.RecordUsage(context.Background(), input))
+	require.Equal(t, 1, receipts.settles)
+	require.InDelta(t, 0.00028, receipts.receipt.Command.BalanceCost, 1e-12)
 }

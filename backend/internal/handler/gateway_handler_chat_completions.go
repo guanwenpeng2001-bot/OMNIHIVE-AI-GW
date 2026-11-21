@@ -7,10 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ip"
+	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
@@ -75,7 +76,11 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
-	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, reqModel, "chat_completions", h.maxAccountSwitches)()
+	finishExecution, admitted := beginJournaledExecution(c, h.gatewayService, apiKey, reqModel, "chat_completions", body, h.maxAccountSwitches, h.chatCompletionsErrorResponse)
+	defer finishExecution()
+	if !admitted {
+		return
+	}
 	bindRequestedReasoningEffort(c, body, reqModel)
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if !compositeTargetPlatformResolved(c, apiKey, reqModel) {
@@ -192,6 +197,10 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		c.Request = c.Request.WithContext(selectContext)
 		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(service.WithCompositeTargetAdvancement(selectContext), apiKey.GroupID, selectionSessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
 		if err != nil {
+			if errors.Is(err, policy.NativePolicyDenied) {
+				h.chatCompletionsErrorResponse(c, policy.NativePolicyDenied.Status, "permission_error", policy.NativePolicyDenied.Reason+": "+policy.NativePolicyDenied.Message)
+				return
+			}
 			if failoverClientGone(c) {
 				reqLog.Info("gateway.cc.account_select_aborted_client_disconnected", zap.Error(err))
 				return
@@ -370,8 +379,8 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		}
 
 		if err != nil {
-			if result != nil && c.Writer.Size() > writerSizeBeforeForward &&
-				(result.Usage.InputTokens > 0 || result.Usage.OutputTokens > 0 || result.Usage.CacheReadInputTokens > 0 || result.Usage.CacheCreationInputTokens > 0) {
+			if result != nil && (result.UsageIncomplete || c.Writer.Size() > writerSizeBeforeForward &&
+				(result.Usage.InputTokens > 0 || result.Usage.OutputTokens > 0 || result.Usage.CacheReadInputTokens > 0 || result.Usage.CacheCreationInputTokens > 0)) {
 				submitUsage()
 			}
 			if writeGatewayTPMRequestError(c, err) {

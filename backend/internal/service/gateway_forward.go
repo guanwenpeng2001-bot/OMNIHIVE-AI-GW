@@ -12,8 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/claude"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 	"github.com/tidwall/gjson"
 
 	"github.com/gin-gonic/gin"
@@ -162,7 +163,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 
 	// === DEBUG: 打印客户端原始请求（headers + body 摘要）===
 	if c != nil {
-		s.debugLogGatewaySnapshot("CLIENT_ORIGINAL", c.Request.Header, body, map[string]string{
+		s.debugLogGatewaySnapshot(ctx, "CLIENT_ORIGINAL", c.Request.Header, body, map[string]string{
 			"account":      fmt.Sprintf("%d(%s)", account.ID, account.Name),
 			"account_type": string(account.Type),
 			"model":        reqModel,
@@ -670,8 +671,10 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
 			// 调试日志：打印重试耗尽后的错误响应
-			logger.LegacyPrintf("service.gateway", "[Forward] Upstream error (retry exhausted, failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
-				account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(respBody), 1000))
+			if !ctxkey.PrivateGatewayContent(ctx) {
+				logger.LegacyPrintf("service.gateway", "[Forward] Upstream error (retry exhausted, failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
+					account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(respBody), 1000))
+			}
 
 			s.handleRetryExhaustedSideEffects(ctx, resp, account)
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -707,8 +710,10 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
 		// 调试日志：打印上游错误响应
-		logger.LegacyPrintf("service.gateway", "[Forward] Upstream error (failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
-			account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(respBody), 1000))
+		if !ctxkey.PrivateGatewayContent(ctx) {
+			logger.LegacyPrintf("service.gateway", "[Forward] Upstream error (failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
+				account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(respBody), 1000))
+		}
 
 		s.handleFailoverSideEffects(ctx, resp, account, reqModel)
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -768,7 +773,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					Detail:             upstreamDetail,
 				})
 
-				if s.cfg.Gateway.LogUpstreamErrorBody {
+				if s.cfg.Gateway.LogUpstreamErrorBody && !ctxkey.PrivateGatewayContent(ctx) {
 					logger.LegacyPrintf("service.gateway",
 						"Account %d: 400 error, attempting failover: %s",
 						account.ID,
@@ -849,11 +854,13 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					Detail:             upstreamDetail,
 				})
 
-				logger.LegacyPrintf("service.gateway",
-					"[Forward] SSE error event in stream: Account=%d(%s) RequestID=%s Body=%s",
-					account.ID, account.Name, resp.Header.Get("x-request-id"),
-					truncateString(sseErr.RawData, 1000),
-				)
+				if !ctxkey.PrivateGatewayContent(ctx) {
+					logger.LegacyPrintf("service.gateway",
+						"[Forward] SSE error event in stream: Account=%d(%s) RequestID=%s Body=%s",
+						account.ID, account.Name, resp.Header.Get("x-request-id"),
+						truncateString(sseErr.RawData, 1000),
+					)
+				}
 
 				return nil, &UpstreamFailoverError{
 					StatusCode:   semanticStatus,

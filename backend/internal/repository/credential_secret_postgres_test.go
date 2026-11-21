@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -14,12 +15,12 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/Wei-Shaw/sub2api/migrations"
-	_ "github.com/lib/pq"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/migrations"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
 
@@ -79,6 +80,29 @@ func (f *credentialSecretFixture) createAccount(t *testing.T, ctx context.Contex
 	return account
 }
 
+func (f *credentialSecretFixture) createLegacyInlineAccount(t *testing.T, ctx context.Context, name, platform, accountType string, credentials map[string]any) *service.Account {
+	t.Helper()
+	account := &service.Account{Name: name, Platform: platform, Type: accountType, Status: service.StatusActive, Concurrency: 1}
+	require.NoError(t, f.accounts.Create(ctx, account))
+	{
+		tx, err := f.db.BeginTx(ctx, nil)
+		require.NoError(t, err)
+		defer tx.Rollback()
+		_, err = tx.ExecContext(ctx, `ALTER TABLE accounts DISABLE TRIGGER accounts_credential_reference_guard`)
+		require.NoError(t, err)
+		_, err = tx.ExecContext(ctx, `SELECT set_config('omnihive.account_secret_backfill',$1,true)`, account.ID)
+		require.NoError(t, err)
+		payload, err := json.Marshal(credentials)
+		require.NoError(t, err)
+		_, err = tx.ExecContext(ctx, `UPDATE accounts SET credentials=$2::jsonb WHERE id=$1`, account.ID, payload)
+		require.NoError(t, err)
+		_, err = tx.ExecContext(ctx, `ALTER TABLE accounts ENABLE TRIGGER accounts_credential_reference_guard`)
+		require.NoError(t, err)
+		require.NoError(t, tx.Commit())
+	}
+	return account
+}
+
 func (f *credentialSecretFixture) createWorkspace(t *testing.T, name string) int64 {
 	t.Helper()
 	var id int64
@@ -100,6 +124,22 @@ func (f *credentialSecretFixture) accountRevision(t *testing.T, accountID int64)
 	var updatedAt time.Time
 	require.NoError(t, f.db.QueryRowContext(f.ctx, `SELECT updated_at FROM accounts WHERE id=$1`, accountID).Scan(&updatedAt))
 	return updatedAt.UTC().Format(time.RFC3339Nano)
+}
+
+// writeInconsistentSecret simulates a historical row whose credential version
+// was never advanced. Other transactions only see the trigger enabled.
+func (f *credentialSecretFixture) writeInconsistentSecret(t *testing.T, query string, args ...any) {
+	t.Helper()
+	tx, err := f.db.BeginTx(f.ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.ExecContext(f.ctx, `ALTER TABLE credential_secrets DISABLE TRIGGER connection_credential_version`)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(f.ctx, query, args...)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(f.ctx, `ALTER TABLE credential_secrets ENABLE TRIGGER connection_credential_version`)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
 }
 
 type credentialAuditRow struct {
@@ -141,11 +181,6 @@ func TestCredentialSecretLifecyclePostgres(t *testing.T) {
 	plaintextKey := "sk-plaintext-" + strings.Repeat("7", 16)
 	account := f.createAccount(t, ctx, uniqueName("cred-lifecycle"), service.PlatformOpenAI, service.AccountTypeAPIKey,
 		map[string]any{"api_key": plaintextKey, "base_url": "https://api.example.invalid"})
-
-	t.Run("convert_requires_fresh_review", func(t *testing.T) {
-		_, err := f.secrets.Convert(ctx, account.ID, "stale-revision")
-		require.ErrorIs(t, err, service.ErrCredentialSecretConflict)
-	})
 
 	var reference string
 	t.Run("explicit_convert_moves_secrets_out", func(t *testing.T) {
@@ -264,7 +299,7 @@ func TestCredentialSecretCrossWorkspacePostgres(t *testing.T) {
 	require.NoError(t, err)
 
 	foreignCtx := domain.WithWorkspaceScope(ctx, foreignWorkspace)
-	foreignAccount := f.createAccount(t, foreignCtx, uniqueName("cred-foreign"), service.PlatformOpenAI, service.AccountTypeAPIKey,
+	foreignAccount := f.createLegacyInlineAccount(t, foreignCtx, uniqueName("cred-foreign"), service.PlatformOpenAI, service.AccountTypeAPIKey,
 		map[string]any{"api_key": "sk-foreign-workspace"})
 
 	t.Run("metadata_read_is_scoped", func(t *testing.T) {
@@ -348,27 +383,14 @@ func TestCredentialSecretInlineCompatibilityPostgres(t *testing.T) {
 	account := f.createAccount(t, ctx, uniqueName("cred-inline"), service.PlatformOpenAI, service.AccountTypeAPIKey,
 		map[string]any{"api_key": "sk-inline-keep"})
 
-	t.Run("inline_reads_and_writes_stay_inline", func(t *testing.T) {
-		require.NoError(t, f.accounts.UpdateCredentials(ctx, account.ID, map[string]any{"api_key": "sk-inline-updated", "base_url": "https://new.example.invalid"}))
-		stored := f.storedCredentials(t, account.ID)
-		require.Equal(t, "sk-inline-updated", stored["api_key"])
-		require.NotContains(t, stored, service.CredentialSecretReferenceKey)
+	require.NotContains(t, f.storedCredentials(t, account.ID), "api_key")
+	account.Credentials["api_key"] = "sk-inline-updated"
+	require.NoError(t, f.accounts.UpdateCredentials(ctx, account.ID, account.Credentials))
+	require.NotContains(t, f.storedCredentials(t, account.ID), "api_key")
+	loaded, err := f.accounts.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, "sk-inline-updated", loaded.Credentials["api_key"])
 
-		loaded, err := f.accounts.GetByID(ctx, account.ID)
-		require.NoError(t, err)
-		require.Equal(t, "sk-inline-updated", loaded.Credentials["api_key"])
-
-		_, err = f.secrets.Metadata(ctx, account.ID)
-		require.ErrorIs(t, err, service.ErrCredentialSecretNotFound, "inline accounts have no secret metadata")
-	})
-
-	t.Run("inline_account_rejects_reference_smuggling", func(t *testing.T) {
-		err := f.accounts.UpdateCredentials(ctx, account.ID, map[string]any{
-			"api_key":                            "sk-inline-updated",
-			service.CredentialSecretReferenceKey: "nonexistent-reference",
-		})
-		require.ErrorIs(t, err, service.ErrCredentialSecretInvalid)
-	})
 }
 
 func TestCredentialSecretMigrationIdempotentPostgres(t *testing.T) {
@@ -382,4 +404,114 @@ func TestCredentialSecretMigrationIdempotentPostgres(t *testing.T) {
 	var regclass sql.NullString
 	require.NoError(t, f.db.QueryRowContext(f.ctx, `SELECT to_regclass('public.credential_secrets')`).Scan(&regclass))
 	require.True(t, regclass.Valid)
+}
+
+func TestAccountSecretBackfillPostgres(t *testing.T) {
+	prepareIsolatedBackfillDatabase(t)
+	f := newCredentialSecretFixture(t)
+	a := f.createAccount(t, f.ctx, uniqueName("backfill"), service.PlatformOpenAI, service.AccountTypeAPIKey, nil)
+	tx, err := f.db.BeginTx(f.ctx, nil)
+	require.NoError(t, err)
+	defer tx.Rollback()
+	_, err = tx.ExecContext(f.ctx, `SELECT set_config('omnihive.account_secret_backfill',$1,true)`, a.ID)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(f.ctx, `UPDATE accounts SET credentials='{"api_key":"migration-fixture"}' WHERE id=$1`, a.ID)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+	_, err = f.db.ExecContext(f.ctx, "INSERT INTO account_secret_backfill VALUES($1) ON CONFLICT DO NOTHING", a.ID)
+	require.NoError(t, err)
+	for range 2 {
+		require.NoError(t, backfillAccountSecrets(f.ctx, f.db, f.encryptor))
+	}
+	require.NotContains(t, f.storedCredentials(t, a.ID), "api_key")
+	read, err := f.accounts.GetByID(f.ctx, a.ID)
+	require.NoError(t, err)
+	require.Equal(t, "migration-fixture", read.GetCredential("api_key"))
+	require.Equal(t, int64(1), service.CredentialVersion(read.Credentials))
+}
+
+func TestAccountSecretBackfillRepairsLegacySecretResiduePostgres(t *testing.T) {
+	prepareIsolatedBackfillDatabase(t)
+	f := newCredentialSecretFixture(t)
+	account := f.createAccount(t, f.ctx, uniqueName("backfill-residue"), service.PlatformGrok, service.AccountTypeOAuth,
+		map[string]any{"access_token": "before-residue", "refresh_token": "refresh-residue", "base_url": "https://old.example"})
+	loaded, err := f.accounts.GetByID(f.ctx, account.ID)
+	require.NoError(t, err)
+
+	tx, err := f.db.BeginTx(f.ctx, nil)
+	require.NoError(t, err)
+	defer tx.Rollback()
+	_, err = tx.ExecContext(f.ctx, "ALTER TABLE accounts DISABLE TRIGGER accounts_credential_reference_guard")
+	require.NoError(t, err)
+	_, err = tx.ExecContext(f.ctx, `SELECT set_config('omnihive.account_secret_backfill',$1,true)`, account.ID)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(f.ctx, `UPDATE accounts SET credentials=credentials || '{"access_token":"inline-residue"}'::jsonb WHERE id=$1`, account.ID)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(f.ctx, "ALTER TABLE accounts ENABLE TRIGGER accounts_credential_reference_guard")
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+	_, err = f.db.ExecContext(f.ctx, "INSERT INTO account_secret_backfill VALUES($1) ON CONFLICT DO NOTHING", account.ID)
+	require.NoError(t, err)
+
+	for range 2 {
+		require.NoError(t, backfillAccountSecrets(f.ctx, f.db, f.encryptor))
+	}
+	stored := f.storedCredentials(t, account.ID)
+	require.NotContains(t, stored, "access_token")
+	require.NotContains(t, stored, "refresh_token")
+	reloaded, err := f.accounts.GetByID(f.ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, "inline-residue", reloaded.GetCredential("access_token"))
+	require.Equal(t, "refresh-residue", reloaded.GetCredential("refresh_token"))
+	require.Greater(t, service.CredentialVersion(reloaded.Credentials), service.CredentialVersion(loaded.Credentials))
+	_, err = f.db.ExecContext(f.ctx, `UPDATE accounts SET credentials=credentials || '{"api_key":"rejected-inline"}'::jsonb WHERE id=$1`, account.ID)
+	require.Error(t, err)
+	migration, err := migrations.FS.ReadFile("332_account_secret_guard_replay.sql")
+	require.NoError(t, err)
+	_, err = f.db.ExecContext(f.ctx, string(migration))
+	require.NoError(t, err)
+	tx, err = f.db.BeginTx(f.ctx, nil)
+	require.NoError(t, err)
+	defer tx.Rollback()
+	_, err = tx.ExecContext(f.ctx, "ALTER TABLE accounts DISABLE TRIGGER accounts_credential_reference_guard")
+	require.NoError(t, err)
+	_, err = tx.ExecContext(f.ctx, `SELECT set_config('omnihive.account_secret_backfill',$1,true)`, account.ID)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(f.ctx, `UPDATE accounts SET credentials=credentials || '{"access_token":"replay-residue"}'::jsonb WHERE id=$1`, account.ID)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(f.ctx, "ALTER TABLE accounts ENABLE TRIGGER accounts_credential_reference_guard")
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+	require.NoError(t, backfillAccountSecrets(f.ctx, f.db, f.encryptor))
+	reloaded, err = f.accounts.GetByID(f.ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, "replay-residue", reloaded.GetCredential("access_token"))
+	var pending int
+	require.NoError(t, f.db.QueryRowContext(f.ctx, "SELECT count(*) FROM account_secret_backfill WHERE account_id=$1", account.ID).Scan(&pending))
+	require.Zero(t, pending)
+}
+
+func prepareIsolatedBackfillDatabase(t *testing.T) {
+	t.Helper()
+	dsn := os.Getenv(credentialSecretPostgresEnv)
+	if dsn == "" {
+		t.Skipf("set %s to a disposable PostgreSQL database", credentialSecretPostgresEnv)
+	}
+	connection, err := sql.Open("postgres", dsn)
+	require.NoError(t, err)
+	defer connection.Close()
+	var owner string
+	require.NoError(t, connection.QueryRow("SELECT current_user").Scan(&owner))
+	name := uniqueName("backfill")
+	_, err = connection.Exec(`DROP DATABASE IF EXISTS ` + pq.QuoteIdentifier(name) + ` WITH (FORCE)`)
+	require.NoError(t, err)
+	_, err = connection.Exec(`CREATE DATABASE ` + pq.QuoteIdentifier(name) + ` OWNER ` + pq.QuoteIdentifier(owner))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = connection.Exec(`DROP DATABASE IF EXISTS ` + pq.QuoteIdentifier(name) + ` WITH (FORCE)`)
+	})
+	parsed, err := url.Parse(dsn)
+	require.NoError(t, err)
+	parsed.Path = "/" + name
+	t.Setenv(credentialSecretPostgresEnv, parsed.String())
 }

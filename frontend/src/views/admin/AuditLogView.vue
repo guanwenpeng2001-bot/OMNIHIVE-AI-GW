@@ -49,6 +49,7 @@
                   v-model.trim="filters.q"
                   type="text"
                   class="input py-2 pl-9 font-mono tabular-nums text-xs"
+                  :aria-label="t('admin.audit.filters.qPlaceholder')"
                   :placeholder="t('admin.audit.filters.qPlaceholder')"
                   @keyup.enter="search"
                 />
@@ -56,10 +57,11 @@
             </div>
 
             <div>
-              <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+              <label for="audit-filter-actor-email" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
                 {{ t('admin.audit.filters.actorEmail') }}
               </label>
               <input
+                id="audit-filter-actor-email"
                 v-model.trim="filters.actor_email"
                 type="text"
                 class="input py-2 font-mono tabular-nums text-xs"
@@ -68,10 +70,11 @@
             </div>
 
             <div>
-              <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+              <label for="audit-filter-action" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
                 {{ t('admin.audit.filters.action') }}
               </label>
               <input
+                id="audit-filter-action"
                 v-model.trim="filters.action"
                 type="text"
                 class="input py-2 font-mono tabular-nums text-xs"
@@ -80,10 +83,11 @@
             </div>
 
             <div>
-              <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+              <label for="audit-filter-client-ip" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
                 {{ t('admin.audit.filters.clientIp') }}
               </label>
               <input
+                id="audit-filter-client-ip"
                 v-model.trim="filters.client_ip"
                 type="text"
                 class="input py-2 font-mono tabular-nums text-xs"
@@ -153,8 +157,17 @@
 
           <template #cell-action="{ row }">
             <div class="min-w-0 max-w-md space-y-1">
-              <div class="truncate font-mono tabular-nums text-xs font-semibold text-[var(--foreground)]" :title="row.action">
-                {{ row.action }}
+              <div class="flex flex-col gap-0.5">
+                <div class="truncate text-xs font-semibold text-[var(--foreground)]" :title="formatAuditActionLabel(row.action)">
+                  {{ formatAuditActionLabel(row.action) }}
+                </div>
+                <div
+                  v-if="shouldShowRawActionCode(row.action)"
+                  class="truncate font-mono text-[11px] tabular-nums text-[var(--muted-foreground)] opacity-65"
+                  :title="row.action"
+                >
+                  {{ row.action }}
+                </div>
               </div>
               <div
                 class="select-text break-all rounded-md border px-2 py-1 font-mono tabular-nums text-xs text-[var(--muted-foreground)]"
@@ -254,9 +267,17 @@
               <span class="pulse-dot" :class="statusDotClass(detail.status_code)"></span>
               {{ detail.status_code }} {{ statusText(detail.status_code) }}
             </span>
-            <span class="break-all font-mono tabular-nums text-base font-semibold text-[var(--foreground)]">
-              {{ detail.action }}
-            </span>
+            <div class="flex flex-col">
+              <span class="break-all text-base font-semibold text-[var(--foreground)]">
+                {{ formatAuditActionLabel(detail.action) }}
+              </span>
+              <span
+                v-if="shouldShowRawActionCode(detail.action)"
+                class="break-all font-mono text-[11px] tabular-nums text-[var(--muted-foreground)] opacity-65"
+              >
+                {{ detail.action }}
+              </span>
+            </div>
           </div>
 
           <div
@@ -446,8 +467,200 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores'
 
-const { t } = useI18n()
+const i18n = useI18n()
+const { t } = i18n
 const appStore = useAppStore()
+
+const isZhLocale = computed(() => {
+  const rawLocale = typeof i18n.locale === 'string' ? i18n.locale : i18n.locale?.value
+  if (rawLocale) {
+    return String(rawLocale).toLowerCase().startsWith('zh')
+  }
+  const probe = t('common.search')
+  if (probe && probe !== 'common.search') {
+    return /[\u4e00-\u9fa5]/.test(probe)
+  }
+  if (typeof document !== 'undefined' && document.documentElement?.lang) {
+    return document.documentElement.lang.toLowerCase().startsWith('zh')
+  }
+  return true
+})
+
+const AUDIT_ACTION_EXACT_LABELS: Record<string, { zh: string; en: string }> = {
+  'usage.dashboard.api_keys_usage.create': { zh: '查询 API 密钥用量统计', en: 'Query API Keys Usage Stats' },
+  'admin.dashboard.api_keys_usage.create': { zh: '查询全局 API 密钥用量统计', en: 'Query Global API Keys Usage Stats' },
+  'admin.backups.s3_config.read': { zh: '读取 S3 备份配置', en: 'Read S3 Backup Configuration' },
+  'admin.backups.s3_config.update': { zh: '更新 S3 备份配置', en: 'Update S3 Backup Configuration' },
+  'admin.backups.s3_config.create': { zh: '保存或测试 S3 备份配置', en: 'Save or Test S3 Backup Configuration' },
+  'admin.backups.s3_config.test.create': { zh: '测试 S3 备份连接', en: 'Test S3 Backup Connection' },
+  'admin.backups.create': { zh: '创建系统数据备份', en: 'Create System Backup' },
+  'admin.backups.restore': { zh: '恢复系统数据备份', en: 'Restore System Backup' },
+  'admin.backups.delete': { zh: '删除系统数据备份', en: 'Delete System Backup' },
+  'admin.backups.download': { zh: '下载系统数据备份', en: 'Download System Backup' },
+  'admin.settings.email_template_preview.create': { zh: '预览邮件模板渲染', en: 'Preview Email Template' },
+  'admin.settings.test_smtp.create': { zh: '测试 SMTP 邮件服务连接', en: 'Test SMTP Connection' },
+  'admin.settings.send_test_email.create': { zh: '发送测试邮件', en: 'Send Test Email' },
+  'admin.admin_api_key.read': { zh: '读取管理员 API 密钥配置', en: 'Read Admin API Key Configuration' },
+  'admin.admin_api_key.regenerate': { zh: '轮换管理员 API 密钥', en: 'Regenerate Admin API Key' },
+  'admin.admin_api_key.create': { zh: '创建管理员 API 密钥', en: 'Create Admin API Key' },
+  'admin.admin_api_key.delete': { zh: '吊销管理员 API 密钥', en: 'Revoke Admin API Key' },
+  'admin.settings.read': { zh: '读取系统全局设置', en: 'Read System Settings' },
+  'admin.settings.update': { zh: '更新系统全局设置', en: 'Update System Settings' },
+  'admin.accounts.read': { zh: '读取上游账号列表', en: 'Read Upstream Accounts' },
+  'admin.accounts.create': { zh: '创建上游账号连接', en: 'Create Upstream Account' },
+  'admin.accounts.update': { zh: '更新上游账号配置', en: 'Update Upstream Account' },
+  'admin.accounts.delete': { zh: '删除上游账号连接', en: 'Delete Upstream Account' },
+  'admin.accounts.export': { zh: '导出上游账号数据', en: 'Export Upstream Accounts' },
+  'admin.accounts.import': { zh: '导入上游账号数据', en: 'Import Upstream Accounts' },
+  'workspace.accounts.export': { zh: '导出工作区账号数据', en: 'Export Workspace Accounts' },
+  'workspace.accounts.import': { zh: '导入工作区账号数据', en: 'Import Workspace Accounts' },
+  'admin.users.api_keys.read': { zh: '读取用户 API 密钥列表', en: 'Read User API Keys' },
+  'admin.groups.api_keys.read': { zh: '读取分组 API 密钥列表', en: 'Read Group API Keys' },
+  'admin.proxies.export': { zh: '导出代理节点数据', en: 'Export Proxy Nodes' },
+  'admin.proxies.probe_now': { zh: '立即探测代理节点连通性', en: 'Probe Proxy Node Immediately' },
+  'admin.proxy_groups.create': { zh: '创建代理出口池分组', en: 'Create Proxy Group' },
+  'admin.proxy_groups.update': { zh: '更新代理出口池分组', en: 'Update Proxy Group' },
+  'admin.proxy_groups.delete': { zh: '删除代理出口池分组', en: 'Delete Proxy Group' },
+  'admin.proxy_groups.members.replace': { zh: '替换代理分组节点成员', en: 'Replace Proxy Group Members' },
+  'admin.proxy_groups.bindings.reset': { zh: '重置代理分组绑定关系', en: 'Reset Proxy Group Bindings' },
+  'admin.redeem_codes.export': { zh: '导出兑换码数据', en: 'Export Redeem Codes' },
+  'admin.extensions.list': { zh: '读取系统扩展与插件清单', en: 'List System Extensions' },
+  'admin.audit_logs.clear': { zh: '清空安全审计日志', en: 'Clear Audit Logs' },
+  'admin.prompt_audit.config.update': { zh: '更新内容审查策略配置', en: 'Update Content Guard Configuration' },
+  'admin.prompt_audit.endpoint.probe': { zh: '探测内容审查端点', en: 'Probe Content Guard Endpoint' },
+  'admin.prompt_audit.event.delete': { zh: '删除内容审查事件', en: 'Delete Content Guard Event' },
+  'admin.prompt_audit.events.batch_delete': { zh: '批量删除内容审查事件', en: 'Batch Delete Content Guard Events' },
+  'admin.prompt_audit.events.delete_preview': { zh: '预览内容审查事件清理范围', en: 'Preview Content Guard Event Deletion' },
+  'admin.prompt_audit.events.filter_delete': { zh: '按条件清理内容审查事件', en: 'Delete Content Guard Events by Filter' },
+  'billing.payment_evidence.read': { zh: '读取账单调账支付凭证', en: 'Read Billing Payment Evidence' },
+  'billing.payment_evidence.link': { zh: '关联账单调账支付凭证', en: 'Link Billing Payment Evidence' },
+  'auth.login': { zh: '用户登录认证', en: 'User Login Authentication' },
+  'auth.login_2fa': { zh: '二步验证登录 (2FA)', en: 'Two-Factor Login Verification' },
+  'auth.register': { zh: '注册新用户账号', en: 'User Account Registration' },
+  'auth.token_refresh': { zh: '刷新会话访问令牌', en: 'Refresh Session Token' },
+  'user.totp.step_up': { zh: '敏感操作 TOTP 二次验证', en: 'Step-Up TOTP Verification' },
+  'playground.run': { zh: '执行调试台模型推理', en: 'Execute Playground Model Run' },
+  'tasks.create': { zh: '创建异步批处理任务', en: 'Create Async Task' },
+  'tasks.retry': { zh: '重试异步批处理任务', en: 'Retry Async Task' },
+  'keys.create': { zh: '创建 API 密钥', en: 'Create API Key' },
+  'keys.update': { zh: '更新 API 密钥', en: 'Update API Key' },
+  'keys.delete': { zh: '删除 API 密钥', en: 'Delete API Key' }
+}
+
+const AUDIT_VERB_LABELS: Record<string, { zh: string; en: string }> = {
+  read: { zh: '读取', en: 'Read' },
+  get: { zh: '读取', en: 'Get' },
+  list: { zh: '查询', en: 'List' },
+  query: { zh: '查询', en: 'Query' },
+  create: { zh: '创建', en: 'Create' },
+  update: { zh: '更新', en: 'Update' },
+  delete: { zh: '删除', en: 'Delete' },
+  batch_delete: { zh: '批量删除', en: 'Batch Delete' },
+  filter_delete: { zh: '按条件清理', en: 'Delete by Filter' },
+  delete_preview: { zh: '预览清理', en: 'Preview Deletion' },
+  clear: { zh: '清空', en: 'Clear' },
+  export: { zh: '导出', en: 'Export' },
+  import: { zh: '导入', en: 'Import' },
+  restore: { zh: '恢复', en: 'Restore' },
+  download: { zh: '下载', en: 'Download' },
+  regenerate: { zh: '轮换', en: 'Regenerate' },
+  rotate: { zh: '轮换', en: 'Rotate' },
+  probe: { zh: '探测', en: 'Probe' },
+  probe_now: { zh: '立即探测', en: 'Probe' },
+  retry: { zh: '重试', en: 'Retry' },
+  cancel: { zh: '取消', en: 'Cancel' },
+  replace: { zh: '替换', en: 'Replace' },
+  reset: { zh: '重置', en: 'Reset' },
+  run: { zh: '执行', en: 'Run' },
+  link: { zh: '关联', en: 'Link' },
+  sync: { zh: '同步', en: 'Sync' },
+  refresh: { zh: '刷新', en: 'Refresh' },
+  verify: { zh: '核验', en: 'Verify' },
+  test: { zh: '测试', en: 'Test' },
+  login: { zh: '登录', en: 'Login' },
+  register: { zh: '注册', en: 'Register' }
+}
+
+const AUDIT_DOMAIN_LABELS: Record<string, { zh: string; en: string }> = {
+  admin: { zh: '管理台', en: 'Admin' },
+  workspace: { zh: '工作区', en: 'Workspace' },
+  workspaces: { zh: '工作区', en: 'Workspaces' },
+  project: { zh: '项目', en: 'Project' },
+  projects: { zh: '项目', en: 'Projects' },
+  usage: { zh: '用量', en: 'Usage' },
+  dashboard: { zh: '仪表盘', en: 'Dashboard' },
+  api_keys_usage: { zh: 'API 密钥用量统计', en: 'API Keys Usage Stats' },
+  api_keys: { zh: 'API 密钥', en: 'API Keys' },
+  api_key: { zh: 'API 密钥', en: 'API Key' },
+  keys: { zh: 'API 密钥', en: 'API Keys' },
+  admin_api_key: { zh: '管理员 API 密钥配置', en: 'Admin API Key' },
+  backups: { zh: '数据备份', en: 'Backups' },
+  backup: { zh: '数据备份', en: 'Backup' },
+  s3_config: { zh: 'S3 备份配置', en: 'S3 Backup Configuration' },
+  settings: { zh: '系统设置', en: 'Settings' },
+  setting: { zh: '系统设置', en: 'Setting' },
+  email_template_preview: { zh: '邮件模板预览', en: 'Email Template Preview' },
+  email_template: { zh: '邮件模板', en: 'Email Template' },
+  email_templates: { zh: '邮件模板', en: 'Email Templates' },
+  accounts: { zh: '上游账号', en: 'Upstream Accounts' },
+  account: { zh: '上游账号', en: 'Upstream Account' },
+  connections: { zh: '上游连接', en: 'Connections' },
+  connection: { zh: '上游连接', en: 'Connection' },
+  users: { zh: '用户', en: 'Users' },
+  user: { zh: '用户', en: 'User' },
+  groups: { zh: '路由分组', en: 'Routing Groups' },
+  group: { zh: '路由分组', en: 'Routing Group' },
+  proxies: { zh: '代理节点', en: 'Proxy Nodes' },
+  proxy: { zh: '代理节点', en: 'Proxy Node' },
+  proxy_groups: { zh: '代理出口池', en: 'Proxy Groups' },
+  redeem_codes: { zh: '兑换码', en: 'Redeem Codes' },
+  redeem: { zh: '兑换码', en: 'Redeem Code' },
+  subscriptions: { zh: '订阅套餐', en: 'Subscriptions' },
+  subscription: { zh: '订阅套餐', en: 'Subscription' },
+  announcements: { zh: '系统公告', en: 'Announcements' },
+  announcement: { zh: '系统公告', en: 'Announcement' },
+  ops: { zh: '运维监控', en: 'Operations' },
+  alert_rules: { zh: '告警规则', en: 'Alert Rules' },
+  rules: { zh: '规则', en: 'Rules' },
+  alert_events: { zh: '告警事件', en: 'Alert Events' },
+  alerts: { zh: '告警', en: 'Alerts' },
+  audit_logs: { zh: '审计日志', en: 'Audit Logs' },
+  audit: { zh: '审计日志', en: 'Audit' },
+  prompt_audit: { zh: '内容安全审查', en: 'Content Guard' },
+  billing: { zh: '账单计费', en: 'Billing' },
+  payment_evidence: { zh: '调账支付凭证', en: 'Payment Evidence' },
+  adjustments: { zh: '账单调账', en: 'Billing Adjustments' },
+  orders: { zh: '支付订单', en: 'Orders' },
+  payment: { zh: '支付', en: 'Payment' },
+  byok: { zh: '自管凭据 (BYOK)', en: 'BYOK' },
+  credentials: { zh: '凭据', en: 'Credentials' },
+  credential: { zh: '凭据', en: 'Credential' },
+  rotations: { zh: '密钥轮换', en: 'Key Rotations' },
+  authorization: { zh: '授权配置', en: 'Authorization' },
+  totp: { zh: 'TOTP 二步验证', en: 'TOTP 2FA' },
+  passkeys: { zh: '通行密钥 (Passkey)', en: 'Passkeys' },
+  passkey: { zh: '通行密钥 (Passkey)', en: 'Passkey' },
+  auth: { zh: '身份认证', en: 'Authentication' },
+  plugins: { zh: '插件扩展', en: 'Plugins' },
+  extensions: { zh: '系统扩展', en: 'Extensions' },
+  models: { zh: '模型目录', en: 'Models' },
+  model_catalog: { zh: '模型目录', en: 'Model Catalog' },
+  model_pricing: { zh: '模型定价', en: 'Model Pricing' },
+  tasks: { zh: '异步任务', en: 'Async Tasks' },
+  playground: { zh: '调试台', en: 'Playground' },
+  requests: { zh: '请求记录', en: 'Requests' },
+  members: { zh: '成员权限', en: 'Members' },
+  bindings: { zh: '绑定关系', en: 'Bindings' },
+  config: { zh: '配置', en: 'Configuration' },
+  endpoint: { zh: '端点', en: 'Endpoint' },
+  endpoints: { zh: '端点', en: 'Endpoints' },
+  event: { zh: '事件', en: 'Event' },
+  events: { zh: '事件', en: 'Events' },
+  data: { zh: '数据', en: 'Data' },
+  session: { zh: '会话', en: 'Session' },
+  ollama_cloud_usage: { zh: 'Ollama Cloud 用量', en: 'Ollama Cloud Usage' },
+  codex_session: { zh: 'Codex 会话', en: 'Codex Session' }
+}
 
 const loading = ref(false)
 const logs = ref<AuditLog[]>([])
@@ -758,6 +971,71 @@ function statusDotClass(status: number): string {
   if (status >= 500) return 'pulse-bad'
   if (status >= 400) return 'pulse-warn'
   return 'pulse-ok'
+}
+
+function humanizeTokenEn(token: string): string {
+  return token
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (ch) => ch.toUpperCase())
+}
+
+function formatAuditActionLabel(action: string): string {
+  const raw = String(action || '').trim()
+  if (!raw) return '—'
+  const exact = AUDIT_ACTION_EXACT_LABELS[raw]
+  if (exact) {
+    return isZhLocale.value ? exact.zh : exact.en
+  }
+  if (!raw.includes('.')) {
+    return raw
+  }
+  const segments = raw.split('.').filter(Boolean)
+  if (segments.length < 2) {
+    return raw
+  }
+  const lastSegment = segments[segments.length - 1]!
+  const verbEntry = AUDIT_VERB_LABELS[lastSegment]
+  const domainSegments = verbEntry ? segments.slice(0, -1) : segments
+  const filteredDomains = domainSegments.filter((seg, idx) => {
+    if (seg === 'v1' || seg === 'v2') return false
+    if (idx === 0 && seg === 'admin' && domainSegments.length > 1) return false
+    if (seg === 'dashboard' && domainSegments.some((s) => s.includes('usage'))) return false
+    if (seg === 'backups' && domainSegments.includes('s3_config')) return false
+    return true
+  })
+  const effectiveDomains = filteredDomains.length > 0 ? filteredDomains : domainSegments
+
+  let verbZh = verbEntry?.zh ?? ''
+  let verbEn = verbEntry?.en ?? ''
+  if (lastSegment === 'create') {
+    if (effectiveDomains.some((s) => s.includes('preview'))) {
+      verbZh = '预览'
+      verbEn = 'Preview'
+    } else if (effectiveDomains.some((s) => s.includes('usage') || s.includes('stats') || s.includes('query'))) {
+      verbZh = '查询'
+      verbEn = 'Query'
+    } else if (effectiveDomains.some((s) => s.includes('test') || s.includes('probe'))) {
+      verbZh = '测试'
+      verbEn = 'Test'
+    }
+  }
+
+  if (isZhLocale.value) {
+    const domainZh = effectiveDomains
+      .map((seg) => AUDIT_DOMAIN_LABELS[seg]?.zh ?? humanizeTokenEn(seg))
+      .join('')
+    return verbZh ? `${verbZh}${domainZh}` : domainZh
+  }
+
+  const domainEn = effectiveDomains
+    .map((seg) => AUDIT_DOMAIN_LABELS[seg]?.en ?? humanizeTokenEn(seg))
+    .join(' ')
+  return verbEn ? `${verbEn} ${domainEn}` : domainEn
+}
+
+function shouldShowRawActionCode(action: string): boolean {
+  const raw = String(action || '').trim()
+  return Boolean(raw && formatAuditActionLabel(raw) !== raw)
 }
 
 onMounted(fetchLogs)

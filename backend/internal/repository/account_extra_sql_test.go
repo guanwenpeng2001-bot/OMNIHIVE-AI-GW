@@ -10,8 +10,8 @@ import (
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 	"github.com/DATA-DOG/go-sqlmock"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,8 +31,6 @@ func captureAccountExtraSQL(t *testing.T, bulk bool, write func(*accountReposito
 	t.Cleanup(func() { _ = client.Close() })
 	if bulk {
 		mock.ExpectBegin()
-		mock.ExpectQuery("SELECT platform, credentials FROM accounts").
-			WillReturnRows(sqlmock.NewRows([]string{"platform", "credentials"}))
 		mock.ExpectQuery("SELECT workspace_id, proxy_id, proxy_group_id FROM accounts").
 			WillReturnRows(sqlmock.NewRows([]string{"workspace_id", "proxy_id", "proxy_group_id"}))
 	}
@@ -41,7 +39,14 @@ func captureAccountExtraSQL(t *testing.T, bulk bool, write func(*accountReposito
 		mock.ExpectExec("INSERT INTO scheduler_outbox").WillReturnResult(sqlmock.NewResult(1, 1))
 		mock.ExpectCommit()
 	}
-	require.NoError(t, write(newAccountRepositoryWithSQL(client, db, nil)))
+	repository := newAccountRepositoryWithSQL(client, db, nil)
+	repository.bulkUpdateSecrets = func(ctx context.Context, ids []int64, updates service.AccountBulkUpdate) (int64, error) {
+		inline, _ := service.SplitCredentialSecrets(updates.Credentials)
+		updates.Credentials = inline
+		_, err := repository.BulkUpdate(ctx, ids, updates)
+		return int64(len(ids)), err
+	}
+	require.NoError(t, write(repository))
 	require.NoError(t, mock.ExpectationsWereMet())
 	require.NotEmpty(t, query)
 	return query

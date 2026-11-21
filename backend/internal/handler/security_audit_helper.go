@@ -5,16 +5,16 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/securityaudit"
+	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"go.uber.org/zap"
 )
 
-const securityAuditCompletedContextKey = "sub2api.security_audit.completed"
-const securityAuditWSTurnContextKey = "sub2api.security_audit.ws_turn"
-const securityAuditWSDedupeContextKey = "sub2api.security_audit.ws_dedupe"
+const securityAuditCompletedContextKey = "omnihive.security_audit.completed"
+const securityAuditWSTurnContextKey = "omnihive.security_audit.ws_turn"
+const securityAuditWSDedupeContextKey = "omnihive.security_audit.ws_dedupe"
 
 type securityAuditWSDedupeEntry struct {
 	stage    string

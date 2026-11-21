@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/apicompat"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"go.uber.org/zap"
@@ -275,11 +275,9 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		writeEvents(events)
 	})
 
-	if (account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter) && !scan.UsageKnown {
-		return nil, newOpenAIUpstreamStreamReadError(fmt.Errorf("upstream chat usage is unknown"))
-	}
 	if scan.Err != nil {
 		return &OpenAIForwardResult{
+			UsageIncomplete:             true,
 			RequestID:                   requestID,
 			UpstreamHeaders:             resp.Header,
 			Usage:                       scan.Usage,
@@ -291,6 +289,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 			ServiceTier:                 resolvedOpenAIUpstreamServiceTier(c, serviceTier),
 			Stream:                      true,
 			Duration:                    time.Since(startTime),
+			ClientDisconnect:            clientDisconnected || c.Request.Context().Err() != nil,
 			FirstTokenMs:                scan.FirstTokenMs,
 		}, fmt.Errorf("stream usage incomplete: %w", scan.Err)
 	}
@@ -324,9 +323,6 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 			c.Writer.Flush()
 		}
 	}
-	if !scan.SawDone {
-		logCCStreamMissingDoneSentinel("openai responses chat fallback", requestID)
-	}
 
 	return &OpenAIForwardResult{
 		RequestID:                   requestID,
@@ -340,6 +336,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		ServiceTier:                 resolvedOpenAIUpstreamServiceTier(c, serviceTier),
 		Stream:                      true,
 		Duration:                    time.Since(startTime),
+		ClientDisconnect:            clientDisconnected || c.Request.Context().Err() != nil,
 		FirstTokenMs:                scan.FirstTokenMs,
 	}, nil
 }

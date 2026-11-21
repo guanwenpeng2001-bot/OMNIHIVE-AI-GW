@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/apicompat"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/cursor"
 )
 
 // Only rewritten IDs need storage. Bound retained identities without a cleanup
@@ -360,7 +360,7 @@ func (output *cursorOutput) response(payload any) error {
 				return err
 			}
 			payload = annotated
-			output.context.Header("X-Sub2API-Usage-Source", "estimated_missing_turn_ended")
+			writeCursorEstimatedUsageHeaders(output.context)
 		}
 		output.context.JSON(http.StatusOK, payload)
 		return nil
@@ -415,4 +415,10 @@ func cursorEstimatedPayload(payload any) (map[string]any, error) {
 		usage["estimated"] = true
 	}
 	return object, nil
+}
+
+func writeCursorEstimatedUsageHeaders(c *gin.Context) {
+	const source = "estimated_missing_turn_ended"
+	c.Header("X-OmniHive-Usage-Source", source)
+	c.Header("X-Sub2API-Usage-Source", source)
 }

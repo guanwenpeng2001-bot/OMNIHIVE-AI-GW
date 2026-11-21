@@ -14,7 +14,7 @@
       </div>
       <div class="mt-2 flex items-end justify-between gap-2">
         <div class="min-w-0">
-          <p class="font-mono text-xl font-bold tabular-nums tracking-tight text-emerald-600 dark:text-emerald-400" :title="`USD ${formatLedgerAmount(balance)}`">${{ formatBalance(balance) }}</p>
+          <p class="font-mono text-xl font-bold tabular-nums tracking-tight text-oh-accent-text" :title="`USD ${formatLedgerAmount(balance)}`">${{ formatBalance(balance) }}</p>
           <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">{{ t('common.available') }}</p>
         </div>
       </div>
@@ -29,8 +29,8 @@
       <div class="mt-2 flex items-end justify-between gap-2">
         <div class="min-w-0">
           <p class="font-mono text-xl font-bold tabular-nums tracking-tight text-[var(--foreground)]">{{ stats?.total_api_keys || 0 }}</p>
-          <p class="mt-0.5 flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
-            <span class="pulse-dot pulse-ok" aria-hidden="true" />
+          <p class="mt-0.5 flex items-center gap-1.5 font-mono text-xs tabular-nums text-[var(--muted-foreground)]">
+            <span class="inline-block h-1.5 w-1.5 rounded-full bg-[var(--oh-accent,#f59e0b)]" aria-hidden="true" />
             <span class="tabular-nums">{{ stats?.active_api_keys || 0 }} {{ t('common.active') }}</span>
           </p>
         </div>
@@ -60,8 +60,8 @@
       <div class="mt-2 flex items-end justify-between gap-2">
         <div class="min-w-0 flex-1">
           <p class="oh-cost-pair text-xl font-bold tabular-nums tracking-tight text-[var(--foreground)]">
-            <span class="text-[var(--brand-text)]" :title="t('dashboard.actual')"><span class="inline-block">{{ t('dashboard.actual') }}</span> <span class="inline-block whitespace-nowrap">USD {{ formatCost(stats?.today_actual_cost) }}</span></span>
-            <span class="text-sm font-normal text-[var(--muted-foreground)]" :title="t('dashboard.standard')"><span class="inline-block whitespace-nowrap"> / {{ t('dashboard.standard') }}</span> <span class="inline-block whitespace-nowrap">USD {{ formatCost(stats?.today_cost) }}</span></span>
+            <span class="text-[var(--brand-text)]" :title="`${t('dashboard.actual')} USD ${formatCost(stats?.today_actual_cost)}`"><span class="inline-block">{{ t('dashboard.actual') }}</span> <span class="inline-block whitespace-nowrap">USD {{ formatBalance(stats?.today_actual_cost) }}</span></span>
+            <span class="text-sm font-normal text-[var(--muted-foreground)]" :title="`${t('dashboard.standard')} USD ${formatCost(stats?.today_cost)}`"><span class="inline-block whitespace-nowrap"> / {{ t('dashboard.standard') }}</span> <span class="inline-block whitespace-nowrap">USD {{ formatBalance(stats?.today_cost) }}</span></span>
           </p>
           <p class="oh-cost-pair mt-0.5 text-xs tabular-nums">
             <span class="text-[var(--muted-foreground)]">{{ summaryLabel }}: </span>
@@ -97,7 +97,7 @@
       </div>
       <div class="mt-2 flex items-end justify-between gap-2">
         <div class="min-w-0 flex-1">
-          <p class="text-xl font-bold tabular-nums tracking-tight text-[var(--foreground)]">{{ summaryScope === 'unknown' ? '—' : formatTokens(stats.total_tokens) }}</p>
+          <p class="font-mono text-xl font-bold tabular-nums tracking-tight text-[var(--foreground)]">{{ summaryScope === 'unknown' ? '—' : formatTokens(stats.total_tokens) }}</p>
           <p class="mt-0.5 text-xs tabular-nums text-[var(--muted-foreground)]">{{ t('dashboard.input') }}: {{ summaryScope === 'unknown' ? '—' : formatTokens(stats.total_input_tokens) }} / {{ t('dashboard.output') }}: {{ summaryScope === 'unknown' ? '—' : formatTokens(stats.total_output_tokens) }} / {{ t('dashboard.cache') }}: {{ summaryScope === 'unknown' ? '—' : formatTokens((stats.total_cache_creation_tokens) + (stats.total_cache_read_tokens)) }}</p>
         </div>
       </div>
@@ -112,11 +112,11 @@
       <div class="mt-2 flex items-end justify-between gap-2">
         <div class="min-w-0 flex-1">
           <div class="flex items-baseline gap-2">
-            <p class="text-xl font-bold tabular-nums tracking-tight text-[var(--foreground)]">{{ formatTokens(stats?.rpm || 0) }}</p>
+            <p class="font-mono text-xl font-bold tabular-nums tracking-tight text-[var(--foreground)]">{{ formatTokens(stats?.rpm || 0) }}</p>
             <span class="font-mono text-xs text-[var(--muted-foreground)]">RPM</span>
           </div>
           <div class="flex items-baseline gap-2">
-            <p class="text-sm font-semibold tabular-nums text-violet-600 dark:text-violet-400">{{ formatTokens(stats?.tpm || 0) }}</p>
+            <p class="font-mono text-sm font-semibold tabular-nums text-[var(--oh-ink-secondary,var(--muted-foreground))]">{{ formatTokens(stats?.tpm || 0) }}</p>
             <span class="font-mono text-xs text-[var(--muted-foreground)]">TPM</span>
           </div>
         </div>
@@ -131,7 +131,7 @@
       </div>
       <div class="mt-2 flex items-end justify-between gap-2">
         <div class="min-w-0">
-          <p class="text-xl font-bold tabular-nums tracking-tight text-[var(--foreground)]">{{ summaryScope === 'unknown' ? '—' : formatDuration(stats.average_duration_ms) }}</p>
+          <p class="font-mono text-xl font-bold tabular-nums tracking-tight text-[var(--foreground)]">{{ summaryScope === 'unknown' ? '—' : formatDuration(stats.average_duration_ms) }}</p>
           <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">{{ summaryLabel }}</p>
         </div>
       </div>

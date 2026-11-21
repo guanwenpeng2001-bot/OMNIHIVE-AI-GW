@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -82,7 +82,8 @@ func TestReserveGatewayRequestBudget_MediaEntryHoldsBeforeUpstream(t *testing.T)
 		ID: 7, UserID: 3, Name: "media-key",
 		BudgetPolicy: service.APIKeyBudgetPolicy{Mode: service.APIKeyBudgetModeDuration, LimitUSD: 5, DurationSeconds: 600},
 	}
-	group := &service.Group{ID: 3, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true}
+	perImage := 0.04
+	group := &service.Group{ID: 3, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true, ImagePrice1K: &perImage}
 	key.GroupID = &group.ID
 	key.Group = group
 

@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 // Public observations preserve uncertainty instead of treating absent facts as zero.
@@ -50,24 +50,8 @@ type publicObservation[Value any] struct {
 	source        string
 }
 
-// The resolver has already matched the current account profile. Native facts and
-// identity-bound declarations must also match this field's model/profile. Gateway
-// evidence currently describes supported_methods only (account_protocol), not any
-// model capability aggregated here; do not promote protocol support to model facts.
 func authoritativePublicField(metadata service.UpstreamModelMetadata, field string) bool {
-	evidence, exists := metadata.FieldEvidence[field]
-	if !exists || evidence.Stale || metadata.ID == "" || metadata.ProviderProfile == "" ||
-		evidence.MatchedModelID != metadata.ID || evidence.ProviderProfile != metadata.ProviderProfile {
-		return false
-	}
-	switch evidence.Source {
-	case "upstream":
-		return evidence.MatchRule == "native_id"
-	case "account-declaration":
-		return evidence.MatchRule == "identity_bound_exact"
-	default:
-		return false
-	}
+	return service.AuthoritativeCatalogModelField(metadata, field)
 }
 
 func observePublicField[Value any](metadata service.UpstreamModelMetadata, field string, value *Value) publicObservation[Value] {

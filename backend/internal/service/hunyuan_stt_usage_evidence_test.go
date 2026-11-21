@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 	"github.com/stretchr/testify/require"
 )
 
@@ -77,9 +77,16 @@ func TestHunyuanSTTUnknown_PersistsReviewWithoutDebit(t *testing.T) {
 	repository := &hunyuanReviewBudgetRepository{}
 	settlement := NewUsageSettlementService(repository, nil, nil)
 	gateway := &OpenAIGatewayService{usageSettlement: settlement}
+	perHour := 3.6
+	group := &Group{ID: 1, AudioSTTPricePerHour: &perHour}
 	plan := NewGatewayRequestPlan(GatewayRequestSpec{UserID: 10, APIKeyID: 20, ExecutionID: "observation", Model: "hy-asr-3.0-preview"})
+	plan.billing = NewBillingService(nil, nil)
 	plan.settlement = settlement
-	require.NoError(t, plan.ReserveBudget(context.Background(), RequestBudgetEstimate{Model: "hy-asr-3.0-preview"}))
+	require.NoError(t, plan.ReserveBudget(context.Background(), RequestBudgetEstimate{
+		Model: "hy-asr-3.0-preview",
+		Group: group,
+		Meter: &BudgetMeter{Unit: "second", Count: 1, Numerator: 10, Denominator: 1},
+	}))
 	ctx := WithGatewayRequestPlan(context.Background(), plan)
 	result := &OpenAIForwardResult{RequestID: "poll", Model: "hy-asr-3.0-preview", AudioUsageUnresolved: true, Usage: OpenAIUsage{InputTokens: 999}}
 	require.NoError(t, gateway.RecordHunyuanSTTUnresolved(ctx, result, &APIKey{ID: 20, UserID: 10}, &Account{ID: 1, Platform: PlatformHunyuan}, "task"))

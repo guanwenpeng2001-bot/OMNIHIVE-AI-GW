@@ -32,6 +32,7 @@
             @click="toggleTheme"
             class="rounded-lg p-2 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]   "
             :title="isDark ? t('home.switchToLight') : t('home.switchToDark')"
+            :aria-label="isDark ? t('home.switchToLight') : t('home.switchToDark')"
           >
             <Icon v-if="isDark" name="sun" size="md" />
             <Icon v-else name="moon" size="md" />
@@ -96,6 +97,7 @@
             />
             <button
               @click="keyVisible = !keyVisible"
+              :aria-label="keyVisible ? t('publicPortal.keyUsage.hideKey') : t('publicPortal.keyUsage.showKey')"
               class="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] hover:text-[var(--foreground)]   transition-colors"
             >
               <svg v-if="!keyVisible" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -488,7 +490,7 @@ const subscriptionFeatureEnabled = computed(() => resolveFeatureFlag(appStore.ca
 
 // ==================== Site Settings (same as HomeView) ====================
 
-const siteName = computed(() => (appStore.cachedPublicSettings?.site_name || appStore.siteName || 'OmniHive').replace(/sub2api|omniscription/gi, 'OmniHive'))
+const siteName = computed(() => appStore.cachedPublicSettings?.site_name?.trim() || appStore.siteName?.trim() || 'OmniHive')
 const siteLogo = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '', { allowRelative: true, allowDataUrl: true }))
 const docUrl = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl || ''))
 const githubUrl = 'https://github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW'

@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
 	"net/http"
 	"time"
 )
+
+var batchImageProxyClient = httpclient.GetClient
 
 type batchImageAccountEgressKey struct{}
 
@@ -38,7 +40,7 @@ func batchImageDo(req *http.Request, original *http.Client) (*http.Response, err
 			return nil, err
 		}
 		if proxyURL != "" {
-			pooled, err := httpclient.GetClient(httpclient.Options{ProxyURL: proxyURL, ResponseHeaderTimeout: 60 * time.Second})
+			pooled, err := batchImageProxyClient(httpclient.Options{ProxyURL: proxyURL, ResponseHeaderTimeout: 60 * time.Second})
 			if err != nil {
 				return nil, err
 			}

@@ -1,9 +1,9 @@
 package routes
 
 import (
-	"github.com/Wei-Shaw/sub2api/internal/handler"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,19 +20,12 @@ func RegisterModelPlazaRoutes(
 	settingService *service.SettingService,
 	panelRateLimiter *middleware.PanelRateLimiter,
 ) {
-	mcpHandler := h.MCP
-	if mcpHandler == nil {
-		mcpHandler = handler.NewMCPGrantHandler()
-		if h != nil {
-			h.MCP = mcpHandler
-		}
-	}
+	mcpHandler := mcpGrantHandler(h)
 	public := v1.Group("/public")
 	public.Use(panelRateLimiter.PublicIP())
 	public.Use(gin.HandlerFunc(optionalJWT))
 	public.Use(middleware.BackendModeUserGuard(settingService))
 	public.GET("/rankings", mcpHandler.GetModelRankings)
-	public.POST("/playground/chat", mcpHandler.PlaygroundChat)
 	plaza := v1.Group("/model-plaza")
 	plaza.Use(middleware.DefaultWorkspaceScope())
 	plaza.Use(panelRateLimiter.PublicIP())

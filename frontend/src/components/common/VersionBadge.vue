@@ -13,7 +13,7 @@
         ]"
         :title="hasUpdate ? t('version.updateAvailable') : t('version.upToDate')"
       >
-        <span v-if="currentVersion" class="font-medium">v{{ currentVersion }}</span>
+        <span v-if="currentVersion" class="font-medium">{{ formatVersionTag(currentVersion) }}</span>
         <span
           v-else
           class="h-3 w-12 animate-pulse rounded bg-[var(--surface-2)] font-medium"
@@ -31,6 +31,12 @@
           :class="loading ? 'bg-amber-400' : 'bg-emerald-500/70'"
           aria-hidden="true"
         ></span>
+        <span
+          v-if="hasUpdate"
+          class="hidden rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-amber-700 dark:text-amber-300 md:inline"
+        >
+          {{ isZh ? '有新版本' : 'Update available' }}
+        </span>
       </button>
 
       <!-- Dropdown -->
@@ -38,16 +44,23 @@
         <div
           v-if="dropdownOpen"
           ref="dropdownRef"
-          class="absolute left-0 z-50 mt-2 overflow-hidden whitespace-normal rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-lg transition-all duration-200"
-          :class="rollbackPanelOpen && isReleaseBuild ? 'w-80' : 'w-64'"
+          class="absolute left-0 z-50 mt-2 max-w-[calc(100vw-2rem)] overflow-hidden whitespace-normal rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-lg transition-all duration-200"
+          :class="rollbackPanelOpen || !isReleaseBuild ? 'w-80' : 'w-72'"
         >
           <!-- Header with refresh button -->
           <div
             class="flex items-center justify-between border-b border-[var(--border)] px-4 py-3"
           >
-            <span class="text-sm font-medium text-[var(--foreground)]">{{
-              t('version.currentVersion')
-            }}</span>
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-medium text-[var(--foreground)]">{{
+                t('version.currentVersion')
+              }}</span>
+              <span
+                class="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 font-mono text-[10px] font-medium text-[var(--muted-foreground)]"
+              >
+                {{ buildTypeLabel }}
+              </span>
+            </div>
             <button
               @click="refreshVersion(true)"
               class="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
@@ -91,7 +104,7 @@
                   <span
                     v-if="currentVersion"
                     class="text-2xl font-bold text-[var(--foreground)]"
-                    >v{{ currentVersion }}</span
+                    >{{ formatVersionTag(currentVersion) }}</span
                   >
                   <span v-else class="text-2xl font-bold text-[var(--muted-foreground)]">--</span>
                   <!-- Show check mark when up to date -->
@@ -118,6 +131,12 @@
                       ? t('version.latestVersion') + ': v' + latestVersion
                       : t('version.upToDate')
                   }}
+                </p>
+                <p
+                  v-if="releaseSummary"
+                  class="mt-2 line-clamp-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-2 text-left text-[11px] leading-relaxed text-[var(--muted-foreground)]"
+                >
+                  {{ releaseSummary }}
                 </p>
               </div>
 
@@ -261,7 +280,7 @@
                       {{ t('version.updateAvailable') }}
                     </p>
                     <p class="text-xs text-amber-600/70 dark:text-amber-400/70">
-                      v{{ latestVersion }}
+                      {{ formatVersionTag(latestVersion) }}
                     </p>
                   </div>
                   <svg
@@ -274,7 +293,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
                   </svg>
                 </a>
-                <!-- Source build hint -->
+                <!-- Source / Docker build hint & copyable upgrade snippet -->
                 <div
                   class="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-2 dark:border-blue-800/50 dark:bg-blue-900/20"
                 >
@@ -292,8 +311,40 @@
                     />
                   </svg>
                   <p class="text-xs text-blue-600 dark:text-blue-400">
-                    {{ t('version.sourceModeHint') }}
+                    {{
+                      isDockerBuild
+                        ? isZh
+                          ? '当前为 Docker 部署，可复制下方命令一键拉取更新。'
+                          : 'Running in Docker mode. Copy the command below to upgrade.'
+                        : t('version.sourceModeHint')
+                    }}
                   </p>
+                </div>
+                <div class="overflow-hidden rounded-lg border border-[var(--border)]">
+                  <div
+                    class="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5"
+                  >
+                    <span class="text-[11px] font-medium text-[var(--foreground)]">
+                      {{ isZh ? 'Docker Compose 升级命令' : 'Docker Compose Upgrade' }}
+                    </span>
+                    <button
+                      type="button"
+                      @click="copyToClipboard(dockerUpgradeCommand)"
+                      class="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--card)] hover:text-[var(--foreground)]"
+                    >
+                      <Icon
+                        :name="copied ? 'check' : 'copy'"
+                        size="xs"
+                        :stroke-width="2"
+                        :class="copied ? 'text-green-500' : ''"
+                      />
+                      {{ copied ? t('version.copied') : t('version.copyCommand') }}
+                    </button>
+                  </div>
+                  <code
+                    class="block select-all whitespace-pre-wrap break-all bg-[var(--surface-2)] p-2.5 font-mono text-[10px] leading-relaxed text-[var(--muted-foreground)]"
+                    >{{ dockerUpgradeCommand }}</code
+                  >
                 </div>
               </div>
 
@@ -318,7 +369,7 @@
                       {{ t('version.updateAvailable') }}
                     </p>
                     <p class="text-xs text-amber-600/70 dark:text-amber-400/70">
-                      v{{ latestVersion }}
+                      {{ formatVersionTag(latestVersion) }}
                     </p>
                   </div>
                 </div>
@@ -399,27 +450,63 @@
 
                   <transition name="rollback">
                     <div v-if="rollbackPanelOpen" class="mt-2 space-y-2">
-                      <!-- Source build: online rollback unavailable, use git instead -->
+                      <!-- Docker/Source build: copyable rollback command snippet -->
                       <div
                         v-if="!isReleaseBuild"
-                        class="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-2 dark:border-blue-800/50 dark:bg-blue-900/20"
+                        class="space-y-2"
                       >
-                        <svg
-                          class="h-3.5 w-3.5 flex-shrink-0 text-blue-500 dark:text-blue-400"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          stroke-width="2"
+                        <div
+                          class="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-2 dark:border-blue-800/50 dark:bg-blue-900/20"
                         >
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                          />
-                        </svg>
-                        <p class="min-w-0 flex-1 text-xs leading-4 text-blue-600 dark:text-blue-400">
-                          {{ t('version.rollbackSourceHint') }}
-                        </p>
+                          <svg
+                            class="h-3.5 w-3.5 flex-shrink-0 text-blue-500 dark:text-blue-400"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            stroke-width="2"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
+                          </svg>
+                          <p class="min-w-0 flex-1 text-xs leading-4 text-blue-600 dark:text-blue-400">
+                            {{
+                              isDockerBuild
+                                ? isZh
+                                  ? '在 Docker 环境中，可固定目标镜像版本后重建容器完成回滚。'
+                                  : 'In Docker deployments, pin the target image tag and recreate the container.'
+                                : t('version.rollbackSourceHint')
+                            }}
+                          </p>
+                        </div>
+                        <div class="overflow-hidden rounded-lg border border-[var(--border)]">
+                          <div
+                            class="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5"
+                          >
+                            <span class="text-[11px] font-medium text-[var(--foreground)]">
+                              {{ isZh ? 'Docker Compose 回滚命令' : 'Docker Compose Rollback' }}
+                            </span>
+                            <button
+                              type="button"
+                              @click="copyToClipboard(dockerQuickRollbackCommand)"
+                              class="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--card)] hover:text-[var(--foreground)]"
+                            >
+                              <Icon
+                                :name="copied ? 'check' : 'copy'"
+                                size="xs"
+                                :stroke-width="2"
+                                :class="copied ? 'text-green-500' : ''"
+                              />
+                              {{ copied ? t('version.copied') : t('version.copyCommand') }}
+                            </button>
+                          </div>
+                          <code
+                            class="block select-all whitespace-pre-wrap break-all bg-[var(--surface-2)] p-2.5 font-mono text-[10px] leading-relaxed text-[var(--muted-foreground)]"
+                            >{{ dockerQuickRollbackCommand }}</code
+                          >
+                        </div>
                       </div>
 
                       <!-- Loading versions -->
@@ -510,7 +597,7 @@
                                   ? 'text-amber-700 dark:text-amber-300'
                                   : 'text-[var(--foreground)]'
                               "
-                              >v{{ item.version }}</span
+                              >{{ formatVersionTag(item.version) }}</span
                             >
                           </span>
                           <span class="text-[11px] tabular-nums text-[var(--muted-foreground)]">
@@ -636,7 +723,7 @@
 
     <!-- Non-admin: Simple static version text -->
     <span v-else-if="version" class="text-xs text-[var(--muted-foreground)]">
-      v{{ version }}
+      {{ formatVersionTag(version) }}
     </span>
   </div>
 </template>
@@ -661,11 +748,18 @@ const GITHUB_REPO = 'guanwenpeng2001-bot/OMNIHIVE-AI-GW'
 // GHCR image published by CI (tags carry no "v" prefix).
 const DOCKER_IMAGE = 'ghcr.io/guanwenpeng2001-bot/omnihive-ai-gw'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const isZh = computed(() => String(locale?.value || 'zh').toLowerCase().startsWith('zh'))
 
 const props = defineProps<{
   version?: string
 }>()
+
+function formatVersionTag(raw?: string | null): string {
+  if (!raw) return ''
+  const trimmed = raw.trim()
+  return /^[vV]/.test(trimmed) ? trimmed : `v${trimmed}`
+}
 
 const authStore = useAuthStore()
 const appStore = useAppStore()
@@ -685,7 +779,41 @@ const releaseURL = computed(() => {
   const url = releaseInfo.value?.html_url
   return url && url !== '#' ? url : `https://github.com/${GITHUB_REPO}/releases`
 })
-const buildType = computed(() => appStore.buildType)
+const buildType = computed(() => appStore.buildType || 'source')
+const isDockerBuild = computed(() => buildType.value === 'docker')
+const buildTypeLabel = computed(() => {
+  if (buildType.value === 'release') return isZh.value ? '发行版' : 'Release'
+  if (buildType.value === 'docker') return 'Docker'
+  return isZh.value ? '源码构建' : 'Source'
+})
+const releaseSummary = computed(() => {
+  const raw = releaseInfo.value?.body?.trim()
+  if (!raw) return ''
+  return raw
+    .replace(/^#+\s*/gm, '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 3)
+    .join(' · ')
+})
+const dockerUpgradeCommand = computed(() => {
+  const tag = latestVersion.value || 'latest'
+  return [
+    `# ${isZh.value ? '拉取并切换至最新版本' : 'Pull and restart with latest image'}`,
+    `docker pull ${DOCKER_IMAGE}:${tag}`,
+    'docker compose up -d'
+  ].join('\n')
+})
+const dockerQuickRollbackCommand = computed(() => {
+  const target = currentVersion.value || '<target-version>'
+  return [
+    `# ${isZh.value ? '在 docker-compose.yml 中固定历史镜像标签' : 'Pin target image tag in docker-compose.yml'}`,
+    `image: ${DOCKER_IMAGE}:${target}`,
+    'docker compose up -d'
+  ].join('\n')
+})
 
 // Update process states (local to this component)
 const updating = ref(false)

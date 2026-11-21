@@ -1,4 +1,8 @@
-# `.s2plugin` 包格式
+# 旧版 `.s2plugin` 包格式
+
+> 当前插件包格式为 `.ohplugin`（manifest v2 + WASI Preview 1）。请优先阅读
+> [`contracts/plugins/README.md`](../../../../contracts/plugins/README.md)；
+> 本页只描述兼容窗口内的 v1 `.s2plugin` 布局。
 
 `.s2plugin` 是 ZIP 文件，根目录必须包含 `manifest.json`，生产包还必须包含 `signature.json`。
 
@@ -40,6 +44,6 @@ ui/assets/...
 }
 ```
 
-签名对象是 `manifest.json` 的精确原始字节。发布者私钥不得进入插件包、源码仓库或 Sub2API 运行环境。部署者只配置 Base64 Ed25519 公钥。
+签名对象是 `manifest.json` 的精确原始字节。发布者私钥不得进入插件包、源码仓库或 OmniHive 运行环境。部署者只配置 Base64 Ed25519 公钥。
 
 默认生产配置拒绝未签名包。官方 OpenAI Transport 使用宿主内置公钥验签，不需要配置；其他发布者仍需配置 `trusted_publishers`。`allow_unsigned` 只用于开发者自己构建的本地包。

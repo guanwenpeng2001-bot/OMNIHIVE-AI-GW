@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/testutil/testresources"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testresources"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"

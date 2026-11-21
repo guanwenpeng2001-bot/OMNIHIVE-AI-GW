@@ -3,16 +3,17 @@ package middleware
 import (
 	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -150,6 +151,51 @@ func TestPromptAuditMutationAuditRoutesHaveStableActionsAndOmitBodies(t *testing
 	}
 }
 
+func TestPlaygroundAuditOmitsContent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repository := &auditCaptureRepository{}
+	auditService := service.NewAuditLogService(repository, nil)
+	auditService.Start()
+	router := gin.New()
+	router.Use(gin.HandlerFunc(NewAuditLogMiddleware(auditService)))
+	const (
+		input  = `{"input":{"prompt":"private prompt"}}`
+		prefix = "/api/v2/workspaces/1/projects/2"
+	)
+	routes := []struct {
+		suffix, path string
+	}{
+		{"/playground/runs", "/playground/runs"},
+		{"/requests/:id/replay", "/requests/private-path-value/replay"},
+	}
+	for _, route := range routes {
+		router.POST(playgroundAuditPrefix+route.suffix, func(c *gin.Context) {
+			body, err := io.ReadAll(c.Request.Body)
+			require.NoError(t, err)
+			require.JSONEq(t, input, string(body))
+			SetAuditExtra(c, map[string]any{"project_id": int64(2), "result": "validation_failed"})
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "private error"})
+		})
+	}
+	for _, route := range routes {
+		req := httptest.NewRequest(http.MethodPost, prefix+route.path+"?text=private-query-value", bytes.NewBufferString(input))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", "private-user-agent")
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, req)
+		require.Equal(t, http.StatusUnprocessableEntity, recorder.Code)
+	}
+	auditService.Stop()
+	require.Len(t, repository.logs, 2)
+	require.Equal(t, "playground.run", repository.logs[0].Action)
+	require.Equal(t, "requests.replay", repository.logs[1].Action)
+	for _, entry := range repository.logs {
+		require.Equal(t, "<private body omitted>", entry.RequestBody)
+		require.Empty(t, entry.UserAgent)
+		require.Equal(t, map[string]any{"project_id": int64(2), "result": "validation_failed"}, entry.Extra)
+	}
+}
+
 func TestPasskeyLoginAuditUsesCanonicalLoginActionAndOmitsCredentialBody(t *testing.T) {
 	route := "POST /api/v1/auth/passkey/login/finish"
 	require.Equal(t, service.AuditActionLogin, auditActionOverrides[route])
@@ -244,4 +290,45 @@ func TestConfigurationWriteAuditRecordsSubmittedDiffWorkspaceAndActor(t *testing
 	}
 	require.Contains(t, fields, "name")
 	require.Contains(t, fields, "credentials")
+}
+
+func TestTaskMutationsOmitBodiesAndExtensionReadIsAudited(t *testing.T) {
+	const path = "POST /api/v2/workspaces/:workspace_id/projects/:project_id/tasks"
+	require.Contains(t, auditBodyOmittedRoutes, path)
+	require.Contains(t, auditBodyOmittedRoutes, path+"/:id/retry")
+	require.Equal(t, "tasks.create", auditActionOverrides[path])
+	require.Equal(t, "tasks.retry", auditActionOverrides[path+"/:id/retry"])
+	require.Equal(t, "admin.extensions.list", auditSensitiveReads["GET /api/v2/admin/extensions"])
+}
+
+func TestV2MutationAuditRetainsScopeAndRedactedSubmittedDiff(t *testing.T) {
+	repository := &auditCaptureRepository{}
+	auditService := service.NewAuditLogService(repository, nil)
+	auditService.Start()
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(ContextKeyUser), AuthSubject{UserID: 7})
+		c.Set(string(ContextKeyUserRole), "admin")
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.RequestID, "req-v2-7"))
+		c.Next()
+	})
+	router.Use(gin.HandlerFunc(NewAuditLogMiddleware(auditService)))
+	router.PUT("/api/v2/workspaces/:workspace_id/projects/:project_id/connections/:id", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+	req := httptest.NewRequest(http.MethodPut, "/api/v2/workspaces/3/projects/4/connections/9", bytes.NewBufferString(`{"name":"renamed","api_key":"audit-secret"}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(httptest.NewRecorder(), req)
+	auditService.Stop()
+	require.Len(t, repository.logs, 1)
+	entry := repository.logs[0]
+	require.Equal(t, int64(4), *entry.ProjectID)
+	require.Equal(t, "9", entry.ResourceID)
+	require.Equal(t, "req-v2-7", entry.RequestID)
+	require.Equal(t, "/api/v2/workspaces/:workspace_id/projects/:project_id/connections/:id", entry.Path)
+	require.NotContains(t, entry.RequestBody, "audit-secret")
+	changes, ok := entry.Extra["submitted_diff"].([]service.ConfigurationFieldDiff)
+	require.True(t, ok)
+	require.Equal(t, "changed", changes[0].After)
+	require.Equal(t, "renamed", changes[1].After)
 }

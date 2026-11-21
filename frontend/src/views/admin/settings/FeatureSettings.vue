@@ -49,7 +49,7 @@
                 "
                 @click="form.channel_monitor_mode = 'v2'"
               >
-                {{ t("admin.settings.features.channelMonitor.modeV2") }}
+                {{ t("admin.settings.features.channelMonitor.modeTelemetry") }}
               </button>
               <button
                 type="button"
@@ -61,14 +61,14 @@
                 "
                 @click="form.channel_monitor_mode = 'v1'"
               >
-                {{ t("admin.settings.features.channelMonitor.modeV1") }}
+                {{ t("admin.settings.features.channelMonitor.modeProbe") }}
               </button>
             </div>
             <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
               {{
                 form.channel_monitor_mode === "v1"
-                  ? t("admin.settings.features.channelMonitor.modeV1Hint")
-                  : t("admin.settings.features.channelMonitor.modeV2Hint")
+                  ? t("admin.settings.features.channelMonitor.modeProbeHint")
+                  : t("admin.settings.features.channelMonitor.modeTelemetryHint")
               }}
             </p>
             <p class="mt-1 text-xs text-[var(--muted-foreground)]">

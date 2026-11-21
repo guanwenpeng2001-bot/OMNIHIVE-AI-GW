@@ -6,8 +6,14 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/shopspring/decimal"
+
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
 )
 
 // PricingState is independent of settlement and provider completion state.
@@ -305,4 +311,187 @@ func recordJobPricingFailure(job *UpstreamJob, err error) {
 	if errors.Is(err, ErrUpstreamJobTariff) || errors.Is(err, ErrModelPricingUnavailable) {
 		job.Billing.PricingState = PricingStateUnpriced
 	}
+}
+
+// ReplayExactPricing evaluates a frozen v1 leaf through the exact calculator.
+// Composite and legacy staged-rounding receipts require the BE-11 assembler.
+func ReplayExactPricing(encoded string) (pricing.Result, error) {
+	var snapshot PricingSnapshot
+	if err := json.Unmarshal([]byte(encoded), &snapshot); err != nil {
+		return pricing.Result{}, err
+	}
+	frozen, err := snapshot.exactLeaf()
+	if err != nil {
+		return pricing.Result{}, err
+	}
+	return frozen.Calculate()
+}
+
+func (s PricingSnapshot) exactLeaf() (pricing.Frozen, error) {
+	if s.QuantizeQuoteBeforeMultiplier || len(s.Additions) != 0 || len(s.CustomerPricing) != 0 {
+		return pricing.Frozen{}, fmt.Errorf("composite or staged pricing: %w", ErrModelPricingUnavailable)
+	}
+	if err := validateCostInput(CostInput{Tokens: s.Tokens, RateMultiplier: s.RateMultiplier, UsageUnits: s.Units}); err != nil {
+		return pricing.Frozen{}, err
+	}
+	version := s.PriceCardVersion
+	if version == "" {
+		version = "legacy_snapshot"
+	}
+	contextTokens := s.Tokens.InputTokens + s.Tokens.CacheCreationTokens + s.Tokens.CacheReadTokens
+	context, err := money.NewQuantity("token", strconv.Itoa(contextTokens))
+	if err != nil {
+		return pricing.Frozen{}, err
+	}
+	f := pricing.Frozen{Version: pricing.Version{ID: version, Source: s.Source, Currency: "USD"},
+		At: s.PricingAt, Usage: pricing.Usage{Context: context}}
+	add := func(kind string, unit money.Unit, quantity string, rate float64, factors ...float64) error {
+		q, err := money.NewQuantity(unit, quantity)
+		if err != nil {
+			return err
+		}
+		text, err := exactLegacyDecimal(rate, 18)
+		if err != nil {
+			return err
+		}
+		r, err := money.NewRate("USD", text, unit, "1")
+		if err != nil {
+			return err
+		}
+		rule := pricing.Rule{Kind: kind, Rate: r}
+		for _, factor := range factors {
+			a, err := exactLegacyMultiplier(factor)
+			if err != nil {
+				return err
+			}
+			rule.Multipliers = append(rule.Multipliers, a)
+		}
+		f.Version.Rules = append(f.Version.Rules, rule)
+		f.Usage.Dimensions = append(f.Usage.Dimensions, pricing.Dimension{Kind: kind, Quantity: q})
+		return nil
+	}
+	rateMultiplier, err := exactLegacyMultiplier(s.RateMultiplier)
+	if err != nil {
+		return pricing.Frozen{}, err
+	}
+	f.Version.Multipliers = append(f.Version.Multipliers, rateMultiplier)
+	var factors []float64
+	if s.TokenPrices != nil {
+		factors = append(factors, s.TimeMultiplier, s.ReasoningMultiplier)
+	}
+	if s.AdjustmentMultiplier != 0 {
+		factors = append(factors, s.AdjustmentMultiplier)
+	}
+	for _, factor := range factors {
+		a, err := exactLegacyMultiplier(factor)
+		if err != nil {
+			return pricing.Frozen{}, err
+		}
+		f.Version.Multipliers = append(f.Version.Multipliers, a)
+	}
+	if s.TokenPrices == nil {
+		if s.UnitPrice == nil {
+			return pricing.Frozen{}, ErrModelPricingUnavailable
+		}
+		unit := money.Unit("request")
+		if s.Units != math.Trunc(s.Units) {
+			return pricing.Frozen{}, fmt.Errorf("fractional legacy units lack type evidence: %w", ErrModelPricingUnavailable)
+		}
+		err := add(s.Mode, unit, strconv.FormatFloat(s.Units, 'f', -1, 64), *s.UnitPrice)
+		return f, err
+	}
+	p, t := s.TokenPrices, s.Tokens
+	if err := validateTokenDimensions(p, t, s.ServiceTier); err != nil {
+		return pricing.Frozen{}, err
+	}
+	tier := configuredServiceTierMultiplier(s.ServiceTier, p)
+	input, output, read, write := p.InputPricePerToken, p.OutputPricePerToken, p.CacheReadPricePerToken, p.CacheCreationPricePerToken
+	if usePriorityServiceTierPricing(s.ServiceTier, p) {
+		tier = 1
+		for _, choice := range []struct {
+			kind string
+			rate float64
+			dest *float64
+		}{
+			{"input_priority", p.InputPricePerTokenPriority, &input},
+			{"output_priority", p.OutputPricePerTokenPriority, &output},
+			{"cache_read_priority", p.CacheReadPricePerTokenPriority, &read},
+			{"cache_write_priority", p.CacheCreationPricePerTokenPriority, &write},
+		} {
+			if p.hasTokenPrice(choice.kind, choice.rate) {
+				*choice.dest = choice.rate
+			}
+		}
+	}
+	inFactor, outFactor := 1.0, 1.0
+	if s.LongContextApplied {
+		inFactor = longContextMultiplierOrOne(p.LongContextInputMultiplier)
+		outFactor = longContextMultiplierOrOne(p.LongContextOutputMultiplier)
+	}
+	imageInput, imageOutput, imageRead := p.ImageInputPricePerToken, p.ImageOutputPricePerToken, p.ImageCacheReadPricePerToken
+	imageInFactor, imageOutFactor := 1.0, 1.0
+	if !p.hasTokenPrice("image_input", imageInput) {
+		imageInput, imageInFactor = input, inFactor
+	}
+	if !p.hasTokenPrice("image_output", imageOutput) && !p.ImageOutputPriceExplicit {
+		imageOutput, imageOutFactor = output, outFactor
+	}
+	imageReadCount := 0
+	if p.hasTokenPrice("image_cache_read", imageRead) {
+		imageReadCount = min(t.ImageCacheReadTokens, t.CacheReadTokens)
+	}
+	imageInCount := min(t.InputTokens, t.ImageInputTokens)
+	writeCount, write5m, write1h := t.CacheCreationTokens, 0, 0
+	if usesCacheCreationBreakdown(p) {
+		write5m, write1h = normalizeCacheCreationBreakdown(t)
+		if write5m == 0 && write1h == 0 {
+			write5m = writeCount
+		}
+		writeCount = 0
+	}
+	for _, line := range []struct {
+		kind          string
+		unit          money.Unit
+		count         int
+		price, factor float64
+	}{
+		{"input", "input_token", t.InputTokens - imageInCount, input, inFactor},
+		{"image_input", "image_input_token", imageInCount, imageInput, imageInFactor},
+		{"output", "output_token", max(0, t.OutputTokens-t.ImageOutputTokens), output, outFactor},
+		{"image_output", "image_output_token", t.ImageOutputTokens, imageOutput, imageOutFactor},
+		{"cache_read", "cache_read_token", t.CacheReadTokens - imageReadCount, read, inFactor},
+		{"image_cache_read", "cache_read_token", imageReadCount, imageRead, 1},
+		{"cache_write", "cache_write_token", writeCount, write, inFactor},
+		{"cache_write_5m", "cache_write_token", write5m, p.CacheCreation5mPrice, inFactor},
+		{"cache_write_1h", "cache_write_token", write1h, p.CacheCreation1hPrice, inFactor},
+	} {
+		if line.count == 0 {
+			continue
+		}
+		if err := add(line.kind, line.unit, strconv.Itoa(line.count), line.price, line.factor, tier); err != nil {
+			return pricing.Frozen{}, err
+		}
+	}
+	return f, nil
+}
+
+func exactLegacyMultiplier(value float64) (money.Amount, error) {
+	text, err := exactLegacyDecimal(value, 10)
+	if err != nil {
+		return money.Amount{}, err
+	}
+	return money.Parse(text)
+}
+
+func exactLegacyDecimal(value float64, scale int32) (string, error) {
+	if !validBillingNumber(value) {
+		return "", ErrInvalidBillingAmount
+	}
+	// Old float cards can have tails from unit conversion. Normalize them
+	// once to the exact storage scale before pricing any usage.
+	d := decimal.NewFromFloat(value).Round(scale)
+	if value != 0 && d.IsZero() {
+		return "", money.ErrBounds
+	}
+	return d.String(), nil
 }

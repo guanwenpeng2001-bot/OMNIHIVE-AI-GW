@@ -182,8 +182,202 @@
                   </div>
                 </Teleport>
               </div>
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                @click="router.push('/admin/connections/new')"
+              >
+                {{ isZh ? '新建上游连接' : 'New Connection' }}
+              </button>
+              <button
+                v-if="selIds.length > 0"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click="bulkDiffOpen = true"
+              >
+                {{ isZh ? '批量变更预览' : 'Preview Bulk Changes' }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click="toggleManagedConnectionsPanel"
+              >
+                {{ isZh ? '连接状态与事件' : 'Connection Events' }}
+                <span
+                  v-if="managedConnections.length > 0"
+                  class="ml-1 rounded-full bg-primary-500/15 px-1.5 py-0.2 font-mono text-xs text-primary-600 dark:text-primary-300"
+                >
+                  {{ managedConnections.length }}
+                </span>
+              </button>
             </template>
           </AccountTableActions>
+        </div>
+        <div
+          v-if="managedPromptAccountId"
+          class="mt-2 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary-300 bg-primary-50/90 px-3.5 py-2.5 text-sm text-gray-900 dark:border-primary-700/50 dark:bg-primary-900/25 dark:text-gray-100"
+          role="alert"
+        >
+          <div class="space-y-0.5">
+            <div class="font-semibold">
+              {{
+                isZh
+                  ? `账号 #${managedPromptAccountId} 由上游连接工作台托管`
+                  : `Account #${managedPromptAccountId} is managed by Connections Workbench`
+              }}
+            </div>
+            <div class="text-xs text-gray-600 dark:text-gray-300">
+              {{
+                isZh
+                  ? '为保障端点连通性探测与加密凭据修订一致性，请前往上游连接配置向导修改名称、服务地址、请求头或凭据。'
+                  : 'To preserve endpoint verification and credential revision guarantees, edit name, endpoint, headers, or credentials in the Connections Workbench.'
+              }}
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              @click="openQuickEditDrawer(managedPromptAccountId); managedPromptAccountId = null"
+            >
+              {{ isZh ? '快捷编辑' : 'Quick Edit' }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              @click="router.push(`/admin/connections/${managedPromptAccountId}/edit`)"
+            >
+              {{ isZh ? '前往连接工作台编辑' : 'Open Connections Workbench' }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              @click="managedPromptAccountId = null"
+            >
+              {{ t('common.cancel') }}
+            </button>
+          </div>
+        </div>
+        <div
+          v-if="showManagedConnectionsPanel"
+          class="mt-2 rounded-lg border border-gray-200 bg-[var(--surface-1)] p-3.5 text-xs dark:border-dark-700 space-y-3"
+        >
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div class="text-sm font-semibold text-gray-900 dark:text-white">
+                {{ isZh ? '工作台托管连接与探测事件' : 'Workbench Connections & Probe Events' }}
+              </div>
+              <p class="text-gray-500 dark:text-gray-400">
+                {{
+                  isZh
+                    ? '查看通过连接向导托管的上游连接修订状态，或检视单条连接的变更与验证事件流。'
+                    : 'Inspect revision states of workbench-managed upstream connections and view change or probe events.'
+                }}
+              </p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                class="btn btn-secondary px-2.5 py-1 text-xs"
+                :disabled="managedConnectionsLoading"
+                @click="loadManagedConnections"
+              >
+                {{ isZh ? '刷新列表' : 'Refresh' }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-ghost px-2 py-1 text-xs"
+                @click="showManagedConnectionsPanel = false"
+              >
+                {{ isZh ? '收起' : 'Close' }}
+              </button>
+            </div>
+          </div>
+          <div v-if="managedConnections.length === 0 && !managedConnectionsLoading" class="text-gray-500 dark:text-gray-400">
+            {{
+              isZh
+                ? '当前工作空间暂无连接向导托管记录，点击右上角“新建上游连接”可按 5 步向导创建。'
+                : 'No workbench-managed connections yet. Click "New Connection" to provision via the 5-step wizard.'
+            }}
+          </div>
+          <div v-else class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <div class="max-h-48 overflow-y-auto divide-y divide-gray-200 rounded-md border border-gray-200 dark:divide-dark-700 dark:border-dark-700">
+              <div
+                v-for="conn in managedConnections"
+                :key="conn.id"
+                class="flex flex-wrap items-center justify-between gap-2 px-3 py-2"
+                :class="selectedEventConnectionId === conn.id ? 'bg-primary-50/60 dark:bg-primary-900/20' : ''"
+              >
+                <div class="min-w-0">
+                  <div class="flex items-center gap-1.5 font-medium text-gray-900 dark:text-gray-100 truncate">
+                    <span>{{ conn.name }}</span>
+                    <span class="font-mono text-[11px] text-gray-500">#{{ conn.id }}</span>
+                  </div>
+                  <div class="text-[11px] text-gray-500 dark:text-gray-400 font-mono">
+                    {{ conn.provider }} · {{ isZh ? `配置修订 #${conn.version}` : `Revision #${conn.version}` }} ·
+                    {{ formatManagedState(conn.state) }}
+                  </div>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    class="btn btn-secondary px-2 py-0.5 text-[11px]"
+                    @click="selectConnectionForEvents(conn.id)"
+                  >
+                    {{ isZh ? '查看事件' : 'Events' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-primary px-2 py-0.5 text-[11px]"
+                    @click="router.push(`/admin/connections/${conn.id}/edit`)"
+                  >
+                    {{ isZh ? '编辑连接' : 'Wizard' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="rounded-md border border-gray-200 p-2.5 dark:border-dark-700 space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="font-semibold text-gray-800 dark:text-gray-200">
+                  {{
+                    selectedEventConnectionId
+                      ? isZh
+                        ? `连接 #${selectedEventConnectionId} 事件流`
+                        : `Connection #${selectedEventConnectionId} Events`
+                      : isZh
+                        ? '连接变更与探测事件'
+                        : 'Connection Events'
+                  }}
+                </span>
+                <button
+                  v-if="selectedEventConnectionId"
+                  type="button"
+                  class="text-[11px] text-primary-600 hover:underline dark:text-primary-400"
+                  @click="selectConnectionForEvents(selectedEventConnectionId)"
+                >
+                  {{ isZh ? '刷新事件' : 'Refresh' }}
+                </button>
+              </div>
+              <div v-if="!selectedEventConnectionId" class="text-gray-500 dark:text-gray-400">
+                {{ isZh ? '从左侧选择一条连接以加载其变更与探测历史。' : 'Select a connection on the left to inspect its event timeline.' }}
+              </div>
+              <div v-else-if="selectedConnectionEvents.length === 0 && !selectedEventsLoading" class="text-gray-500 dark:text-gray-400">
+                {{ isZh ? '暂无事件记录。' : 'No events recorded yet.' }}
+              </div>
+              <div v-else class="max-h-36 overflow-y-auto divide-y divide-gray-100 dark:divide-dark-700">
+                <div
+                  v-for="ev in selectedConnectionEvents"
+                  :key="ev.id"
+                  class="flex items-center justify-between gap-2 py-1.5"
+                >
+                  <span class="text-gray-800 dark:text-gray-200">{{ formatManagedEventType(ev.type) }}</span>
+                  <span class="font-mono text-[11px] text-gray-500">
+                    #{{ ev.version }} · {{ new Date(ev.at).toLocaleString() }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
         <div
           v-if="hasPendingListSync"
@@ -237,12 +431,13 @@
               type="checkbox"
               class="h-4 w-4 cursor-pointer rounded border-gray-300 text-primary-600 focus:ring-primary-500"
               :checked="allVisibleSelected"
+              :aria-label="t('common.selectAll')"
               @click.stop
               @change="toggleSelectAllVisible($event)"
             />
           </template>
           <template #cell-select="{ row }">
-            <input type="checkbox" :checked="isSelected(row.id)" @change="toggleSel(row.id)" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+            <input type="checkbox" :checked="isSelected(row.id)" :aria-label="row.name || `#${row.id}`" @change="toggleSel(row.id)" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
           </template>
           <template #cell-id="{ value }">
             <span class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ value }}</span>
@@ -457,16 +652,26 @@
             </div>
           </template>
           <template #cell-actions="{ row }">
-            <div class="account-row-actions flex items-center gap-1">
-              <button @click="handleEdit(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:text-primary-600 hover:bg-[var(--surface-2)] dark:hover:text-primary-400">
+            <div class="account-row-actions flex items-center gap-1 whitespace-nowrap">
+              <button @click="handleEdit(row)" class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-gray-500 transition-colors hover:text-primary-600 hover:bg-[var(--surface-2)] dark:hover:text-primary-400">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
                 <span class="text-xs">{{ t('common.edit') }}</span>
               </button>
-              <button @click="handleDelete(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400">
+              <button
+                type="button"
+                class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-gray-500 transition-colors hover:text-oh-accent hover:bg-[var(--surface-2)]"
+                @click="openQuickEditDrawer(row.id)"
+                :aria-label="t('common.edit')"
+                :title="t('common.edit')"
+              >
+                <Icon name="cog" size="sm" />
+                <span class="text-xs">{{ t('common.edit') }}</span>
+              </button>
+              <button @click="handleDelete(row)" class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
                 <span class="text-xs">{{ t('common.delete') }}</span>
               </button>
-              <button @click="openMenu(row, $event)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:text-gray-900 hover:bg-[var(--surface-2)] dark:hover:text-white">
+              <button @click="openMenu(row, $event)" class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-gray-500 transition-colors hover:text-gray-900 hover:bg-[var(--surface-2)] dark:hover:text-white">
                 <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM12.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM18.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" /></svg>
                 <span class="text-xs">{{ t('common.more') }}</span>
               </button>
@@ -509,12 +714,24 @@
     <ErrorPassthroughRulesModal v-if="showErrorPassthrough" :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
     <TLSFingerprintProfilesModal v-if="showTLSFingerprintProfiles" :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
     <TotpStepUpDialog :controller="accountExportStepUp" />
+    <ConnectionQuickEditDrawer
+      v-model:open="quickEditOpen"
+      :connection-id="quickEditConnectionId"
+      @saved="reload"
+      @open-wizard="router.push(`/admin/connections/${$event}/edit`)"
+    />
+    <ConnectionBulkDiffModal
+      v-model:open="bulkDiffOpen"
+      :connection-ids="selIds.map(String)"
+      @applied="reload"
+    />
   </AppLayout>
 </template>
 
 <script setup lang="ts">
 import type { AccountListFilters } from '@/api/admin/accounts'
 import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch, defineAsyncComponent, defineComponent, h, type Component } from 'vue'
+import { useRouter } from 'vue-router'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -552,6 +769,11 @@ function lazyAccountDialog(load: () => Promise<{ default: Component }>) {
 const CreateAccountModal = lazyAccountDialog(() => import('@/components/account/CreateAccountModal.vue'))
 const EditAccountModal = lazyAccountDialog(() => import('@/components/account/EditAccountModal.vue'))
 const BulkEditAccountModal = lazyAccountDialog(() => import('@/components/account/BulkEditAccountModal.vue'))
+import { apiClient } from '@/api/client'
+import { connectionsApi } from '@/features/connections/api'
+import type { ConnectionEvent, ConnectionResource } from '@/features/connections/types'
+import ConnectionQuickEditDrawer from '@/features/connections/components/ConnectionQuickEditDrawer.vue'
+import ConnectionBulkDiffModal from '@/features/connections/components/ConnectionBulkDiffModal.vue'
 const SyncFromCrsModal = lazyAccountDialog(() => import('@/components/account/SyncFromCrsModal.vue'))
 const TempUnschedStatusModal = lazyAccountDialog(() => import('@/components/account/TempUnschedStatusModal.vue'))
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
@@ -578,13 +800,15 @@ import { fetchAllAccountIds } from '@/utils/accountSelection'
 import { buildGrokUsageRefreshKey, buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
-import { extractApiErrorMessage } from '@/utils/apiError'
+import { extractApiErrorCode, extractApiErrorMessage, extractApiErrorStatus } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
 import type { Account, AccountListItem, AccountPlatform, AccountSchedulerGroupScore, AccountType, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
 
-const { t } = useI18n()
+const i18n = useI18n()
+const { t } = i18n
+const isZh = computed(() => String(i18n.locale?.value || '').toLowerCase().startsWith('zh'))
 const appStore = useAppStore()
 const authStore = useAuthStore()
 const { openDrawer } = useThemeDirection()
@@ -639,6 +863,102 @@ const selTypes = computed<AccountType[]>(() => {
   return [...types]
 })
 const showCreate = ref(false)
+const router = useRouter()
+const quickEditOpen = ref(false)
+const quickEditConnectionId = ref<string | null>(null)
+const bulkDiffOpen = ref(false)
+const managedConnections = ref<ConnectionResource[]>([])
+const managedConnectionsLoading = ref(false)
+const showManagedConnectionsPanel = ref(false)
+const selectedEventConnectionId = ref<string | null>(null)
+const selectedConnectionEvents = ref<ConnectionEvent[]>([])
+const selectedEventsLoading = ref(false)
+const managedPromptAccountId = ref<string | null>(null)
+let managedInterceptorId: number | null = null
+
+const managedConnectionsById = computed(
+  () => new Map(managedConnections.value.map((item) => [String(item.id), item]))
+)
+
+async function loadManagedConnections() {
+  managedConnectionsLoading.value = true
+  try {
+    const page = await connectionsApi.listConnections({ limit: 100 })
+    managedConnections.value = page.items ?? []
+    if (!selectedEventConnectionId.value && managedConnections.value.length > 0) {
+      void selectConnectionForEvents(managedConnections.value[0].id)
+    }
+  } catch {
+    // Silently ignore if v2 connections endpoint is unavailable in lightweight contexts
+  } finally {
+    managedConnectionsLoading.value = false
+  }
+}
+
+async function selectConnectionForEvents(id: string) {
+  selectedEventConnectionId.value = id
+  selectedEventsLoading.value = true
+  try {
+    const page = await connectionsApi.listEvents(id, { limit: 15 })
+    selectedConnectionEvents.value = page.items ?? []
+  } catch {
+    selectedConnectionEvents.value = []
+  } finally {
+    selectedEventsLoading.value = false
+  }
+}
+
+function toggleManagedConnectionsPanel() {
+  showManagedConnectionsPanel.value = !showManagedConnectionsPanel.value
+  if (showManagedConnectionsPanel.value) {
+    void loadManagedConnections()
+  }
+}
+
+function formatManagedState(state: string): string {
+  if (!isZh.value) return state
+  if (state === 'active') return '已启用'
+  if (state === 'draft') return '草稿'
+  if (state === 'disabled') return '已停用'
+  return state
+}
+
+function formatManagedEventType(type: string): string {
+  const mapZh: Record<string, string> = {
+    'connection.created': '创建连接草稿',
+    'connection.updated': '更新连接配置',
+    'connection.verified': '连通性验证通过',
+    'connection.verification_failed': '连通性验证未通过',
+    'connection.activated': '启用上游连接',
+    'credential.updated': '更新认证凭据',
+    'credential.cleared': '清空认证凭据',
+    'rotation.validating': '轮换凭据：探测新密钥',
+    'rotation.switching': '轮换凭据：切换生效',
+    'rotation.draining': '轮换凭据：平滑排空',
+    'rotation.revoked': '轮换凭据：旧密钥退役',
+    'rotation.failed': '轮换凭据：验证未通过'
+  }
+  const mapEn: Record<string, string> = {
+    'connection.created': 'Draft created',
+    'connection.updated': 'Configuration updated',
+    'connection.verified': 'Verification passed',
+    'connection.verification_failed': 'Verification failed',
+    'connection.activated': 'Connection activated',
+    'credential.updated': 'Credential updated',
+    'credential.cleared': 'Credential cleared',
+    'rotation.validating': 'Rotation: validating',
+    'rotation.switching': 'Rotation: switching',
+    'rotation.draining': 'Rotation: draining',
+    'rotation.revoked': 'Rotation: retired',
+    'rotation.failed': 'Rotation: failed'
+  }
+  return (isZh.value ? mapZh[type] : mapEn[type]) || type
+}
+
+const openQuickEditDrawer = (id: number | string) => {
+  quickEditConnectionId.value = String(id)
+  quickEditOpen.value = true
+}
 const showEdit = ref(false)
 const showSync = ref(false)
 const showImportData = ref(false)
@@ -1276,6 +1596,9 @@ const reload = async () => {
   pendingTodayStatsRefresh.value = false
   await baseReload()
   await refreshTodayStatsBatch()
+  if (authStore.user || showManagedConnectionsPanel.value) {
+    void loadManagedConnections()
+  }
 }
 
 const buildUpstreamBillingRateFilters = (): AccountListFilters => ({
@@ -1935,6 +2258,9 @@ const loadAccountDetails = async (account: Pick<AccountListItem, 'id'>): Promise
 const handleEdit = async (a: AccountListItem) => {
   const account = await loadAccountDetails(a)
   if (!account) return
+  if (managedConnectionsById.value.has(String(account.id))) {
+    managedPromptAccountId.value = String(account.id)
+  }
   edAcc.value = account
   showEdit.value = true
 }
@@ -2366,7 +2692,7 @@ const handleExportData = async () => {
           }
     ))
     const timestamp = formatExportTimestamp()
-    const filename = `sub2api-account-${timestamp}.json`
+    const filename = `omnihive-account-${timestamp}.json`
     const blob = new Blob([JSON.stringify(dataPayload, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -2626,6 +2952,28 @@ onMounted(async () => {
 
   load()
   loadUpstreamBillingProbeGlobalState()
+  if (authStore.user) {
+    void loadManagedConnections()
+  }
+  if (apiClient?.interceptors?.response?.use) {
+    managedInterceptorId = apiClient.interceptors.response.use(
+      (res) => res,
+      (err) => {
+        if (
+          extractApiErrorStatus(err) === 409 &&
+          extractApiErrorCode(err) === 'ACCOUNT_CONNECTION_MANAGED'
+        ) {
+          const urlMatch = String(err?.config?.url || '').match(/\/accounts\/(\d+)/)
+          const targetId = urlMatch?.[1] || (edAcc.value ? String(edAcc.value.id) : null)
+          if (targetId) {
+            managedPromptAccountId.value = targetId
+            showEdit.value = false
+          }
+        }
+        return Promise.reject(err)
+      }
+    )
+  }
   const [proxiesResult, groupsResult] = await Promise.allSettled([
     adminAPI.proxies.getAll(),
     adminAPI.groups.getAll()
@@ -2656,6 +3004,10 @@ onMounted(async () => {
 onUnmounted(() => {
   accountPageDisposed = true
   autoRefreshRevision++
+  if (managedInterceptorId !== null && apiClient?.interceptors?.response?.eject) {
+    apiClient.interceptors.response.eject(managedInterceptorId)
+    managedInterceptorId = null
+  }
   upstreamBillingRateAbortController?.abort()
   if (usageBatchFlushTimer !== null) {
     clearTimeout(usageBatchFlushTimer)

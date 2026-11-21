@@ -1,0 +1,11 @@
+{
+  "create": {"provider":"openai","auth_type":"api_key","schema_version":"1","name":"Production","endpoint":"https://api.openai.com"},
+  "credential": {"operation":"set","type":"api_key","secret":"<write-only>"},
+  "verify": {"checks":["network","authorization","discover_models"],"credential_version":"1"},
+  "verification_result": {"verification_id":"090ea958-95f7-4bcf-a25d-5fde1640b6f0","checks":[{"name":"network","state":"passed","reason":null},{"name":"authorization","state":"passed","reason":null},{"name":"discover_models","state":"passed","reason":null}],"models":["example-model"],"verified_at":"2026-11-19T10:00:00Z","expires_at":"2026-11-20T10:00:00Z"},
+  "preview": {"model_ids":["example-model"],"pool_ids":["11"],"limits":{"concurrency":4}},
+  "activate": {"preview_id":"8758c956-b7fc-4dc6-8698-8b2e93940f55","verification_id":"090ea958-95f7-4bcf-a25d-5fde1640b6f0","expected_credential_version":"1"},
+  "rotation": {"expected_credential_version":"1","replacement":{"type":"api_key","secret":"<write-only>"}},
+  "keep": {"operation":"keep"},
+  "clear": {"operation":"clear"}
+}

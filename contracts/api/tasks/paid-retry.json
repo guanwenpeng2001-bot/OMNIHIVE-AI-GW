@@ -1,0 +1,18 @@
+{
+  "request": {
+    "item_ids": [
+      "1"
+    ],
+    "funding_acknowledged": true
+  },
+  "response": {
+    "code": 0,
+    "message": "accepted",
+    "data": {
+      "task_id": "task_6e058894-43f3-45cc-815e-6a7145f2094b",
+      "parent_task_id": "task_1d66e105-db83-4e62-936b-78d762f60828",
+      "new_request_id": "aede57cf-8d84-48e1-9b3f-c03fb9c49539",
+      "state": "running"
+    }
+  }
+}

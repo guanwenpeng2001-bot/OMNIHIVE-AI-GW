@@ -4,12 +4,14 @@ package repository
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	dbaccount "github.com/Wei-Shaw/sub2api/ent/account"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	dbaccount "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/account"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -170,6 +172,15 @@ func mustCreateProxy(t *testing.T, client *dbent.Client, p *service.Proxy) *serv
 	return p
 }
 
+func fixtureAccountRepository(t *testing.T, client *dbent.Client, sqlq sqlExecutor, cache service.SchedulerCache) *accountRepository {
+	t.Helper()
+	repo := newAccountRepositoryWithSQL(client, sqlq, cache)
+	enc, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32), EncryptionKeyConfigured: true}})
+	require.NoError(t, err)
+	repo.credentialEncryptor = enc
+	return repo
+}
+
 func mustCreateAccount(t *testing.T, client *dbent.Client, a *service.Account) *service.Account {
 	t.Helper()
 	ctx := context.Background()
@@ -199,6 +210,10 @@ func mustCreateAccount(t *testing.T, client *dbent.Client, a *service.Account) *
 		a.Extra = map[string]any{}
 	}
 
+	if hasCredentialSecrets(a.Credentials) {
+		require.NoError(t, fixtureAccountRepository(t, client, client, nil).Create(ctx, a))
+		return a
+	}
 	create := client.Account.Create().
 		SetName(a.Name).
 		SetPlatform(a.Platform).

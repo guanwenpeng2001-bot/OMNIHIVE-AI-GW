@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,15 +21,13 @@ import (
 // 因此本文件用 integrationEntClient 直连 + t.Cleanup 显式清理，不走 testEntTx 回滚。
 
 func TestChannelMonitorQuotaModeRoundTrip(t *testing.T) {
+	prepareRepositoryFixtures(t)
 	ctx := context.Background()
 	repo := NewChannelMonitorRepository(integrationEntClient, integrationDB)
 
 	account := mustCreateAccount(t, integrationEntClient, &service.Account{
 		Name: "quota-linked-kimi", Platform: domain.PlatformKimi, Type: service.AccountTypeAPIKey,
 		Credentials: map[string]any{"api_key": "sk-kimi", "account_mode": service.AccountModeCoding},
-	})
-	t.Cleanup(func() {
-		_ = integrationEntClient.Account.DeleteOneID(account.ID).Exec(ctx)
 	})
 
 	created := &service.ChannelMonitor{

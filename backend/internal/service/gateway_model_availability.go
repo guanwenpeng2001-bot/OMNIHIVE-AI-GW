@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 )
 
 // ModelAvailabilityDiagnosis describes whether the requested model can be

@@ -8,10 +8,10 @@ import (
 	"strconv"
 	"strings"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -48,6 +48,9 @@ func (h *BatchImageHandler) Submit(c *gin.Context) {
 	if h.openAI != nil {
 		apiKey, _ := middleware.GetAPIKeyFromContext(c)
 		defer beginGatewayRequestPlan(c, h.openAI.gatewayService, apiKey, req.Model, "media", h.openAI.maxAccountSwitches)()
+		if c.IsAborted() {
+			return
+		}
 	}
 	got, err := h.service.Submit(c.Request.Context(), owner, req, c.GetHeader("Idempotency-Key"))
 	if err != nil {

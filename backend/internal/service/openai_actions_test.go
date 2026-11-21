@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
 	ws "github.com/coder/websocket"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
@@ -347,7 +347,7 @@ func TestOpenAIActionRealtimeHandshakeAndCancellation(t *testing.T) {
 	account := openAIActionAccount()
 	account.Credentials["base_url"] = server.URL
 	// The loopback fixture uses plain http; production keeps the https default.
-	service := &OpenAIGatewayService{cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{AllowInsecureHTTP: true}}}}
+	service := &OpenAIGatewayService{cfg: loopbackHTTPTestConfig()}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	connection, err := service.OpenOpenAIRealtime(ctx, account, "gpt-realtime")

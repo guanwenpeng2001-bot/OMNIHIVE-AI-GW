@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/apicompat"
 
 	"github.com/tidwall/gjson"
 )
@@ -166,11 +166,16 @@ func (r *upstreamFrameReader) Err() error {
 	return r.err
 }
 
+func hasAnthropicFinalOutputUsage(data string) bool {
+	output := gjson.Get(data, "usage.output_tokens")
+	return output.Type == gjson.Number && output.Float() >= 0 && output.Float() == float64(output.Int())
+}
+
 type anthropicFrameReader struct {
 	*upstreamFrameReader
-	event              apicompat.AnthropicStreamEvent
-	started, completed bool
-	tools              map[int]json.RawMessage
+	event                          apicompat.AnthropicStreamEvent
+	started, completed, finalUsage bool
+	tools                          map[int]json.RawMessage
 }
 
 func (s *GatewayService) newAnthropicFrameReader(resp io.ReadCloser, parent context.Context) *anthropicFrameReader {
@@ -227,7 +232,14 @@ func (r *anthropicFrameReader) Scan() bool {
 		if event.Type == "content_block_delta" && event.Index != nil && event.Delta != nil && event.Delta.Type == "input_json_delta" {
 			r.tools[*event.Index] = appendRawJSON(r.tools[*event.Index], event.Delta.PartialJSON)
 		}
+		if event.Type == "message_delta" && event.Usage != nil {
+			r.finalUsage = hasAnthropicFinalOutputUsage(r.frame.Data)
+		}
 		if event.Type == "message_stop" {
+			if !r.finalUsage {
+				r.err = fmt.Errorf("anthropic stream missing final output usage")
+				return false
+			}
 			for _, input := range r.tools {
 				if len(input) > 0 && !json.Valid(input) {
 					r.err = fmt.Errorf("incomplete Anthropic tool arguments")

@@ -24,9 +24,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyutil"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/proxyurl"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/proxyutil"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/servertiming"
 )
 
 // Transport 连接池默认配置
@@ -47,8 +47,10 @@ type Options struct {
 	Timeout               time.Duration // 请求总超时时间
 	ResponseHeaderTimeout time.Duration // 等待响应头超时时间
 	InsecureSkipVerify    bool          // 是否跳过 TLS 证书验证（已禁用，不允许设置为 true）
-	ValidateResolvedIP    bool          // 是否校验解析后的 IP（防止 DNS Rebinding）
+	ValidateResolvedIP    bool          // Deprecated: all clients validate and pin resolved addresses.
 	AllowPrivateHosts     bool          // 允许私有地址解析（与 ValidateResolvedIP 一起使用）
+
+	PrivateHosts []string // Exact administrator-approved origins when AllowPrivateHosts is enabled.
 
 	// 可选的连接池参数（不设置则使用默认值）
 	MaxIdleConns        int // 最大空闲连接总数（默认 100）
@@ -118,14 +120,12 @@ func buildClient(opts Options) (*http.Client, error) {
 		return nil, err
 	}
 
-	var rt http.RoundTripper = transport
-	if opts.ValidateResolvedIP && !opts.AllowPrivateHosts {
-		rt = NewPublicTransport(transport)
+	privateHosts := opts.PrivateHosts
+	if !opts.AllowPrivateHosts {
+		privateHosts = nil
 	}
-	// Both *http.Transport and *PublicTransport implement CloseIdleConnections; the
-	// ok value is intentionally dropped because buildTransport never returns nil.
-	closer, _ := rt.(interface{ CloseIdleConnections() })
-	rt = idleClosingTransport{RoundTripper: servertiming.WrapRoundTripper(rt), closeIdle: closer.CloseIdleConnections}
+	pinned := NewUpstreamTransport(transport, privateHosts)
+	rt := idleClosingTransport{RoundTripper: servertiming.WrapRoundTripper(pinned), closeIdle: pinned.CloseIdleConnections}
 	return &http.Client{
 		Transport: rt,
 		Timeout:   opts.Timeout,
@@ -180,7 +180,9 @@ func buildTransport(opts Options) (*http.Transport, error) {
 }
 
 func buildClientKey(opts Options) string {
-	return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%t|%t|%t|%d|%d|%d",
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%q|%t|%s|%s|%s|%t|%t|%t|%d|%d|%d",
+		opts.PrivateHosts,
+		opts.AllowPrivateHosts,
 		strings.TrimSpace(opts.ProxyURL),
 		opts.Timeout.String(),
 		opts.ResponseHeaderTimeout.String(),

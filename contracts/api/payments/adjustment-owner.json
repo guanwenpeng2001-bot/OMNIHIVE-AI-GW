@@ -1,0 +1,20 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "items": [{
+      "id": "91",
+      "kind": "redeem",
+      "billing_source": "wallet",
+      "entitlement_consumption": null,
+      "platform_charge": {"currency": "USD", "amount": "0.00000001"},
+      "references": {
+        "source_command_id": "edefcfe4-1b19-4ffc-a533-e0e10fd57abc",
+        "source_wallet_event_id": "220",
+        "original_wallet_event_id": "258",
+        "adjustment_wallet_event_id": "301",
+        "adjustment_command_id": "71a923ad-c174-4b5a-8a9c-8368bc351d31"
+      }
+    }]
+  }
+}

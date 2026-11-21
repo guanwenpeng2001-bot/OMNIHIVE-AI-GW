@@ -15,15 +15,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/response"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 // Static assets may make multiple requests, so the page-scoped capability is
 // reusable only for this short window; it cannot authenticate an API session.
 const pluginUISessionTTL = 5 * time.Minute
+
+const (
+	legacyPluginSunset = "v0.4.0"
+	legacyPluginNotice = ".s2plugin is deprecated and accepted for legacy migration until " + legacyPluginSunset + "; use .ohplugin"
+)
 
 // PluginHandler 提供插件安装、生命周期、配置和隔离 UI 资源接口。
 type PluginHandler struct {
@@ -32,6 +37,15 @@ type PluginHandler struct {
 
 func NewPluginHandler(manager *service.PluginManager) *PluginHandler {
 	return &PluginHandler{manager: manager}
+}
+
+func (h *PluginHandler) ListExtensions(c *gin.Context) {
+	items, err := h.manager.ExtensionInventory(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"items": items})
 }
 
 func (h *PluginHandler) List(c *gin.Context) {
@@ -61,12 +75,17 @@ func (h *PluginHandler) Upload(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes+(1<<20))
 	file, header, err := c.Request.FormFile("plugin")
 	if err != nil {
-		response.BadRequest(c, "请选择有效的 .s2plugin 文件")
+		response.BadRequest(c, "请选择有效的插件包")
 		return
 	}
 	defer func() { _ = file.Close() }()
-	if !strings.HasSuffix(strings.ToLower(header.Filename), ".s2plugin") {
-		response.BadRequest(c, "插件包扩展名必须是 .s2plugin")
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	switch ext {
+	case ".ohplugin":
+	case ".s2plugin":
+		c.Header("X-OmniHive-Plugin-Deprecation", legacyPluginNotice)
+	default:
+		response.BadRequest(c, "请上传 .ohplugin 插件包。.s2plugin 仅用于旧版迁移，将于 "+legacyPluginSunset+" 停止支持。")
 		return
 	}
 	var installedBy *int64
@@ -78,6 +97,9 @@ func (h *PluginHandler) Upload(c *gin.Context) {
 	if err != nil {
 		response.BadRequest(c, err.Error())
 		return
+	}
+	if plugin.Manifest.SchemaVersion == 1 {
+		c.Header("X-OmniHive-Plugin-Deprecation", legacyPluginNotice)
 	}
 	response.Created(c, plugin)
 }

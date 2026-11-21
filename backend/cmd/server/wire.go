@@ -5,47 +5,106 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"log"
 	"net/http"
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/handler"
-	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
-	"github.com/Wei-Shaw/sub2api/internal/payment"
-	"github.com/Wei-Shaw/sub2api/internal/repository"
-	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
-	"github.com/Wei-Shaw/sub2api/internal/server"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	audithttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/audit"
+	billinghttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/billing"
+	byokhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/byok"
+	modelshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
+	verificationhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/verification"
+	connectionshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
+	identityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
+	observabilityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/observability"
+	paymentshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/payments"
+	playgroundhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/playground"
+	policieshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/policies"
+	requestshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/requests"
+	restorehttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/restore"
+	statushttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/status"
+	taskhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/tasks"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
+	legacyrestore "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/restore"
+	auditstore "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/audit"
+	byokdomain "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/byok"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
+	verificationdomain "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog/verification"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/connections"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
+	identitymod "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
+	identitypostgres "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
+	exportstore "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/ops/export"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/payments"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/securityaudit"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/routes"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 
 	"github.com/google/wire"
+	process "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/runtime"
 	"github.com/redis/go-redis/v9"
 )
 
 type Application struct {
-	OpsMetrics    *service.OpsMetricsCollector
-	UpstreamJobs  *service.UpstreamJobService
-	Server        *http.Server
-	PromptAudit   *securityaudit.PromptService
-	PluginManager *service.PluginManager
-	Cleanup       func()
+	Supervisor *process.Supervisor
+	Admission  *process.Admission
+	Audit      *audithttp.Handler
+
+	Status          *statushttp.Handler
+	ImageTaskCenter *taskhttp.Handler
+	Restores        *legacyrestore.Runtime
+	OpsMetrics      *service.OpsMetricsCollector
+	UpstreamJobs    *service.UpstreamJobService
+	Server          *http.Server
+	PromptAudit     *securityaudit.PromptService
+	PluginManager   *service.PluginManager
+	Cleanup         func()
 }
 
-func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
+func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supervisor *process.Supervisor) (*Application, error) {
 	wire.Build(
-		// Infrastructure layer ProviderSets
-		config.ProviderSet,
-
-		// Business layer ProviderSets
+		// Infrastructure and business providers
 		repository.ProviderSet,
-		service.ProviderSet,
+		runtimeServiceProviders,
 		securityaudit.ProviderSet,
 		payment.ProviderSet,
 		middleware.ProviderSet,
 		handler.ProviderSet,
+		identityhttp.ProviderSet,
+		connectionshttp.ProviderSet,
+		modelshttp.ProviderSet,
+		catalogVerificationStoreProvider,
+		catalogVerificationHandlerProvider,
+		restorehttp.ProviderSet,
+		requestsHandlerProvider,
+		handler.ProvideImageTaskCenter,
+		policieshttp.ProviderSet,
+		playgroundHandlerProvider,
+		billingHandlerProvider,
+		paymentStoreProvider,
+		paymentEvidenceHandlerProvider,
+		statusHandlerProvider,
+		byokStoreProvider,
+		byokHandlerProvider,
+		auditStoreProvider,
+		auditObserverProvider,
+		auditHandlerProvider,
+		observabilityStoreProvider,
+		observabilityHandlerProvider,
+		wire.Bind(new(connections.Prober), new(*service.AccountTestService)),
+		provideIdentityOperations,
 
 		// Server layer ProviderSet
 		server.ProviderSet,
@@ -60,11 +119,124 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 
 		// Cleanup function provider
 		provideCleanup,
+		process.NewAdmission,
 
 		// Application struct
-		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup", "UpstreamJobs", "OpsMetrics"),
+		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup", "UpstreamJobs", "OpsMetrics", "Restores", "ImageTaskCenter", "Status", "Audit", "Supervisor", "Admission"),
 	)
 	return nil, nil
+}
+
+func requestsHandlerProvider(db *sql.DB, store *identitypostgres.Store, cfg *config.Config) *requestshttp.Handler {
+	return handler.ProvideRequestsHandler(db, store, cfg)
+}
+
+func playgroundHandlerProvider(
+	db *sql.DB,
+	access identity.AccessEvaluator,
+	scopes identity.GatewayScopes,
+	keys *service.APIKeyService,
+	subscriptions *service.SubscriptionService,
+	catalogReader catalog.CatalogReader,
+	policies *policy.Store,
+	gateway *service.GatewayService,
+	handlers *handler.Handlers,
+	composite *service.CompositeRouteResolver,
+	cfg *config.Config,
+) *playgroundhttp.Handler {
+	dispatch := service.NewGatewayActionDispatch(routes.GatewayActionHandlers(handlers))
+	common := []gin.HandlerFunc{middleware.GatewayProtocol(), handler.InboundEndpointMiddleware()}
+	if handlers.MCP != nil {
+		common = append(common, handlers.MCP.GatewayExtensionMiddleware())
+	}
+	native := playgroundhttp.NativeRoutes(dispatch, composite, handlers.Gateway.ActionRequirement, common...)
+	return playgroundhttp.New(&playgroundhttp.Gateway{
+		DB: db, Access: access, Scopes: scopes, Keys: keys, Subscriptions: subscriptions,
+		Catalog: catalogReader, Policies: policies, Plans: gateway, Routes: native,
+	}, cfg.TrustForwardedIPForAPIKeyACL())
+}
+
+func observabilityStoreProvider(supervisor *process.Supervisor, cfg *config.Config) (*exportstore.Store, error) {
+	store, cleanup, err := observabilityhttp.ProvideStore(cfg)
+	if err != nil {
+		return nil, err
+	}
+	supervisor.Add(func(ctx context.Context) {
+		<-ctx.Done()
+		cleanup()
+	})
+	if supervisor.Mode.Serving() {
+		supervisor.Add(func(ctx context.Context) { store.RunIngest(ctx, func() {}) })
+	}
+	if supervisor.Mode.Workers() {
+		supervisor.Add(func(ctx context.Context) { store.RunDelivery(ctx, func() {}) })
+	}
+	return store, nil
+}
+
+func observabilityHandlerProvider(store *exportstore.Store) *observabilityhttp.Handler {
+	return observabilityhttp.New(store)
+}
+
+func auditStoreProvider(db *sql.DB, access *identitypostgres.Store) *auditstore.Store {
+	return auditstore.New(db, access)
+}
+
+func auditObserverProvider() *auditstore.Observer { return auditstore.NewObserver() }
+
+func auditHandlerProvider(store *auditstore.Store, observer *auditstore.Observer, cfg *config.Config, auditLogs *service.AuditLogService) *audithttp.Handler {
+	auditLogs.SetScopedStore(store)
+	return audithttp.New(store, observer, cfg)
+}
+
+func byokStoreProvider(db *sql.DB, enc service.SecretEncryptor, probe *service.AccountTestService, access identitymod.AccessEvaluator, cfg *config.Config) *byokdomain.Store {
+	return byokdomain.New(db, enc, probe, access, []byte(cfg.JWT.Secret))
+}
+
+func byokHandlerProvider(store *byokdomain.Store) *byokhttp.Handler {
+	return byokhttp.New(store)
+}
+
+func catalogVerificationStoreProvider(supervisor *process.Supervisor, db *sql.DB, access identitymod.AccessEvaluator, enc service.SecretEncryptor, prober *service.AccountTestService) *verificationdomain.Store {
+	store := verificationdomain.NewStore(db, access)
+	if supervisor != nil && supervisor.Mode.Workers() {
+		worker := verificationdomain.NewWorker(store, verificationdomain.NewConnectionProber(db, enc, prober))
+		supervisor.Add(func(ctx context.Context) { worker.Run(ctx) })
+	}
+	return store
+}
+
+func catalogVerificationHandlerProvider(store *verificationdomain.Store) *verificationhttp.Handler {
+	return verificationhttp.New(store)
+}
+
+func statusHandlerProvider(db *sql.DB, store *identitypostgres.Store, cfg *config.Config, ops *service.OpsService) *statushttp.Handler {
+	return handler.ProvideStatusHandler(db, store, cfg, ops)
+}
+
+func billingHandlerProvider(db *sql.DB, store *identitypostgres.Store, totp *service.TotpService, cfg *config.Config) *billinghttp.Handler {
+	return handler.ProvideCostWorkbench(db, store, totp, cfg)
+}
+
+func paymentStoreProvider(db *sql.DB, fulfillment *service.PaymentService, billing *service.BillingCacheService, keys *service.APIKeyService, subscriptions *service.SubscriptionService) *payments.Store {
+	return &payments.Store{DB: db, Fulfillment: fulfillment, Refresh: func(ctx context.Context, payerID, groupID int64) error {
+		cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		balanceErr := billing.InvalidateUserBalance(cacheCtx, payerID)
+		keys.InvalidateAuthCacheByUserID(cacheCtx, payerID)
+		if groupID > 0 {
+			return errors.Join(balanceErr, subscriptions.RefreshPaymentSubscription(payerID, groupID))
+		}
+		return balanceErr
+	}}
+}
+
+func paymentEvidenceHandlerProvider(store *payments.Store, access identity.AccessEvaluator, totp *service.TotpService) paymentshttp.Handler {
+	return paymentshttp.Handler{Store: *store, Access: access, Step: totp}
+}
+
+func provideIdentityOperations(store *connections.Store, restores *legacyrestore.Runtime, requests *requestshttp.Handler, billing *billinghttp.Handler, byok *byokdomain.Store, audit *auditstore.Store, paymentEvidence paymentshttp.Handler, catalogVerifications *verificationdomain.Store) identity.Operations {
+	return identity.Operations{Readers: []identity.OperationReader{store, restores, requests, billing, byok, audit, paymentEvidence, catalogVerifications}}
 }
 
 func providePrivacyClientFactory() service.PrivacyClientFactory {
@@ -88,6 +260,9 @@ func providePluginHostInfo(buildInfo handler.BuildInfo) service.PluginHostInfo {
 func provideCleanup(
 	entClient *ent.Client,
 	rdb *redis.Client,
+	wheel *service.TimingWheelService,
+	deferred *service.DeferredService,
+	restores *legacyrestore.Runtime,
 	opsMetricsCollector *service.OpsMetricsCollector,
 	opsAggregation *service.OpsAggregationService,
 	opsAlertEvaluator *service.OpsAlertEvaluatorService,
@@ -125,7 +300,7 @@ func provideCleanup(
 	backupSvc *service.BackupService,
 	paymentOrderExpiry *service.PaymentOrderExpiryService,
 	channelMonitorRunner *service.ChannelMonitorRunner,
-	channelMonitorV2Aggregator *service.ChannelMonitorV2Aggregator,
+	channelTelemetryAggregator *service.ChannelTelemetryAggregator,
 	quotaFlusher *service.UserPlatformQuotaUsageFlusher,
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
 	ollamaCloudUsage *service.OllamaCloudUsageService,
@@ -265,7 +440,9 @@ func provideCleanup(
 				return nil
 			}},
 			{"AccountExpiryService", func() error {
-				accountExpiry.Stop()
+				if accountExpiry != nil {
+					accountExpiry.Stop()
+				}
 				return nil
 			}},
 			{"CNProviderBalanceCheckService", func() error {
@@ -275,15 +452,21 @@ func provideCleanup(
 				return nil
 			}},
 			{"OpenAICodexVersionSyncService", func() error {
-				codexVersionSync.Stop()
+				if codexVersionSync != nil {
+					codexVersionSync.Stop()
+				}
 				return nil
 			}},
 			{"ProxyExpiryService", func() error {
-				proxyExpiry.Stop()
+				if proxyExpiry != nil {
+					proxyExpiry.Stop()
+				}
 				return nil
 			}},
 			{"SubscriptionExpiryService", func() error {
-				subscriptionExpiry.Stop()
+				if subscriptionExpiry != nil {
+					subscriptionExpiry.Stop()
+				}
 				return nil
 			}},
 			{"SubscriptionService", func() error {
@@ -298,19 +481,6 @@ func provideCleanup(
 			}},
 			{"EmailQueueService", func() error {
 				emailQueue.Stop()
-				return nil
-			}},
-			{"BillingCacheService", func() error {
-				billingCache.Stop()
-				return nil
-			}},
-			{"UsageRecordWorkerPool", func() error {
-				if usageSettlement != nil {
-					usageSettlement.Stop()
-				}
-				if usageRecordWorkerPool != nil {
-					usageRecordWorkerPool.Stop()
-				}
 				return nil
 			}},
 			{"OAuthService", func() error {
@@ -359,9 +529,9 @@ func provideCleanup(
 				}
 				return nil
 			}},
-			{"ChannelMonitorV2Aggregator", func() error {
-				if channelMonitorV2Aggregator != nil {
-					channelMonitorV2Aggregator.Stop()
+			{"ChannelTelemetryAggregator", func() error {
+				if channelTelemetryAggregator != nil {
+					channelTelemetryAggregator.Stop()
 				}
 				return nil
 			}},
@@ -392,6 +562,37 @@ func provideCleanup(
 		}
 
 		infraSteps := []cleanupStep{
+			{"UsageRecordWorkerPool", func() error {
+				if usageSettlement != nil {
+					usageSettlement.Stop()
+				}
+				if usageRecordWorkerPool != nil {
+					usageRecordWorkerPool.Stop()
+				}
+				return nil
+			}},
+			{"BillingCacheService", func() error {
+				billingCache.Stop()
+				return nil
+			}},
+			{"DeferredAccountUpdates", func() error {
+				if deferred != nil {
+					deferred.Stop()
+				}
+				return nil
+			}},
+			{"RestoreConnections", func() error {
+				if restores != nil {
+					restores.Close()
+				}
+				return nil
+			}},
+			{"TimingWheel", func() error {
+				if wheel != nil {
+					wheel.Stop()
+				}
+				return nil
+			}},
 			{"Redis", func() error {
 				if rdb == nil {
 					return nil
@@ -446,3 +647,145 @@ func provideCleanup(
 		}
 	}
 }
+
+// The binary selects passive constructors and worker-owned schedules explicitly.
+var runtimeServiceProviders = wire.NewSet(
+	service.NewStagedAccountImportService,
+	service.NewProxyGroupAdminService,
+	service.NewProxyGroupRuntime,
+	service.NewModelAccessService,
+	service.NewWorkspaceService,
+	provideUpstreamJobService,
+	service.ProvideCursorSessionProvider,
+	service.ProvideCursorGatewayService,
+	// Core services
+	service.ProvideAuthService,
+	service.NewPasskeyService,
+	service.NewUserService,
+	service.ProvideAPIKeyService,
+	service.ProvideAPIKeyAuthCacheInvalidator,
+	provideAuthCacheInvalidationWorker,
+	service.NewGroupService,
+	service.NewCompositeRouteResolver,
+	service.NewAccountService,
+	service.NewCredentialSecretService,
+	service.NewProxyService,
+	service.NewRedeemService,
+	service.NewPromoService,
+	service.NewUsageService,
+	service.NewDashboardService,
+	service.NewModelRegistry,
+	service.ProvidePricingService,
+	service.NewBillingService,
+	service.ProvideBillingCacheService,
+	service.NewAnnouncementService,
+	service.ProvideAdminServiceWithEgress,
+	service.ProvideAccountRuntimeInvalidator,
+	service.ProvideGatewayService,
+	service.ProvideOpenAIGatewayService,
+	service.ProvideImageStorageSettingService,
+	service.ProvideImageTaskService,
+	service.ProvideBatchImageModelPricingResolver,
+	service.NewBatchImagePublicService,
+	service.NewBatchImageDownloadService,
+	provideBatchImageCleanupService,
+	provideBatchImageWorkerRuntime,
+	wire.Bind(new(service.AccountRuntimeBlocker), new(*service.OpenAIGatewayService)),
+	service.ProvideOAuthServiceWithEgress,
+	service.ProvideOpenAIOAuthService,
+	service.ProvideGrokOAuthService,
+	wire.Bind(new(service.GrokOAuthTokenService), new(*service.GrokOAuthService)),
+	service.ProvideGeminiOAuthServiceWithEgress,
+	service.NewGeminiQuotaService,
+	service.NewCompositeTokenCacheInvalidator,
+	wire.Bind(new(service.TokenCacheInvalidator), new(*service.CompositeTokenCacheInvalidator)),
+	service.ProvideAntigravityOAuthServiceWithEgress,
+	service.ProvideOAuthRefreshAPI,
+	service.ProvideGeminiTokenProvider,
+	service.NewGeminiMessagesCompatService,
+	service.ProvideAntigravityTokenProvider,
+	service.ProvideGrokTokenProvider,
+	service.ProvideOpenAITokenProvider,
+	service.ProvideOpenAIQuotaService,
+	provideOpenAIQuotaAutoResetService,
+	service.ProvideGrokQuotaService,
+	service.ProvideCNProviderQuotaService,
+	service.ProvideCNProviderBalanceService,
+	provideCNProviderBalanceCheckService,
+	service.ProvideClaudeTokenProvider,
+	service.NewAntigravityGatewayService,
+	service.ProvideRateLimitService,
+	service.ProvideAccountUsageService,
+	service.ProvideAccountTestService,
+	provideUpstreamBillingProbeService,
+	provideOllamaCloudUsageService,
+	service.ProvideSettingService,
+	provideBackupService,
+	service.ProvideOpsSystemLogSink,
+	service.ProvideOpsService,
+	service.ProvideOpsIngressRejectAggregator,
+	service.ProvideAuditLogService,
+	provideOpsMetricsCollector,
+	provideOpsAggregationService,
+	provideOpsAlertEvaluatorService,
+	provideOpsCleanupService,
+	provideOpsScheduledReportService,
+	service.NewEmailService,
+	service.NewNotificationEmailService,
+	service.ProvideEmailQueueService,
+	service.NewTurnstileService,
+	service.NewTencentCaptchaService,
+	service.NewAliyunCaptchaService,
+	service.NewSubscriptionService,
+	wire.Bind(new(service.DefaultSubscriptionAssigner), new(*service.SubscriptionService)),
+	provideConcurrencyService,
+	provideUserMessageQueueService,
+	service.NewUsageRecordWorkerPool,
+	provideUsageSettlementService,
+	provideSchedulerSnapshotService,
+	service.NewIdentityService,
+	service.NewCRSSyncService,
+	service.ProvideUpdateService,
+	provideTokenRefreshService,
+	wire.Bind(new(service.GrokOAuthReconciler), new(*service.TokenRefreshService)),
+	provideAccountExpiryService,
+	provideOpenAICodexVersionSyncService,
+	provideProxyExpiryService,
+	provideSubscriptionExpiryService,
+	service.ProvideTimingWheelService,
+	provideDashboardAggregationService,
+	provideUsageCleanupService,
+	service.ProvideDeferredService,
+	service.NewAntigravityQuotaFetcher,
+	service.NewGrokQuotaFetcher,
+	service.NewUserAttributeService,
+	service.NewUsageCache,
+	service.NewTotpService,
+	service.NewErrorPassthroughService,
+	service.NewTLSFingerprintProfileService,
+	service.NewPluginManager,
+	service.NewDigestSessionStore,
+	service.ProvideIdempotencyCoordinator,
+	service.ProvideSystemOperationLockService,
+	provideIdempotencyCleanupService,
+	service.ProvideScheduledTestService,
+	provideScheduledTestRunnerService,
+	service.NewGroupCapacityService,
+	service.NewChannelService,
+	wire.Bind(new(service.ChannelCacheInvalidator), new(*service.ChannelService)),
+	service.NewModelPricingResolver,
+	service.NewModelPlazaService,
+	service.ProvideContentModerationService,
+	service.NewAffiliateService,
+	service.ProvidePaymentConfigService,
+	service.ProvidePaymentService,
+	providePaymentOrderExpiryService,
+	service.ProvideBalanceNotifyService,
+	service.ProvideChannelMonitorService,
+	provideChannelMonitorRunner,
+	service.NewChannelMonitorQuotaFetcher,
+	service.ProvideChannelTelemetryService,
+	provideChannelTelemetryAggregator,
+	service.NewChannelMonitorRequestTemplateService,
+	provideUserPlatformQuotaUsageFlusher,
+)

@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/usagestats"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -64,7 +64,7 @@ func resetDashboardReadCachesForTest() {
 	dashboardAPIKeysTrendCache = newSnapshotCache(30 * time.Second)
 	dashboardModelStatsCache = newSnapshotCache(30 * time.Second)
 	dashboardGroupStatsCache = newSnapshotCache(30 * time.Second)
-	dashboardSnapshotV2Cache = newSnapshotCache(30 * time.Second)
+	dashboardSnapshotCache = newSnapshotCache(30 * time.Second)
 }
 
 func TestDashboardHandler_GetUsageTrend_UsesCache(t *testing.T) {

@@ -7,10 +7,10 @@ import (
 	"net/mail"
 	"strings"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/authidentity"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/authidentity"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 )
 
 type EmailOAuthIdentityInput struct {
@@ -180,17 +180,21 @@ func (s *AuthService) createEmailOAuthUser(ctx context.Context, email, username,
 		defaultRPMLimit = s.settingService.GetDefaultUserRPMLimit(ctx)
 	}
 	user := &User{
-		Email:        email,
-		Username:     strings.TrimSpace(username),
-		PasswordHash: hashedPassword,
-		Role:         RoleUser,
-		Balance:      grantPlan.Balance,
-		Concurrency:  grantPlan.Concurrency,
-		RPMLimit:     defaultRPMLimit,
-		Status:       StatusActive,
-		SignupSource: providerType,
+		SignupAgreement: signupAgreementFromContext(ctx),
+		Email:           email,
+		Username:        strings.TrimSpace(username),
+		PasswordHash:    hashedPassword,
+		Role:            RoleUser,
+		Balance:         grantPlan.Balance,
+		Concurrency:     grantPlan.Concurrency,
+		RPMLimit:        defaultRPMLimit,
+		Status:          StatusActive,
+		SignupSource:    providerType,
 	}
 	if err := s.userRepo.Create(ctx, user); err != nil {
+		if errors.Is(err, ErrRegistrationAgreement) {
+			return nil, err
+		}
 		if errors.Is(err, ErrEmailExists) {
 			existing, loadErr := s.userRepo.GetByEmail(ctx, email)
 			if loadErr != nil {

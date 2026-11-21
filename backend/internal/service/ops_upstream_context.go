@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/cursor"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -238,6 +238,9 @@ func markOpsStreamError(c *gin.Context, streamErr OpsStreamError) {
 	streamErr.ErrType = strings.TrimSpace(streamErr.ErrType)
 	streamErr.Code = strings.TrimSpace(streamErr.Code)
 	streamErr.Message = strings.TrimSpace(streamErr.Message)
+	if privateGatewayContent(c) {
+		streamErr.Message = ""
+	}
 	if !streamErr.RequestScoped {
 		streamErr.SkipMonitoring = currentOpsFailureSkipMonitoring(c)
 	}
@@ -370,12 +373,19 @@ func SetOpsUpstreamError(c *gin.Context, upstreamStatusCode int, upstreamMessage
 	setOpsUpstreamError(c, upstreamStatusCode, upstreamMessage, upstreamDetail)
 }
 
+func privateGatewayContent(c *gin.Context) bool {
+	return c != nil && c.Request != nil && ctxkey.PrivateGatewayContent(c.Request.Context())
+}
+
 func setOpsUpstreamError(c *gin.Context, upstreamStatusCode int, upstreamMessage, upstreamDetail string) {
 	if c == nil {
 		return
 	}
 	if upstreamStatusCode > 0 {
 		c.Set(OpsUpstreamStatusCodeKey, upstreamStatusCode)
+	}
+	if privateGatewayContent(c) {
+		return
 	}
 	if msg := strings.TrimSpace(upstreamMessage); msg != "" {
 		c.Set(OpsUpstreamErrorMessageKey, msg)
@@ -482,11 +492,16 @@ func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 		}
 	}
 
+	checkSkipMonitoringForUpstreamEvent(c, &ev)
+	if privateGatewayContent(c) {
+		ev.Message = ""
+		ev.Detail = ""
+		ev.UpstreamResponseBody = ""
+	}
 	evCopy := ev
 	existing = append(existing, &evCopy)
 	c.Set(OpsUpstreamErrorsKey, existing)
 
-	checkSkipMonitoringForUpstreamEvent(c, &evCopy)
 	recordOpsUpstreamEvent(evCopy)
 }
 

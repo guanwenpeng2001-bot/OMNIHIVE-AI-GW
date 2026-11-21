@@ -14,11 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 // The fixtures below serve the documented OpenAI video and audio wire shapes
@@ -31,6 +32,64 @@ type openAIMediaIngressFixture struct {
 	mu       sync.Mutex
 	requests []string
 	bodies   map[string][]byte
+}
+
+type openAIMediaFailedResponseBody struct{ delivered bool }
+
+func (b *openAIMediaFailedResponseBody) Read(p []byte) (int, error) {
+	if b.delivered {
+		return 0, io.ErrUnexpectedEOF
+	}
+	b.delivered = true
+	return copy(p, `{"text":"partial"}`), nil
+}
+
+func (*openAIMediaFailedResponseBody) Close() error { return nil }
+
+type openAIAudioReceiptCapture struct {
+	unlimitedTPMRepository
+	mu   sync.Mutex
+	rows []*service.UsageSettlementReceipt
+}
+
+func (repo *openAIAudioReceiptCapture) Persist(_ context.Context, receipt *service.UsageSettlementReceipt) (*service.UsageSettlementReceipt, error) {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	repo.rows = append(repo.rows, receipt)
+	return receipt, nil
+}
+
+func (repo *openAIAudioReceiptCapture) Get(_ context.Context, key service.UsageSettlementKey) (*service.UsageSettlementReceipt, error) {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	for _, receipt := range repo.rows {
+		if receipt.Key == key {
+			return receipt, nil
+		}
+	}
+	return nil, service.ErrUsageSettlementNotFound
+}
+
+func (repo *openAIAudioReceiptCapture) Settle(_ context.Context, key service.UsageSettlementKey, _ string) (*service.UsageSettlementResult, error) {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	for _, receipt := range repo.rows {
+		if receipt.Key == key {
+			receipt.State = service.UsageSettlementSettled
+			return &service.UsageSettlementResult{Receipt: receipt, Billing: &service.UsageBillingApplyResult{}}, nil
+		}
+	}
+	return nil, service.ErrUsageSettlementNotFound
+}
+
+func (repo *openAIAudioReceiptCapture) ListPending(context.Context, int64, int) ([]*service.UsageSettlementReceipt, error) {
+	return nil, nil
+}
+
+func (repo *openAIAudioReceiptCapture) stored() []*service.UsageSettlementReceipt {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	return append([]*service.UsageSettlementReceipt(nil), repo.rows...)
 }
 
 func (f *openAIMediaIngressFixture) record(request *http.Request) {
@@ -85,7 +144,7 @@ func openAIMediaIngressAccount(baseURL string) service.Account {
 		Complete: true, Revision: 1, DiscoveredModels: []string{"sora-2", "whisper-1"},
 		EligibleModels: []service.AccountCatalogModel{
 			{ID: "sora-2", Endpoints: []string{"chat_completions", "responses"}, EvidenceKind: "fixture", EvidenceObservedAt: "2026-09-21T00:00:00Z"},
-			{ID: "whisper-1", Endpoints: []string{"chat_completions"}, EvidenceKind: "fixture", EvidenceObservedAt: "2026-09-21T00:00:00Z"},
+			{ID: "whisper-1", Endpoints: []string{"audio_translations"}, EvidenceKind: "fixture", EvidenceObservedAt: "2026-09-21T00:00:00Z"},
 		},
 	}
 	return service.Account{
@@ -96,23 +155,32 @@ func openAIMediaIngressAccount(baseURL string) service.Account {
 	}
 }
 
-func newOpenAIMediaIngressHandler(t *testing.T, server *httptest.Server) (*OpenAIGatewayHandler, *gatewayResourceWiringRepo) {
+func newOpenAIMediaIngressHandler(t *testing.T, server *httptest.Server, financialRepo ...service.UsageSettlementReceiptRepository) (*OpenAIGatewayHandler, *gatewayResourceWiringRepo) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	repo := newGatewayResourceWiringRepo()
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	cfg.Security.URLAllowlist.AllowPrivateHosts = true
+	cfg.Security.URLAllowlist.UpstreamHosts = []string{"127.0.0.1"}
 	cfg.Gateway.Scheduling.StickySessionWaitTimeout = 20 * time.Millisecond
 	cfg.Gateway.Scheduling.StickySessionMaxWaiting = 3
 	concurrency := service.NewConcurrencyService(&grokMediaSlotsCache{accounts: map[string]int64{}, users: map[string]int64{}})
 	billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billing.Stop)
+	var receipts service.UsageSettlementReceiptRepository = &unlimitedTPMReceiptStub{}
+	gatewayCfg := *cfg
+	if len(financialRepo) > 0 {
+		receipts = financialRepo[0]
+		gatewayCfg.RunMode = config.RunModeStandard
+		gatewayCfg.Default.RateMultiplier = 1
+	}
 	gateway := service.ProvideOpenAIGatewayService(
 		openAIImagesFailoverAccountRepo{accounts: []service.Account{openAIMediaIngressAccount(server.URL)}},
-		nil, nil, nil, nil, nil, nil, cfg, nil, concurrency,
+		nil, nil, nil, nil, nil, nil, &gatewayCfg, nil, concurrency,
 		service.NewBillingService(cfg, nil), nil, nil,
 		gatewayResourceWiringUpstream{client: server.Client()},
-		nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
+		nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(receipts, nil, nil))
 	openAI := NewOpenAIGatewayHandler(gateway, concurrency, billing, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg)
 	jobs := service.NewUpstreamJobService(repo, service.GatewayResourcePollJob(gateway), service.GatewayResourceJobCharge)
 	openAI.upstreamJobs = jobs
@@ -363,7 +431,7 @@ func TestOpenAIVideoContentRefusesUnsettledJob(t *testing.T) {
 // OpenAI translation ingress end to end: multipart only, a required model, the
 // provider response passed through, and a local rejection that never reaches the
 // upstream. This adapter is synchronous and carries no job plan, so it is the
-// half of the surface the send boundary does not gate.
+// half of the surface that previously bypassed the send boundary.
 func TestOpenAIAudioTranslationsForwardsMultipartAndProviderBody(t *testing.T) {
 	fixture := &openAIMediaIngressFixture{}
 	server := fixture.serve(t)
@@ -398,4 +466,137 @@ func countOpenAIMediaCalls(calls []string, key string) int {
 		}
 	}
 	return count
+}
+
+func TestTranslationRecordsObservedSecondsOrReview(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		want       float64
+		review     bool
+	}{
+		{"duration", `{"text":"hello","duration":36}`, 0.001, false},
+		{"zero", `{"text":"hello","duration":0}`, 0, false},
+		{"missing", `{"text":"hello"}`, 0, true},
+		{"malformed", `{"text":"hello","duration":"36"}`, 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, tc.body) }))
+			defer server.Close()
+			receipts := &openAIAudioReceiptCapture{}
+			gateway, _ := newOpenAIMediaIngressHandler(t, server, receipts)
+			body, ct := openAIMediaIngressMultipart(t, map[string]string{"model": "whisper-1"}, "file", "speech.mp3", "audio")
+			w := openAIMediaIngressRequest(t, gateway.OpenAIAudioTranslations, http.MethodPost, "/v1/audio/translations", "/v1/audio/translations", body, ct)
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			require.JSONEq(t, tc.body, w.Body.String())
+			require.Len(t, receipts.stored(), 1)
+			r := receipts.stored()[0]
+			require.InDelta(t, tc.want, r.Command.BalanceCost, 1e-12)
+			if tc.review {
+				require.Equal(t, service.UsageSettlementNeedsReview, r.State)
+			} else {
+				require.Equal(t, service.PricingStatePriced, r.Usage.PricingState)
+			}
+		})
+	}
+}
+
+func TestTranslationRejectsUnboundedHardBudgetBeforeSend(t *testing.T) {
+	fixture := &openAIMediaIngressFixture{}
+	server := fixture.serve(t)
+	defer server.Close()
+	gateway, _ := newOpenAIMediaIngressHandler(t, server)
+	body, ct := openAIMediaIngressMultipart(t, map[string]string{"model": "whisper-1"}, "file", "speech.mp3", "opaque")
+	handler := func(c *gin.Context) {
+		key, _ := middleware2.GetAPIKeyFromContext(c)
+		key.BudgetPolicy = service.APIKeyBudgetPolicy{Mode: service.APIKeyBudgetModeDuration, DurationSeconds: 3600, LimitUSD: 1}
+		key.Group.AudioSTTPricePerHour = new(float64)
+		gateway.OpenAIAudioTranslations(c)
+	}
+	w := openAIMediaIngressRequest(t, handler, http.MethodPost, "/v1/audio/translations", "/v1/audio/translations", body, ct)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), "API_KEY_BUDGET_UNAVAILABLE")
+	require.Empty(t, fixture.calls())
+}
+
+func TestTranslationWithoutJournalNeverSends(t *testing.T) {
+	fixture := &openAIMediaIngressFixture{}
+	server := fixture.serve(t)
+	defer server.Close()
+	gateway, _ := newOpenAIMediaIngressHandler(t, server)
+	body, ct := openAIMediaIngressMultipart(t, map[string]string{"model": "whisper-1"}, "file", "speech.mp3", "audio")
+	handler := func(c *gin.Context) {
+		InstallExecutionJournal(nil, nil)(c)
+		if !c.IsAborted() {
+			gateway.OpenAIAudioTranslations(c)
+		}
+	}
+	w := openAIMediaIngressRequest(t, handler, http.MethodPost, "/v1/audio/translations", "/v1/audio/translations", body, ct)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	require.Empty(t, fixture.calls())
+}
+
+func TestTranslationUnknownTransportCreatesReview(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		conn, _, err := w.(http.Hijacker).Hijack()
+		require.NoError(t, err)
+		require.NoError(t, conn.Close())
+	}))
+	defer server.Close()
+	receipts := &openAIAudioReceiptCapture{}
+	gateway, _ := newOpenAIMediaIngressHandler(t, server, receipts)
+	body, ct := openAIMediaIngressMultipart(t, map[string]string{"model": "whisper-1"}, "file", "speech.mp3", "audio")
+	w := openAIMediaIngressRequest(t, gateway.OpenAIAudioTranslations, http.MethodPost, "/v1/audio/translations", "/v1/audio/translations", body, ct)
+	require.NotEqual(t, http.StatusOK, w.Code, w.Body.String())
+	require.Len(t, receipts.stored(), 1)
+	require.Equal(t, service.UsageSettlementNeedsReview, receipts.stored()[0].State)
+	require.Zero(t, receipts.stored()[0].Command.BalanceCost)
+}
+
+func TestTranslationUnresolvedResponseRetainsReview(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{name: "upstream_error", status: http.StatusInternalServerError, body: `{"error":"failed"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer server.Close()
+			receipts := &openAIAudioReceiptCapture{}
+			gateway, _ := newOpenAIMediaIngressHandler(t, server, receipts)
+			body, ct := openAIMediaIngressMultipart(t, map[string]string{"model": "whisper-1"}, "file", "speech.mp3", "audio")
+			w := openAIMediaIngressRequest(t, gateway.OpenAIAudioTranslations, http.MethodPost, "/v1/audio/translations", "/v1/audio/translations", body, ct)
+			require.NotEqual(t, http.StatusOK, w.Code, w.Body.String())
+			require.Len(t, receipts.stored(), 1)
+			require.Equal(t, service.UsageSettlementNeedsReview, receipts.stored()[0].State)
+			require.Zero(t, receipts.stored()[0].Command.BalanceCost)
+			require.Equal(t, "interrupted", receipts.stored()[0].CompletionState)
+		})
+	}
+	t.Run("interrupted", func(t *testing.T) {
+		receipts := &openAIAudioReceiptCapture{}
+		server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		defer server.Close()
+		gateway, _ := newOpenAIMediaIngressHandler(t, server, receipts)
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/audio/translations", nil)
+		request, finishBudget := service.WithAttemptBudget(c.Request.Context(), 1, time.Minute)
+		defer finishBudget()
+		key := openAIMediaIngressKey()
+		account := openAIMediaIngressAccount(server.URL)
+		request, _ = gateway.gatewayService.CaptureRequestPlan(request, service.GatewayRequestSpec{WorkspaceID: key.WorkspaceID, UserID: key.UserID, APIKeyID: key.ID, Model: "whisper-1", Route: "/v1/audio/translations", Protocol: "audio"})
+		c.Request = c.Request.WithContext(request)
+		response := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: &openAIMediaFailedResponseBody{}}
+		gateway.writeOpenAIAudioTranslationResponse(c, zap.NewNop(), response, key, &account, nil, "whisper-1", "whisper-1", time.Now())
+		require.Equal(t, http.StatusBadGateway, w.Code)
+		require.Len(t, receipts.stored(), 1)
+		require.Equal(t, service.UsageSettlementNeedsReview, receipts.stored()[0].State)
+		require.Zero(t, receipts.stored()[0].Command.BalanceCost)
+		require.Equal(t, "interrupted", receipts.stored()[0].CompletionState)
+	})
 }

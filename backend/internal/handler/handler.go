@@ -1,8 +1,8 @@
 package handler
 
 import (
-	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
-	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/securityaudit"
 )
 
 // AdminHandlers contains all admin-related HTTP handlers
@@ -59,7 +59,7 @@ type Handlers struct {
 	Subscription     *SubscriptionHandler
 	Announcement     *AnnouncementHandler
 	ChannelMonitor   *ChannelMonitorUserHandler
-	ChannelMonitorV2 *ChannelMonitorV2Handler
+	ChannelTelemetry *ChannelTelemetryHandler
 	Admin            *AdminHandlers
 	Resource         *GatewayResourceHandler
 	Gateway          *GatewayHandler

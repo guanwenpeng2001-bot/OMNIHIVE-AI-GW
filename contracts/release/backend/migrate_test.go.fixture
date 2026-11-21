@@ -1,0 +1,23 @@
+package repository
+
+import (
+	"database/sql"
+	"os"
+	"testing"
+
+	_ "github.com/lib/pq"
+	"github.com/stretchr/testify/require"
+)
+
+func TestBE24Snapshot(t *testing.T) {
+	target := os.Getenv("BE24_MIGRATION_DB")
+	require.Contains(t, []string{"previous", "upgraded"}, target)
+	db, err := sql.Open("postgres", "postgres://postgres@127.0.0.1:5432/"+target+"?sslmode=disable")
+	require.NoError(t, err)
+	defer db.Close()
+	if target == "previous" {
+		require.NoError(t, applyMigrationsFS(t.Context(), db, os.DirFS(os.Getenv("BE24_PREVIOUS_SQL"))))
+	} else {
+		require.NoError(t, ApplyMigrations(t.Context(), db))
+	}
+}

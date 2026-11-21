@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
@@ -13,11 +14,11 @@ import (
 	"strings"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/authidentity"
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/authidentity"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
@@ -236,16 +237,20 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 
 	// 创建用户
 	user := &User{
-		Email:        email,
-		PasswordHash: hashedPassword,
-		Role:         RoleUser,
-		Balance:      grantPlan.Balance,
-		Concurrency:  grantPlan.Concurrency,
-		RPMLimit:     defaultRPMLimit,
-		Status:       StatusActive,
+		SignupAgreement: signupAgreementFromContext(ctx),
+		Email:           email,
+		PasswordHash:    hashedPassword,
+		Role:            RoleUser,
+		Balance:         grantPlan.Balance,
+		Concurrency:     grantPlan.Concurrency,
+		RPMLimit:        defaultRPMLimit,
+		Status:          StatusActive,
 	}
 
 	if err := s.createUserAndClaimInvitation(ctx, user, invitationRedeemCode); err != nil {
+		if errors.Is(err, ErrRegistrationAgreement) {
+			return "", nil, err
+		}
 		// 优先检查邮箱冲突错误（竞态条件下可能发生）
 		switch {
 		case errors.Is(err, ErrEmailExists):
@@ -333,7 +338,7 @@ func (s *AuthService) SendVerifyCode(ctx context.Context, email string, locale .
 	}
 
 	// 获取网站名称
-	siteName := "Sub2API"
+	siteName := "OmniHive"
 	if s.settingService != nil {
 		siteName = s.settingService.GetSiteName(ctx)
 	}
@@ -375,7 +380,7 @@ func (s *AuthService) SendVerifyCodeAsync(ctx context.Context, email string, loc
 	}
 
 	// 获取网站名称
-	siteName := "Sub2API"
+	siteName := "OmniHive"
 	if s.settingService != nil {
 		siteName = s.settingService.GetSiteName(ctx)
 	}
@@ -609,18 +614,22 @@ func (s *AuthService) LoginOrRegisterOAuth(ctx context.Context, email, username 
 			}
 
 			newUser := &User{
-				Email:        email,
-				Username:     username,
-				PasswordHash: hashedPassword,
-				Role:         RoleUser,
-				Balance:      grantPlan.Balance,
-				Concurrency:  grantPlan.Concurrency,
-				RPMLimit:     defaultRPMLimit,
-				Status:       StatusActive,
-				SignupSource: signupSource,
+				SignupAgreement: signupAgreementFromContext(ctx),
+				Email:           email,
+				Username:        username,
+				PasswordHash:    hashedPassword,
+				Role:            RoleUser,
+				Balance:         grantPlan.Balance,
+				Concurrency:     grantPlan.Concurrency,
+				RPMLimit:        defaultRPMLimit,
+				Status:          StatusActive,
+				SignupSource:    signupSource,
 			}
 
 			if err := s.userRepo.Create(ctx, newUser); err != nil {
+				if errors.Is(err, ErrRegistrationAgreement) {
+					return "", nil, err
+				}
 				if errors.Is(err, ErrEmailExists) {
 					// 并发场景：GetByEmail 与 Create 之间用户被创建。
 					user, err = s.userRepo.GetByEmail(ctx, email)
@@ -758,15 +767,16 @@ func (s *AuthService) loginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 			}
 
 			newUser := &User{
-				Email:        email,
-				Username:     username,
-				PasswordHash: hashedPassword,
-				Role:         RoleUser,
-				Balance:      grantPlan.Balance,
-				Concurrency:  grantPlan.Concurrency,
-				RPMLimit:     defaultRPMLimit,
-				Status:       StatusActive,
-				SignupSource: signupSource,
+				SignupAgreement: signupAgreementFromContext(ctx),
+				Email:           email,
+				Username:        username,
+				PasswordHash:    hashedPassword,
+				Role:            RoleUser,
+				Balance:         grantPlan.Balance,
+				Concurrency:     grantPlan.Concurrency,
+				RPMLimit:        defaultRPMLimit,
+				Status:          StatusActive,
+				SignupSource:    signupSource,
 			}
 
 			if s.entClient != nil && invitationRedeemCode != nil {
@@ -779,6 +789,9 @@ func (s *AuthService) loginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 				txCtx := dbent.NewTxContext(ctx, tx)
 
 				if err := s.userRepo.Create(txCtx, newUser); err != nil {
+					if errors.Is(err, ErrRegistrationAgreement) {
+						return nil, nil, err
+					}
 					if errors.Is(err, ErrEmailExists) {
 						user, err = s.userRepo.GetByEmail(ctx, email)
 						if err != nil {
@@ -807,6 +820,9 @@ func (s *AuthService) loginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 				}
 			} else {
 				if err := s.userRepo.Create(ctx, newUser); err != nil {
+					if errors.Is(err, ErrRegistrationAgreement) {
+						return nil, nil, err
+					}
 					if errors.Is(err, ErrEmailExists) {
 						user, err = s.userRepo.GetByEmail(ctx, email)
 						if err != nil {
@@ -1349,6 +1365,14 @@ func buildEmailSuffixNotAllowedError(whitelist []string) error {
 
 // ValidateToken 验证JWT token并返回用户声明
 func (s *AuthService) ValidateToken(tokenString string) (*JWTClaims, error) {
+	return s.validateToken(context.Background(), tokenString)
+}
+
+func (s *AuthService) ValidateTokenContext(ctx context.Context, tokenString string) (*JWTClaims, error) {
+	return s.validateToken(ctx, tokenString)
+}
+
+func (s *AuthService) validateToken(ctx context.Context, tokenString string) (*JWTClaims, error) {
 	// 先做长度校验，尽早拒绝异常超长 token，降低 DoS 风险。
 	if len(tokenString) > maxTokenLength {
 		return nil, ErrTokenTooLarge
@@ -1383,10 +1407,25 @@ func (s *AuthService) ValidateToken(tokenString string) (*JWTClaims, error) {
 	}
 
 	if claims, ok := token.Claims.(*JWTClaims); ok && token.Valid {
+		revoked, err := s.sessionFamilyRevoked(ctx, claims.SessionID)
+		if err != nil {
+			return nil, ErrServiceUnavailable
+		}
+		if revoked {
+			return nil, ErrTokenRevoked
+		}
 		return claims, nil
 	}
 
 	return nil, ErrInvalidToken
+}
+
+func (s *AuthService) sessionFamilyRevoked(ctx context.Context, familyID string) (bool, error) {
+	cache, ok := s.refreshTokenCache.(SessionFamilyRevocationCache)
+	if !ok || familyID == "" {
+		return false, nil
+	}
+	return cache.IsSessionFamilyRevoked(ctx, familyID)
 }
 
 func randomHexString(byteLength int) (string, error) {
@@ -1564,7 +1603,7 @@ func (s *AuthService) preparePasswordReset(ctx context.Context, email, frontendB
 	}
 
 	// Get site name
-	siteName := "Sub2API"
+	siteName := "OmniHive"
 	if s.settingService != nil {
 		siteName = s.settingService.GetSiteName(ctx)
 	}
@@ -1748,7 +1787,7 @@ func (s *AuthService) generateRefreshToken(ctx context.Context, user *User, fami
 	rawToken := refreshTokenPrefix + hex.EncodeToString(tokenBytes)
 
 	// 计算Token哈希（存储哈希而非原始Token）
-	tokenHash := hashToken(rawToken)
+	tokenHash := s.refreshTokenHash(rawToken)
 
 	// 如果没有提供familyID，生成新的
 	if familyID == "" {
@@ -1804,7 +1843,7 @@ func (s *AuthService) RefreshTokenPair(ctx context.Context, refreshToken string)
 		return nil, ErrRefreshTokenInvalid
 	}
 
-	tokenHash := hashToken(refreshToken)
+	tokenHash := s.refreshTokenHash(refreshToken)
 
 	// 获取Token数据
 	data, err := s.refreshTokenCache.GetRefreshToken(ctx, tokenHash)
@@ -1817,7 +1856,6 @@ func (s *AuthService) RefreshTokenPair(ctx context.Context, refreshToken string)
 		logger.LegacyPrintf("service.auth", "[Auth] Error getting refresh token: %v", err)
 		return nil, ErrServiceUnavailable
 	}
-
 	// 检查Token是否过期
 	if time.Now().After(data.ExpiresAt) {
 		// 删除过期Token
@@ -1863,13 +1901,21 @@ func (s *AuthService) RefreshTokenPair(ctx context.Context, refreshToken string)
 
 	// Token轮转：原子消费旧Token。并发刷新时只有一个请求能成功，
 	// 其余请求拿到 ErrRefreshTokenNotFound，避免同一个 Refresh Token 被兑换两次。
-	if _, err := s.refreshTokenCache.ConsumeRefreshToken(ctx, tokenHash); err != nil {
+	consumed, err := s.refreshTokenCache.ConsumeRefreshToken(ctx, tokenHash)
+	if err != nil {
 		if errors.Is(err, ErrRefreshTokenNotFound) {
 			logger.LegacyPrintf("service.auth", "[Auth] Refresh token already consumed, possible reuse attack")
 			return nil, ErrRefreshTokenInvalid
 		}
 		logger.LegacyPrintf("service.auth", "[Auth] Failed to consume old refresh token: %v", err)
 		return nil, ErrServiceUnavailable
+	}
+	revoked, err := s.sessionFamilyRevoked(ctx, consumed.FamilyID)
+	if err != nil {
+		return nil, ErrServiceUnavailable
+	}
+	if revoked {
+		return nil, ErrRefreshTokenInvalid
 	}
 
 	// 生成新的Token对，保持同一个家族ID
@@ -1892,8 +1938,18 @@ func (s *AuthService) RevokeRefreshToken(ctx context.Context, refreshToken strin
 		return ErrRefreshTokenInvalid
 	}
 
-	tokenHash := hashToken(refreshToken)
-	return s.refreshTokenCache.DeleteRefreshToken(ctx, tokenHash)
+	tokenHash := s.refreshTokenHash(refreshToken)
+	data, err := s.refreshTokenCache.ConsumeRefreshToken(ctx, tokenHash)
+	if err != nil {
+		if errors.Is(err, ErrRefreshTokenNotFound) {
+			return nil
+		}
+		return err
+	}
+	if data == nil || data.FamilyID == "" {
+		return nil
+	}
+	return s.revokeSessionFamily(ctx, data.FamilyID)
 }
 
 // RevokeSessionFamily 撤销单个会话家族（该会话的所有 refresh token）。
@@ -1902,7 +1958,26 @@ func (s *AuthService) RevokeSessionFamily(ctx context.Context, familyID string) 
 	if s.refreshTokenCache == nil || familyID == "" {
 		return nil
 	}
+	return s.revokeSessionFamily(ctx, familyID)
+}
+
+func (s *AuthService) revokeSessionFamily(ctx context.Context, familyID string) error {
+	cache, ok := s.refreshTokenCache.(SessionFamilyRevocationCache)
+	if !ok || familyID == "" {
+		return ErrServiceUnavailable
+	}
+	ttl := time.Duration(s.cfg.JWT.RefreshTokenExpireDays)*24*time.Hour + s.accessTokenLifetime() + time.Minute
+	if err := cache.RevokeSessionFamily(ctx, familyID, ttl); err != nil {
+		return err
+	}
 	return s.refreshTokenCache.DeleteTokenFamily(ctx, familyID)
+}
+
+func (s *AuthService) accessTokenLifetime() time.Duration {
+	if s.cfg.JWT.AccessTokenExpireMinutes > 0 {
+		return time.Duration(s.cfg.JWT.AccessTokenExpireMinutes) * time.Minute
+	}
+	return time.Duration(s.cfg.JWT.ExpireHour) * time.Hour
 }
 
 // RevokeAllUserSessions 撤销用户的所有会话（所有Refresh Token）
@@ -1932,10 +2007,10 @@ func (s *AuthService) RevokeAllUserTokens(ctx context.Context, userID int64) err
 	return nil
 }
 
-// hashToken 计算Token的SHA256哈希
-func hashToken(token string) string {
-	hash := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(hash[:])
+func (s *AuthService) refreshTokenHash(token string) string {
+	mac := hmac.New(sha256.New, []byte(s.cfg.JWT.Secret))
+	_, _ = mac.Write([]byte("omnihive-refresh-v1\x00" + token))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 func resolvedTokenVersion(user *User) int64 {

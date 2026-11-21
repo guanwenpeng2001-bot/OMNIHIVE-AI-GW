@@ -1,8 +1,8 @@
 <template>
   <BaseDialog :show="show" :title="t('keys.secretOnce.title')" width="normal" @close="emit('close')">
-    <div class="space-y-4">
+    <div data-testid="key-secret-once-dialog" class="space-y-4">
       <div
-        class="flex items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4"
+        class="flex items-start gap-3 rounded-[var(--oh-r-md,8px)] border border-[var(--oh-accent-border,rgba(245,158,11,0.4))] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.08))] p-3.5"
       >
         <p class="text-sm font-medium text-[var(--foreground)]">
           {{ t('keys.secretOnce.warning') }}
@@ -10,13 +10,25 @@
       </div>
 
       <div class="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
-        <code class="min-w-0 flex-1 break-all rounded-lg border border-white/10 bg-[#161616] p-4 font-mono text-xs leading-6 text-[#f4f4f5]">{{ secret }}</code>
-        <button type="button" class="btn btn-secondary shrink-0" @click="copySecret">
+        <code
+          data-testid="key-secret-value"
+          class="min-w-0 flex-1 break-all rounded-[var(--oh-r-md,8px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-inset,#121316)] p-3.5 font-mono text-xs leading-6 tabular-nums text-[#f4f4f5]"
+        >{{ secret }}</code>
+        <button
+          type="button"
+          data-testid="copy-key-secret-btn"
+          class="btn btn-secondary shrink-0 font-mono text-xs"
+          @click="copySecret"
+        >
           {{ copied ? t('keys.copied') : t('keys.copyToClipboard') }}
         </button>
       </div>
 
-      <p v-if="graceUntil" class="text-xs text-gray-500 dark:text-gray-400">
+      <p v-if="copied" role="status" class="font-mono text-xs text-oh-accent-text">
+        ✓ {{ t('keys.copied') }}
+      </p>
+
+      <p v-if="graceUntil" class="font-mono text-xs tabular-nums text-[var(--oh-ink-secondary,var(--muted-foreground))]">
         {{ t('keys.secretOnce.graceUntil', { time: formatGraceUntil(graceUntil) }) }}
       </p>
     </div>

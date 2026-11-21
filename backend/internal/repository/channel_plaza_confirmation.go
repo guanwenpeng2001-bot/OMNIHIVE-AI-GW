@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 func readPlazaAccounts(ctx context.Context, tx *sql.Tx, groupID int64) ([]service.Account, string, error) {
@@ -86,7 +86,7 @@ func (repository *channelRepository) ConfirmPlazaModels(ctx context.Context, cha
 			return err
 		}
 		log := &service.AuditLog{CreatedAt: now, ActorUserID: &actorID, ActorRole: "admin", Action: "channel.plaza.confirm", Method: "PUT", Path: "/api/v1/admin/channels/" + strconv.FormatInt(channelID, 10), StatusCode: 200, Extra: map[string]any{"channel_id": channelID, "group_id": input.GroupID, "before": view.Selected, "after": input.Models, "revision": input.Revision}}
-		_, err = tx.ExecContext(ctx, `INSERT INTO audit_logs (`+auditLogInsertColumns+`) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, auditLogInsertValues(log)...)
+		_, err = tx.ExecContext(ctx, auditLogInsertSQL, auditLogInsertValues(log)...)
 		return err
 	})
 }

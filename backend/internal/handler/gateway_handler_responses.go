@@ -7,10 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ip"
+	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
@@ -75,7 +76,11 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
-	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, reqModel, "responses", h.maxAccountSwitches)()
+	finishExecution, admitted := beginResponsesExecution(c, h.gatewayService, apiKey, reqModel, body, h.maxAccountSwitches, h.responsesErrorResponse)
+	defer finishExecution()
+	if !admitted {
+		return
+	}
 	bindRequestedReasoningEffort(c, body, reqModel)
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if !compositeTargetPlatformResolved(c, apiKey, reqModel) {
@@ -190,6 +195,10 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		requestCtx = selectContext
 		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(service.WithCompositeTargetAdvancement(selectContext), apiKey.GroupID, sessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
 		if err != nil {
+			if errors.Is(err, policy.NativePolicyDenied) {
+				h.responsesErrorResponse(c, policy.NativePolicyDenied.Status, "permission_error", policy.NativePolicyDenied.Reason+": "+policy.NativePolicyDenied.Message)
+				return
+			}
 			if failoverClientGone(c) {
 				reqLog.Info("gateway.responses.account_select_aborted_client_disconnected", zap.Error(err))
 				return
@@ -360,7 +369,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		}
 
 		if err != nil {
-			if result != nil && (result.Usage.InputTokens > 0 || result.Usage.OutputTokens > 0 || result.Usage.CacheReadInputTokens > 0 || result.Usage.CacheCreationInputTokens > 0) {
+			if result != nil && (result.UsageIncomplete || result.Usage.InputTokens > 0 || result.Usage.OutputTokens > 0 || result.Usage.CacheReadInputTokens > 0 || result.Usage.CacheCreationInputTokens > 0) {
 				recordUsage()
 			}
 			if writeGatewayTPMRequestError(c, err) {
@@ -369,11 +378,12 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				// Can't failover if streaming content already sent
-				if result != nil || c.Writer.Size() != writerSizeBeforeForward {
+				if result != nil {
 					h.handleResponsesFailoverExhausted(c, failoverErr, true)
 					return
 				}
-				action := fs.HandleFailoverError(requestCtx, h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
+				action := fs.handleHTTPFailure(c, h.gatewayService, account, writerSizeBeforeForward, failoverErr)
+				streamStarted = streamStarted || streamTransportCommitted(c)
 				switch action {
 				case FailoverContinue:
 					continue
@@ -406,11 +416,14 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 
 // responsesErrorResponse writes an error in OpenAI Responses API format.
 func (h *GatewayHandler) responsesErrorResponse(c *gin.Context, status int, code, message string) {
-	c.JSON(status, gin.H{
-		"error": gin.H{
-			"code":    code,
-			"message": message,
-		},
+	if streamTransportCommitted(c) {
+		writeGatewayStreamTerminal(c, status, code, "", message)
+		return
+	}
+	emitGatewayTerminal(c, func() {
+		c.JSON(status, gin.H{
+			"error": gin.H{"code": code, "message": message},
+		})
 	})
 }
 
@@ -443,13 +456,9 @@ func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastEr
 		status, code, message = http.StatusTooManyRequests, "rate_limit_error", "All available accounts are currently rate-limited. Please retry later."
 	}
 	if streamStarted {
-		// A slot-wait heartbeat commits HTTP 200 before any upstream response.
-		// In that case a terminal frame is still required; once any semantic or
-		// official terminal bytes exist, preserve them without appending a second
-		// generic response.failed.
 		service.MarkOpsStreamError(c, code, message, status)
-		if c != nil && c.Writer != nil && (c.Writer.Size() <= 0 || gatewayStreamHasOnlyHeartbeats(c)) {
-			writeResponsesFailedSSE(c, code, "", message)
+		if c != nil && c.Writer != nil && (attemptResponse(c) != nil || c.Writer.Size() <= 0 || gatewayStreamHasOnlyHeartbeats(c)) {
+			emitGatewayTerminal(c, func() { writeResponsesFailedSSE(c, code, "", message) })
 		}
 		return
 	}

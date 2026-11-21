@@ -409,7 +409,7 @@ export default {
         ungrouped: '未分组',
         hint: '显示格式为“分组名 / 基础分 / 粘性加分”。基础分按当前筛选条件限定的候选账号计算，包含优先级、负载、排队、错误率、首包延迟、重置窗口、额度余量、计费倍率等因子；粘性加分只在开启粘性加权时用于 previous_response_id 或 session_hash。分数越大越优先。'
       },
-      usageWindowsHint: '“5h / 7d”是上游账号（如 OpenAI ChatGPT、Claude）官方的滚动用量窗口限制，由上游对账号设定，并非 sub2api 配置，也与你映射的模型无关。窗口滚动到期后用量会自动重置，无法在 sub2api 端解除该限制。',
+      usageWindowsHint: '“5h / 7d”是上游账号（如 OpenAI ChatGPT、Claude）官方的滚动用量窗口限制，由上游对账号设定，并非网关配置，也与你映射的模型无关。窗口滚动到期后用量会自动重置，无法在 网关端解除该限制。',
       ollamaCloud: {
         title: 'Ollama Cloud 用量',
         sessionSecurityHint: '浏览器会话会加密落库，且只发送到固定的 Ollama 官方设置页。',
@@ -460,7 +460,7 @@ export default {
         }
       },
       upstreamBilling: {
-        trustWarning: '此倍率由上游站点针对当前 API Key 自行声明。Sub2API 无法验证该值是否与实际扣费一致；上游站点或中间代理可能返回伪造、过期或被篡改的数据。请结合账单、余额变化和实际用量自行核验。',
+        trustWarning: '此倍率由上游站点针对当前 API Key 自行声明。OmniHive 无法验证该值是否与实际扣费一致；上游站点或中间代理可能返回伪造、过期或被篡改的数据。请结合账单、余额变化和实际用量自行核验。',
         autoProbe: '自动探测上游声明倍率',
         autoProbeHint: '启用后按全局周期刷新上游声明倍率；此开关本身不会修改账号倍率。',
         syncRate: '同步上游声明倍率',
@@ -787,6 +787,9 @@ export default {
       status: {
         active: '正常',
         inactive: '停用',
+        disabled: '已停用',
+        draft: '草稿',
+        unverified: '待验证',
         expired: '已过期',
         error: '错误',
         cooldown: '冷却中',
@@ -871,7 +874,7 @@ export default {
         claude: 'Claude',
         grokRequests: '请求',
         grokTokens: 'Token',
-        grokFreeQuota24hHint: '按 sub2api 近 24 小时本地 Token 用量估算（上限 {limit}）',
+        grokFreeQuota24hHint: '按网关近 24 小时本地 Token 用量估算（上限 {limit}）',
         grokWeeklyUsage: '周额度已用 {percent}%',
         grokUsed: '已用 $',
         grokBalance: '余额 $',
@@ -1064,7 +1067,7 @@ export default {
       upstreamRequestIdHeaderHelp: {
         intro: '填写直接上游在响应头中声明请求标识的头名，记录到用量明细的“上游ID”列；留空则不记录。',
         examplesTitle: '常见取值',
-        sub2apiNote: '对应对方用量明细的请求ID列',
+        omnihiveNote: '对应对方用量明细的请求ID列',
         official: '{platform} 官方 API'
       },
       // OpenAI specific hints
@@ -1079,7 +1082,7 @@ export default {
           '默认关闭：/responses 上的 namespace 工具声明原样转发，这正是 ChatGPT Codex 后端期望的形态。仅当该 OAuth 账号指向不认识 namespace 的兼容上游时才开启——摊平会把工具改名为 namespace__tool，使按 functions.<命名空间>.<工具> 寻址的模型（如 gpt-5.6 多智能体）无法调用。压缩（compact）请求不受该开关影响，始终摊平。',
         longContextBilling: 'API 长上下文计费',
         longContextBillingDesc: '默认关闭。仅当该账号的上游会按模型阈值收取 OpenAI API 长上下文费率时开启。',
-        responsesWebsocketsV2: 'Responses WebSocket v2',
+        responsesWebsocketsV2: 'Responses WebSocket',
         responsesWebsocketsV2Desc:
           '默认关闭。开启后可启用 responses_websockets_v2 协议能力（受网关全局开关与账号类型开关约束）。',
         wsMode: 'WS mode',
@@ -1491,7 +1494,7 @@ export default {
       poolMode: '池模式',
       poolModeHint: '上游为账号池时启用，错误不标记本地账号状态',
       poolModeInfo:
-        '启用后，上游 429/403/401 错误将自动重试而不标记账号限流或错误，适用于上游指向另一个 sub2api 实例的场景。',
+        '启用后，上游 429/403/401 错误将自动重试而不标记账号限流或错误，适用于上游指向另一个兼容中继的场景。',
       poolModeRetryCount: '同账号重试次数',
       poolModeRetryCountHint: '仅在池模式下生效。0 表示不原地重试；默认 {default}，最大 {max}。',
       poolModeRetryStatusCodes: '同账号重试状态码',

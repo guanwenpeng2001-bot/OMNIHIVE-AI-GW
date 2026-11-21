@@ -16,14 +16,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/handler"
-	adminhandler "github.com/Wei-Shaw/sub2api/internal/handler/admin"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
+	adminhandler "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/usagestats"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -750,7 +750,7 @@ func TestAPIContracts(t *testing.T) {
 					service.SettingKeySMTPUsername: "user",
 					service.SettingKeySMTPPassword: "secret",
 					service.SettingKeySMTPFrom:     "no-reply@example.com",
-					service.SettingKeySMTPFromName: "Sub2API",
+					service.SettingKeySMTPFromName: "OmniHive",
 					service.SettingKeySMTPUseTLS:   "true",
 
 					service.SettingKeyTurnstileEnabled:   "true",
@@ -779,7 +779,7 @@ func TestAPIContracts(t *testing.T) {
 					service.SettingKeyOIDCConnectUserInfoIDPath:       "",
 					service.SettingKeyOIDCConnectUserInfoUsernamePath: "",
 
-					service.SettingKeySiteName:     "Sub2API",
+					service.SettingKeySiteName:     "OmniHive",
 					service.SettingKeySiteLogo:     "",
 					service.SettingKeySiteSubtitle: "Subtitle",
 					service.SettingKeyAPIBaseURL:   "https://api.example.com",
@@ -833,8 +833,10 @@ func TestAPIContracts(t *testing.T) {
 						"login_agreement_mode": "modal",
 						"login_agreement_updated_at": "2026-03-31",
 						"login_agreement_documents": [
-							{"id": "terms", "title": "服务条款", "content_md": ""},
-							{"id": "usage-policy", "title": "使用政策", "content_md": ""},
+							{"id": "terms", "title": "服务条款", "content_md": "[TEMPLATE — replace before enabling registration agreements]\n\n# Terms of Service\n\n[OPERATOR LEGAL NAME]\n[OPERATOR CONTACT EMAIL]\n[EFFECTIVE DATE]\n\nOperator: replace this placeholder with the text approved for this deployment. Document the following where applicable: service scope, operator identity, support contact, liability and termination. Do not present this template as published legal terms."},
+							{"id": "privacy-policy", "title": "隐私政策", "content_md": "[TEMPLATE — replace before enabling registration agreements]\n\n# Privacy Policy\n\n[OPERATOR LEGAL NAME]\n[OPERATOR CONTACT EMAIL]\n[EFFECTIVE DATE]\n\nOperator: replace this placeholder with the text approved for this deployment. Document the following where applicable: operator identity, contact, processing purposes, data categories, retention, upstream/cross-border transfers and privacy rights. Do not present this template as published legal terms."},
+							{"id": "refund-policy", "title": "退款政策", "content_md": "[TEMPLATE — replace before enabling registration agreements]\n\n# Refund Policy\n\n[OPERATOR LEGAL NAME]\n[OPERATOR CONTACT EMAIL]\n[EFFECTIVE DATE]\n\nOperator: replace this placeholder with the text approved for this deployment. Document the following where applicable: eligible purchases, refund window, calculation, exclusions, payment channel and support contact. Do not present this template as published legal terms."},
+							{"id": "usage-policy", "title": "可接受使用政策", "content_md": "[TEMPLATE — replace before enabling registration agreements]\n\n# Acceptable Use Policy\n\n[OPERATOR LEGAL NAME]\n[OPERATOR CONTACT EMAIL]\n[EFFECTIVE DATE]\n\nOperator: replace this placeholder with the text approved for this deployment. Document the following where applicable: prohibited conduct, abuse prevention, enforcement and appeal contact. Do not present this template as published legal terms."},
 							{"id": "supported-regions", "title": "支持的国家和地区", "content_md": ""},
 							{"id": "service-specific-terms", "title": "服务特定条款", "content_md": ""}
 						],
@@ -843,7 +845,7 @@ func TestAPIContracts(t *testing.T) {
 						"smtp_username": "user",
 					"smtp_password_configured": true,
 					"smtp_from_email": "no-reply@example.com",
-					"smtp_from_name": "Sub2API",
+					"smtp_from_name": "OmniHive",
 					"smtp_use_tls": true,
 					"turnstile_enabled": true,
 					"turnstile_site_key": "site-key",
@@ -916,7 +918,7 @@ func TestAPIContracts(t *testing.T) {
 						"ops_realtime_monitoring_enabled": true,
 						"ops_query_mode_default": "auto",
 						"ops_metrics_interval_seconds": 60,
-						"site_name": "Sub2API",
+						"site_name": "OmniHive",
 						"site_logo": "",
 						"site_subtitle": "Subtitle",
 						"site_icp": "",
@@ -1187,8 +1189,10 @@ func TestAPIContracts(t *testing.T) {
 						"login_agreement_mode": "modal",
 						"login_agreement_updated_at": "2026-03-31",
 						"login_agreement_documents": [
-							{"id": "terms", "title": "服务条款", "content_md": ""},
-							{"id": "usage-policy", "title": "使用政策", "content_md": ""},
+							{"id": "terms", "title": "服务条款", "content_md": "[TEMPLATE — replace before enabling registration agreements]\n\n# Terms of Service\n\n[OPERATOR LEGAL NAME]\n[OPERATOR CONTACT EMAIL]\n[EFFECTIVE DATE]\n\nOperator: replace this placeholder with the text approved for this deployment. Document the following where applicable: service scope, operator identity, support contact, liability and termination. Do not present this template as published legal terms."},
+							{"id": "privacy-policy", "title": "隐私政策", "content_md": "[TEMPLATE — replace before enabling registration agreements]\n\n# Privacy Policy\n\n[OPERATOR LEGAL NAME]\n[OPERATOR CONTACT EMAIL]\n[EFFECTIVE DATE]\n\nOperator: replace this placeholder with the text approved for this deployment. Document the following where applicable: operator identity, contact, processing purposes, data categories, retention, upstream/cross-border transfers and privacy rights. Do not present this template as published legal terms."},
+							{"id": "refund-policy", "title": "退款政策", "content_md": "[TEMPLATE — replace before enabling registration agreements]\n\n# Refund Policy\n\n[OPERATOR LEGAL NAME]\n[OPERATOR CONTACT EMAIL]\n[EFFECTIVE DATE]\n\nOperator: replace this placeholder with the text approved for this deployment. Document the following where applicable: eligible purchases, refund window, calculation, exclusions, payment channel and support contact. Do not present this template as published legal terms."},
+							{"id": "usage-policy", "title": "可接受使用政策", "content_md": "[TEMPLATE — replace before enabling registration agreements]\n\n# Acceptable Use Policy\n\n[OPERATOR LEGAL NAME]\n[OPERATOR CONTACT EMAIL]\n[EFFECTIVE DATE]\n\nOperator: replace this placeholder with the text approved for this deployment. Document the following where applicable: prohibited conduct, abuse prevention, enforcement and appeal contact. Do not present this template as published legal terms."},
 							{"id": "supported-regions", "title": "支持的国家和地区", "content_md": ""},
 							{"id": "service-specific-terms", "title": "服务特定条款", "content_md": ""}
 						],
@@ -1266,9 +1270,9 @@ func TestAPIContracts(t *testing.T) {
 					"google_oauth_client_secret_configured": false,
 					"google_oauth_redirect_url": "",
 					"google_oauth_frontend_redirect_url": "/auth/oauth/callback",
-					"site_name": "Sub2API",
+					"site_name": "OmniHive",
 					"site_logo": "",
-					"site_subtitle": "Subscription to API Conversion Platform",
+					"site_subtitle": "Unified AI Inference Gateway",
 					"site_icp": "",
 					"api_base_url": "",
 					"api_key_acl_trust_forwarded_ip": false,

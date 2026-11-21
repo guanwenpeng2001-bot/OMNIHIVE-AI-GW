@@ -8,14 +8,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCreateWithAccountGroupsPersistsPausedCopyAtomically(t *testing.T) {
+	prepareRepositoryFixtures(t)
 	ctx := context.Background()
 	client := testEntClient(t)
-	repo := newAccountRepositoryWithSQL(client, integrationDB, nil)
+	repo := fixtureAccountRepository(t, client, integrationDB, nil)
 	suffix := time.Now().UnixNano()
 
 	group, err := client.Group.Create().
@@ -34,12 +35,6 @@ func TestCreateWithAccountGroupsPersistsPausedCopyAtomically(t *testing.T) {
 		Extra:       map[string]any{},
 	}
 	require.NoError(t, repo.CreateWithAccountGroups(ctx, success, []service.AccountGroup{{GroupID: group.ID, Priority: 37}}))
-	t.Cleanup(func() {
-		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM scheduler_outbox WHERE account_id = $1", success.ID)
-		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM account_groups WHERE account_id = $1", success.ID)
-		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM accounts WHERE id = $1", success.ID)
-		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM groups WHERE id = $1", group.ID)
-	})
 
 	var schedulable bool
 	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT schedulable FROM accounts WHERE id = $1", success.ID).Scan(&schedulable))

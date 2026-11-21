@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 	"github.com/stretchr/testify/require"
 )
 
@@ -268,6 +269,30 @@ func TestGuardEvaluatorRecordsExistingResultOnceAndRecordFailureDoesNotChangeDec
 			require.Zero(t, metrics.Snapshot().RecordFailed)
 		}
 	}
+}
+
+func TestPrivateGatewayGuardScansButPersistsOnlyMetadata(t *testing.T) {
+	repo := &fakeJobRepository{}
+	const prompt = "private prompt"
+	scanner := PromptScannerFunc(func(_ context.Context, _ ActiveEndpoint, input string, _ []string) (*NormalizedResult, error) {
+		require.Equal(t, prompt, input)
+		return &NormalizedResult{
+			Decision: EventCritical, RiskLevel: RiskCritical, Action: ActionBlock, Safety: "Unsafe",
+			Categories: []string{"pii"}, MatchedScanners: []string{"pii"},
+			ScannerScores: map[string]float64{"pii": 1}, ScannerEvidence: map[string]string{"pii": prompt},
+		}, nil
+	})
+	ctx := ctxkey.WithPrivateGatewayContent(t.Context())
+	cfg := guardConfig(ActiveEndpoint{ID: "one", Enabled: true, TimeoutMS: 1000, InputLimit: 100})
+	decision, err := NewGuardEvaluator(scanner, repo, nil).Evaluate(ctx, cfg, PromptSnapshot{
+		ScanText: prompt, RedactedPreview: prompt, FullPrompt: prompt,
+	})
+	require.NoError(t, err)
+	require.Equal(t, DecisionBlock, decision.Kind)
+	require.Equal(t, 1, repo.recordBlockingCalls)
+	require.Empty(t, repo.recordBlockingSnapshot.RedactedPreview)
+	require.Empty(t, repo.recordBlockingSnapshot.FullPrompt)
+	require.Empty(t, repo.recordBlockingResult.ScannerEvidence)
 }
 
 func TestGuardEvaluatorNilResultAndScannerPanicBecomeStableFailures(t *testing.T) {

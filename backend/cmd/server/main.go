@@ -7,9 +7,11 @@ import (
 	_ "embed"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
+	"net"
 	"net/http"
-	// #nosec G108 -- pprof exposure is opt-in via SUB2API_PPROF and bound to 127.0.0.1:6060 only.
+	// #nosec G108 -- pprof exposure is opt-in via OMNIHIVE_PPROF and bound to 127.0.0.1:6060 only.
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
@@ -17,14 +19,16 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/handler"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/server/routes"
-	"github.com/Wei-Shaw/sub2api/internal/setup"
-	"github.com/Wei-Shaw/sub2api/internal/web"
+	_ "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/runtime"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
+	process "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/runtime"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/setup"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/web"
+	"github.com/spf13/viper"
 
 	"github.com/gin-gonic/gin"
 )
@@ -62,10 +66,11 @@ func main() {
 	// Parse command line flags
 	setupMode := flag.Bool("setup", false, "Run setup wizard in CLI mode")
 	showVersion := flag.Bool("version", false, "Show version information")
+	roleFlag := flag.String("mode", "", "Process role (all, control, gateway, worker)")
 	flag.Parse()
 
 	if *showVersion {
-		log.Printf("Sub2API %s (commit: %s, built: %s)\n", Version, Commit, Date)
+		log.Printf("OmniHive %s (commit: %s, built: %s)\n", Version, Commit, Date)
 		return
 	}
 
@@ -77,8 +82,19 @@ func main() {
 		return
 	}
 
+	role := strings.TrimSpace(*roleFlag)
+	if role == "" {
+		role = os.Getenv("OMNIHIVE_RUNTIME_MODE")
+	}
+	initialMode, err := process.ParseMode(role)
+	if err != nil {
+		log.Fatal(err)
+	}
 	// Check if setup is needed
 	if setup.NeedsSetup() {
+		if initialMode != process.All && initialMode != process.Control {
+			log.Fatalf("%s mode requires an initialized installation", initialMode)
+		}
 		// Check if auto-setup is enabled (for Docker deployment)
 		if setup.AutoSetupEnabled() {
 			log.Println("Auto setup mode enabled...")
@@ -94,10 +110,19 @@ func main() {
 	}
 
 	// Normal server mode
-	runMainServer()
+	if err := runMainServer(role); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func configureGinMode(mode string) {
+	if strings.EqualFold(strings.TrimSpace(mode), gin.ReleaseMode) {
+		gin.SetMode(gin.ReleaseMode)
+	}
 }
 
 func runSetupServer() {
+	configureGinMode(viper.GetString("server.mode"))
 	r := gin.New()
 	r.Use(middleware.Recovery())
 	r.Use(middleware.CORS(config.CORSConfig{}))
@@ -121,7 +146,7 @@ func runSetupServer() {
 	// This allows users to run setup on a different address if needed
 	addr := config.GetServerAddress()
 	log.Printf("Setup wizard available at http://%s", addr)
-	log.Println("Complete the setup wizard to configure Sub2API")
+	log.Println("Complete the setup wizard to configure OmniHive")
 
 	protocols := new(http.Protocols)
 	protocols.SetHTTP1(true)
@@ -140,112 +165,55 @@ func runSetupServer() {
 	}
 }
 
-func runMainServer() {
+func runMainServer(role string) error {
 	cfg, err := config.LoadForBootstrap()
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		return fmt.Errorf("load configuration: %w", err)
 	}
-	if err := logger.Init(logger.OptionsFromConfig(cfg.Log)); err != nil {
-		log.Fatalf("Failed to initialize logger: %v", err)
+	configureGinMode(cfg.Server.Mode)
+	if role == "" {
+		role = viper.GetString("runtime.mode")
 	}
-	if cfg.RunMode == config.RunModeSimple {
-		log.Println("⚠️  WARNING: Running in SIMPLE mode - billing and quota checks are DISABLED")
-	}
-
-	buildInfo := handler.BuildInfo{
-		Version:   Version,
-		BuildType: BuildType,
-	}
-
-	app, err := initializeApplication(buildInfo)
+	mode, err := process.ParseMode(role)
 	if err != nil {
-		log.Fatalf("Failed to initialize application: %v", err)
-	}
-	if app.PluginManager != nil {
-		if err := app.PluginManager.Start(context.Background()); err != nil {
-			log.Printf("Plugin manager started in degraded state: %v", err)
-		}
-	}
-	if app.PromptAudit != nil {
-		if err := app.PromptAudit.Start(context.Background()); err != nil {
-			// Startup continues so unrelated APIs stay up. Fail-closed (unavailable)
-			// applies only when a persisted blocking policy was observed; without
-			// blocking intent, Prompt Audit stays ModeOff so the gateway remains
-			// usable and administrators can still disable the feature (#4560).
-			log.Printf("Prompt Audit started in degraded state: %v", err)
-		}
-	}
-
-	readyHandler := routes.NewReadinessHandler(app.OpsMetrics.DependenciesReady, app.UpstreamJobs.Ready)
-	originalHandler := app.Server.Handler
-	app.Server.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/ready" {
-			readyHandler(w, r)
-			return
-		}
-		originalHandler.ServeHTTP(w, r)
-	})
-
-	// 启动服务器
-	go func() {
-		if err := app.Server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("Failed to start server: %v", err)
-		}
-	}()
-
-	// SUB2API_PPROF=1 时在 127.0.0.1:6060 暴露 pprof（仅本机，排障用）。
-	if os.Getenv("SUB2API_PPROF") == "1" {
-		go func() {
-			log.Printf("pprof listening on 127.0.0.1:6060")
-			if err := http.ListenAndServe("127.0.0.1:6060", nil); err != nil {
-				log.Printf("pprof server exited: %v", err)
-			}
-		}()
-	}
-
-	log.Printf("Server started on %s", app.Server.Addr)
-
-	// 等待中断信号
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	log.Println("Shutting down server...")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-
-	if err := shutdownApplication(ctx, app); err != nil {
-		log.Printf("Shutdown budget exhausted: %v", err)
-	}
-
-	log.Println("Server exited")
-}
-
-// The initial 20s application budget includes WS drain, receipt persistence,
-// HTTP shutdown and infrastructure cleanup. Deployment grace should start at
-// 30s; both values require rehearsal and are not measured SLOs.
-func shutdownApplication(ctx context.Context, app *Application) error {
-	app.UpstreamJobs.BeginDrain()
-	httpDone := make(chan error, 1)
-	go func() { httpDone <- app.Server.Shutdown(ctx) }()
-	if err := app.UpstreamJobs.WaitDrain(ctx); err != nil {
 		return err
 	}
+	if err := logger.Init(logger.OptionsFromConfig(cfg.Log)); err != nil {
+		return fmt.Errorf("initialize logger: %w", err)
+	}
+	if cfg.RunMode == config.RunModeSimple {
+		log.Print("SIMPLE mode disables billing and quota checks")
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	listener, err := net.Listen("tcp", cfg.Server.Address())
+	if err != nil {
+		return fmt.Errorf("bind %s listener: %w", mode, err)
+	}
+	defer func() { _ = listener.Close() }()
+	if err := checkDependencies(ctx, cfg); err != nil {
+		return err
+	}
+	app, err := initializeApplication(handler.BuildInfo{Version: Version, BuildType: BuildType}, cfg, process.New(mode))
+	if err != nil {
+		return fmt.Errorf("initialize %s application: %w", mode, err)
+	}
+	configureLifecycle(app)
+	if runtimeenv.Get("OMNIHIVE_PPROF", "SUB2API_PPROF") == "1" {
+		app.Supervisor.Add(runProfiles)
+	}
+	app.Supervisor.Start()
+	served := make(chan error, 1)
+	go func() { served <- app.Server.Serve(listener) }()
+	log.Printf("OmniHive %s listening on %s", mode, listener.Addr())
 	select {
-	case err := <-httpDone:
-		if err != nil {
-			return err
+	case <-ctx.Done():
+	case err = <-served:
+		if errors.Is(err, http.ErrServerClosed) {
+			err = nil
 		}
-	case <-ctx.Done():
-		return ctx.Err()
 	}
-	done := make(chan struct{})
-	go func() { app.Cleanup(); close(done) }()
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	budget, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	return errors.Join(err, shutdownApplication(budget, app))
 }

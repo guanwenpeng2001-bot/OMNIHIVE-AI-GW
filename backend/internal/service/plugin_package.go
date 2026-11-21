@@ -16,15 +16,17 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 )
 
 const (
 	pluginManifestFilename                   = "manifest.json"
 	pluginSignatureFilename                  = "signature.json"
 	pluginArchiveMaxFiles                    = 512
-	builtInOpenAITransportPluginID           = "local.sub2api.openai-transport"
-	builtInOpenAITransportPublisherKeyID     = "sub2api-openai-transport-v1"
+	builtInOpenAITransportPluginID           = "local.omnihive.openai-transport"
+	legacyOpenAITransportPluginID            = "local.sub2api.openai-transport"
+	builtInOpenAITransportPublisherKeyID     = "omnihive-openai-transport-v1"
+	legacyOpenAITransportPublisherKeyID      = "sub2api-openai-transport-v1"
 	builtInOpenAITransportPublisherKeyBase64 = "MqzSXAoG0iVR5kKWrC+mqcCeExkrT6zAr2WpQ4sA+yc="
 )
 
@@ -73,7 +75,7 @@ func (i *PluginPackageInstaller) Install(ctx context.Context, reader io.Reader, 
 		}
 	}
 
-	tempFile, err := os.CreateTemp(stagingDir, "upload-*.s2plugin")
+	tempFile, err := os.CreateTemp(stagingDir, "upload-*")
 	if err != nil {
 		return nil, fmt.Errorf("创建插件上传临时文件: %w", err)
 	}
@@ -151,7 +153,11 @@ func (i *PluginPackageInstaller) Install(ctx context.Context, reader io.Reader, 
 	}
 	extracted = true
 
-	artifactPath := filepath.Join(packagesDir, manifest.ID+"-"+manifest.Version+"-"+artifactSHA[:12]+"-"+installNonce+".s2plugin")
+	extension := ".s2plugin"
+	if manifest.SchemaVersion == 2 {
+		extension = ".ohplugin"
+	}
+	artifactPath := filepath.Join(packagesDir, manifest.ID+"-"+manifest.Version+"-"+artifactSHA[:12]+"-"+installNonce+extension)
 	if err := os.Rename(tempPath, artifactPath); err != nil {
 		_ = os.RemoveAll(installPath)
 		return nil, fmt.Errorf("保存插件包: %w", err)
@@ -206,10 +212,10 @@ func (i *PluginPackageInstaller) inspectArchive(archive *zip.Reader) (PluginMani
 		if file.Mode()&os.ModeSymlink != 0 {
 			return PluginManifest{}, nil, "", fmt.Errorf("插件包不允许符号链接: %s", name)
 		}
-		total += file.UncompressedSize64
-		if total > uint64(i.cfg.Plugins.MaxUncompressedBytes) {
+		if file.UncompressedSize64 > uint64(i.cfg.Plugins.MaxUncompressedBytes)-total {
 			return PluginManifest{}, nil, "", errors.New("插件包解压后体积超过限制")
 		}
+		total += file.UncompressedSize64
 		entries[name] = file
 	}
 	manifestFile := entries[pluginManifestFilename]
@@ -229,6 +235,25 @@ func (i *PluginPackageInstaller) inspectArchive(archive *zip.Reader) (PluginMani
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		return PluginManifest{}, nil, "", errors.New("插件清单只能包含一个 JSON 对象")
 	}
+	// Preserve v1's strict field vocabulary, including explicit JSON nulls.
+	if manifest.SchemaVersion == 1 {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(manifestRaw, &fields); err != nil {
+			return PluginManifest{}, nil, "", err
+		}
+		for _, name := range []string{"product_id", "publisher_id", "origin"} {
+			if _, exists := fields[name]; exists {
+				return PluginManifest{}, nil, "", fmt.Errorf("unexpected v2 field %q in v1 manifest", name)
+			}
+		}
+	}
+	if manifest.SchemaVersion == 2 {
+		for name, entry := range entries {
+			if name != entry.Name {
+				return PluginManifest{}, nil, "", errors.New("v2 paths must be canonical")
+			}
+		}
+	}
 	if err := manifest.Validate(); err != nil {
 		return PluginManifest{}, nil, "", err
 	}
@@ -245,7 +270,16 @@ func (i *PluginPackageInstaller) inspectArchive(archive *zip.Reader) (PluginMani
 			return PluginManifest{}, nil, "", fmt.Errorf("插件包缺少已声明文件: %s", path)
 		}
 	}
-	signatureStatus, err := i.verifySignature(entries[pluginSignatureFilename], manifestRaw, manifest.ID)
+	var signatureStatus string
+	if manifest.SchemaVersion == 2 {
+		_, err = i.verifyExtensionSignature(entries[pluginSignatureFilename], manifestRaw, manifest)
+		if err == nil && manifest.Origin != nil {
+			err = i.verifyLegacyEvidence(entries[extensionLegacyEvidence], manifest)
+		}
+		signatureStatus = PluginSignatureTrusted
+	} else {
+		signatureStatus, err = i.verifySignature(entries[pluginSignatureFilename], manifestRaw, manifest.ID)
+	}
 	if err != nil {
 		return PluginManifest{}, nil, "", err
 	}
@@ -287,8 +321,14 @@ func (i *PluginPackageInstaller) verifySignature(file *zip.File, manifestRaw []b
 
 func trustedPluginPublisherKey(cfg *config.Config, keyID, pluginID string) string {
 	// 内置公钥是官方私有插件的固定信任根，不允许被部署配置覆盖。
-	if keyID == builtInOpenAITransportPublisherKeyID {
+	switch keyID {
+	case builtInOpenAITransportPublisherKeyID:
 		if pluginID != builtInOpenAITransportPluginID {
+			return ""
+		}
+		return builtInOpenAITransportPublisherKeyBase64
+	case legacyOpenAITransportPublisherKeyID:
+		if pluginID != legacyOpenAITransportPluginID {
 			return ""
 		}
 		return builtInOpenAITransportPublisherKeyBase64

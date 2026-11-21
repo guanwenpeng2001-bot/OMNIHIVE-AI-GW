@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
@@ -94,7 +94,7 @@ func TestCompatibleRuntimeNativeAndBridges(t *testing.T) {
 						account := compatibleAccount(server.URL + "/prefix/v1")
 						account.Credentials["model_mapping"] = map[string]any{"private/gpt-5.4-high": "deployment-one"}
 						transport := &compatibleLoopback{client: server.Client()}
-						gateway := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: transport}
+						gateway := &OpenAIGatewayService{cfg: loopbackHTTPTestConfig(), httpUpstream: transport}
 						body := []byte(fmt.Sprintf(`{"model":"private/gpt-5.4-high","stream":%v,"messages":[{"role":"assistant","content":null,"tool_calls":[{"id":"previous","type":"function","function":{"name":"lookup","arguments":"{}"}}]},{"role":"tool","tool_call_id":"previous","content":"prior result"},{"role":"user","content":"hello"}],"reasoning_effort":"high","tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}]}`, stream))
 						if ingress == "messages" || ingress == "gemini" {
 							body = []byte(fmt.Sprintf(`{"model":"private/gpt-5.4-high","stream":%v,"max_tokens":32,"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"previous","name":"lookup","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"previous","content":"prior result"},{"type":"text","text":"hello"}]}],"output_config":{"effort":"high"},"tools":[{"name":"lookup","input_schema":{"type":"object"}}]}`, stream))
@@ -219,7 +219,7 @@ func TestCompatibleFailureUsageAndCancellation(t *testing.T) {
 				fmt.Fprint(w, scenario.response)
 			}))
 			defer server.Close()
-			gateway := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: &compatibleLoopback{client: server.Client()}}
+			gateway := &OpenAIGatewayService{cfg: loopbackHTTPTestConfig(), httpUpstream: &compatibleLoopback{client: server.Client()}}
 			body := []byte(fmt.Sprintf(`{"model":"alias","stream":%v,"messages":[{"role":"user","content":"hi"}]}`, scenario.stream))
 			rec := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(rec)
@@ -242,7 +242,7 @@ func TestCompatibleFailureUsageAndCancellation(t *testing.T) {
 			}
 		}))
 		defer server.Close()
-		gateway := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: &compatibleLoopback{client: server.Client()}}
+		gateway := &OpenAIGatewayService{cfg: loopbackHTTPTestConfig(), httpUpstream: &compatibleLoopback{client: server.Client()}}
 		ctx, cancel := context.WithCancel(context.WithValue(context.Background(), boundedStreamContextKey{}, true))
 		defer cancel()
 		body := []byte(`{"model":"alias","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
@@ -319,7 +319,7 @@ func TestCompatibleNativeOpaqueResponsesAndDiscoveryHTTP(t *testing.T) {
 	}))
 	defer server.Close()
 	a := compatibleAccount(server.URL + "/openai/v1")
-	gateway := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: &compatibleLoopback{client: server.Client()}}
+	gateway := &OpenAIGatewayService{cfg: loopbackHTTPTestConfig(), httpUpstream: &compatibleLoopback{client: server.Client()}}
 	body := []byte(`{"model":"alias","input":[{"type":"reasoning","encrypted_content":"opaque-history"}],"previous_response_id":"tenant-owned-response","store":true,"future_vendor_field":{"preserve":true}}`)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -330,7 +330,7 @@ func TestCompatibleNativeOpaqueResponsesAndDiscoveryHTTP(t *testing.T) {
 	require.True(t, gjson.GetBytes(sent, "store").Bool())
 	require.True(t, gjson.GetBytes(sent, "future_vendor_field.preserve").Bool())
 	require.Contains(t, string(sent), "opaque-history")
-	tester := &AccountTestService{cfg: rawChatCompletionsTestConfig(), httpUpstream: &compatibleLoopback{client: server.Client()}}
+	tester := &AccountTestService{cfg: loopbackHTTPTestConfig(), httpUpstream: &compatibleLoopback{client: server.Client()}}
 	req, err := tester.buildUpstreamModelsRequest(context.Background(), a)
 	require.NoError(t, err)
 	resp, err := server.Client().Do(req)
@@ -360,7 +360,7 @@ func TestCompatibleAccountProbeUsesSelectedNativeEndpoint(t *testing.T) {
 			a.ProxyID = &proxyID
 			a.Proxy = &Proxy{Protocol: "http", Host: "proxy.example", Port: 8080}
 			transport := &compatibleLoopback{client: server.Client()}
-			svc := &AccountTestService{cfg: rawChatCompletionsTestConfig(), httpUpstream: transport}
+			svc := &AccountTestService{cfg: loopbackHTTPTestConfig(), httpUpstream: transport}
 			var complete bool
 			probe := &accountProbeContext{ctx: context.Background(), emit: func(event TestEvent) {
 				if event.Type == "test_complete" {
@@ -420,7 +420,7 @@ func TestCompatibleTwoRootsActualForwarding(t *testing.T) {
 	a := compatibleAccount("")
 	a.Credentials["api_base_urls"] = map[string]any{APIProtocolChatCompletions: chat.URL + "/custom"}
 	transport := &compatibleLoopback{client: messages.Client()}
-	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: transport}
+	svc := &OpenAIGatewayService{cfg: loopbackHTTPTestConfig(), httpUpstream: transport}
 	body := []byte(`{"model":"alias","messages":[{"role":"user","content":"hello"}],"max_tokens":12}`)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -480,7 +480,7 @@ func TestCompatibleUsagePresenceAcrossNativeProtocols(t *testing.T) {
 					}))
 					defer server.Close()
 					a := compatibleAccount(server.URL + "/v1")
-					svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: &compatibleLoopback{client: server.Client()}}
+					svc := &OpenAIGatewayService{cfg: loopbackHTTPTestConfig(), httpUpstream: &compatibleLoopback{client: server.Client()}}
 					body := []byte(fmt.Sprintf(`{"model":"alias","stream":%v,"messages":[{"role":"user","content":"hello"}],"input":"hello","max_tokens":32}`, stream))
 					rec := httptest.NewRecorder()
 					c, _ := gin.CreateTestContext(rec)
@@ -514,7 +514,7 @@ func TestCompatibleKnownZeroUsage(t *testing.T) {
 	}))
 	defer server.Close()
 	a := compatibleAccount(server.URL + "/v1")
-	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: &compatibleLoopback{client: server.Client()}}
+	svc := &OpenAIGatewayService{cfg: loopbackHTTPTestConfig(), httpUpstream: &compatibleLoopback{client: server.Client()}}
 	body := []byte(`{"model":"alias","messages":[{"role":"user","content":"hi"}]}`)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)

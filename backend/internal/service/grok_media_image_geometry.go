@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -30,6 +31,9 @@ var grokImagineAspectRatioValues = []struct {
 }
 
 func applyGrokImagineImageGeometry(body []byte) ([]byte, error) {
+	if _, err := GrokImagineImageResolutionBound(body); err != nil {
+		return nil, fmt.Errorf("invalid image geometry: %w", err)
+	}
 	size := strings.TrimSpace(gjson.GetBytes(body, "size").String())
 	resolution := grokImagineImageResolution(gjson.GetBytes(body, "resolution").String())
 	aspect := strings.TrimSpace(gjson.GetBytes(body, "aspect_ratio").String())

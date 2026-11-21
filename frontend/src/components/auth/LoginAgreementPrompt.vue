@@ -1,5 +1,5 @@
 <template>
-  <div class="px-0.5">
+  <div v-if="enabled" class="px-0.5">
     <div class="flex items-start gap-2">
       <input
         id="login-agreement-consent"
@@ -23,7 +23,7 @@
               rel="noopener noreferrer"
               class="font-medium text-[var(--brand-text)] underline-offset-4 transition hover:underline"
             >
-              {{ doc.title }}
+              {{ localizedDocumentTitle(doc) }}
             </RouterLink>
             <span v-if="index < displayedDocuments.length - 1">{{ t('legal.loginAgreementPrompt.documentSeparator') }}</span>
           </template>
@@ -33,8 +33,8 @@
   </div>
 
   <div class="auth-legal-actions">
-    <button type="button" class="btn btn-outline" @click="openDocument(termsDocument || fallbackDocuments[0])">查看服务条款</button>
-    <button type="button" class="btn btn-outline" @click="openDocument(privacyDocument || fallbackDocuments[1])">查看隐私政策</button>
+    <button type="button" class="btn btn-outline" @click="openDocument(termsDocument || fallbackDocuments[0])">{{ t('publicPortal.legal.viewTermsButton') }}</button>
+    <button type="button" class="btn btn-outline" @click="openDocument(privacyDocument || fallbackDocuments[1])">{{ t('publicPortal.legal.viewPrivacyButton') }}</button>
   </div>
 
   <Teleport to="body">
@@ -89,7 +89,7 @@
                   <Icon :name="documentIcon(index, doc.title)" size="sm" />
                 </span>
                 <span class="min-w-0 flex-1">
-                  <span class="block truncate text-sm font-semibold text-[var(--foreground)]">{{ doc.title }}</span>
+                  <span class="block truncate text-sm font-semibold text-[var(--foreground)]">{{ localizedDocumentTitle(doc) }}</span>
                 </span>
                 <span class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--muted-foreground)] group-hover:text-[var(--foreground)]">
                   <Icon name="document" size="sm" />
@@ -97,15 +97,22 @@
               </button>
             </div>
             <section v-if="selectedDocument" class="mt-5 border-t border-[var(--border)] pt-5" aria-labelledby="agreement-document-title">
-              <h3 id="agreement-document-title" class="mb-3 text-lg font-semibold">{{ selectedDocument.title }}</h3>
+              <h3 id="agreement-document-title" class="mb-3 text-lg font-semibold">{{ localizedDocumentTitle(selectedDocument) }}</h3>
+              <div
+                v-if="selectedDocumentIsTemplate"
+                data-testid="agreement-template-notice"
+                class="mb-3 rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"
+              >
+                {{ t('publicPortal.legal.templateNoticeBody') }}
+              </div>
               <div class="agreement-document-content" v-html="renderedDocument"></div>
               <RouterLink :to="documentRoute(selectedDocument)" target="_blank" rel="noopener noreferrer" class="btn btn-outline mt-4">
-                新窗口打开完整文档
+                {{ t('publicPortal.legal.openFullDocument') }}
               </RouterLink>
             </section>
           </div>
 
-          <div class="border-t border-[var(--border)] bg-[var(--surface-2)] px-6 py-4">
+          <div v-if="enabled" class="border-t border-[var(--border)] bg-[var(--surface-2)] px-6 py-4">
             <div class="grid grid-cols-2 gap-3">
               <button
                 type="button"
@@ -123,6 +130,15 @@
               </button>
             </div>
           </div>
+          <div v-else class="border-t border-[var(--border)] bg-[var(--surface-2)] px-6 py-4">
+            <button
+              type="button"
+              class="btn btn-outline w-full px-4 py-3"
+              @click="emit('close')"
+            >
+              {{ t('common.close') }}
+            </button>
+          </div>
         </div>
       </div>
     </Transition>
@@ -135,18 +151,35 @@ import { useI18n } from 'vue-i18n'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import Icon from '@/components/icons/Icon.vue'
-import { getLocale } from '@/i18n'
+import {
+  getLegalSlotTemplateKeys,
+  isPrivacyLegalDocument,
+  isTermsLegalDocument,
+  legalDocumentRouteParam,
+} from '@/features/public/legal'
 import type { LoginAgreementDocument } from '@/types'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+
+function localizedDocumentTitle(doc: LoginAgreementDocument): string {
+  const rawTitle = (doc.title || '').trim()
+  const activeLocale = String(locale.value || '').toLowerCase()
+  const slotKeys = getLegalSlotTemplateKeys(doc.id || '')
+  if (slotKeys && (!rawTitle || (!activeLocale.startsWith('zh') && /[\u4e00-\u9fff]/.test(rawTitle)))) {
+    return t(slotKeys.titleKey)
+  }
+  return rawTitle
+}
 
 const props = withDefaults(defineProps<{
+  enabled?: boolean
   accepted: boolean
   documents: LoginAgreementDocument[]
   mode: 'modal' | 'checkbox' | string
   updatedAt?: string
   visible: boolean
 }>(), {
+  enabled: true,
   updatedAt: ''
 })
 
@@ -154,37 +187,25 @@ const emit = defineEmits<{
   accept: []
   reject: []
   open: []
+  close: []
 }>()
 
 const dialogVisible = computed(() => props.visible)
-const documents = computed(() => props.documents.filter((doc) => doc.title.trim()))
-const termsDocument = computed(() => documents.value.find((doc) => doc.id === 'terms' || /terms|服务条款/i.test(doc.title)))
-const privacyDocument = computed(() => documents.value.find((doc) => doc.id === 'privacy' || /privacy|隐私/i.test(doc.title)))
-const fallbackDocuments = computed<LoginAgreementDocument[]>(() => getLocale() === 'zh'
-  ? [
-      {
-        id: 'terms',
-        title: 'OmniHive 服务条款',
-        content_md: '## 服务与账户\nOmniHive 提供模型接口访问及账户、用量管理。请保护密码与 API 密钥，遵守适用法律及所选提供方的使用要求。\n\n## 费用与支持\n使用付费功能前，请核对站点展示的价格、额度与有效期。服务、账单及账户问题请联系站点管理员。\n\n完整条款还包括第三方服务、可用性及更新说明，请通过下方链接阅读。'
-      },
-      {
-        id: 'privacy',
-        title: 'OmniHive 隐私政策',
-        content_md: '## 信息与用途\n账户信息、请求及用量记录用于验证身份、提供服务、计费和保障安全。模型请求可能由所选上游提供方处理，请避免提交无关的个人信息或敏感凭证。\n\n## 存储与联系\n浏览器存储用于登录状态、偏好及注册流程。具体保存期限与数据管理安排请向站点运营方了解。\n\n完整政策还包括服务提供方及信息查询、更正和删除的联系说明，请通过下方链接阅读。'
-      }
-    ]
-  : [
-      {
-        id: 'terms',
-        title: 'OmniHive Terms of Service',
-        content_md: '## Service and accounts\nOmniHive provides model API access, account management, and usage information. Protect passwords and API keys and follow applicable laws and your selected provider’s requirements.\n\n## Charges and support\nReview displayed prices, quotas, and validity periods before using paid features. Contact the site administrator about services, billing, or your account.\n\nThe full terms also cover third-party services, availability, and updates. Read them using the link below.'
-      },
-      {
-        id: 'privacy',
-        title: 'OmniHive Privacy Policy',
-        content_md: '## Information and purposes\nAccount information, requests, and usage records support verification, services, billing, and security. Your selected upstream provider may process model requests. Avoid submitting unrelated personal information or sensitive credentials.\n\n## Storage and contact\nBrowser storage supports sign-in, preferences, and registration. Ask the site operator about retention periods and data management.\n\nThe full policy also covers providers and contacting the operator for access, correction, or deletion. Read it using the link below.'
-      }
-    ])
+const documents = computed(() => props.documents.filter((doc) => doc.id?.trim() || doc.title?.trim()))
+const termsDocument = computed(() => documents.value.find((doc) => isTermsLegalDocument(doc)))
+const privacyDocument = computed(() => documents.value.find((doc) => isPrivacyLegalDocument(doc)))
+const fallbackDocuments = computed<LoginAgreementDocument[]>(() => [
+  {
+    id: 'terms',
+    title: t('publicPortal.legal.slotTitles.terms'),
+    content_md: t('publicPortal.legal.promptSummary.terms')
+  },
+  {
+    id: 'privacy',
+    title: t('publicPortal.legal.slotTitles.privacy'),
+    content_md: t('publicPortal.legal.promptSummary.privacy')
+  }
+])
 const displayedDocuments = computed(() => [
   ...documents.value,
   ...(!termsDocument.value ? [fallbackDocuments.value[0]] : []),
@@ -194,10 +215,21 @@ const selectedDocumentId = ref('')
 const selectedDocument = computed(() =>
   displayedDocuments.value.find((doc) => (doc.id || doc.title) === selectedDocumentId.value) || displayedDocuments.value[0]
 )
+const selectedFallbackContent = computed(() => {
+  const selected = selectedDocument.value
+  if (!selected) return ''
+  if (isTermsLegalDocument(selected)) return fallbackDocuments.value[0].content_md
+  if (isPrivacyLegalDocument(selected)) return fallbackDocuments.value[1].content_md
+  const slotKeys = getLegalSlotTemplateKeys(selected.id || '')
+  return slotKeys ? t(slotKeys.templateKey) : ''
+})
+const selectedDocumentIsTemplate = computed(() => {
+  const selected = selectedDocument.value
+  return Boolean(selected && !selected.content_md?.trim() && selectedFallbackContent.value)
+})
 const renderedDocument = computed(() => {
   const selected = selectedDocument.value
-  const fallback = selected === termsDocument.value ? fallbackDocuments.value[0] : selected === privacyDocument.value ? fallbackDocuments.value[1] : undefined
-  const content = selected?.content_md?.trim() || fallback?.content_md || t('legal.empty')
+  const content = selected?.content_md?.trim() || selectedFallbackContent.value || t('legal.empty')
   return DOMPurify.sanitize(marked.parse(content, { async: false, breaks: true, gfm: true }))
 })
 const updatedAt = computed(() => props.updatedAt || '')
@@ -212,7 +244,7 @@ function documentRoute(doc: LoginAgreementDocument) {
   return {
     name: 'LegalDocument',
     params: {
-      documentId: doc.id || doc.title,
+      documentId: legalDocumentRouteParam(doc),
     },
   }
 }

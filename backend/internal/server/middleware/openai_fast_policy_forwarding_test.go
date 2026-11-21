@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
@@ -54,6 +54,8 @@ func TestAPIKeyAuthForwardsUserScopedOpenAIFastPolicyToUpstream(t *testing.T) {
 
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	cfg.Security.URLAllowlist.Enabled = false
+	cfg.Security.URLAllowlist.AllowPrivateHosts = true
+	cfg.Security.URLAllowlist.UpstreamHosts = []string{"127.0.0.1"}
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 
 	settingService := service.NewSettingService(&openAIFastPolicyForwardingSettingRepo{

@@ -3,11 +3,11 @@ package routes
 import (
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/handler"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/response"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 // RegisterWorkspaceRoutes provides a separate delegation boundary. Existing
@@ -30,15 +30,18 @@ func RegisterWorkspaceRoutes(parent *gin.RouterGroup, handlers *handler.Handlers
 	registerAccountRoutes(resources, handlers, stepUp)
 	registerGroupRoutes(resources, handlers)
 	registerProxyRoutes(resources, handlers, stepUp)
+	registerProxyGroupRoutes(resources, handlers)
 	registerChannelRoutes(resources, handlers)
 	registerChannelMonitorRoutes(resources, handlers, settings)
-	monitor := resources.Group("/channel-monitor-v2", channelMonitorModeV2Guard(settings))
-	monitor.GET("/dimensions", handlers.ChannelMonitorV2.Dimensions)
-	monitor.GET("/snapshot", handlers.ChannelMonitorV2.AdminSnapshot)
-	monitor.GET("/models", handlers.ChannelMonitorV2.AdminModels)
-	monitor.GET("/matrix", handlers.ChannelMonitorV2.AdminMatrix)
-	monitor.GET("/errors", handlers.ChannelMonitorV2.Errors)
-	monitor.GET("/users", handlers.ChannelMonitorV2.AdminUsers)
+	for _, telemetryPath := range []string{"/channel-telemetry", "/channel-monitor-v2"} {
+		monitor := resources.Group(telemetryPath, channelMonitorModeV2Guard(settings))
+		monitor.GET("/dimensions", handlers.ChannelTelemetry.Dimensions)
+		monitor.GET("/snapshot", handlers.ChannelTelemetry.AdminSnapshot)
+		monitor.GET("/models", handlers.ChannelTelemetry.AdminModels)
+		monitor.GET("/matrix", handlers.ChannelTelemetry.AdminMatrix)
+		monitor.GET("/errors", handlers.ChannelTelemetry.Errors)
+		monitor.GET("/users", handlers.ChannelTelemetry.AdminUsers)
+	}
 	registerScheduledTestRoutes(resources, handlers)
 	registerAdminAPIKeyRoutes(resources, handlers)
 	registerOpenAIOAuthRoutes(resources, handlers)

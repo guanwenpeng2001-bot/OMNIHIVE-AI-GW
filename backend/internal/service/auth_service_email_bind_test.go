@@ -11,14 +11,14 @@ import (
 	"testing"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/authidentity"
-	"github.com/Wei-Shaw/sub2api/ent/enttest"
-	dbuser "github.com/Wei-Shaw/sub2api/ent/user"
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/repository"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/authidentity"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/enttest"
+	dbuser "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/user"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 
 	"entgo.io/ent/dialect"
@@ -877,6 +877,24 @@ type emailBindRefreshTokenCacheStub struct {
 	tokens   map[string]*service.RefreshTokenData
 	userSets map[int64]map[string]struct{}
 	families map[string]map[string]struct{}
+	revoked  map[string]struct{}
+}
+
+func (s *emailBindRefreshTokenCacheStub) RevokeSessionFamily(_ context.Context, familyID string, _ time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.revoked == nil {
+		s.revoked = map[string]struct{}{}
+	}
+	s.revoked[familyID] = struct{}{}
+	return nil
+}
+
+func (s *emailBindRefreshTokenCacheStub) IsSessionFamilyRevoked(_ context.Context, familyID string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.revoked[familyID]
+	return ok, nil
 }
 
 func newEmailBindRefreshTokenCacheStub() *emailBindRefreshTokenCacheStub {

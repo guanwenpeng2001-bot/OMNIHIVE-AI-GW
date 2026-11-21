@@ -1,0 +1,48 @@
+# Optional overlay for docker-compose.yml or docker-compose.local.yml.
+# Set two distinct hex passwords in .env and configure the backup bucket in Admin.
+services:
+  omnihive:
+    environment:
+      OMNIHIVE_RESTORE_JOURNAL_DSN: postgres://journal:${RESTORE_JOURNAL_PASSWORD:?set a hex journal password}@restore-journal:5432/journal?sslmode=disable
+      OMNIHIVE_RESTORE_ISOLATED_DSN: postgres://rehearsal:${RESTORE_ISOLATED_PASSWORD:?set a hex rehearsal password}@restore-isolated:5432/rehearsal?sslmode=disable
+    depends_on:
+      restore-journal:
+        condition: service_healthy
+      restore-isolated:
+        condition: service_healthy
+
+  restore-journal:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: journal
+      POSTGRES_USER: journal
+      POSTGRES_PASSWORD: ${RESTORE_JOURNAL_PASSWORD:?set a hex journal password}
+    volumes:
+      - restore_journal_data:/var/lib/postgresql
+    networks: [omnihive-network]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "journal", "-d", "journal"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  restore-isolated:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: rehearsal
+      POSTGRES_USER: rehearsal
+      POSTGRES_PASSWORD: ${RESTORE_ISOLATED_PASSWORD:?set a hex rehearsal password}
+    volumes:
+      - restore_isolated_data:/var/lib/postgresql
+    networks: [omnihive-network]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "rehearsal", "-d", "rehearsal"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  restore_journal_data:
+  restore_isolated_data:

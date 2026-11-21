@@ -1,0 +1,99 @@
+{
+  "project_collection": "/api/v2/workspaces/10/projects/20/byok/credentials",
+  "workspace_collection": "/api/v2/workspaces/10/byok",
+  "create": {
+    "provider": "openai",
+    "auth_type": "api_key",
+    "secret": "<entered-provider-key>",
+    "allowed_project_ids": [
+      "20"
+    ],
+    "allowed_member_ids": [
+      "30"
+    ],
+    "allowed_key_ids": [
+      "40"
+    ],
+    "allowed_model_ids": [
+      "model-a"
+    ],
+    "priority": 10,
+    "allow_platform_fallback": false,
+    "include_external_in_budget": false
+  },
+  "credential": {
+    "id": "50",
+    "owner_workspace_id": "10",
+    "provider": "openai",
+    "version": "1",
+    "credential_version": "1",
+    "fingerprint": "fp_a5a51ed3c94a8824",
+    "state": "unverified",
+    "verified_until": null,
+    "scope": {
+      "project_ids": [
+        "20"
+      ],
+      "member_ids": [
+        "30"
+      ],
+      "key_ids": [
+        "40"
+      ],
+      "model_ids": [
+        "model-a"
+      ]
+    },
+    "priority": 10,
+    "allow_platform_fallback": false,
+    "include_external_in_budget": false
+  },
+  "estimate_parameters": {
+    "member_id": "30",
+    "key_id": "40",
+    "model_id": "model-a",
+    "input_token_bound": "100",
+    "output_token_bound": "20"
+  },
+  "unknown_external_estimate": {
+    "funding_source": "byok",
+    "external_state": "unknown",
+    "byok_external_estimate": null,
+    "platform_service_fee": {
+      "currency": "USD",
+      "amount": "0.25000000"
+    },
+    "platform_estimate": null,
+    "price_version": null,
+    "include_external_in_budget": false
+  },
+  "attempts": [
+    {
+      "ordinal": 1,
+      "source": "byok",
+      "external_state": "estimated",
+      "byok_external_estimate": {
+        "currency": "USD",
+        "amount": "2.00000000"
+      },
+      "platform_service_fee": {
+        "currency": "USD",
+        "amount": "0.25000000"
+      },
+      "platform_estimate": null
+    },
+    {
+      "ordinal": 2,
+      "source": "wallet",
+      "external_state": "not_applicable",
+      "byok_external_estimate": null,
+      "platform_service_fee": null,
+      "platform_estimate": {
+        "currency": "USD",
+        "amount": "1.25000000"
+      },
+      "reservation_id": "612",
+      "price_version": "wallet-tariff-v7"
+    }
+  ]
+}

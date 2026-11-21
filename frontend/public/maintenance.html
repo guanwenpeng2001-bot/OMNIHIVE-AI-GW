@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>503 Maintenance - OmniHive</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: system-ui, -apple-system, sans-serif;
+        background: #0f172a;
+        color: #f8fafc;
+        padding: 24px;
+      }
+      main {
+        max-width: 480px;
+        width: 100%;
+        border: 1px solid #334155;
+        border-radius: 12px;
+        background: #1e293b;
+        padding: 32px;
+      }
+      .badge {
+        display: inline-block;
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: #334155;
+        color: #fbbf24;
+      }
+      h1 { font-size: 20px; margin: 16px 0 8px; }
+      p { font-size: 14px; line-height: 1.6; color: #cbd5e1; margin: 0 0 12px; }
+      a { color: #fbbf24; text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <span class="badge">503 · MAINTENANCE</span>
+      <h1>Scheduled Maintenance / 系统维护中</h1>
+      <p>OmniHive is currently undergoing scheduled maintenance or backup verification. In-flight gateway requests are drained safely.</p>
+      <p>OmniHive 正在进行例行维护或数据校验，请稍后刷新页面重试。</p>
+      <p><a href="/status">Check Service Status / 查看服务状态</a></p>
+    </main>
+  </body>
+</html>

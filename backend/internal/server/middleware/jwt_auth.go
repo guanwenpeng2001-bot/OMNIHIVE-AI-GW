@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -58,7 +58,7 @@ func jwtAuth(
 		}
 
 		// 验证token
-		claims, err := authService.ValidateToken(tokenString)
+		claims, err := authService.ValidateTokenContext(c.Request.Context(), tokenString)
 		if err != nil {
 			if errors.Is(err, service.ErrTokenExpired) {
 				AbortWithError(c, 401, "TOKEN_EXPIRED", "Token has expired")

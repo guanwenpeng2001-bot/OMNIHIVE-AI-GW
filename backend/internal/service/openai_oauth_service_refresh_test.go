@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/openai"
 	"github.com/imroc/req/v3"
 	"github.com/stretchr/testify/require"
 )
@@ -80,6 +80,7 @@ func TestOpenAIOAuthService_RefreshAccountToken_PATIgnoresStaleRefreshToken(t *t
 
 	originalURL := openAICodexPATWhoamiURL
 	openAICodexPATWhoamiURL = server.URL
+	useLoopbackClient(t, &codexPATHTTPClient)
 	defer func() { openAICodexPATWhoamiURL = originalURL }()
 
 	svc := NewOpenAIOAuthService(nil, client)
@@ -159,6 +160,7 @@ func TestOpenAITokenRefresher_Refresh_PATRemovesStaleOAuthFields(t *testing.T) {
 
 	originalURL := openAICodexPATWhoamiURL
 	openAICodexPATWhoamiURL = server.URL
+	useLoopbackClient(t, &codexPATHTTPClient)
 	defer func() { openAICodexPATWhoamiURL = originalURL }()
 
 	svc := NewOpenAIOAuthService(nil, nil)

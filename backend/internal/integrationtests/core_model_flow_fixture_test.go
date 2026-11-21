@@ -15,19 +15,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/handler"
-	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
-	"github.com/Wei-Shaw/sub2api/internal/repository"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/Wei-Shaw/sub2api/internal/testutil"
-	"github.com/Wei-Shaw/sub2api/internal/testutil/testresources"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testresources"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -152,6 +152,7 @@ func newCoreFlowFixture(t *testing.T) *coreFlowFixture {
 	cfg := &config.Config{}
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 	cfg.Security.URLAllowlist.AllowPrivateHosts = true
+	cfg.Security.URLAllowlist.UpstreamHosts = []string{"127.0.0.1"}
 	cfg.Database.MaxOpenConns = 8
 	cfg.APIKeyAuth.L1Size = 32
 	cfg.APIKeyAuth.L1TTLSeconds = 60
@@ -178,7 +179,7 @@ func newCoreFlowFixture(t *testing.T) *coreFlowFixture {
 	cache := repository.NewGatewayCache(redisClient)
 	openAI := service.ProvideOpenAIGatewayService(accounts, usage, billingRepo, f.users, nil, rates, cache, cfg, nil, concurrency, billing, nil, billingCache, f.upstream, nil, nil, nil, pricing, nil, nil, nil, nil, settlement)
 	gateway := service.NewGatewayService(accounts, groups, usage, billingRepo, f.users, nil, rates, cache, cfg, nil, concurrency, billing, nil, billingCache, nil, f.upstream, nil, nil, nil, nil, nil, nil, nil, nil, pricing, nil, nil, nil)
-	adminService := service.NewAdminService(cfg, f.users, usage, repository.NewAdminGroupRepository(client, db), repository.NewAdminAccountRepository(client, db, nil), nil, keys, nil, rates, nil, billingCache, nil, nil, keyService, client, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminService := service.NewAdminService(cfg, f.users, usage, repository.NewAdminGroupRepository(client, db), repository.ProvideAdminAccountRepositoryWithSecrets(client, db, nil, testutil.CredentialEncryptor(t), nil), nil, keys, nil, rates, nil, billingCache, nil, nil, keyService, client, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	f.discovery = service.NewAccountTestService(accounts, nil, nil, nil, nil, f.upstream, cfg, nil)
 	// Exercise the optional scheduled refresh deterministically below using the
 	// same service entry point. Avoid the global import-probe scheduler outliving
@@ -197,11 +198,17 @@ func newCoreFlowFixture(t *testing.T) *coreFlowFixture {
 		require.NoError(t, f.users.Create(ctx, user))
 		*target = user.ID
 	}
-	// Cleanup only this scenario's identities, including receipts before users.
+	// Remove this scenario's derived receipt links before their source receipts.
 	t.Cleanup(func() {
 		_, err := db.ExecContext(context.Background(), `DELETE FROM usage_billing_dedup WHERE api_key_id=$1`, f.keyID)
 		require.NoError(t, err)
+		_, err = db.ExecContext(context.Background(), `DELETE FROM billing_movement_links WHERE receipt_id IN (SELECT id FROM usage_settlement_receipts WHERE user_id IN ($1,$2))`, f.userID, f.otherUserID)
+		require.NoError(t, err)
+		_, err = db.ExecContext(context.Background(), `DELETE FROM billing_settlement_outbox WHERE receipt_id IN (SELECT id FROM usage_settlement_receipts WHERE user_id IN ($1,$2))`, f.userID, f.otherUserID)
+		require.NoError(t, err)
 		for _, statement := range []string{
+			`DELETE FROM billing_movement_links m USING usage_settlement_receipts r
+			 WHERE m.receipt_id=r.id AND r.user_id IN ($1,$2)`,
 			`DELETE FROM usage_settlement_receipts WHERE user_id IN ($1,$2)`,
 			`DELETE FROM usage_logs WHERE user_id IN ($1,$2)`,
 			`DELETE FROM api_keys WHERE user_id IN ($1,$2)`,
@@ -210,6 +217,8 @@ func newCoreFlowFixture(t *testing.T) *coreFlowFixture {
 			_, err := db.ExecContext(context.Background(), statement, f.userID, f.otherUserID)
 			require.NoError(t, err)
 		}
+		_, err = db.ExecContext(context.Background(), `DELETE FROM credential_secrets WHERE account_id=$1`, f.accountID)
+		require.NoError(t, err)
 		_, err = db.ExecContext(context.Background(), `DELETE FROM accounts WHERE id=$1`, f.accountID)
 		require.NoError(t, err)
 		_, err = db.ExecContext(context.Background(), `DELETE FROM groups WHERE id=$1`, f.groupID)

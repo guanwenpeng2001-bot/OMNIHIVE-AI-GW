@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/openai_compat"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
@@ -1268,5 +1268,40 @@ func TestRawChatUsageIsDeliveredOnlyWhenRequested(t *testing.T) {
 		require.Equal(t, 9, result.Usage.InputTokens)
 		require.Equal(t, include, strings.Contains(recorder.Body.String(), `"usage"`))
 		require.Contains(t, recorder.Body.String(), "[DONE]")
+	}
+}
+
+func TestRawChatSplitUsage(t *testing.T) {
+	for _, complete := range []bool{true, false} {
+		stream := "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":7}}\n\n"
+		if complete {
+			stream += "data: {\"choices\":[],\"usage\":{\"completion_tokens\":2}}\n\n"
+		}
+		stream += "data: [DONE]\n\n"
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+		result, err := (&OpenAIGatewayService{}).streamRawChatCompletions(c, &http.Response{Header: http.Header{}, Body: io.NopCloser(strings.NewReader(stream))}, &Account{Platform: PlatformOpenAI}, "gpt-5.4", "gpt-5.4", "gpt-5.4", nil, nil, time.Now(), 0)
+		require.NoError(t, err)
+		require.Equal(t, 7, result.Usage.InputTokens)
+		require.Equal(t, &TokenUsageObservation{InputTokensKnown: true, OutputTokensKnown: complete}, result.TokenUsageObservation)
+		result.RequestID = "split-usage"
+		users := &openAIRecordUsageUserRepoStub{}
+		receipts := &settlementCapture{}
+		gateway := newOpenAIRecordUsageServiceForTest(&openAIRecordUsageLogRepoStub{}, users, &openAIRecordUsageSubRepoStub{}, nil)
+		gateway.usageSettlement = NewUsageSettlementService(receipts, nil, nil)
+		group := &Group{ID: 4, Platform: PlatformOpenAI, RateMultiplier: 1}
+		err = gateway.RecordUsage(context.Background(), &OpenAIRecordUsageInput{Result: result, APIKey: &APIKey{ID: 2, Group: group, GroupID: &group.ID}, User: &User{ID: 1}, Account: &Account{ID: 3, Platform: PlatformOpenAI}})
+		require.Equal(t, 7, receipts.receipt.Usage.InputTokens)
+		if complete {
+			require.NoError(t, err)
+			require.Equal(t, 2, receipts.receipt.Usage.OutputTokens)
+			require.Equal(t, 1, receipts.settles)
+		} else {
+			require.ErrorIs(t, err, ErrUsageSettlementNeedsReview)
+			require.Equal(t, "unresolved", receipts.receipt.ResolutionState)
+			require.Zero(t, receipts.settles)
+			require.Zero(t, receipts.receipt.Command.BalanceCost)
+			require.Zero(t, users.deductCalls)
+		}
 	}
 }

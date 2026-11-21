@@ -345,7 +345,7 @@ const DOMAIN_META: Record<SettingsTabKey, DomainMeta> = {
   features: {
     title: "功能开关",
     badge: "模块能力",
-    summary: "管理渠道监控 V1/V2、可用渠道、站点购买方式、邀请返利与模型广场开关",
+    summary: "管理主动拨测与流量遥测、可用渠道、站点购买方式、邀请返利与模型广场开关",
     keywords: "功能开关 渠道监控 订阅 返利 模型广场 简易模式 吞吐 features monitor billing",
   },
   security: {

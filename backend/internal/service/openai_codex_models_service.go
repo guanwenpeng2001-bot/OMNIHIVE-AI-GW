@@ -17,11 +17,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/claude"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/openai"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/xai"
 	"golang.org/x/net/http2"
 	"golang.org/x/sync/singleflight"
 )
@@ -29,6 +29,7 @@ import (
 // chatgptCodexModelsURL is the ChatGPT Codex models manifest endpoint.
 // Package-level variable so tests can point it at a stub server.
 var chatgptCodexModelsURL = "https://chatgpt.com/backend-api/codex/models"
+var codexModelsHTTPClient = httpclient.GetClient
 
 const (
 	openAIModelsCacheBodyLimit = 1 << 20
@@ -371,7 +372,7 @@ func openAIConfiguredCodexModelIDsForGroup(accounts []Account, group *Group) []s
 
 const (
 	configuredCodexModelPriority       = 50
-	configuredCodexCustomDescription   = "Custom model routed through Sub2API."
+	configuredCodexCustomDescription   = "Custom model routed through OmniHive."
 	configuredCodexFallbackContext     = 272_000
 	configuredCodexDeepSeekV4Context   = 1_000_000
 	configuredCodexGrokContext         = 500_000
@@ -446,7 +447,7 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 	if isDeepSeekCodexModel(modelID) {
 		defaultReasoningLevel := "high"
 		descriptor.DisplayName = deepSeekCodexDisplayName(modelID)
-		descriptor.Description = "DeepSeek coding and reasoning model routed through Sub2API."
+		descriptor.Description = "DeepSeek coding and reasoning model routed through OmniHive."
 		descriptor.DefaultReasoningLevel = &defaultReasoningLevel
 		descriptor.SupportedReasoningLevels = []configuredCodexReasoningLevel{
 			{Effort: "low", Description: "Fast responses with lighter reasoning"},
@@ -460,7 +461,7 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 
 	if isGrokCodexModel(modelID) {
 		descriptor.DisplayName = grokCodexDisplayName(modelID)
-		descriptor.Description = "Grok coding and reasoning model routed through Sub2API."
+		descriptor.Description = "Grok coding and reasoning model routed through OmniHive."
 		descriptor.SupportsParallelToolCalls = true
 		descriptor.ContextWindow = grokCodexContextWindow(modelID)
 		descriptor.MaxContextWindow = descriptor.ContextWindow
@@ -473,7 +474,7 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 
 	if isClaudeCodexModel(modelID) {
 		descriptor.DisplayName = claudeCodexDisplayName(modelID)
-		descriptor.Description = "Claude coding and reasoning model routed through Sub2API."
+		descriptor.Description = "Claude coding and reasoning model routed through OmniHive."
 		descriptor.SupportsParallelToolCalls = true
 		if levels := configuredCodexClaudeReasoningLevels(modelID); len(levels) > 0 {
 			defaultReasoningLevel := claudeCodexDefaultReasoningLevel(levels)
@@ -484,7 +485,7 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 
 	if isOpenAICodexGPTModel(modelID) {
 		descriptor.DisplayName = openaiCodexDisplayName(modelID)
-		descriptor.Description = "OpenAI GPT coding model routed through Sub2API."
+		descriptor.Description = "OpenAI GPT coding model routed through OmniHive."
 		descriptor.SupportsParallelToolCalls = true
 		descriptor.ServiceTiers = configuredCodexServiceTiersForModel(modelID)
 		if isOpenAICodexReasoningGPTModel(modelID) {
@@ -1918,10 +1919,16 @@ func (s *OpenAIGatewayService) fetchOpenAIModelsUpstream(ctx context.Context, re
 	} else {
 		handled := false
 		if s.pluginManager != nil {
-			resp, handled, err = s.pluginManager.RoundTripOpenAIOAuth(reqCtx, req, request.proxyURL, request.credentialAccount)
+			resp, handled, err = s.pluginManager.roundTripOpenAIOAuth(reqCtx, req, request.proxyURL, request.credentialAccount, func(r *http.Request) (*http.Response, error) {
+				client, e := providerEgress(request.proxyURL)
+				if e != nil {
+					return nil, e
+				}
+				return client.Do(r)
+			})
 		}
 		if !handled {
-			client, clientErr := httpclient.GetClient(httpclient.Options{
+			client, clientErr := codexModelsHTTPClient(httpclient.Options{
 				ProxyURL:              request.proxyURL,
 				Timeout:               codexModelsManifestRequestTimeout,
 				ResponseHeaderTimeout: 10 * time.Second,

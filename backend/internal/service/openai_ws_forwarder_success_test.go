@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/openai"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
@@ -95,9 +95,7 @@ func TestOpenAIGatewayService_Forward_WSv2_SuccessAndBindSticky(t *testing.T) {
 	groupID := int64(1001)
 	c.Set("api_key", &APIKey{GroupID: &groupID})
 
-	cfg := &config.Config{}
-	cfg.Security.URLAllowlist.Enabled = false
-	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	cfg := loopbackHTTPTestConfig()
 	cfg.Gateway.OpenAIWS.Enabled = true
 	cfg.Gateway.OpenAIWS.OAuthEnabled = true
 	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
@@ -216,9 +214,7 @@ func TestOpenAIGatewayService_Forward_WSv2_UsesPatchedBodyAfterValidationDecode(
 	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
 	c.Request.Header.Set("User-Agent", "unit-test-agent/1.0")
 
-	cfg := &config.Config{}
-	cfg.Security.URLAllowlist.Enabled = false
-	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	cfg := loopbackHTTPTestConfig()
 	cfg.Gateway.OpenAIWS.Enabled = true
 	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
 	cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
@@ -326,9 +322,7 @@ func TestOpenAIGatewayService_Forward_WSv2_ImageGenerationCountsOutputs(t *testi
 		},
 	})
 
-	cfg := &config.Config{}
-	cfg.Security.URLAllowlist.Enabled = false
-	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	cfg := loopbackHTTPTestConfig()
 	cfg.Gateway.OpenAIWS.Enabled = true
 	cfg.Gateway.OpenAIWS.OAuthEnabled = true
 	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
@@ -666,9 +660,7 @@ func TestOpenAIGatewayService_Forward_WSv2_PoolReuseNotOneToOne(t *testing.T) {
 	}))
 	defer wsServer.Close()
 
-	cfg := &config.Config{}
-	cfg.Security.URLAllowlist.Enabled = false
-	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	cfg := loopbackHTTPTestConfig()
 	cfg.Gateway.OpenAIWS.Enabled = true
 	cfg.Gateway.OpenAIWS.OAuthEnabled = true
 	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
@@ -1357,9 +1349,7 @@ func TestOpenAIGatewayService_Forward_WSv2_TurnStateAndMetadataReplayOnReconnect
 	}))
 	defer wsServer.Close()
 
-	cfg := &config.Config{}
-	cfg.Security.URLAllowlist.Enabled = false
-	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	cfg := loopbackHTTPTestConfig()
 	cfg.Gateway.OpenAIWS.Enabled = true
 	cfg.Gateway.OpenAIWS.OAuthEnabled = true
 	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
@@ -1675,9 +1665,7 @@ func TestOpenAIGatewayService_Forward_WSv2StoreFalseSessionConnIsolation(t *test
 	}))
 	defer wsServer.Close()
 
-	cfg := &config.Config{}
-	cfg.Security.URLAllowlist.Enabled = false
-	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	cfg := loopbackHTTPTestConfig()
 	cfg.Gateway.OpenAIWS.Enabled = true
 	cfg.Gateway.OpenAIWS.OAuthEnabled = true
 	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
@@ -1782,9 +1770,7 @@ func TestOpenAIGatewayService_Forward_WSv2StoreFalseDisableForceNewConnAllowsReu
 	}))
 	defer wsServer.Close()
 
-	cfg := &config.Config{}
-	cfg.Security.URLAllowlist.Enabled = false
-	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	cfg := loopbackHTTPTestConfig()
 	cfg.Gateway.OpenAIWS.Enabled = true
 	cfg.Gateway.OpenAIWS.OAuthEnabled = true
 	cfg.Gateway.OpenAIWS.APIKeyEnabled = true

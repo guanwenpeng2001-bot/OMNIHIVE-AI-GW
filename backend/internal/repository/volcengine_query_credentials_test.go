@@ -14,10 +14,10 @@ import (
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 	"github.com/DATA-DOG/go-sqlmock"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/dto"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -65,7 +65,7 @@ func TestVolcengineQueryReferenceCreateEncryptsAndFailsClosed(t *testing.T) {
 	enc, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32), EncryptionKeyConfigured: true}})
 	require.NoError(t, err)
 	var reference, ciphertext, audit string
-	mock.ExpectExec("INSERT INTO credential_secrets").WithArgs(volcengineCredentialCapture{&reference}, int64(7), int64(17), volcengineCredentialCapture{&ciphertext}, sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO credential_secrets").WithArgs(volcengineCredentialCapture{&reference}, int64(7), int64(17), volcengineCredentialCapture{&ciphertext}, sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec("INSERT INTO audit_logs").WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "credential_secret.convert", sqlmock.AnyArg(), volcengineCredentialCapture{&audit}).WillReturnResult(sqlmock.NewResult(1, 1))
 	inline, err := prepareReferencedCredentials(context.Background(), db, enc, 17, 7, map[string]any{}, quotaCredentialMap())
 	require.NoError(t, err)
@@ -126,7 +126,7 @@ func TestVolcengineQueryReferenceUpdateClearAndRetain(t *testing.T) {
 				if operation == "conflict" {
 					affected = 0
 				}
-				mock.ExpectExec("UPDATE credential_secrets SET ciphertext").WithArgs(volcengineCredentialCapture{&ciphertext}, nil, metadata.Reference, int64(17), int64(7), int64(3)).WillReturnResult(sqlmock.NewResult(0, affected))
+				mock.ExpectExec("UPDATE credential_secrets SET ciphertext").WithArgs(volcengineCredentialCapture{&ciphertext}, nil, metadata.Reference, int64(17), int64(7), int64(3), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, affected))
 				if operation != "conflict" {
 					mock.ExpectExec("INSERT INTO audit_logs").WillReturnResult(sqlmock.NewResult(1, 1))
 					metadata.Version = 4
@@ -215,7 +215,7 @@ func TestVolcengineQueryCreateTransactionRollback(t *testing.T) {
 }
 
 func TestVolcengineQuerySecretsRejectBulkInlineWrite(t *testing.T) {
-	repo := &accountRepository{}
+	repo := newAccountRepositoryWithSQL(nil, nil, nil)
 	_, err := repo.BulkUpdate(context.Background(), []int64{17}, service.AccountBulkUpdate{Credentials: map[string]any{"volcengine_secret_access_key": "secret"}})
 	require.ErrorIs(t, err, service.ErrCredentialSecretInvalid)
 	// No plaintext accidentally included in the generic serialized config.
@@ -240,6 +240,48 @@ func TestVolcengineQueryCreateAtomicSuccess(t *testing.T) {
 			repo := newAccountRepositoryWithSQL(client, db, nil)
 			repo.credentialEncryptor = enc
 			a := &service.Account{Name: "quota-account", Platform: service.PlatformVolcengine, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Credentials: quotaCredentialMap()}
+			mock.ExpectBegin()
+			if withGroups {
+				mock.ExpectQuery("SELECT id FROM groups").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(99))
+			}
+			mock.ExpectQuery(`INSERT INTO "accounts"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(17))
+			mock.ExpectExec("INSERT INTO credential_secrets").WillReturnResult(sqlmock.NewResult(1, 1))
+			mock.ExpectExec("INSERT INTO audit_logs").WillReturnResult(sqlmock.NewResult(1, 1))
+			mock.ExpectExec(`UPDATE "accounts"`).WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectQuery(`SELECT .* FROM "accounts"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(17))
+			if withGroups {
+				mock.ExpectQuery(`SELECT .* FROM "groups"`).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+				mock.ExpectExec(`INSERT INTO "account_groups"`).WillReturnResult(sqlmock.NewResult(0, 1))
+			}
+			mock.ExpectExec("INSERT INTO scheduler_outbox").WillReturnResult(sqlmock.NewResult(1, 1))
+			mock.ExpectCommit()
+			if withGroups {
+				err = repo.CreateWithAccountGroups(context.Background(), a, []service.AccountGroup{{GroupID: 99, Priority: 2}})
+			} else {
+				err = repo.Create(context.Background(), a)
+			}
+			require.NoError(t, err)
+			require.NotEmpty(t, a.Credentials[service.CredentialSecretReferenceKey])
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+func TestInferenceCredentialCreateAtomic(t *testing.T) {
+	for _, withGroups := range []bool{false, true} {
+		t.Run(fmt.Sprint(withGroups), func(t *testing.T) {
+			db, mock, err := sqlmock.New(sqlmock.ValueConverterOption(rejectPlainQuotaSecrets{}))
+			require.NoError(t, err)
+			defer func() {
+				mock.ExpectClose()
+				require.NoError(t, db.Close())
+			}()
+			enc, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32), EncryptionKeyConfigured: true}})
+			require.NoError(t, err)
+			client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
+			repo := newAccountRepositoryWithSQL(client, db, nil)
+			repo.credentialEncryptor = enc
+			a := &service.Account{Name: "quota-account", Platform: service.PlatformVolcengine, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Credentials: map[string]any{"api_key": "inference-secret"}}
 			mock.ExpectBegin()
 			if withGroups {
 				mock.ExpectQuery("SELECT id FROM groups").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(99))
@@ -311,7 +353,7 @@ func TestManagementQuerySecretAloneTriggersEncryption(t *testing.T) {
 			require.NoError(t, err)
 			credentials := map[string]any{"api_key": "inference-secret", field: "management-secret", "usage_query_user_id": "user"}
 			var reference, ciphertext string
-			mock.ExpectExec("INSERT INTO credential_secrets").WithArgs(volcengineCredentialCapture{&reference}, int64(7), int64(17), volcengineCredentialCapture{&ciphertext}, sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(1, 1))
+			mock.ExpectExec("INSERT INTO credential_secrets").WithArgs(volcengineCredentialCapture{&reference}, int64(7), int64(17), volcengineCredentialCapture{&ciphertext}, sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(1, 1))
 			mock.ExpectExec("INSERT INTO audit_logs").WillReturnResult(sqlmock.NewResult(1, 1))
 			inline, err := prepareReferencedCredentials(context.Background(), database, encryptor, 17, 7, nil, credentials)
 			require.NoError(t, err)
@@ -334,7 +376,7 @@ func TestManagementQuerySecretAloneTriggersEncryption(t *testing.T) {
 			require.True(t, projected.CredentialsStatus["has_"+field])
 
 			require.NoError(t, mock.ExpectationsWereMet())
-			_, err = (&accountRepository{}).BulkUpdate(context.Background(), []int64{17}, service.AccountBulkUpdate{Credentials: credentials})
+			_, err = newAccountRepositoryWithSQL(nil, nil, nil).BulkUpdate(context.Background(), []int64{17}, service.AccountBulkUpdate{Credentials: credentials})
 			require.ErrorIs(t, err, service.ErrCredentialSecretInvalid)
 		})
 	}
@@ -377,4 +419,16 @@ func TestByteplusBulkSeatChangeClearsOldWindows(test *testing.T) {
 	}
 	require.Contains(test, query, "credentials IS DISTINCT FROM")
 	require.Less(test, strings.Index(query, "extra ="), strings.Index(query, "credentials = COALESCE"))
+}
+
+type encryptedAccountDocument struct{}
+
+func (encryptedAccountDocument) Match(value driver.Value) bool {
+	raw, ok := value.(string)
+	var doc map[string]any
+	if !ok || json.Unmarshal([]byte(raw), &doc) != nil {
+		return false
+	}
+	ref, _ := service.CredentialReference(doc)
+	return ref != "" && !hasCredentialSecrets(doc)
 }

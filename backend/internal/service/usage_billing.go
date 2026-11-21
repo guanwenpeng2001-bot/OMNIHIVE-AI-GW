@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"strings"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
 	"github.com/shopspring/decimal"
 )
 
@@ -47,7 +49,39 @@ type UsageBillingCommand struct {
 	// is set and still reserved, settlement consumes the hold instead of taking
 	// the balance twice. It is additive: old receipts decode as 0 and keep the
 	// legacy deduction path.
-	BudgetReservationID int64
+	BudgetReservationID   int64
+	ProjectWorkspaceID    int64        `json:"project_workspace_id,omitempty"`
+	ProjectID             int64        `json:"project_id,omitempty"`
+	ProjectReservationRef string       `json:"project_reservation_ref,omitempty"`
+	Estimate              *money.Money `json:"estimate,omitempty"`
+	Reserved              *money.Money `json:"reserved,omitempty"`
+	ChargedAmount         *money.Money `json:"charged_amount,omitempty"`
+}
+
+// BindFrozenCharge also upgrades pending receipts produced before the exact
+// money field existed. The snapshot remains the financial source of truth.
+func (c *UsageBillingCommand) BindFrozenCharge(snapshot string) error {
+	charge, err := frozenReceiptCharge(snapshot)
+	if err != nil {
+		return err
+	}
+	if c.ChargedAmount != nil && (charge == nil || c.ChargedAmount.Currency() != charge.Currency() || c.ChargedAmount.String() != charge.String()) {
+		return ErrInvalidBillingAmount
+	}
+	c.ChargedAmount = charge
+	return nil
+}
+
+// CustomerEffect returns the exact frozen charge for a selected customer
+// effect. Legacy commands retain their original eight-place amount.
+func (c *UsageBillingCommand) CustomerEffect(legacy float64) decimal.Decimal {
+	if legacy == 0 {
+		return decimal.Zero
+	}
+	if c.ChargedAmount != nil {
+		return decimal.RequireFromString(c.ChargedAmount.String())
+	}
+	return quantizedBillingDecimal(legacy)
 }
 
 func (c *UsageBillingCommand) Normalize() {
@@ -104,8 +138,35 @@ func QuantizeUsageBillingAmount(v float64) float64 {
 	if v == 0 || math.IsNaN(v) || math.IsInf(v, 0) {
 		return v
 	}
-	quantized, _ := decimal.NewFromFloat(v).Round(UsageBillingMonetaryScale).Float64()
+	quantized, _ := quantizedBillingDecimal(v).Float64()
 	return quantized
+}
+
+func quantizedBillingDecimal(v float64) decimal.Decimal {
+	return decimal.NewFromFloat(v).Round(UsageBillingMonetaryScale)
+}
+
+// frozenReceiptCharge reads the recorded JSON decimal without a float64 round
+// trip. Old commands still replay with their original fields and fingerprint.
+func frozenReceiptCharge(snapshot string) (*money.Money, error) {
+	var frozen struct {
+		Charge json.Number `json:"charged_amount"`
+	}
+	if err := json.Unmarshal([]byte(snapshot), &frozen); err != nil {
+		return nil, err
+	}
+	if frozen.Charge == "" {
+		return nil, nil
+	}
+	exact, err := money.ParseV1Number("USD", frozen.Charge)
+	if err != nil {
+		return nil, err
+	}
+	charge, err := exact.RoundCharge()
+	if err != nil {
+		return nil, err
+	}
+	return &charge, nil
 }
 
 func buildUsageBillingFingerprint(c *UsageBillingCommand) string {

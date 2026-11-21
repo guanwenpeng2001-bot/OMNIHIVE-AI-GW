@@ -14,12 +14,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
-	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/apicompat"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/xai"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"go.uber.org/zap"
@@ -390,6 +390,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			s.clearOpenAIProxyStreamDisconnect(account)
 		}
 		if !sawTerminalEvent && !openAIStreamClientOutputStarted(c, clientOutputStarted) && !eventShouldFlush {
+			if guardFirstOutput {
+				interruptGeneration(ctx, account.ID, false)
+			}
 			return resultWithUsage(), s.newOpenAIStreamFailoverError(
 				c,
 				account,
@@ -456,6 +459,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			return resultWithUsage(), scanErr, true
 		}
 		if !openAIStreamClientOutputStarted(c, clientOutputStarted) && !eventShouldFlush {
+			if guardFirstOutput {
+				interruptGeneration(ctx, account.ID, false)
+			}
 			msg := "OpenAI stream disconnected before completion"
 			if errText := strings.TrimSpace(scanErr.Error()); errText != "" {
 				msg += ": " + errText
@@ -870,16 +876,26 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	}
 	var lastReadAt int64
 	atomic.StoreInt64(&lastReadAt, time.Now().UnixNano())
+	// Only complete preamble and heartbeat lines may precede a silent timeout.
+	// The scanner is joined on timeout, including lines buffered before cancellation.
+	var upstreamOutputObserved bool
 	go func(scanBuf *sseScannerBuf64K) {
 		defer putSSEScannerBuf64K(scanBuf)
 		defer close(events)
 		for documentScanner.Scan() {
 			atomic.StoreInt64(&lastReadAt, time.Now().UnixNano())
-			if !sendEvent(scanEvent{line: documentScanner.Text()}) {
+			line := documentScanner.Text()
+			if guardFirstOutput && !upstreamOutputObserved && !openAIFirstOutputPreambleLine(line) {
+				upstreamOutputObserved = true
+			}
+			if !sendEvent(scanEvent{line: line}) {
 				return
 			}
 		}
 		if err := documentScanner.Err(); err != nil {
+			if errors.Is(err, bufio.ErrTooLong) || errors.Is(err, errOpenAIFirstOutputScannerLimit) {
+				upstreamOutputObserved = true
+			}
 			_ = sendEvent(scanEvent{err: err})
 		}
 	}(scanBuf)
@@ -968,6 +984,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			for ev := range events {
 				markEventProcessed(ev)
 			}
+			interruptGeneration(ctx, account.ID, !upstreamOutputObserved && c.Writer.Size() <= 0)
 			return resultWithUsage(), s.newOpenAIFirstOutputTimeoutError(
 				ctx, c, account, opsUpstreamProxyID(account), opsUpstreamProxyName(account),
 				startTime, originalModel, reasoningEffort,
@@ -1362,6 +1379,10 @@ func logOpenAISuccessMissingUsage(ctx context.Context, c *gin.Context, account *
 }
 
 func extractOpenAIUsageFromJSONBytes(body []byte) (OpenAIUsage, bool) {
+	return extractObservedOpenAIUsage(body, nil)
+}
+
+func extractObservedOpenAIUsage(body []byte, observation *TokenUsageObservation) (OpenAIUsage, bool) {
 	if len(body) == 0 || !gjson.ValidBytes(body) {
 		return OpenAIUsage{}, false
 	}
@@ -1379,7 +1400,23 @@ func extractOpenAIUsageFromJSONBytes(body []byte) (OpenAIUsage, bool) {
 		{usagePath: "data.response.usage", imageUsagePath: "data.response.tool_usage.image_gen"},
 	}
 	for _, candidate := range candidates {
-		if usage, ok := openAIUsageFromGJSON(gjson.GetBytes(body, candidate.usagePath)); ok {
+		value := gjson.GetBytes(body, candidate.usagePath)
+		if usage, ok := openAIUsageFromGJSON(value); ok {
+			if observation != nil {
+				raw := []byte(value.Raw)
+				known := func(primary, alias string) bool {
+					if value.Get(primary).Exists() {
+						_, valid := openRouterCounter(raw, primary)
+						if !valid || value.Get(primary).Int() != 0 || !value.Get(alias).Exists() {
+							return valid
+						}
+					}
+					_, valid := openRouterCounter(raw, alias)
+					return valid
+				}
+				observation.InputTokensKnown = known("input_tokens", "prompt_tokens")
+				observation.OutputTokensKnown = known("output_tokens", "completion_tokens")
+			}
 			mergeHostedImageGenToolUsage(gjson.GetBytes(body, candidate.imageUsagePath), &usage)
 			return usage, true
 		}

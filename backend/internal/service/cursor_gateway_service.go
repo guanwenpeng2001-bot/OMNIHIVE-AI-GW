@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/tidwall/gjson"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -13,10 +12,12 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/apicompat"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/cursor"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
+	"github.com/tidwall/gjson"
 )
 
 type cursorNativeDriver interface {
@@ -89,7 +90,7 @@ type cursorCatalogEntry struct {
 }
 
 func NewCursorGatewayService(sessions *CursorSessionProvider, settings SettingRepository) *CursorGatewayService {
-	return &CursorGatewayService{sessions: sessions, settings: settings, native: cursor.NewClient(), relayClient: &http.Client{Timeout: 5 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, catalog: make(map[string]cursorCatalogEntry)}
+	return &CursorGatewayService{sessions: sessions, settings: settings, native: cursor.NewClient(), relayClient: &http.Client{Transport: httpclient.NewPublicTransport(&http.Transport{Proxy: http.ProxyFromEnvironment}), Timeout: 5 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, catalog: make(map[string]cursorCatalogEntry)}
 }
 
 func cursorFailover(err error) error {
@@ -448,7 +449,7 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 			message["reasoning_content"] = thinking.String()
 		}
 		if usage.Estimated {
-			requestContext.Header("X-Sub2API-Usage-Source", "estimated_missing_turn_ended")
+			writeCursorEstimatedUsageHeaders(requestContext)
 		}
 		err = output.response(gin.H{"id": completionID, "object": "chat.completion", "created": started.Unix(), "model": request.Model, "choices": []any{gin.H{"index": 0, "message": message, "finish_reason": finishReason}}, "usage": chatUsage})
 	}

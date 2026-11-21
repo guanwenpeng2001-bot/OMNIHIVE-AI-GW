@@ -9,7 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 const UsageSettlementRecoveryBoundary = "Recovery starts only after the first receipt commits; process death or database failure before that point can lose upstream usage and requires manual review."
@@ -93,18 +95,29 @@ func (s *UsageSettlementService) Submit(ctx context.Context, input *UsageSettlem
 	if input == nil {
 		return s.persistenceError(UsageSettlementKey{}, fmt.Errorf("usage settlement receipt is nil"))
 	}
+	if !GatewayRequestPlanFromContext(ctx).journalReceiptAllowed(input.Command.AccountID) {
+		return ErrAttemptOutcomeUnknown
+	}
 	// Legacy producers cannot distinguish absent usage from explicit zero.
 	// Preserve the hold in that ambiguous case; never turn cancellation into a
 	// zero-token proof merely because the monetary receipt contains zero fields.
 	observedTokens := input.Usage.InputTokens > 0 || input.Usage.OutputTokens > 0 || input.Usage.CacheCreationTokens > 0 || input.Usage.CacheReadTokens > 0
-	if plan := GatewayRequestPlanFromContext(ctx); plan != nil && input.TPMReservation == nil && observedTokens {
-		copy := *input
-		copy.TPMReservation = plan.TPMReceiptIdentity(input.Command.AccountID)
-		input = &copy
+	copy := *input
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+		if copy.TPMReservation == nil && observedTokens {
+			copy.TPMReservation = plan.TPMReceiptIdentity(input.Command.AccountID)
+		}
+		plan.bindBudgetReceipt(&copy.Command)
 	}
+	input = &copy
 	prepared, err := PrepareUsageSettlementReceipt(input)
 	if err != nil {
 		return s.persistenceError(input.Key, err)
+	}
+	if prepared.State == UsageSettlementPending {
+		if err := prepared.Command.BindFrozenCharge(prepared.Usage.PricingSnapshot); err != nil {
+			return s.persistenceError(prepared.Key, err)
+		}
 	}
 	writeCtx, cancel := detachedBillingContext(ctx)
 	stored, err := s.repo.Persist(writeCtx, prepared)
@@ -146,7 +159,7 @@ func (s *UsageSettlementService) Submit(ctx context.Context, input *UsageSettlem
 	// Queue only durable identity as billing evidence, never a caller-owned
 	// receipt pointer. The optional post-commit callback is best-effort only;
 	// recovery and every financial effect depend exclusively on the repository.
-	key, fingerprint := stored.Key, stored.Command.RequestFingerprint
+	key, fingerprint, createdAt := stored.Key, stored.Command.RequestFingerprint, stored.CreatedAt
 	plan := GatewayRequestPlanFromContext(ctx)
 	if plan != nil {
 		plan.acknowledgeReceipt(stored)
@@ -163,7 +176,13 @@ func (s *UsageSettlementService) Submit(ctx context.Context, input *UsageSettlem
 			result, err = s.settleIdentity(ctx, key, fingerprint)
 		}
 		if err != nil {
-			slog.Error("usage settlement pending", "request_id", key.RequestID, "api_key_id", key.APIKeyID, "failure_category", billingFailureCategory(err))
+			if errors.Is(err, ErrUsageSettlementNeedsReview) {
+				if plan != nil {
+					plan.setReceiptState(UsageSettlementNeedsReview)
+				}
+				return
+			}
+			s.logPending(ctx, key, createdAt, err)
 			return
 		}
 		if plan != nil {
@@ -181,6 +200,23 @@ func (s *UsageSettlementService) Submit(ctx context.Context, input *UsageSettlem
 	defer settleCancel()
 	task(settleCtx)
 	return nil
+}
+
+// Four recovery ticks give transient contention a minute to clear.
+func (s *UsageSettlementService) logPending(ctx context.Context, key UsageSettlementKey, createdAt time.Time, cause error) {
+	level := slog.LevelInfo
+	if !createdAt.IsZero() && time.Since(createdAt) >= time.Minute {
+		lookup, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		stored, err := s.repo.Get(lookup, key)
+		if err == nil && stored != nil {
+			if stored.State != UsageSettlementPending {
+				return
+			}
+			level = slog.LevelError
+		}
+	}
+	slog.Log(ctx, level, "usage settlement pending", "request_id", key.RequestID, "api_key_id", key.APIKeyID, "failure_category", billingFailureCategory(cause))
 }
 
 func (s *UsageSettlementService) persistenceError(key UsageSettlementKey, err error) error {
@@ -204,7 +240,22 @@ func (s *UsageSettlementService) settleIdentity(ctx context.Context, key UsageSe
 	}()
 	result, err = s.repo.Settle(ctx, key, fingerprint)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, ErrUsageSettlementNeedsReview) && s.cache != nil {
+			if cacheErr := s.cache.InvalidateUserBalance(ctx, key.UserID); cacheErr != nil {
+				slog.Warn("review refund cache invalidation", "request_id", key.RequestID, "failure_category", billingFailureCategory(cacheErr))
+			}
+		}
+		if ctx.Err() != nil || errors.Is(err, ErrUsageBillingRequestConflict) || errors.Is(err, ErrUsageSettlementNeedsReview) {
+			return nil, err
+		}
+		// A committed receipt disappears from ListPending even when the worker
+		// loses the commit acknowledgement. Read back its identity so this worker
+		// can still invalidate cached balances without replaying callbacks.
+		stored, lookupErr := s.repo.Get(ctx, key)
+		if lookupErr != nil || stored == nil || stored.State != UsageSettlementSettled {
+			return nil, err
+		}
+		result = &UsageSettlementResult{Receipt: stored, Billing: &UsageBillingApplyResult{}}
 	}
 	if result == nil || result.Receipt == nil || result.Billing == nil {
 		return nil, fmt.Errorf("settlement acknowledgement is incomplete")
@@ -217,7 +268,11 @@ func (s *UsageSettlementService) settleIdentity(ctx context.Context, key UsageSe
 	// snapshots here, including replay after a lost settlement acknowledgement.
 	if s.authCacheInvalidator != nil && receipt.Command.APIKeyQuotaCost > 0 &&
 		(result.Billing.APIKeyQuotaExhausted || !result.Billing.Applied) {
-		s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, receipt.Key.UserID)
+		if byID, ok := s.authCacheInvalidator.(apiKeyAuthCacheInvalidatorByAPIKeyID); ok {
+			byID.InvalidateAuthCacheByAPIKeyID(ctx, receipt.Key.APIKeyID)
+		} else {
+			s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, receipt.Key.UserID)
+		}
 	}
 	// Invalidate views on replay too; never replay additive cache updates.
 	if s.cache != nil {
@@ -279,42 +334,68 @@ func (s *UsageSettlementService) Recover(ctx context.Context) error {
 			_, err := s.settle(settleCtx, receipt)
 			cancel()
 			if err != nil {
-				slog.Error("usage settlement recovery pending", "request_id", receipt.Key.RequestID, "api_key_id", receipt.Key.APIKeyID, "failure_category", billingFailureCategory(err))
+				s.logPending(ctx, receipt.Key, receipt.CreatedAt, err)
 			}
 		}
 	}
+}
+
+// Preserve the original decimal when adding provider and account metadata to
+// a frozen snapshot. Some legacy producers adjust the customer charge before
+// submission, so a changed amount must come from the refreshed snapshot.
+func freezeSettlementPricing(cost *CostBreakdown, model, provider string, accountMultiplier float64, stats *float64) error {
+	original := gjson.Get(cost.PricingSnapshot, "charged_amount")
+	if err := FreezeUsagePricing(cost, model, provider, accountMultiplier, stats); err != nil {
+		return err
+	}
+	current := gjson.Get(cost.PricingSnapshot, "charged_amount")
+	if original.Type == gjson.Number && current.Type == gjson.Number &&
+		original.Raw != current.Raw && original.Float() == current.Float() {
+		snapshot, err := sjson.SetRaw(cost.PricingSnapshot, "charged_amount", original.Raw)
+		if err != nil {
+			return err
+		}
+		cost.PricingSnapshot = snapshot
+	}
+	return nil
+}
+
+// assembleUsageReceipt freezes the shared log after the optional account pricing
+// effect has been added. Recovery replays this exact output.
+func assembleUsageReceipt(usage *UsageLog, p *postUsageBillingParams, interrupted bool) (*UsageSettlementReceipt, error) {
+	if p.Cost.PricingState != PricingStateUnpriced && p.Cost.PricingState != PricingStateError {
+		if err := freezeSettlementPricing(p.Cost, firstNonEmpty(optionalStringValue(usage.UpstreamModel), usage.Model), p.Account.Platform, p.AccountRateMultiplier, usage.AccountStatsCost); err != nil {
+			p.Cost.PricingState = PricingStateError
+		}
+	}
+	cmd := buildUsageBillingCommand(usage.RequestID, usage, p)
+	if cmd == nil {
+		return nil, ErrUsageBillingRequestIDRequired
+	}
+	completion := "complete"
+	if interrupted || p.UsageIncomplete {
+		completion = "interrupted"
+	}
+	receipt := &UsageSettlementReceipt{Key: UsageSettlementKey{RequestID: cmd.RequestID, APIKeyID: cmd.APIKeyID, UserID: cmd.UserID}, Command: *cmd, Usage: *usage, ResolutionState: "resolved", CompletionState: completion}
+	// Messages may report input on message_start before the output meter arrives.
+	if p.UsageIncomplete || interrupted && usage.Stream && !usage.OpenAIWSMode && usage.RequestType != RequestTypeCyberBlocked && usage.OutputTokens == 0 && usage.ImageCount == 0 && usage.VideoCount == 0 {
+		receipt.ResolutionState = "unresolved"
+	}
+	// Invalid frozen input is review evidence, never a successful free usage row.
+	if _, err := PrepareUsageSettlementReceipt(receipt); err != nil {
+		receipt.Usage.PricingState = PricingStateError
+		receipt.ResolutionState = "unresolved"
+	}
+	return receipt, nil
 }
 
 func submitUsageSettlement(ctx context.Context, s *UsageSettlementService, usage *UsageLog, p *postUsageBillingParams, deps *billingDeps, interrupted bool) error {
 	if s == nil || s.repo == nil {
 		return fmt.Errorf("usage settlement repository is required")
 	}
-	if p.Cost.PricingState != PricingStateUnpriced && p.Cost.PricingState != PricingStateError {
-		if err := FreezeUsagePricing(p.Cost, firstNonEmpty(optionalStringValue(usage.UpstreamModel), usage.Model), p.Account.Platform, p.AccountRateMultiplier, usage.AccountStatsCost); err != nil {
-			p.Cost.PricingState = PricingStateError
-		}
-	}
-	cmd := buildUsageBillingCommand(usage.RequestID, usage, p)
-	if cmd == nil {
-		return ErrUsageBillingRequestIDRequired
-	}
-	// A request-level budget hold belongs to this settlement: consuming it keeps
-	// the estimated hold and the actual cost in one transaction. When the hold is
-	// gone (released/expired) the repository falls back to the ordinary deduction.
-	if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
-		if hold := plan.BudgetHold(); hold != nil {
-			cmd.BudgetReservationID = hold.ID
-		}
-	}
-	completion := "complete"
-	if interrupted {
-		completion = "interrupted"
-	}
-	receipt := &UsageSettlementReceipt{Key: UsageSettlementKey{RequestID: cmd.RequestID, APIKeyID: cmd.APIKeyID, UserID: cmd.UserID}, Command: *cmd, Usage: *usage, ResolutionState: "resolved", CompletionState: completion}
-	// Invalid frozen input is review evidence, never a successful free usage row.
-	if _, err := PrepareUsageSettlementReceipt(receipt); err != nil {
-		receipt.Usage.PricingState = PricingStateError
-		receipt.ResolutionState = "unresolved"
+	receipt, err := assembleUsageReceipt(usage, p, interrupted)
+	if err != nil {
+		return err
 	}
 	// Only the production provider with the quota hook may reach this branch.
 	p.QuotaDerived = true

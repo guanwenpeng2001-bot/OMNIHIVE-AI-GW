@@ -6,8 +6,8 @@ import (
 	"context"
 	"testing"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -24,7 +24,7 @@ func (s *GatewayRoutingSuite) SetupTest() {
 	s.ctx = context.Background()
 	tx := testEntTx(s.T())
 	s.client = tx.Client()
-	s.accountRepo = newAccountRepositoryWithSQL(s.client, tx, nil)
+	s.accountRepo = fixtureAccountRepository(s.T(), s.client, tx, nil)
 }
 
 func TestGatewayRoutingSuite(t *testing.T) {

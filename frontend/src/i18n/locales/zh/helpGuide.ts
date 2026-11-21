@@ -176,15 +176,15 @@ export default {
         "rows": {
           "curl": {
             "client": "curl",
-            "base": "$SUB2API_BASE_URL",
-            "key": "Authorization: Bearer $SUB2API_API_KEY",
+            "base": "$OMNIHIVE_BASE_URL",
+            "key": "Authorization: Bearer $OMNIHIVE_API_KEY",
             "model": "model: MODEL_ID_FROM_LIST",
             "notes": "聊天调用 chat/completions；流式示例见下方，首次请求见快速开始。"
           },
           "python": {
             "client": "Python · OpenAI SDK",
-            "base": "base_url = SUB2API_BASE_URL",
-            "key": "api_key = SUB2API_API_KEY",
+            "base": "base_url = OMNIHIVE_BASE_URL",
+            "key": "api_key = OMNIHIVE_API_KEY",
             "model": "model = MODEL_ID_FROM_LIST",
             "notes": "先安装 openai 包；SDK 自动追加接口路径。"
           },
@@ -197,8 +197,8 @@ export default {
           },
           "codex": {
             "client": "Codex",
-            "base": "model_providers.sub2api.base_url",
-            "key": "env_key = \"SUB2API_API_KEY\"",
+            "base": "model_providers.omnihive.base_url",
+            "key": "env_key = \"OMNIHIVE_API_KEY\"",
             "model": "model = \"MODEL_ID_FROM_CODEX_LIST\"",
             "notes": "在 ~/.codex/config.toml 配置 provider，密钥放环境变量；示例使用 HTTP Responses。"
           },
@@ -245,23 +245,23 @@ export default {
             "notes": "CLI 自动添加 /v1/messages；桌面版为不同配置入口。需要分组与模型支持 Messages。"
           },
           "opencode": {
-            "client": "OpenCode (v1 config)",
+            "client": "OpenCode (经典配置)",
             "base": "provider.<id>.options.baseURL = root + /v1",
-            "key": "options.apiKey: {'{'}env:SUB2API_API_KEY{'}'}",
+            "key": "options.apiKey: {'{'}env:OMNIHIVE_API_KEY{'}'}",
             "model": "<provider>/MODEL_ID_FROM_LIST",
             "notes": "示例使用 {'@'}ai-sdk/openai-compatible 发送 Chat。OpenCode 2 配置格式不同；不要混用。"
           },
           "dsh": {
             "client": "DeepSeek Harness (DSH)",
             "base": "baseURL = root + /v1",
-            "key": "apiKeyEnv: SUB2API_API_KEY",
+            "key": "apiKeyEnv: OMNIHIVE_API_KEY",
             "model": "MODEL_ID_FROM_LIST",
             "notes": "在提供商设置中选择 openai-completions；openai-responses 和 anthropic-messages 是独立协议选项。按安装版本的向导保存。"
           },
           "pi": {
             "client": "Pi",
             "base": "baseUrl = root + /v1",
-            "key": "apiKey: $SUB2API_API_KEY",
+            "key": "apiKey: $OMNIHIVE_API_KEY",
             "model": "models[].id: MODEL_ID_FROM_LIST",
             "notes": "在 ~/.pi/agent/models.json 中配置 openai-completions；打开 /model 重载并选择。"
           }
@@ -1406,7 +1406,7 @@ export default {
           "public": {
             "setting": "公开 URL + 本站 API Key",
             "owner": "你的客户端或工作流",
-            "meaning": "OmniHive 公开 Base URL：https://omnihive2.com/v1。Chat 与 Responses 客户端自行追加操作路径；Claude Code 使用根地址 https://omnihive2.com；Gemini 使用 /v1beta/models/…:generateContent 或 :streamGenerateContent。"
+            "meaning": "OmniHive 公开 Base URL：https://api.omnihive.io/v1。Chat 与 Responses 客户端自行追加操作路径；Claude Code 使用根地址 https://api.omnihive.io；Gemini 使用 /v1beta/models/…:generateContent 或 :streamGenerateContent。"
           },
           "supplier": {
             "setting": "供应商账号 + 区域 / 套餐密钥",

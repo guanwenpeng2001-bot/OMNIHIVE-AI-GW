@@ -47,7 +47,53 @@ func TestModelCatalogBindingUsesSameAccountFinalTarget(t *testing.T) {
 	require.Equal(t, int64(1), binding.AccountID)
 	require.Equal(t, int64(7), binding.SnapshotRevision)
 	require.Equal(t, "native_account_catalog", binding.EvidenceKind)
-	require.True(t, ResolveAccountModelBinding(ctx, &first, "company", AccountModelBindingOptions{Endpoint: "embeddings"}).Supported)
+	require.False(t, ResolveAccountModelBinding(ctx, &first, "company", AccountModelBindingOptions{Endpoint: "embeddings"}).Supported)
+}
+
+func TestOpenAIAPIKeyChatOnlyCatalogUsesChatCompletionsBridge(t *testing.T) {
+	account := catalogEvidenceAccount(1, PlatformOpenAI, "chat-only")
+	snapshot, ok := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+	require.True(t, ok)
+	snapshot.EligibleModels[0].Endpoints = []string{CompositeRouteEndpointChatCompletions}
+
+	require.True(t, shouldForwardOpenAIResponsesViaRawChatCompletions(&account))
+	require.True(t, ResolveAccountModelBinding(context.Background(), &account, "chat-only", AccountModelBindingOptions{
+		Endpoint: CompositeRouteEndpointResponses,
+	}).Supported)
+
+	responsesOnly := catalogEvidenceAccount(2, PlatformOpenAI, "responses-only")
+	responsesSnapshot, ok := responsesOnly.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+	require.True(t, ok)
+	responsesSnapshot.EligibleModels[0].Endpoints = []string{CompositeRouteEndpointResponses}
+	require.False(t, shouldForwardOpenAIResponsesViaRawChatCompletions(&responsesOnly))
+
+	mixed := catalogEvidenceAccount(3, PlatformOpenAI, "chat", "responses")
+	mixedSnapshot, ok := mixed.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+	require.True(t, ok)
+	mixedSnapshot.EligibleModels[0].Endpoints = []string{CompositeRouteEndpointChatCompletions}
+	mixedSnapshot.EligibleModels[1].Endpoints = []string{CompositeRouteEndpointResponses}
+	require.False(t, shouldForwardOpenAIResponsesViaRawChatCompletions(&mixed),
+		"a Responses-capable model keeps the account on its native Responses path")
+}
+
+func TestLegacyCatalogEndpointSynthesisDoesNotReenterForwardPolicy(t *testing.T) {
+	account := Account{
+		ID:       1,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Extra: map[string]any{UpstreamModelCatalogExtraKey: AccountModelCatalogSnapshot{
+			Complete:   true,
+			SourceKind: modelEvidenceLegacyMappingUpgrade,
+			EligibleModels: []AccountCatalogModel{{
+				ID:           "legacy-chat",
+				EvidenceKind: ModelEvidenceConfiguredSelection,
+			}},
+		}},
+	}
+
+	require.NotPanics(t, func() {
+		require.False(t, shouldForwardOpenAIResponsesViaRawChatCompletions(&account))
+	})
 }
 
 func TestModelCatalogBindingIdentityRevocationAndUnlistedEvidence(t *testing.T) {

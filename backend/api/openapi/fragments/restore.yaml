@@ -1,0 +1,267 @@
+paths:
+  /api/v2/admin/restores/previews:
+    post:
+      operationId: previewRestore
+      description: Verify the requested archive digest and inspect its contents. Requires
+        ops.restore.preview.
+      parameters:
+      - $ref: '#/components/parameters/IdentityIdempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RestorePreviewInput'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/RestorePreview'
+                required:
+                - code
+                - message
+                - data
+                additionalProperties: false
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+  /api/v2/admin/restores:
+    post:
+      operationId: executeRestore
+      description: Queue the specified target. Production requires a verified isolated
+        operation, a subsequent production preview and a current TOTP session grant.
+        Requires ops.restore.execute.
+      parameters:
+      - $ref: '#/components/parameters/IdentityIdempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RestoreExecuteInput'
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: accepted
+                  data:
+                    $ref: '#/components/schemas/RestoreOperation'
+                required:
+                - code
+                - message
+                - data
+                additionalProperties: false
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+  /api/v2/admin/restores/{id}:
+    get:
+      operationId: getRestore
+      description: Read the journaled operation. Requires ops.restore.execute.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/RestoreOperation'
+                required:
+                - code
+                - message
+                - data
+                additionalProperties: false
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+components:
+  schemas:
+    RestorePreviewInput:
+      type: object
+      properties:
+        backup_id:
+          type: string
+        target:
+          type: string
+          enum:
+          - isolated
+          - production
+        expected_digest:
+          type: string
+          pattern: ^sha256:[0-9a-f]{64}$
+      required:
+      - backup_id
+      - target
+      additionalProperties: false
+    RestoreExecuteInput:
+      type: object
+      properties:
+        preview_id:
+          type: string
+        target:
+          type: string
+          enum:
+          - isolated
+          - production
+        rehearsal_id:
+          type:
+          - string
+          - 'null'
+      required:
+      - preview_id
+      - target
+      additionalProperties: false
+    RestorePreview:
+      type: object
+      properties:
+        id:
+          type: string
+        verified:
+          type: boolean
+        expires_at:
+          type: string
+          format: date-time
+        impact:
+          type: object
+          properties:
+            databases:
+              type: string
+              pattern: ^[0-9]+$
+            source_digest:
+              type: string
+              pattern: ^sha256:[0-9a-f]{64}$
+            users:
+              type: string
+              pattern: ^[0-9]+$
+            api_keys:
+              type: string
+              pattern: ^[0-9]+$
+            billing_usage_entries:
+              type: string
+              pattern: ^[0-9]+$
+            upstream_jobs:
+              type: string
+              pattern: ^[0-9]+$
+          required:
+          - databases
+          - source_digest
+          - users
+          - api_keys
+          - billing_usage_entries
+          - upstream_jobs
+          additionalProperties: false
+      required:
+      - id
+      - verified
+      - expires_at
+      - impact
+      additionalProperties: false
+    RestoreOperation:
+      type: object
+      properties:
+        id:
+          type: string
+        generation:
+          type: string
+          pattern: ^[0-9]+$
+        target:
+          type: string
+          enum:
+          - isolated
+          - production
+        state:
+          enum:
+          - queued
+          - running
+          - succeeded
+          - failed
+          - unknown
+        stage:
+          enum:
+          - queued
+          - check_source
+          - snapshot
+          - applying
+          - verify_counts
+          - tx_apply
+          - tx_verify
+          - committing
+          - rolled_back
+          - manual_recovery
+          - reconciled
+          - verified
+        report:
+          anyOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/RestoreReport'
+      required:
+      - id
+      - generation
+      - target
+      - state
+      - stage
+      - report
+      additionalProperties: false
+    RestoreReport:
+      type: object
+      properties:
+        source_digest:
+          type: string
+          pattern: ^sha256:[0-9a-f]{64}$
+        counts:
+          type: object
+          properties:
+            users:
+              type: string
+              pattern: ^[0-9]+$
+            api_keys:
+              type: string
+              pattern: ^[0-9]+$
+            billing_usage_entries:
+              type: string
+              pattern: ^[0-9]+$
+            upstream_jobs:
+              type: string
+              pattern: ^[0-9]+$
+          required: []
+          additionalProperties: false
+        reason:
+          type: string
+      additionalProperties: false

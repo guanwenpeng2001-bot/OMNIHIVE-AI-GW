@@ -423,4 +423,48 @@ describe('PendingOAuthCreateAccountForm', () => {
       turnstileToken: 'turnstile-token'
     })
   })
+
+  it('requires agreement acceptance and includes agreement revision in submit payload when enabled', async () => {
+    getPublicSettings.mockResolvedValue({
+      email_verify_enabled: false,
+      turnstile_enabled: false,
+      login_agreement_enabled: true,
+      login_agreement_mode: 'checkbox',
+      login_agreement_revision: 'rev-pending-1',
+      login_agreement_documents: [
+        { id: 'terms', title: 'Terms', content_md: 'Terms' },
+        { id: 'privacy-policy', title: 'Privacy Policy', content_md: 'Privacy' }
+      ]
+    })
+
+    const wrapper = mount(PendingOAuthCreateAccountForm, {
+      props: {
+        testIdPrefix: 'linuxdo',
+        initialEmail: 'pending@example.com',
+        isSubmitting: false
+      },
+      global: {
+        stubs: {
+          LoginAgreementPrompt: {
+            props: ['enabled', 'accepted'],
+            emits: ['accept'],
+            template: '<button type="button" data-testid="pending-agreement-accept" @click="$emit(\'accept\')">accept</button>'
+          }
+        }
+      }
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="linuxdo-create-account-password"]').setValue('test-pass-123')
+    expect(wrapper.get('[data-testid="linuxdo-create-account-submit"]').attributes('disabled')).toBeDefined()
+
+    await wrapper.get('[data-testid="pending-agreement-accept"]').trigger('click')
+    await wrapper.get('[data-testid="linuxdo-create-account-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.emitted('submit')?.[0]?.[0]).toMatchObject({
+      loginAgreementAccepted: true,
+      loginAgreementRevision: 'rev-pending-1'
+    })
+  })
 })

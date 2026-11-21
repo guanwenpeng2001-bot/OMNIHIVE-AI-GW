@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/cursor"
 	"github.com/stretchr/testify/require"
 )
 
@@ -137,6 +137,7 @@ func TestCursorRelayChatFakeServer(t *testing.T) {
 	}))
 	defer server.Close()
 	gateway, account, exchanges := cursorTestGateway()
+	gateway.relayClient = server.Client()
 	account.Type = AccountTypeUpstream
 	account.Credentials = map[string]any{"base_url": server.URL, "api_key": "relay-key"}
 	writer := httptest.NewRecorder()
@@ -194,6 +195,7 @@ func TestCursorRelayStreamUsage(t *testing.T) {
 	}))
 	defer server.Close()
 	gateway, account, exchanges := cursorTestGateway()
+	gateway.relayClient = server.Client()
 	account.Type = AccountTypeUpstream
 	account.Credentials = map[string]any{"api_key": "relay-key", "base_url": server.URL}
 	writer := httptest.NewRecorder()
@@ -218,6 +220,7 @@ func TestCursorMissingTurnEndedMarksEstimates(t *testing.T) {
 	require.NoError(t, err)
 	require.Positive(t, result.Usage.InputTokens)
 	require.Positive(t, result.Usage.OutputTokens)
+	require.Equal(t, "estimated_missing_turn_ended", writer.Header().Get("X-OmniHive-Usage-Source"))
 	require.Equal(t, "estimated_missing_turn_ended", writer.Header().Get("X-Sub2API-Usage-Source"))
 	require.Contains(t, writer.Body.String(), `"estimated":true`)
 }

@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
@@ -93,6 +93,10 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 		return nil, egressErr
 	}
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
+	if errors.Is(err, ErrAccountModelUnsupported) {
+		writeOpenAIEmbeddingsError(c, http.StatusNotFound, "model_not_found", "Model does not support embeddings")
+		return nil, err
+	}
 	if IsTPMAdmissionError(err) {
 		return nil, err
 	}

@@ -98,7 +98,13 @@ async function handleCreateAccount(payload: PendingOAuthCreateAccountPayload) {
               tencent_captcha_randstr: payload.tencentCaptchaRandstr
           }
           : {}),
-        invitation_code: payload.invitationCode || undefined
+        invitation_code: payload.invitationCode || undefined,
+        ...(payload.loginAgreementAccepted !== undefined
+          ? {
+              login_agreement_accepted: payload.loginAgreementAccepted,
+              login_agreement_revision: payload.loginAgreementRevision || ''
+            }
+          : {})
       }
     )
 
@@ -145,20 +151,3 @@ function handleSwitchToBind(email: string) {
   navigateToBindLogin(email)
 }
 </script>
-
-<style scoped>
-button:focus-visible, a:focus-visible, summary:focus-visible {
-  outline: 2px solid var(--brand);
-  outline-offset: 3px;
-}
-
-input[type='checkbox'] { accent-color: var(--brand); }
-
-@media (prefers-reduced-motion: reduce) {
-  :is(button, a).btn, :is(input, select, textarea).input, .fade-enter-active, .fade-leave-active,
-  .agreement-fade-enter-active, .agreement-fade-leave-active,
-  .agreement-fade-enter-active > div, .agreement-fade-leave-active > div {
-    transition: none;
-  }
-}
-</style>

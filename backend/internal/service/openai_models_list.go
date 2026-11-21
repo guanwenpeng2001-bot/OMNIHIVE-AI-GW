@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 )
 
 // FetchOpenAIModelsList discovers a single account's raw public model catalog.

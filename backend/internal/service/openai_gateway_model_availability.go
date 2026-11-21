@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 )
 
 // DiagnoseModelAvailabilityForPlatform reports whether the requested model
@@ -59,9 +59,45 @@ func (s *OpenAIGatewayService) DiagnoseModelAvailabilityForPlatform(
 		// Mapping and explicit scope are persistent configuration; runtime
 		// availability and capability evidence must not decide a 404 here.
 		if accounts[i].IsModelSupported(requestedModel) && accountModelScopeAllowsDiagnosis(ctx, &accounts[i], requestedModel) {
+			if gatewayRequiredAction(ctx) == "embeddings" {
+				account, err := accountForCatalogSelection(ctx, s.accountRepo, &accounts[i])
+				if err != nil {
+					return ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: true}
+				}
+				parent, err := loadCatalogCredentialAccount(ctx, s.accountRepo, account)
+				if err != nil {
+					return ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: true}
+				}
+				if modelExcludesEmbeddings(ctx, account, parent, requestedModel) {
+					continue
+				}
+			}
 			diag.HasModelSupport = true
 			return diag
 		}
 	}
 	return diag
+}
+
+// Report a client error only for a known catalog member with no embedding
+// endpoint. Missing evidence or a temporarily unavailable account stays on
+// the normal service-unavailable path.
+func modelExcludesEmbeddings(ctx context.Context, account, parent *Account, requested string) bool {
+	options := AccountModelBindingOptions{Endpoint: "embeddings", CredentialAccount: parent}
+	target, mapped := computeAccountBindingModel(ctx, account, requested, options)
+	catalog := account.EffectiveUpstreamModelCatalogForCredentialAccount(parent)
+	if !mapped || catalog == nil {
+		return false
+	}
+	matched := false
+	for index, member := range catalog.EligibleModels {
+		if normalizeAccountBindingWireModel(account, member.ID) != target {
+			continue
+		}
+		matched = true
+		if computeAccountBindingEndpoint(account, target, options, index, member) {
+			return false
+		}
+	}
+	return matched
 }

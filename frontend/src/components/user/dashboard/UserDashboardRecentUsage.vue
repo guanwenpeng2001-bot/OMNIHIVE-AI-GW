@@ -16,7 +16,10 @@
         </div>
         <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
           <div><span class="empty-status">{{ t('dashboard.noUsageRecords') }}</span><p class="mt-2 text-xs text-[var(--muted-foreground)]">{{ t('dashboard.startUsingApi') }}</p></div>
-          <router-link to="/keys" class="btn btn-secondary btn-sm">{{ t('dashboard.createApiKey') }}</router-link>
+          <div class="flex flex-wrap items-center gap-2">
+            <router-link to="/keys" class="btn btn-secondary btn-sm">{{ t('dashboard.createApiKey') }}</router-link>
+            <router-link to="/playground" class="btn btn-primary btn-sm">Playground →</router-link>
+          </div>
         </div>
       </div>
       <div v-else>
@@ -26,10 +29,10 @@
           class="oh-usage-row flex flex-wrap items-center justify-between gap-3 py-3.5"
         >
           <div class="flex min-w-0 flex-1 items-center gap-3">
-            <span class="h-2 w-2 shrink-0 rounded-full" :style="{ backgroundColor: modelColor(log.model) }" aria-hidden="true" />
+            <span class="h-2 w-2 shrink-0 rounded-full bg-[var(--oh-accent,#f59e0b)]" aria-hidden="true" />
             <div class="min-w-0">
               <div class="flex items-center gap-2">
-                <p class="truncate text-sm font-bold" :title="log.model">{{ log.model }}</p>
+                <p class="truncate font-mono text-sm font-semibold tabular-nums" :title="log.model">{{ log.model }}</p>
               </div>
               <p class="mt-1 font-mono text-xs tabular-nums opacity-60">{{ formatDateTimeWithZone(log.created_at, timeZone) }}</p>
             </div>
@@ -65,14 +68,6 @@ defineProps<{
   loading: boolean
 }>()
 const { t } = useI18n()
-const modelColor = (model: string) => {
-  const name = model.toLowerCase()
-  if (name.includes('claude')) return '#c08457'
-  if (name.includes('gpt') || /^o[134](?:-|$)/.test(name)) return '#10a37f'
-  if (name.includes('gemini')) return '#4285f4'
-  if (name.includes('deepseek')) return '#6366f1'
-  return 'var(--muted-foreground)'
-}
 </script>
 
 <style scoped>

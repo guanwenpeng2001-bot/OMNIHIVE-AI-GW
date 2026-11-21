@@ -102,6 +102,7 @@ func ApplyLegacyRequestFields(requestType RequestType, fallbackStream bool, fall
 }
 
 type UsageLog struct {
+	TokenUsageObservation *TokenUsageObservation `json:"token_usage_observation,omitempty"`
 	// Pricing context is carried to the durable settlement receipt, independently
 	// of the legacy usage table schema. No migration is required for this DTO.
 	PricingState    PricingState

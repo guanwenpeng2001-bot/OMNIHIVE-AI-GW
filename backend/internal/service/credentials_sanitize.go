@@ -1,6 +1,6 @@
 package service
 
-import "github.com/Wei-Shaw/sub2api/internal/domain"
+import "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 
 // SanitizeStoredCredentials strips secrets that must never be persisted on the
 // account credentials map after conversion to OAuth tokens (Grok Web SSO / password).

@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testresources"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
@@ -33,21 +34,19 @@ func (r *membershipTrackingRepository) ListSchedulableByGroupIDAndPlatform(ctx c
 // The launcher validates both Docker labels. This test additionally pins the
 // database, loopback ports and an otherwise empty Redis logical database.
 func TestSchedulerResourcesScopePostgresRedis(t *testing.T) {
-	dsn := os.Getenv("SCHEDULER_RESOURCES_TEST_DSN")
-	if dsn == "" {
-		t.Skip("requires isolated scheduler_resources_test and Redis fixture")
-	}
+	dsn := testresources.DedicatedPostgresDSN(t, "SCHEDULER_RESOURCES_TEST_DSN", "scheduler_resources_test")
 	u, err := url.Parse(dsn)
 	require.NoError(t, err)
 	require.Equal(t, "postgres", u.Scheme)
-	require.Equal(t, "127.0.0.1:55480", u.Host)
+	require.Equal(t, schedulerResourcesPostgresHost(), u.Host)
 	require.Equal(t, "/scheduler_resources_test", u.Path)
 	require.Equal(t, "sslmode=disable", u.RawQuery)
-	require.Equal(t, "127.0.0.1:56380", os.Getenv("SCHEDULER_RESOURCES_REDIS_ADDR"))
+	redisAddr := os.Getenv("SCHEDULER_RESOURCES_REDIS_ADDR")
+	require.NoError(t, testresources.ValidateRedis(redisAddr))
 	t.Setenv(credentialSecretPostgresEnv, dsn)
 	f := newCredentialSecretFixture(t)
 	ctx := context.Background()
-	client := redis.NewClient(&redis.Options{Addr: "127.0.0.1:56380", DB: 14, MaxRetries: -1})
+	client := redis.NewClient(&redis.Options{Addr: redisAddr, DB: 14, MaxRetries: -1})
 	t.Cleanup(func() { _ = client.Close() })
 	size, err := client.DBSize(ctx).Result()
 	require.NoError(t, err)
@@ -167,13 +166,10 @@ func TestSchedulerResourcesScopePostgresRedis(t *testing.T) {
 // Newly retaining a cooling member must not make its unusable credential
 // poison an otherwise healthy pool during a cold load.
 func TestSchedulerMembershipCoolingCredentialIsolationPostgres(t *testing.T) {
-	dsn := os.Getenv("SCHEDULER_RESOURCES_TEST_DSN")
-	if dsn == "" {
-		t.Skip("requires dedicated scheduler_resources_test")
-	}
+	dsn := testresources.DedicatedPostgresDSN(t, "SCHEDULER_RESOURCES_TEST_DSN", "scheduler_resources_test")
 	u, err := url.Parse(dsn)
 	require.NoError(t, err)
-	require.Equal(t, "127.0.0.1:55480", u.Host)
+	require.Equal(t, schedulerResourcesPostgresHost(), u.Host)
 	require.Equal(t, "/scheduler_resources_test", u.Path)
 	t.Setenv(credentialSecretPostgresEnv, dsn)
 	f := newCredentialSecretFixture(t)
@@ -200,4 +196,11 @@ func TestSchedulerMembershipCoolingCredentialIsolationPostgres(t *testing.T) {
 	require.NoError(t, err, "retaining a revoked cooling member must not block a healthy account")
 	require.Len(t, got, 1)
 	require.Equal(t, healthy.ID, got[0].ID)
+}
+
+func schedulerResourcesPostgresHost() string {
+	if port := os.Getenv("SCHEDULER_RESOURCES_TEST_PGPORT"); port != "" {
+		return "127.0.0.1:" + port
+	}
+	return "127.0.0.1:55480"
 }

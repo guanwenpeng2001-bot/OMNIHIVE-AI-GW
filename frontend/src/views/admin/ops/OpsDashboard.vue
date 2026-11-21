@@ -8,39 +8,96 @@
         {{ errorMessage }}
       </div>
 
+      <!-- Section Navigation & Anchor Filter Bar -->
+      <nav
+        data-testid="ops-section-nav"
+        :aria-label="isZh ? '运维监控板块导航' : 'Operations Section Navigation'"
+        class="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)]/95 px-3 py-2 backdrop-blur"
+      >
+        <div class="flex flex-wrap items-center gap-1.5" role="tablist">
+          <button
+            v-for="sec in opsSections"
+            :key="sec.id"
+            type="button"
+            role="tab"
+            :data-testid="`ops-section-tab-${sec.id}`"
+            :aria-selected="activeOpsSection === sec.id"
+            class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
+            :class="
+              activeOpsSection === sec.id
+                ? 'bg-[var(--brand,#f59e0b)] text-[#141008] shadow-sm'
+                : 'bg-[var(--surface-2)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+            "
+            @click="selectOpsSection(sec.id, sec.anchor)"
+          >
+            <span>{{ sec.label }}</span>
+          </button>
+        </div>
+        <div class="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
+          <button
+            v-if="opsEnabled && !isFullscreen"
+            type="button"
+            class="btn btn-secondary btn-sm text-xs"
+            @click="showAlertRulesCard = true"
+          >
+            {{ t('admin.ops.alertRules.title') }}
+          </button>
+        </div>
+      </nav>
+
+      <div
+        v-show="isOpsSectionVisible('telemetry') || isOpsSectionVisible('alerts')"
+        id="ops-section-telemetry"
+        data-testid="ops-section-panel-telemetry"
+      >
+        <OperationalSignals />
+      </div>
+
       <OpsDashboardSkeleton v-if="loading && !hasLoadedOnce" :fullscreen="isFullscreen" />
 
-      <OpsDashboardHeader
+      <div
         v-else-if="opsEnabled"
-        :overview="overview"
-        :platform="platform"
-        :group-id="groupId"
-        :time-range="timeRange"
-        :query-mode="queryMode"
-        :loading="loading"
-        :last-updated="lastUpdated"
-        :thresholds="metricThresholds"
-        :auto-refresh-enabled="autoRefreshEnabled"
-        :auto-refresh-countdown="autoRefreshCountdown"
-        :fullscreen="isFullscreen"
-        :custom-start-time="customStartTime"
-        :custom-end-time="customEndTime"
-        @update:time-range="onTimeRangeChange"
-        @update:platform="onPlatformChange"
-        @update:group="onGroupChange"
-        @update:query-mode="onQueryModeChange"
-        @update:custom-time-range="onCustomTimeRangeChange"
-        @refresh="fetchData"
-        @open-request-details="handleOpenRequestDetails"
-        @open-error-details="openErrorDetails"
-        @open-settings="showSettingsDialog = true"
-        @open-alert-rules="showAlertRulesCard = true"
-        @enter-fullscreen="enterFullscreen"
-        @exit-fullscreen="exitFullscreen"
-      />
+        v-show="isOpsSectionVisible('overview')"
+        id="ops-section-overview"
+        data-testid="ops-section-panel-overview"
+      >
+        <OpsDashboardHeader
+          :overview="overview"
+          :platform="platform"
+          :group-id="groupId"
+          :time-range="timeRange"
+          :query-mode="queryMode"
+          :loading="loading"
+          :last-updated="lastUpdated"
+          :thresholds="metricThresholds"
+          :auto-refresh-enabled="autoRefreshEnabled"
+          :auto-refresh-countdown="autoRefreshCountdown"
+          :fullscreen="isFullscreen"
+          :custom-start-time="customStartTime"
+          :custom-end-time="customEndTime"
+          @update:time-range="onTimeRangeChange"
+          @update:platform="onPlatformChange"
+          @update:group="onGroupChange"
+          @update:query-mode="onQueryModeChange"
+          @update:custom-time-range="onCustomTimeRangeChange"
+          @refresh="fetchData"
+          @open-request-details="handleOpenRequestDetails"
+          @open-error-details="openErrorDetails"
+          @open-settings="showSettingsDialog = true"
+          @open-alert-rules="showAlertRulesCard = true"
+          @enter-fullscreen="enterFullscreen"
+          @exit-fullscreen="exitFullscreen"
+        />
+      </div>
 
       <!-- Row: Concurrency + Throughput -->
-      <div v-if="opsEnabled && !(loading && !hasLoadedOnce)" class="grid grid-cols-1 gap-4 xl:grid-cols-4">
+      <div
+        v-if="opsEnabled && !(loading && !hasLoadedOnce)"
+        v-show="isOpsSectionVisible('concurrency')"
+        id="ops-section-concurrency"
+        data-testid="ops-section-panel-concurrency"
+        class="grid grid-cols-1 gap-4 xl:grid-cols-4"
+      >
         <div class="xl:col-span-1 h-[300px]">
           <OpsConcurrencyCard :platform-filter="platform" :group-id-filter="groupId" :refresh-token="dashboardRefreshToken" />
         </div>
@@ -68,7 +125,11 @@
       </div>
 
       <!-- Row: Visual Analysis (baseline 3-up grid) -->
-      <div v-if="opsEnabled && !(loading && !hasLoadedOnce)" class="grid auto-rows-[320px] grid-cols-1 gap-4 xl:grid-cols-3">
+      <div
+        v-if="opsEnabled && !(loading && !hasLoadedOnce)"
+        v-show="isOpsSectionVisible('overview')"
+        class="grid auto-rows-[320px] grid-cols-1 gap-4 xl:grid-cols-3"
+      >
         <OpsLatencyChart :latency-data="latencyHistogram" :loading="loadingLatency" />
         <OpsErrorDistributionChart
           :data="errorDistribution"
@@ -85,7 +146,11 @@
       </div>
 
       <!-- Row: Token Stats -->
-      <div v-if="opsEnabled && showOpenAITokenStats && !(loading && !hasLoadedOnce)" class="grid grid-cols-1 gap-6">
+      <div
+        v-if="opsEnabled && showOpenAITokenStats && !(loading && !hasLoadedOnce)"
+        v-show="isOpsSectionVisible('concurrency')"
+        class="grid grid-cols-1 gap-6"
+      >
         <OpsOpenAITokenStatsCard
           :platform-filter="platform"
           :group-id-filter="groupId"
@@ -94,14 +159,25 @@
       </div>
 
       <!-- Alert Events -->
-      <OpsAlertEventsCard v-if="opsEnabled && showAlertEvents && !(loading && !hasLoadedOnce)" />
+      <div
+        v-if="opsEnabled && showAlertEvents && !(loading && !hasLoadedOnce)"
+        v-show="isOpsSectionVisible('alerts')"
+        id="ops-section-alerts"
+        data-testid="ops-section-panel-alerts"
+      >
+        <OpsAlertEventsCard />
+      </div>
 
       <!-- System Logs -->
-      <OpsSystemLogTable
+      <div
         v-if="opsEnabled && !(loading && !hasLoadedOnce)"
-        :platform-filter="platform"
-        :refresh-token="dashboardRefreshToken"
-      />
+        v-show="isOpsSectionVisible('telemetry')"
+      >
+        <OpsSystemLogTable
+          :platform-filter="platform"
+          :refresh-token="dashboardRefreshToken"
+        />
+      </div>
 
       <!-- Settings Dialog (hidden in fullscreen mode) -->
       <template v-if="!isFullscreen">
@@ -147,6 +223,7 @@ import { useDebounceFn, useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import OperationalSignals from '@/features/operations/OperationalSignals.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import {
   opsAPI,
@@ -179,7 +256,39 @@ const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const adminSettingsStore = useAdminSettingsStore()
-const { t } = useI18n()
+const i18n = useI18n()
+const { t } = i18n
+
+const isZh = computed(() => {
+  const rawLocale = typeof i18n.locale === 'string' ? i18n.locale : i18n.locale?.value
+  if (rawLocale) return String(rawLocale).toLowerCase().startsWith('zh')
+  return true
+})
+
+type OpsSectionId = 'all' | 'overview' | 'concurrency' | 'alerts' | 'telemetry'
+const activeOpsSection = ref<OpsSectionId>('all')
+
+const opsSections = computed<Array<{ id: OpsSectionId; label: string; anchor: string }>>(() => [
+  { id: 'all', label: isZh.value ? '全部板块' : 'All Sections', anchor: '' },
+  { id: 'overview', label: isZh.value ? '实时态势' : 'Live Posture', anchor: 'ops-section-overview' },
+  { id: 'concurrency', label: isZh.value ? '并发与负载' : 'Concurrency & Load', anchor: 'ops-section-concurrency' },
+  { id: 'alerts', label: isZh.value ? '告警与自愈' : 'Alerts & Self-Healing', anchor: 'ops-section-alerts' },
+  { id: 'telemetry', label: isZh.value ? '遥测与目录核验' : 'Telemetry & Catalog', anchor: 'ops-section-telemetry' }
+])
+
+function isOpsSectionVisible(section: Exclude<OpsSectionId, 'all'>): boolean {
+  return activeOpsSection.value === 'all' || activeOpsSection.value === section
+}
+
+function selectOpsSection(section: OpsSectionId, anchor: string) {
+  activeOpsSection.value = section
+  if (anchor && typeof document !== 'undefined') {
+    const el = document.getElementById(anchor)
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
+}
 
 const opsEnabled = computed(() => adminSettingsStore.opsMonitoringEnabled)
 

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 func UserFromServiceShallow(u *service.User) *User {
@@ -287,6 +287,12 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		return nil
 	}
 	redactedCreds, credsStatus := RedactCredentials(a.Credentials)
+	if a.CredentialUnavailable {
+		if credsStatus == nil {
+			credsStatus = map[string]bool{}
+		}
+		credsStatus["credential_unavailable"] = true
+	}
 	extra := redactAccountManagedExtra(a.Extra)
 	var ollamaCloudUsage *service.OllamaCloudUsageState
 	if state := service.OllamaCloudUsageStateFromAccount(a); state.Eligible {

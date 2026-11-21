@@ -10,8 +10,8 @@ import (
 	"testing"
 	"testing/synctest"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/cursor"
 	"github.com/stretchr/testify/require"
 )
 

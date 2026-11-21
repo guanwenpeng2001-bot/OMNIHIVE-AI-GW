@@ -11,12 +11,19 @@ import { useAuthStore, useAppStore } from '@/stores'
 import {
   exchangePendingOAuthCompletion,
   getOAuthCompletionKind,
+  getPublicSettings,
   isOAuthLoginCompletion,
   login2FA,
   persistOAuthTokenContext,
   type OAuthAdoptionDecision,
   type PendingOAuthExchangeResponse
 } from '@/api/auth'
+import {
+  buildSignupAgreementPayload,
+  resolveAgreementState,
+  type SignupAgreementPayload,
+} from '@/features/public/legal'
+import type { LoginAgreementDocument } from '@/types'
 import {
   clearAllAffiliateReferralCodes,
   loadOAuthAffiliateCode,
@@ -28,7 +35,12 @@ import { useCallbackLifetime } from './useCallbackLifetime'
 interface CallbackOptions {
   provider: 'linuxdo' | 'oidc' | 'wechat' | 'dingtalk'
   errorPrefix: string
-  completeRegistration: (code: string, decision: OAuthAdoptionDecision, affiliateCode?: string) => Promise<PendingOAuthExchangeResponse>
+  completeRegistration: (
+    code: string,
+    decision: OAuthAdoptionDecision,
+    affiliateCode?: string,
+    agreement?: Partial<SignupAgreementPayload>
+  ) => Promise<PendingOAuthExchangeResponse>
   beforeResume?: () => Promise<boolean | void>
   resolveError?: (code: string, description: string) => string
 }
@@ -68,6 +80,13 @@ export function useOAuthCallback(options: CallbackOptions) {
   const totpCode = ref('')
   const totpError = ref('')
   const totpUserEmailMasked = ref('')
+  const loginAgreementEnabled = ref(false)
+  const loginAgreementMode = ref<'modal' | 'checkbox' | string>('modal')
+  const loginAgreementUpdatedAt = ref('')
+  const loginAgreementRevision = ref('')
+  const loginAgreementDocuments = ref<LoginAgreementDocument[]>([])
+  const agreementAccepted = ref(false)
+  const showAgreementModal = ref(false)
 
   const needsCreateAccount = computed(() => pendingAccountAction.value === 'create_account')
   const needsChooser = computed(() => pendingAccountAction.value === 'choose_account_action')
@@ -341,6 +360,7 @@ export function useOAuthCallback(options: CallbackOptions) {
 
     if (completion.error === 'invitation_required') {
       pendingAccountAction.value = 'none'
+      await loadAgreementSettings()
       needsInvitation.value = true
       needsAdoptionConfirmation.value = false
       isProcessing.value = false
@@ -384,32 +404,89 @@ export function useOAuthCallback(options: CallbackOptions) {
     if (!isActive() || isSubmitting.value) return
     invitationError.value = ''
     if (!invitationCode.value.trim()) return
+    if (loginAgreementEnabled.value && !agreementAccepted.value) {
+      if (loginAgreementMode.value !== 'checkbox') {
+        showAgreementModal.value = true
+      }
+      return
+    }
 
     isSubmitting.value = true
     try {
       const affCode = loadOAuthAffiliateCode()
       const decision = currentAdoptionDecision()
+      const agreementPayload = buildSignupAgreementPayload(
+        loginAgreementEnabled.value,
+        agreementAccepted.value,
+        loginAgreementRevision.value
+      )
+      const hasAgreement = agreementPayload.login_agreement_accepted !== undefined
       const completion: PendingCallbackCompletion = legacyPendingOAuthToken.value
         ? (
             await waitForCallback(apiClient.post<PendingCallbackCompletion>(`/auth/oauth/${options.provider}/complete-registration`, {
               pending_oauth_token: legacyPendingOAuthToken.value,
               invitation_code: invitationCode.value.trim(),
               ...oauthAffiliatePayload(affCode),
-              ...serializeAdoptionDecision(decision)
+              ...serializeAdoptionDecision(decision),
+              ...(hasAgreement ? agreementPayload : {})
             }))
           ).data
-        : affCode
-          ? await waitForCallback(options.completeRegistration(invitationCode.value.trim(), decision, affCode))
-          : await waitForCallback(options.completeRegistration(invitationCode.value.trim(), decision))
+        : hasAgreement
+          ? await waitForCallback(options.completeRegistration(invitationCode.value.trim(), decision, affCode || undefined, agreementPayload))
+          : affCode
+            ? await waitForCallback(options.completeRegistration(invitationCode.value.trim(), decision, affCode))
+            : await waitForCallback(options.completeRegistration(invitationCode.value.trim(), decision))
       await waitForCallback(finalizePendingAccountResponse(completion))
     } catch (failure: unknown) {
       if (!isActive()) return
+      if (extractApiErrorCode(failure) === 'LOGIN_AGREEMENT_REQUIRED') {
+        agreementAccepted.value = false
+        await loadAgreementSettings()
+        invitationError.value = translate('publicPortal.legal.agreementRequiredRefresh')
+        return
+      }
       const err = failure as { message?: string; response?: { data?: { message?: string } } }
       invitationError.value =
         extractApiErrorMessage(err, '') || translate(`${options.errorPrefix}.completeRegistrationFailed`)
     } finally {
       if (isActive()) isSubmitting.value = false
     }
+  }
+
+  async function loadAgreementSettings(): Promise<void> {
+    if (typeof getPublicSettings !== 'function') return
+    try {
+      const settings = await waitForCallback(getPublicSettings())
+      if (!isActive() || !settings) return
+      const resolved = resolveAgreementState(settings)
+      loginAgreementDocuments.value = resolved.documents
+      loginAgreementEnabled.value = resolved.enabled
+      loginAgreementMode.value = resolved.mode
+      loginAgreementUpdatedAt.value = resolved.updatedAt
+      loginAgreementRevision.value = resolved.revision
+      agreementAccepted.value = !resolved.enabled
+      showAgreementModal.value = resolved.enabled && resolved.mode !== 'checkbox'
+    } catch {
+      // Keep existing agreement state; backend enforces if required.
+    }
+  }
+
+  function acceptAgreement() {
+    agreementAccepted.value = true
+    showAgreementModal.value = false
+  }
+
+  function rejectAgreement() {
+    agreementAccepted.value = false
+    showAgreementModal.value = false
+  }
+
+  function openAgreementModal() {
+    showAgreementModal.value = true
+  }
+
+  function closeAgreementModal() {
+    showAgreementModal.value = false
   }
 
   async function handleContinueLogin() {
@@ -446,6 +523,12 @@ export function useOAuthCallback(options: CallbackOptions) {
           }
           : {}),
         invitation_code: payload.invitationCode || undefined,
+        ...(payload.loginAgreementAccepted !== undefined
+          ? {
+              login_agreement_accepted: payload.loginAgreementAccepted,
+              login_agreement_revision: payload.loginAgreementRevision || ''
+            }
+          : {}),
         ...oauthAffiliatePayload(loadOAuthAffiliateCode()),
         ...serializeAdoptionDecision(currentAdoptionDecision())
       }))
@@ -532,6 +615,7 @@ export function useOAuthCallback(options: CallbackOptions) {
       if (error === 'invitation_required' && legacyPendingToken) {
         legacyPendingOAuthToken.value = legacyPendingToken
         redirectTo.value = redirect
+        await loadAgreementSettings()
         needsInvitation.value = true
         isProcessing.value = false
         return
@@ -581,6 +665,16 @@ export function useOAuthCallback(options: CallbackOptions) {
     totpCode,
     totpError,
     totpUserEmailMasked,
+    loginAgreementEnabled,
+    loginAgreementMode,
+    loginAgreementUpdatedAt,
+    loginAgreementDocuments,
+    agreementAccepted,
+    showAgreementModal,
+    acceptAgreement,
+    rejectAgreement,
+    openAgreementModal,
+    closeAgreementModal,
     needsCreateAccount,
     needsChooser,
     needsBindLogin,

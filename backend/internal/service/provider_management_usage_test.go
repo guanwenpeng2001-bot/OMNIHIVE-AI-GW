@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -80,7 +80,7 @@ func TestManagementUsageRequests(test *testing.T) {
 					require.Equal(test, "/users/octocat/settings/billing/"+kind+"/usage", request.URL.Path)
 					require.Equal(test, "2026-03-10", request.Header.Get("X-GitHub-Api-Version"))
 					require.Equal(test, "application/vnd.github+json", request.Header.Get("Accept"))
-					require.Equal(test, "sub2api-management-usage", request.Header.Get("User-Agent"))
+					require.Equal(test, "omnihive-management-usage", request.Header.Get("User-Agent"))
 					require.Len(test, request.URL.Query(), 2)
 					return managementFixtureResponse(200, managementCurrentGitHubFixture()), nil
 				}}

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
-	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/requestmodel"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"go.uber.org/zap"
@@ -381,6 +381,10 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 
 	var usage OpenAIUsage
 	var firstTokenMs *int
+	var observation *TokenUsageObservation
+	if account.Platform == PlatformOpenAI {
+		observation = &TokenUsageObservation{}
+	}
 	chatUsageKnown := false
 	hunyuanUsageKnown := false
 	clientDisconnected := false
@@ -476,7 +480,9 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 						hunyuanUsageKnown = true
 					}
 				}
-				if reported := extractCCStreamUsage(payload); reported != nil && account.Platform != PlatformHunyuan {
+				if observation != nil {
+					mergeRawChatUsage(payload, &usage, observation)
+				} else if reported := extractCCStreamUsage(payload); reported != nil && account.Platform != PlatformHunyuan {
 					if (account.Platform != PlatformMistral && account.Platform != PlatformOpenRouter) || mistralChatUsageKnown([]byte(payload)) {
 						usage = *reported
 						chatUsageKnown = true
@@ -533,6 +539,8 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			RequestID:                     requestID,
 			UpstreamHeaders:               resp.Header,
 			Usage:                         usage,
+			TokenUsageObservation:         observation,
+			UsageIncomplete:               !observation.known(),
 			Model:                         originalModel,
 			BillingModel:                  billingModel,
 			UpstreamModel:                 upstreamModel,
@@ -639,6 +647,31 @@ func isOpenAIChatUsageOnlyStreamChunk(payload string) bool {
 	return choices.Exists() && choices.IsArray() && len(choices.Array()) == 0
 }
 
+// Chat usage frames report cumulative counters. Only a present counter
+// replaces its prior value, including an explicitly reported zero.
+func mergeRawChatUsage(payload string, usage *OpenAIUsage, observation *TokenUsageObservation) {
+	var frame TokenUsageObservation
+	reported, ok := extractObservedOpenAIUsage([]byte(payload), &frame)
+	if !ok {
+		return
+	}
+	if frame.known() {
+		*usage = reported
+		*observation = frame
+		return
+	}
+	if frame.InputTokensKnown {
+		usage.InputTokens = reported.InputTokens
+		observation.InputTokensKnown = true
+	}
+	if frame.OutputTokensKnown {
+		usage.OutputTokens = reported.OutputTokens
+		observation.OutputTokensKnown = true
+	}
+	reported.InputTokens, reported.OutputTokens = 0, 0
+	mergeOpenAIUsageNonZero(usage, reported)
+}
+
 // extractCCStreamUsage 从单个 CC 流式 chunk 的 payload 中提取 usage 字段。
 // CC 协议中 usage 仅出现在末尾 chunk（且仅当 include_usage 生效时），
 // 但上游可能在多个 chunk 中重复——总是用最新值。
@@ -682,7 +715,11 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	observer.ObserveOpenAI(respBody, strings.TrimSpace(gjson.GetBytes(respBody, "type").String()))
 
 	var usage OpenAIUsage
-	if parsedUsage, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
+	var observation *TokenUsageObservation
+	if account.Platform == PlatformOpenAI {
+		observation = &TokenUsageObservation{}
+	}
+	if parsedUsage, ok := extractObservedOpenAIUsage(respBody, observation); ok {
 		usage = parsedUsage
 	}
 	if (account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter) && !mistralChatUsageKnown(respBody) {
@@ -718,6 +755,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	return &OpenAIForwardResult{
 		RequestID:                     requestID,
 		UpstreamHeaders:               resp.Header,
+		TokenUsageObservation:         observation,
 		Usage:                         usage,
 		Model:                         originalModel,
 		BillingModel:                  billingModel,

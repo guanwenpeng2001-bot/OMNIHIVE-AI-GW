@@ -186,8 +186,36 @@ func isBlockedHost(host string) bool {
 	if name == "localhost" || strings.HasSuffix(name, ".localhost") {
 		return true
 	}
-	if addr, err := netip.ParseAddr(host); err == nil {
+	if addr, err := netip.ParseAddr(name); err == nil {
 		return !isPublicAddr(addr)
+	}
+	// Reject legacy inet_aton spellings before any resolver sees them.
+	parts := strings.Split(name, ".")
+	if len(parts) <= 4 {
+		numeric := true
+		for _, part := range parts {
+			if part == "" {
+				numeric = false
+				break
+			}
+			digits := true
+			for _, char := range part {
+				if char < '0' || char > '9' {
+					digits = false
+					break
+				}
+			}
+			if digits {
+				continue
+			}
+			if _, err := strconv.ParseUint(part, 0, 64); err != nil {
+				numeric = false
+				break
+			}
+		}
+		if numeric {
+			return true
+		}
 	}
 	// Colons/zones cannot be DNS hostnames; malformed IPv6 must not fall through.
 	return strings.ContainsAny(host, ":%")

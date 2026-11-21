@@ -8,13 +8,14 @@ import (
 	"strings"
 	"time"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
 )
 
 const openAICodexPATWhoamiURLDefault = "https://auth.openai.com/api/accounts/v1/user-auth-credential/whoami"
 
 var openAICodexPATWhoamiURL = openAICodexPATWhoamiURLDefault
+var codexPATHTTPClient = httpclient.GetClient
 
 var openAIPersonalAccessTokenOAuthCredentialKeys = [...]string{
 	"refresh_token",
@@ -43,7 +44,7 @@ func (s *OpenAIOAuthService) ValidateCodexPersonalAccessToken(ctx context.Contex
 		return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_CODEX_PAT_INVALID_PREFIX", "Codex personal access token must start with at-")
 	}
 
-	client, err := httpclient.GetClient(httpclient.Options{
+	client, err := codexPATHTTPClient(httpclient.Options{
 		ProxyURL:              proxyURL,
 		Timeout:               20 * time.Second,
 		ResponseHeaderTimeout: 15 * time.Second,

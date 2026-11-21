@@ -6,12 +6,16 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"maps"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/google/uuid"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 type credentialSecretRepository struct {
@@ -119,12 +123,12 @@ func (r *credentialSecretRepository) Convert(ctx context.Context, accountID int6
 		return nil, service.ErrCredentialSecretInvalid
 	}
 	metadata := &service.CredentialSecret{Reference: uuid.NewString(), AccountID: accountID, WorkspaceID: workspaceID, Version: 1, UpdatedAt: time.Now().UTC()}
-	ciphertext, err := service.EncryptCredentialSecret(r.encryptor, *metadata, secrets)
+	ciphertext, err := service.EncryptVerifiedCredential(ctx, r.encryptor, *metadata, secrets)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := transaction.ExecContext(ctx, `INSERT INTO credential_secrets(reference,workspace_id,account_id,version,ciphertext,updated_at)
-		VALUES($1,$2,$3,1,$4,$5)`, metadata.Reference, workspaceID, accountID, ciphertext, metadata.UpdatedAt); err != nil {
+	if _, err := transaction.ExecContext(ctx, `INSERT INTO credential_secrets(reference,workspace_id,account_id,version,ciphertext,updated_at,api_key_digest)
+		VALUES($1,$2,$3,1,$4,$5,$6)`, metadata.Reference, workspaceID, accountID, ciphertext, metadata.UpdatedAt, service.AccountAPIKeyDigest(secrets)); err != nil {
 		return nil, err
 	}
 	inline[service.CredentialSecretReferenceKey] = metadata.Reference
@@ -140,6 +144,20 @@ func (r *credentialSecretRepository) Convert(ctx context.Context, accountID int6
 	}
 	service.InvalidateModelCatalogCaches()
 	return metadata, nil
+}
+
+func InstallCredentialVersion(ctx context.Context, tx *sql.Tx, metadata service.CredentialSecret) error {
+	workspace, current, _, err := lockCredentialAccount(ctx, tx, metadata.AccountID)
+	if err != nil {
+		return err
+	}
+	if workspace != metadata.WorkspaceID {
+		return service.ErrCredentialSecretNotFound
+	}
+	inline, _ := service.SplitCredentialSecrets(current)
+	inline[service.CredentialSecretReferenceKey] = metadata.Reference
+	inline[service.CredentialSecretVersionKey] = metadata.Version
+	return writeReferencedAccount(ctx, tx, metadata.AccountID, inline)
 }
 
 func writeReferencedAccount(ctx context.Context, database credentialSQL, accountID int64, credentials map[string]any) error {
@@ -189,6 +207,7 @@ func (r *credentialSecretRepository) mutate(ctx context.Context, accountID, expe
 	if metadata.Version != expectedVersion {
 		return nil, service.ErrCredentialSecretConflict
 	}
+	var digest string
 	action := "rotate"
 	if revoke {
 		action = "revoke"
@@ -219,6 +238,7 @@ func (r *credentialSecretRepository) mutate(ctx context.Context, accountID, expe
 			}
 			secrets[field] = value
 		}
+		digest = service.AccountAPIKeyDigest(secrets)
 		candidate := *metadata
 		candidate.Version++
 		ciphertext, err = service.EncryptCredentialSecret(r.encryptor, candidate, secrets)
@@ -226,7 +246,7 @@ func (r *credentialSecretRepository) mutate(ctx context.Context, accountID, expe
 			return nil, err
 		}
 	}
-	if err := updateSecretCAS(ctx, transaction, metadata, expectedVersion, ciphertext); err != nil {
+	if err := updateSecretCAS(ctx, transaction, metadata, expectedVersion, ciphertext, digest); err != nil {
 		return nil, err
 	}
 	credentials[service.CredentialSecretVersionKey] = metadata.Version
@@ -243,9 +263,9 @@ func (r *credentialSecretRepository) mutate(ctx context.Context, accountID, expe
 	return metadata, nil
 }
 
-func updateSecretCAS(ctx context.Context, database credentialSQL, metadata *service.CredentialSecret, expectedVersion int64, ciphertext string) error {
-	result, err := database.ExecContext(ctx, `UPDATE credential_secrets SET ciphertext=$1,version=version+1,revoked_at=$2,updated_at=NOW()
-		WHERE reference=$3 AND account_id=$4 AND workspace_id=$5 AND version=$6 AND revoked_at IS NULL`, ciphertext, metadata.RevokedAt, metadata.Reference, metadata.AccountID, metadata.WorkspaceID, expectedVersion)
+func updateSecretCAS(ctx context.Context, database credentialSQL, metadata *service.CredentialSecret, expectedVersion int64, ciphertext, digest string) error {
+	result, err := database.ExecContext(ctx, `UPDATE credential_secrets SET ciphertext=$1,api_key_digest=$7,version=version+1,revoked_at=$2,updated_at=NOW()
+		WHERE reference=$3 AND account_id=$4 AND workspace_id=$5 AND version=$6 AND revoked_at IS NULL`, ciphertext, metadata.RevokedAt, metadata.Reference, metadata.AccountID, metadata.WorkspaceID, expectedVersion, digest)
 	if err != nil {
 		return err
 	}
@@ -282,7 +302,7 @@ func prepareReferencedCredentials(ctx context.Context, database credentialSQL, e
 		if incomingReferenced {
 			return nil, service.ErrCredentialSecretInvalid
 		}
-		if hasManagementQuerySecrets(incoming) {
+		if hasCredentialSecrets(incoming) {
 			return createManagementQueryReference(ctx, database, encryptor, accountID, workspaceID, incoming)
 		}
 		return incoming, nil
@@ -339,7 +359,7 @@ func prepareReferencedCredentials(ctx context.Context, database credentialSQL, e
 		if err != nil {
 			return nil, err
 		}
-		if err := updateSecretCAS(ctx, database, metadata, expectedVersion, ciphertext); err != nil {
+		if err := updateSecretCAS(ctx, database, metadata, expectedVersion, ciphertext, service.AccountAPIKeyDigest(secrets)); err != nil {
 			return nil, err
 		}
 		if err := appendCredentialAudit(ctx, database, *metadata, "update", expectedVersion, changed); err != nil {
@@ -349,4 +369,62 @@ func prepareReferencedCredentials(ctx context.Context, database credentialSQL, e
 	inline[service.CredentialSecretReferenceKey] = reference
 	inline[service.CredentialSecretVersionKey] = metadata.Version
 	return inline, nil
+}
+
+func (r *accountRepository) bulkUpdateCredentialSecrets(ctx context.Context, ids []int64, updates service.AccountBulkUpdate) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	if r.client == nil || r.credentialEncryptor == nil {
+		return 0, service.ErrCredentialSecretInvalid
+	}
+	tx := dbent.TxFromContext(ctx)
+	owned := false
+	if tx == nil {
+		var err error
+		tx, err = r.client.Tx(ctx)
+		if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+			return 0, err
+		}
+		if tx != nil {
+			owned = true
+			defer func() { _ = tx.Rollback() }()
+			ctx = dbent.NewTxContext(ctx, tx)
+		}
+	}
+	client := clientFromContext(ctx, r.client)
+	if err := validateBulkCopilotNousCredentials(ctx, client, ids, updates.Credentials); err != nil {
+		return 0, err
+	}
+	inline, secrets := service.SplitCredentialSecrets(updates.Credentials)
+	updates.Credentials = inline
+	if _, err := r.BulkUpdate(ctx, ids, updates); err != nil {
+		return 0, err
+	}
+	ids = slices.Clone(ids)
+	slices.Sort(ids)
+	var count int64
+	for _, id := range slices.Compact(ids) {
+		_, current, _, err := lockCredentialAccount(ctx, client, id)
+		if errors.Is(err, service.ErrAccountNotFound) {
+			continue
+		}
+		if err != nil {
+			return 0, err
+		}
+		if current == nil {
+			current = map[string]any{}
+		}
+		maps.Copy(current, secrets)
+		if err = r.UpdateCredentials(ctx, id, current); err != nil {
+			return 0, err
+		}
+		count++
+	}
+	if owned {
+		if err := tx.Commit(); err != nil {
+			return 0, err
+		}
+	}
+	return count, nil
 }

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 )
 
 // Identity tickets use the existing expiring pending-session store and its
@@ -60,7 +60,7 @@ func (pendingService *AuthPendingIdentityService) ConsumeIdentityTicket(ctx cont
 const AdminWebSocketTicketPath = "/api/v1/admin/ops/ws/qps"
 
 func (authService *AuthService) IssueAdminWebSocketTicket(ctx context.Context, token string) (string, error) {
-	claims, err := authService.ValidateToken(token)
+	claims, err := authService.ValidateTokenContext(ctx, token)
 	if err != nil {
 		return "", err
 	}

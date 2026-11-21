@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/urlvalidator"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/dns/dnsmessage"
 )
@@ -62,8 +62,7 @@ func TestPublicEgressNetworkNamespace(t *testing.T) {
 			_, port, err := net.SplitHostPort(server.Listener.Addr().String())
 			require.NoError(t, err)
 			// Establish that every blocked endpoint really is reachable locally.
-			trusted, err := buildClient(Options{ValidateResolvedIP: true, AllowPrivateHosts: true, Timeout: time.Second})
-			require.NoError(t, err)
+			trusted := &http.Client{Transport: &http.Transport{}, Timeout: time.Second}
 			defer trusted.CloseIdleConnections()
 			response, err := trusted.Get(server.URL)
 			require.NoError(t, err)

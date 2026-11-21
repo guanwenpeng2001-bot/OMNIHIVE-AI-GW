@@ -18,7 +18,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 )
 
 // ─── Mocks ───
@@ -1177,7 +1177,7 @@ func TestRecoverStaleRecords(t *testing.T) {
 	require.Contains(t, r1.ErrorMsg, "server restart")
 
 	r2, _ := svc.GetBackupRecord(context.Background(), "stale-2")
-	require.Equal(t, "failed", r2.RestoreStatus)
+	require.Equal(t, "review_required", r2.RestoreStatus)
 	require.Contains(t, r2.RestoreError, "server restart")
 }
 
@@ -1337,4 +1337,24 @@ func TestBackupService_StartRestore_SplitParts(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "completed", final.RestoreStatus)
 	require.Equal(t, dumpContent, dumper.restored)
+}
+
+func TestBackupScheduleDefaultRetention(t *testing.T) {
+	repo := newMockSettingRepo()
+	svc := newTestBackupService(repo, &mockDumper{}, newMockObjectStore())
+	cfg, err := svc.GetSchedule(t.Context())
+	require.NoError(t, err)
+	require.False(t, cfg.Enabled)
+	require.Equal(t, 14, cfg.RetainDays)
+	for _, test := range []struct {
+		body string
+		days int
+	}{
+		{`{"enabled":true,"cron_expr":"0 2 * * *"}`, 14},
+		{`{"enabled":true,"cron_expr":"0 2 * * *","retain_days":0}`, 0},
+	} {
+		var input BackupScheduleConfig
+		require.NoError(t, json.Unmarshal([]byte(test.body), &input))
+		require.Equal(t, test.days, input.RetainDays)
+	}
 }

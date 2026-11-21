@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
 	"github.com/stretchr/testify/require"
 )
 
@@ -177,7 +177,7 @@ func TestCopilotNousProxyCatalogAndProbe(t *testing.T) {
 			}
 		}))
 		account := specialAuthAccount("nous_research", NousAuthOfficialProxy, server.URL+"/prefix", key)
-		svc := &AccountTestService{cfg: rawChatCompletionsTestConfig(), httpUpstream: &compatibleLoopback{client: server.Client()}}
+		svc := &AccountTestService{cfg: loopbackHTTPTestConfig(), httpUpstream: &compatibleLoopback{client: server.Client()}}
 		request, err := svc.buildUpstreamModelsRequest(context.Background(), account)
 		require.NoError(t, err)
 		response, err := svc.doUpstreamModelsRequest(request, "", account)
@@ -273,7 +273,7 @@ func TestCopilotNousGatewayCancellation(t *testing.T) {
 			}
 		}))
 		defer server.Close()
-		gateway := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: &compatibleLoopback{client: server.Client()}}
+		gateway := &OpenAIGatewayService{cfg: loopbackHTTPTestConfig(), httpUpstream: &compatibleLoopback{client: server.Client()}}
 		ctx, cancel := context.WithCancel(context.WithValue(context.Background(), boundedStreamContextKey{}, true))
 		defer cancel()
 		body := []byte(`{"model":"alias","stream":true,"messages":[{"role":"user","content":"hi"}]}`)

@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/gatewayerror"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/gatewayerror"
 	"math"
 	"net/http"
 	"strconv"
@@ -14,17 +14,18 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
-	pkgerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
-	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/antigravity"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
+	pkgerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ip"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/timezone"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/securityaudit"
+	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -169,7 +170,11 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 	reqModel := parsedReq.Model
-	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, reqModel, "anthropic", h.maxAccountSwitches, h.maxAccountSwitchesGemini)()
+	finishExecution, admitted := beginJournaledExecution(c, h.gatewayService, apiKey, reqModel, "anthropic", body, h.maxAccountSwitches, h.errorResponse, h.maxAccountSwitchesGemini)
+	defer finishExecution()
+	if !admitted {
+		return
+	}
 	requestBudget := service.GatewayRequestPlanFromContext(c.Request.Context()).Snapshot()
 	reqStream := parsedReq.Stream
 	bindRequestedReasoningEffort(c, body, reqModel)
@@ -338,6 +343,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		for {
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, "", int64(0)) // Gemini 不使用会话限制
 			if err != nil {
+				if errors.Is(err, policy.NativePolicyDenied) {
+					h.handleStreamingAwareErrorWithCode(c, policy.NativePolicyDenied.Status, "permission_error", policy.NativePolicyDenied.Reason, policy.NativePolicyDenied.Message, streamStarted)
+					return
+				}
 				if failoverClientGone(c) {
 					reqLog.Info("gateway.account_select_aborted_client_disconnected", zap.Error(err))
 					return
@@ -515,11 +524,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					// 流式内容已写入客户端，无法撤销，禁止 failover 以防止流拼接腐化
-					if c.Writer.Size() != writerSizeBeforeForward && !gatewayStreamHasOnlyHeartbeats(c) {
-						h.handleFailoverExhausted(c, failoverErr, service.PlatformGemini, true)
-						return
-					}
-					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
+					action := fs.handleHTTPFailure(c, h.gatewayService, account, writerSizeBeforeForward, failoverErr)
+					streamStarted = streamStarted || streamTransportCommitted(c)
 					switch action {
 					case FailoverContinue:
 						continue
@@ -555,13 +561,15 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					forwardFailedFields = append(forwardFailedFields, zap.Int64p("proxy_id", account.ProxyID))
 				}
 				reqLog.Error("gateway.forward_failed", forwardFailedFields...)
-				return
+				if result == nil || !result.UsageIncomplete {
+					return
+				}
 			}
 
 			// RPM 计数递增（Forward 成功后）
 			// 注意：TOCTOU 竞态是已知且可接受的设计权衡，与 WindowCost 一致的 soft-limit 模式。
 			// 在高并发下可能短暂超出 RPM 限制，但不会导致请求失败。
-			if account.IsAnthropicOAuthOrSetupToken() && account.GetBaseRPM() > 0 {
+			if err == nil && account.IsAnthropicOAuthOrSetupToken() && account.GetBaseRPM() > 0 {
 				if err := h.gatewayService.IncrementAccountRPM(c.Request.Context(), account.ID); err != nil {
 					reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
@@ -692,6 +700,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				service.WithCompositeTargetAdvancement(c.Request.Context()),
 				currentAPIKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, parsedReq.MetadataUserID, subject.UserID)
 			if err != nil {
+				if errors.Is(err, policy.NativePolicyDenied) {
+					h.handleStreamingAwareErrorWithCode(c, policy.NativePolicyDenied.Status, "permission_error", policy.NativePolicyDenied.Reason, policy.NativePolicyDenied.Message, streamStarted)
+					return
+				}
 				if failoverClientGone(c) {
 					reqLog.Info("gateway.account_select_aborted_client_disconnected", zap.Error(err))
 					return
@@ -1095,11 +1107,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					// 流式内容已写入客户端，无法撤销，禁止 failover 以防止流拼接腐化
-					if c.Writer.Size() != writerSizeBeforeForward && !gatewayStreamHasOnlyHeartbeats(c) {
-						h.handleFailoverExhausted(c, failoverErr, account.Platform, true)
-						return
-					}
-					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
+					action := fs.handleHTTPFailure(c, h.gatewayService, account, writerSizeBeforeForward, failoverErr)
+					streamStarted = streamStarted || streamTransportCommitted(c)
 					switch action {
 					case FailoverContinue:
 						// 本次尝试已确定性失败，立即释放该账号的会话注册
@@ -1700,24 +1709,13 @@ func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, e
 }
 
 func (h *GatewayHandler) handleStreamingAwareErrorWithCode(c *gin.Context, status int, errType, code, message string, streamStarted bool) {
-	if streamStarted {
+	if streamStarted || streamTransportCommitted(c) {
 		// 响应状态码已固化为 200（ping/部分数据已 flush），错误只能就地以 SSE 帧回传。
 		// 标记本次流内错误，供 ops_error_logger 补记——否则该中间件按 status>=400 采集，
 		// 这类挂在 200 流上的失败（如并发限流回退）不会进错误看板。
 		service.MarkOpsStreamError(c, errType, message, status)
 
-		// /v1/responses 的严格 SDK（Codex CLI）要求终止事件必须属于
-		// response.completed/failed/incomplete/cancelled 集合。
-		// Anthropic-backed Responses 路径同样会因为通用 error 帧被拒。
-		if inboundIsResponses(c) {
-			if writeResponsesFailedSSE(c, errType, code, message) {
-				return
-			}
-		}
-		if code == "" {
-			code = errType
-		}
-		gatewayerror.WriteStream(c, status, code, message)
+		writeGatewayStreamTerminal(c, status, errType, code, message)
 		return
 	}
 
@@ -1738,7 +1736,7 @@ func (h *GatewayHandler) ensureForwardErrorResponse(c *gin.Context, streamStarte
 		failoverClientGone(c)
 		return false
 	}
-	if service.IsResponseCommitted(c) {
+	if service.IsResponseCommitted(c) || alreadyTerminal(c) {
 		return false
 	}
 	if c.Writer.Written() {
@@ -1826,10 +1824,14 @@ func (h *GatewayHandler) errorResponse(c *gin.Context, status int, errType, mess
 }
 
 func (h *GatewayHandler) errorResponseWithCode(c *gin.Context, status int, errType, code, message string) {
+	if streamTransportCommitted(c) {
+		writeGatewayStreamTerminal(c, status, errType, code, message)
+		return
+	}
 	if code == "" {
 		code = errType
 	}
-	gatewayerror.Write(c, status, code, message)
+	emitGatewayTerminal(c, func() { gatewayerror.Write(c, status, code, message) })
 }
 
 // CountTokens handles token counting endpoint

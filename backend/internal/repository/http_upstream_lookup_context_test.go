@@ -3,15 +3,15 @@ package repository
 import (
 	"context"
 	"errors"
-	"github.com/Wei-Shaw/sub2api/internal/testutil/testassert"
 	"net"
 	"net/http"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testassert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -80,8 +80,8 @@ func TestHTTPUpstreamLookupOverrideKeepsDefaultSelectionAndLiteralGuards(t *test
 	})
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://127.0.0.1/result", nil)
 	require.NoError(t, err)
-	require.Same(t, entry.client, s.requestClient(entry, request), "override alone cannot select a different route")
-	require.NoError(t, s.validateRequestHost(request), "unchanged default unrestricted policy")
+	require.Same(t, entry.publicClient, s.requestClient(entry, request), "override alone cannot select a different route")
+	require.ErrorContains(t, s.validateRequestHost(request), "not allowed")
 	for _, global := range []bool{false, true} {
 		guarded := request.WithContext(service.WithHTTPUpstreamPublicHostsOnly(ctx))
 		if global {

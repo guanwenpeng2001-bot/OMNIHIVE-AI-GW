@@ -1,0 +1,24 @@
+User-agent: *
+Allow: /
+Allow: /home
+Allow: /model-plaza
+Allow: /pricing
+Allow: /status
+Allow: /docs
+Allow: /help
+Allow: /compatibility
+Allow: /key-usage
+Allow: /legal/
+
+Disallow: /api/
+Disallow: /admin/
+Disallow: /dashboard
+Disallow: /keys
+Disallow: /usage
+Disallow: /purchase
+Disallow: /orders
+Disallow: /profile
+Disallow: /workspaces
+Disallow: /auth/
+
+Sitemap: /sitemap.xml

@@ -6,7 +6,7 @@
 
 | 工具 | 项目约定 |
 | --- | --- |
-| Go | 1.27.0，以 `backend/go.mod` 为准 |
+| Go | 1.27.4，以 `backend/go.mod` 为准 |
 | Node.js / pnpm | Node.js 24、pnpm 11，以 `frontend/package.json` 为准 |
 | PostgreSQL / Redis | Compose 默认 PostgreSQL 18、Redis 8 |
 | Docker Compose | 2.24+，支持配置中的可选 `env_file` |

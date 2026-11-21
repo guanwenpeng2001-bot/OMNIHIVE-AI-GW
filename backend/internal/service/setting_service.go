@@ -8,9 +8,9 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/xai"
 	"golang.org/x/sync/singleflight"
 	"sync"
 )
@@ -309,6 +309,7 @@ const (
 	defaultGoogleOAuthUserInfo   = "https://openidconnect.googleapis.com/v1/userinfo"
 	defaultGoogleOAuthScopes     = "openid email profile"
 	defaultGoogleOAuthFrontend   = "/auth/oauth/callback"
+	defaultSiteSubtitle          = "Unified AI Inference Gateway"
 	defaultLoginAgreementMode    = "modal"
 	defaultLoginAgreementDate    = "2026-03-31"
 )
@@ -411,7 +412,7 @@ func (s *SettingService) SetOnUpdateCallback(callback func()) {
 
 // SubscribeChannelMonitorRuntime registers a listener that is invoked after
 // settings are successfully persisted (and process caches refreshed).
-// Used by ChannelMonitorRunner / ChannelMonitorV2Aggregator for immediate
+// Used by ChannelMonitorRunner / ChannelTelemetryAggregator for immediate
 // mode flips without waiting for poll intervals.
 func (s *SettingService) SubscribeChannelMonitorRuntime(listener func()) (unsubscribe func()) {
 	if s == nil || listener == nil {

@@ -11,8 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
@@ -85,6 +86,8 @@ func TestAccountTestServiceOpenAICompactAgentIdentityRecoversInvalidTaskOnce(t *
 	oldBase := openAIAgentIdentityAuthAPIBaseURL
 	openAIAgentIdentityAuthAPIBaseURL = registerServer.URL
 	t.Cleanup(func() { openAIAgentIdentityAuthAPIBaseURL = oldBase })
+	t.Setenv("HTTPS_PROXY", "")
+	t.Setenv("https_proxy", "")
 
 	upstream := &httpUpstreamRecorder{responses: []*http.Response{
 		{StatusCode: http.StatusUnauthorized, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"error":{"code":"invalid_task_id"}}`))},
@@ -92,6 +95,10 @@ func TestAccountTestServiceOpenAICompactAgentIdentityRecoversInvalidTaskOnce(t *
 	}}
 	invalidator := &agentIdentityWSInvalidationRecorder{}
 	svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream, agentIdentityWS: invalidator}
+	svc.cfg = &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{AllowPrivateHosts: true, UpstreamHosts: []string{"auth.openai.com"}}}}
+	oldClientFactory := agentIdentityHTTPClient
+	agentIdentityHTTPClient = func(httpclient.Options) (*http.Client, error) { return registerServer.Client(), nil }
+	t.Cleanup(func() { agentIdentityHTTPClient = oldClientFactory })
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/22/test", bytes.NewReader(nil))
@@ -318,6 +325,7 @@ func TestOpenAIAgentIdentityTaskInvalidRetriesExactlyOnce(t *testing.T) {
 	defer registerServer.Close()
 	oldBase := openAIAgentIdentityAuthAPIBaseURL
 	openAIAgentIdentityAuthAPIBaseURL = registerServer.URL
+	useLoopbackClient(t, &agentIdentityHTTPClient)
 	t.Cleanup(func() { openAIAgentIdentityAuthAPIBaseURL = oldBase })
 
 	successBody := `{"id":"resp-agent-retry","object":"response","model":"gpt-5.4","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`
@@ -422,6 +430,7 @@ func TestOpenAIAgentIdentityCompatRoutesRecoverInvalidTaskOnce(t *testing.T) {
 			defer registerServer.Close()
 			oldBase := openAIAgentIdentityAuthAPIBaseURL
 			openAIAgentIdentityAuthAPIBaseURL = registerServer.URL
+			useLoopbackClient(t, &agentIdentityHTTPClient)
 			t.Cleanup(func() { openAIAgentIdentityAuthAPIBaseURL = oldBase })
 
 			upstream := &httpUpstreamRecorder{responses: []*http.Response{
@@ -463,6 +472,7 @@ func TestOpenAIAgentIdentityChatRecoveryKeepsAutoDerivedSessionIsolationStable(t
 	defer registerServer.Close()
 	oldBase := openAIAgentIdentityAuthAPIBaseURL
 	openAIAgentIdentityAuthAPIBaseURL = registerServer.URL
+	useLoopbackClient(t, &agentIdentityHTTPClient)
 	t.Cleanup(func() { openAIAgentIdentityAuthAPIBaseURL = oldBase })
 
 	invalidTask := func() *http.Response {

@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/apicompat"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/googleapi"
 )
 
 // GeminiProtocolWriter only adapts the existing Messages/count/embedding
@@ -29,7 +29,7 @@ type GeminiProtocolWriter struct {
 	status, consumed                     int
 	buffer                               []byte
 	err                                  error
-	terminal                             bool
+	terminal, finalUsage                 bool
 	usage                                apicompat.AnthropicUsage
 	stop                                 string
 	blocks                               map[int]*apicompat.AnthropicContentBlock
@@ -109,6 +109,9 @@ func (w *GeminiProtocolWriter) Write(p []byte) (int, error) {
 			if err := json.Unmarshal([]byte(data), &event); err != nil {
 				w.err = err
 				return 0, err
+			}
+			if event.Type == "message_delta" && event.Usage != nil {
+				w.finalUsage = hasAnthropicFinalOutputUsage(data)
 			}
 			if err := w.event(&event); err != nil {
 				w.err = err
@@ -327,6 +330,9 @@ func (w *GeminiProtocolWriter) event(e *apicompat.AnthropicStreamEvent) error {
 			}
 		}
 	case "message_stop":
+		if !w.finalUsage {
+			return fmt.Errorf("upstream stream ended without final usage")
+		}
 		if w.stop == "" {
 			return fmt.Errorf("upstream stream ended without stop reason")
 		}

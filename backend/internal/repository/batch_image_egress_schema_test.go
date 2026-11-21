@@ -8,11 +8,11 @@ import (
 	"encoding/json"
 	"testing"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/batchimagejob"
-	"github.com/Wei-Shaw/sub2api/ent/migrate"
-	"github.com/Wei-Shaw/sub2api/migrations"
 	"github.com/google/uuid"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/batchimagejob"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/migrate"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/migrations"
 	"github.com/stretchr/testify/require"
 )
 

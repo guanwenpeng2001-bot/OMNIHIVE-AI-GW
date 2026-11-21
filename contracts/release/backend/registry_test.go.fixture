@@ -1,0 +1,85 @@
+package routes
+
+import (
+	"encoding/json"
+	"os"
+	"slices"
+	"testing"
+
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/stretchr/testify/require"
+)
+
+// Each index in an identity's vector corresponds to an action in Actions.
+// Dictionary coding keeps every declared cell readable without repeating
+// identical registry evidence across platforms, protocols and account types.
+func TestBE24Registry(t *testing.T) {
+	type decision struct {
+		Status   domain.ActionStatus `json:"status"`
+		Adapter  string              `json:"adapter,omitempty"`
+		Evidence string              `json:"evidence"`
+	}
+	type row struct {
+		Platform string `json:"platform"`
+		Account  string `json:"account"`
+		Mode     string `json:"mode,omitempty"`
+		Protocol string `json:"protocol,omitempty"`
+		Cells    []int  `json:"cells"`
+	}
+	result := struct {
+		Actions    []string   `json:"actions"`
+		Decisions  []decision `json:"decisions"`
+		Identities []row      `json:"identities"`
+	}{Actions: domain.GatewayActions()}
+	index := map[decision]int{}
+	record := func(r row, resolve func(string) domain.ActionDescriptor) {
+		for _, action := range result.Actions {
+			cell := resolve(action)
+			require.NotEmpty(t, cell.Evidence)
+			require.Contains(t, []domain.ActionStatus{domain.ActionImplemented, domain.ActionUnverified, domain.ActionHardConflict}, cell.Status)
+			require.Equal(t, cell.Status == domain.ActionImplemented, cell.Adapter != "")
+			d := decision{cell.Status, cell.Adapter, cell.Evidence}
+			i, ok := index[d]
+			if !ok {
+				i = len(result.Decisions)
+				index[d] = i
+				result.Decisions = append(result.Decisions, d)
+			}
+			r.Cells = append(r.Cells, i)
+		}
+		result.Identities = append(result.Identities, r)
+	}
+	for _, p := range domain.PlatformDescriptors() {
+		if provider, ok := domain.LookupCompatibleProvider(p.ID); ok {
+			for _, mode := range provider.Modes {
+				for _, protocol := range []string{domain.APIProtocolAdaptive, domain.APIProtocolChatCompletions, domain.APIProtocolAnthropic, domain.APIProtocolResponses} {
+					id := domain.ActionIdentity{Platform: p.ID, HostedAccountType: domain.AccountTypeAPIKey, Protocol: protocol}
+					record(row{Platform: p.ID, Account: id.HostedAccountType, Mode: mode.Mode, Protocol: protocol},
+						func(action string) domain.ActionDescriptor { return provider.Action(mode.Mode, id, action) })
+				}
+			}
+			continue
+		}
+		accounts := []string{domain.AccountTypeAPIKey}
+		if p.OAuth {
+			accounts = append(accounts, domain.AccountTypeOAuth)
+		}
+		switch p.ID {
+		case domain.PlatformAnthropic:
+			accounts = append(accounts, domain.AccountTypeSetupToken, domain.AccountTypeBedrock, domain.AccountTypeServiceAccount)
+		case domain.PlatformGemini:
+			accounts = append(accounts, domain.AccountTypeServiceAccount)
+		}
+		if p.HostedAccountType != "" && !slices.Contains(accounts, p.HostedAccountType) {
+			accounts = append(accounts, p.HostedAccountType)
+		}
+		for _, account := range accounts {
+			id := domain.ActionIdentity{Platform: p.ID, HostedAccountType: account}
+			record(row{Platform: p.ID, Account: account}, func(action string) domain.ActionDescriptor { return domain.PlatformAction(id, action) })
+		}
+	}
+	out, err := os.Create(os.Getenv("BE24_REGISTRY_REPORT"))
+	require.NoError(t, err)
+	require.NoError(t, json.NewEncoder(out).Encode(result))
+	require.NoError(t, out.Close())
+}

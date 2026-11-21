@@ -24,15 +24,15 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"golang.org/x/net/http2"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyutil"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
-	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/proxyurl"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/proxyutil"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/servertiming"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/xai"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/urlvalidator"
 )
 
 // 默认配置常量
@@ -620,10 +620,7 @@ func (s *httpUpstreamService) getClientEntryWithTLS(proxyURL string, accountID i
 		return nil, fmt.Errorf("build TLS fingerprint transport: %w", err)
 	}
 
-	client := &http.Client{Transport: transport}
-	if s.shouldValidateResolvedIP() {
-		client.CheckRedirect = s.redirectChecker
-	}
+	client := &http.Client{Transport: httpclient.NewUpstreamTransport(transport, s.privateUpstreamHosts()), CheckRedirect: s.redirectChecker}
 
 	entry := &upstreamClientEntry{
 		client:       client,
@@ -644,13 +641,14 @@ func (s *httpUpstreamService) getClientEntryWithTLS(proxyURL string, accountID i
 }
 
 func (s *httpUpstreamService) shouldValidateResolvedIP() bool {
+	return len(s.privateUpstreamHosts()) == 0
+}
+
+func (s *httpUpstreamService) privateUpstreamHosts() []string {
 	if s.cfg == nil {
-		return false
+		return nil
 	}
-	if !s.cfg.Security.URLAllowlist.Enabled {
-		return false
-	}
-	return !s.cfg.Security.URLAllowlist.AllowPrivateHosts
+	return s.cfg.Security.URLAllowlist.PrivateUpstreamHosts()
 }
 
 // validateRequestHost 校验请求主机的解析结果不落在回环、私网、链路本地或未指定地址。
@@ -785,10 +783,7 @@ func (s *httpUpstreamService) getClientEntry(proxyURL string, accountID int64, a
 		s.mu.Unlock()
 		return nil, fmt.Errorf("build transport: %w", err)
 	}
-	client := &http.Client{Transport: transport}
-	if s.shouldValidateResolvedIP() {
-		client.CheckRedirect = s.redirectChecker
-	}
+	client := &http.Client{Transport: httpclient.NewUpstreamTransport(transport, s.privateUpstreamHosts()), CheckRedirect: s.redirectChecker}
 	entry := &upstreamClientEntry{
 		client:       client,
 		publicClient: &http.Client{Transport: httpclient.NewPublicTransport(transport), CheckRedirect: s.redirectChecker},

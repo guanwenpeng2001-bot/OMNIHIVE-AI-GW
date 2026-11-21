@@ -1,0 +1,443 @@
+[
+  {
+    "name": "half-tie",
+    "frozen_snapshot": {
+      "pricing_state": "priced",
+      "model": "fixture-token",
+      "mode": "token",
+      "source": "fixture",
+      "tokens": {
+        "QianwenExplicitCache": false,
+        "QianwenBatchChat": false,
+        "InputTokens": 10,
+        "ImageInputTokens": 0,
+        "ImageCacheReadTokens": 0,
+        "OutputTokens": 5,
+        "CacheCreationTokens": 0,
+        "CacheReadTokens": 0,
+        "CacheCreation5mTokens": 0,
+        "CacheCreation1hTokens": 0,
+        "ImageOutputTokens": 0
+      },
+      "token_prices": {
+        "InputPricePerToken": 0.00000125,
+        "InputPricePerTokenPriority": 0,
+        "ImageInputPricePerToken": 0,
+        "ImageCacheReadPricePerToken": 0,
+        "OutputPricePerToken": 0.00001,
+        "OutputPricePerTokenPriority": 0,
+        "CacheCreationPricePerToken": 0,
+        "CacheCreationPricePerTokenPriority": 0,
+        "CacheCreationPriceExplicit": false,
+        "CacheReadPricePerToken": 0,
+        "CacheReadPricePerTokenPriority": 0,
+        "FastMultiplier": null,
+        "FlexMultiplier": null,
+        "MaxReasoningEffortMultiplier": null,
+        "CacheCreation5mPrice": 0,
+        "CacheCreation1hPrice": 0,
+        "SupportsCacheBreakdown": false,
+        "LongContextInputThreshold": 0,
+        "LongContextThresholdInclusive": false,
+        "LongContextInputMultiplier": 0,
+        "LongContextOutputMultiplier": 0,
+        "ImageOutputPricePerToken": 0,
+        "ImageOutputPriceExplicit": false,
+        "token_price_presence": null
+      },
+      "rate_multiplier": 1.25,
+      "time_multiplier": 1,
+      "reasoning_multiplier": 1,
+      "total_cost": 0.0000625,
+      "actual_cost": 0.000078125,
+      "charged_amount": 0.00007813
+    },
+    "raw_command": {
+      "RequestID": "be-02-half-tie",
+      "APIKeyID": 2,
+      "RequestFingerprint": "",
+      "RequestPayloadHash": "",
+      "UserID": 1,
+      "AccountID": 3,
+      "SubscriptionID": null,
+      "AccountType": "",
+      "Model": "fixture-token",
+      "ServiceTier": "",
+      "ReasoningEffort": "",
+      "BillingType": 0,
+      "InputTokens": 10,
+      "OutputTokens": 5,
+      "CacheCreationTokens": 0,
+      "CacheReadTokens": 0,
+      "ImageCount": 0,
+      "MediaType": "",
+      "BalanceCost": 0.000078125,
+      "SubscriptionCost": 0,
+      "APIKeyQuotaCost": 0.000078125,
+      "APIKeyRateLimitCost": 0,
+      "AccountQuotaCost": 0,
+      "BudgetReservationID": 0
+    },
+    "normalized_command": {
+      "RequestID": "be-02-half-tie",
+      "APIKeyID": 2,
+      "RequestFingerprint": "0ea1360ee88cba50dcbac6d3dafe4b5f5cedfad96b51125c31b1de2d85a57604",
+      "RequestPayloadHash": "",
+      "UserID": 1,
+      "AccountID": 3,
+      "SubscriptionID": null,
+      "AccountType": "",
+      "Model": "fixture-token",
+      "ServiceTier": "",
+      "ReasoningEffort": "",
+      "BillingType": 0,
+      "InputTokens": 10,
+      "OutputTokens": 5,
+      "CacheCreationTokens": 0,
+      "CacheReadTokens": 0,
+      "ImageCount": 0,
+      "MediaType": "",
+      "BalanceCost": 0.00007813,
+      "SubscriptionCost": 0,
+      "APIKeyQuotaCost": 0.00007813,
+      "APIKeyRateLimitCost": 0,
+      "AccountQuotaCost": 0,
+      "BudgetReservationID": 0
+    },
+    "shadow": {
+      "lines": [
+        {
+          "rate": {
+            "currency": "USD",
+            "amount": "1.25",
+            "unit": "input_token",
+            "per": "1000000"
+          },
+          "usage": {
+            "kind": "input_token",
+            "quantity": "10"
+          }
+        },
+        {
+          "rate": {
+            "currency": "USD",
+            "amount": "10",
+            "unit": "output_token",
+            "per": "1000000"
+          },
+          "usage": {
+            "kind": "output_token",
+            "quantity": "5"
+          }
+        }
+      ],
+      "multiplier": "1.25",
+      "expected_raw_difference": "0",
+      "expected_charge_difference": "0.00000000"
+    }
+  },
+  {
+    "name": "float-tail",
+    "frozen_snapshot": {
+      "pricing_state": "priced",
+      "model": "fixture-request",
+      "mode": "per_request",
+      "source": "fixture",
+      "tokens": {
+        "QianwenExplicitCache": false,
+        "QianwenBatchChat": false,
+        "InputTokens": 0,
+        "ImageInputTokens": 0,
+        "ImageCacheReadTokens": 0,
+        "OutputTokens": 0,
+        "CacheCreationTokens": 0,
+        "CacheReadTokens": 0,
+        "CacheCreation5mTokens": 0,
+        "CacheCreation1hTokens": 0,
+        "ImageOutputTokens": 0
+      },
+      "unit_price": 0.1,
+      "units": 3,
+      "rate_multiplier": 1,
+      "time_multiplier": 1,
+      "reasoning_multiplier": 1,
+      "total_cost": 0.30000000000000004,
+      "actual_cost": 0.30000000000000004,
+      "charged_amount": 0.3
+    },
+    "raw_command": {
+      "RequestID": "be-02-float-tail",
+      "APIKeyID": 2,
+      "RequestFingerprint": "",
+      "RequestPayloadHash": "",
+      "UserID": 1,
+      "AccountID": 3,
+      "SubscriptionID": null,
+      "AccountType": "",
+      "Model": "fixture-request",
+      "ServiceTier": "",
+      "ReasoningEffort": "",
+      "BillingType": 0,
+      "InputTokens": 0,
+      "OutputTokens": 0,
+      "CacheCreationTokens": 0,
+      "CacheReadTokens": 0,
+      "ImageCount": 0,
+      "MediaType": "",
+      "BalanceCost": 0.30000000000000004,
+      "SubscriptionCost": 0,
+      "APIKeyQuotaCost": 0.30000000000000004,
+      "APIKeyRateLimitCost": 0,
+      "AccountQuotaCost": 0,
+      "BudgetReservationID": 0
+    },
+    "normalized_command": {
+      "RequestID": "be-02-float-tail",
+      "APIKeyID": 2,
+      "RequestFingerprint": "f4ca0af41825a4427ed87d29b08cbd9c7495225f29182a8f7fa7333b904e447a",
+      "RequestPayloadHash": "",
+      "UserID": 1,
+      "AccountID": 3,
+      "SubscriptionID": null,
+      "AccountType": "",
+      "Model": "fixture-request",
+      "ServiceTier": "",
+      "ReasoningEffort": "",
+      "BillingType": 0,
+      "InputTokens": 0,
+      "OutputTokens": 0,
+      "CacheCreationTokens": 0,
+      "CacheReadTokens": 0,
+      "ImageCount": 0,
+      "MediaType": "",
+      "BalanceCost": 0.3,
+      "SubscriptionCost": 0,
+      "APIKeyQuotaCost": 0.3,
+      "APIKeyRateLimitCost": 0,
+      "AccountQuotaCost": 0,
+      "BudgetReservationID": 0
+    },
+    "shadow": {
+      "lines": [
+        {
+          "rate": {
+            "currency": "USD",
+            "amount": "0.1",
+            "unit": "request",
+            "per": "1"
+          },
+          "usage": {
+            "kind": "request",
+            "quantity": "3"
+          }
+        }
+      ],
+      "multiplier": "1",
+      "expected_raw_difference": "-1/25000000000000000",
+      "expected_charge_difference": "0.00000000"
+    }
+  },
+  {
+    "name": "quantized-quote",
+    "frozen_snapshot": {
+      "pricing_state": "priced",
+      "quantize_quote_before_multiplier": true,
+      "model": "fixture-fx",
+      "mode": "per_request",
+      "source": "fixture",
+      "tokens": {
+        "QianwenExplicitCache": false,
+        "QianwenBatchChat": false,
+        "InputTokens": 0,
+        "ImageInputTokens": 0,
+        "ImageCacheReadTokens": 0,
+        "OutputTokens": 0,
+        "CacheCreationTokens": 0,
+        "CacheReadTokens": 0,
+        "CacheCreation5mTokens": 0,
+        "CacheCreation1hTokens": 0,
+        "ImageOutputTokens": 0
+      },
+      "unit_price": 0.0014285714285714286,
+      "units": 1,
+      "rate_multiplier": 5,
+      "time_multiplier": 1,
+      "reasoning_multiplier": 1,
+      "total_cost": 0.00142857,
+      "actual_cost": 0.00714285,
+      "charged_amount": 0.00714285
+    },
+    "raw_command": {
+      "RequestID": "be-02-quantized-quote",
+      "APIKeyID": 2,
+      "RequestFingerprint": "",
+      "RequestPayloadHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d",
+      "UserID": 1,
+      "AccountID": 3,
+      "SubscriptionID": 19,
+      "AccountType": "",
+      "Model": "fixture-fx",
+      "ServiceTier": "",
+      "ReasoningEffort": "",
+      "BillingType": 0,
+      "InputTokens": 0,
+      "OutputTokens": 0,
+      "CacheCreationTokens": 0,
+      "CacheReadTokens": 0,
+      "ImageCount": 0,
+      "MediaType": "",
+      "BalanceCost": 0,
+      "SubscriptionCost": 0.00714285,
+      "APIKeyQuotaCost": 0.00714285,
+      "APIKeyRateLimitCost": 0.00714285,
+      "AccountQuotaCost": 0.00142857,
+      "BudgetReservationID": 0
+    },
+    "normalized_command": {
+      "RequestID": "be-02-quantized-quote",
+      "APIKeyID": 2,
+      "RequestFingerprint": "04db3642ed23e15c22b161f0ab0c44c2e46a3ba5aa677120ca4d98f24a1c2e66",
+      "RequestPayloadHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d",
+      "UserID": 1,
+      "AccountID": 3,
+      "SubscriptionID": 19,
+      "AccountType": "",
+      "Model": "fixture-fx",
+      "ServiceTier": "",
+      "ReasoningEffort": "",
+      "BillingType": 0,
+      "InputTokens": 0,
+      "OutputTokens": 0,
+      "CacheCreationTokens": 0,
+      "CacheReadTokens": 0,
+      "ImageCount": 0,
+      "MediaType": "",
+      "BalanceCost": 0,
+      "SubscriptionCost": 0.00714285,
+      "APIKeyQuotaCost": 0.00714285,
+      "APIKeyRateLimitCost": 0.00714285,
+      "AccountQuotaCost": 0.00142857,
+      "BudgetReservationID": 0
+    },
+    "shadow": {
+      "lines": [
+        {
+          "rate": {
+            "currency": "USD",
+            "amount": "0.01",
+            "unit": "request",
+            "per": "7"
+          },
+          "usage": {
+            "kind": "request",
+            "quantity": "1"
+          }
+        }
+      ],
+      "multiplier": "5",
+      "expected_raw_difference": "1/140000000",
+      "expected_charge_difference": "0.00000001"
+    }
+  },
+  {
+    "name": "free",
+    "frozen_snapshot": {
+      "pricing_state": "free",
+      "model": "fixture-free",
+      "mode": "per_request",
+      "source": "fixture",
+      "tokens": {
+        "QianwenExplicitCache": false,
+        "QianwenBatchChat": false,
+        "InputTokens": 0,
+        "ImageInputTokens": 0,
+        "ImageCacheReadTokens": 0,
+        "OutputTokens": 0,
+        "CacheCreationTokens": 0,
+        "CacheReadTokens": 0,
+        "CacheCreation5mTokens": 0,
+        "CacheCreation1hTokens": 0,
+        "ImageOutputTokens": 0
+      },
+      "unit_price": 0,
+      "units": 1,
+      "rate_multiplier": 1,
+      "time_multiplier": 1,
+      "reasoning_multiplier": 1,
+      "total_cost": 0,
+      "actual_cost": 0,
+      "charged_amount": 0
+    },
+    "raw_command": {
+      "RequestID": "be-02-free",
+      "APIKeyID": 2,
+      "RequestFingerprint": "historical-import-0001",
+      "RequestPayloadHash": "",
+      "UserID": 1,
+      "AccountID": 3,
+      "SubscriptionID": null,
+      "AccountType": "",
+      "Model": "fixture-free",
+      "ServiceTier": "",
+      "ReasoningEffort": "",
+      "BillingType": 0,
+      "InputTokens": 0,
+      "OutputTokens": 0,
+      "CacheCreationTokens": 0,
+      "CacheReadTokens": 0,
+      "ImageCount": 0,
+      "MediaType": "",
+      "BalanceCost": 0,
+      "SubscriptionCost": 0,
+      "APIKeyQuotaCost": 0,
+      "APIKeyRateLimitCost": 0,
+      "AccountQuotaCost": 0,
+      "BudgetReservationID": 0
+    },
+    "normalized_command": {
+      "RequestID": "be-02-free",
+      "APIKeyID": 2,
+      "RequestFingerprint": "historical-import-0001",
+      "RequestPayloadHash": "",
+      "UserID": 1,
+      "AccountID": 3,
+      "SubscriptionID": null,
+      "AccountType": "",
+      "Model": "fixture-free",
+      "ServiceTier": "",
+      "ReasoningEffort": "",
+      "BillingType": 0,
+      "InputTokens": 0,
+      "OutputTokens": 0,
+      "CacheCreationTokens": 0,
+      "CacheReadTokens": 0,
+      "ImageCount": 0,
+      "MediaType": "",
+      "BalanceCost": 0,
+      "SubscriptionCost": 0,
+      "APIKeyQuotaCost": 0,
+      "APIKeyRateLimitCost": 0,
+      "AccountQuotaCost": 0,
+      "BudgetReservationID": 0
+    },
+    "shadow": {
+      "lines": [
+        {
+          "rate": {
+            "currency": "USD",
+            "amount": "0",
+            "unit": "request",
+            "per": "1"
+          },
+          "usage": {
+            "kind": "request",
+            "quantity": "1"
+          }
+        }
+      ],
+      "multiplier": "1",
+      "expected_raw_difference": "0",
+      "expected_charge_difference": "0.00000000"
+    }
+  }
+]

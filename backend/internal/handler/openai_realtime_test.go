@@ -11,11 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	middleware "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	ws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/journal"
+	middleware "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,9 +36,13 @@ func (repository *openAIRealtimeHandlerRepository) InsertRealtimeReceipt(_ conte
 func TestOpenAIRealtimeHandlerFakeUpstream(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	store := &entrypointJournal{}
 	upstreamClosed := make(chan struct{})
 	provider := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		defer close(upstreamClosed)
+		if !store.dispatched.Load() {
+			t.Error("realtime handshake reached upstream before dispatch permit")
+		}
 		connection, err := ws.Accept(writer, request, nil)
 		if err != nil {
 			return
@@ -51,7 +57,7 @@ func TestOpenAIRealtimeHandlerFakeUpstream(t *testing.T) {
 		_, _, _ = connection.Read(ctx)
 	}))
 	defer provider.Close()
-	cfg := &config.Config{RunMode: config.RunModeSimple, Gateway: config.GatewayConfig{ConcurrencySlotTTLMinutes: 3}, Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{AllowInsecureHTTP: true}}}
+	cfg := &config.Config{RunMode: config.RunModeSimple, Gateway: config.GatewayConfig{ConcurrencySlotTTLMinutes: 3}, Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{AllowInsecureHTTP: true, AllowPrivateHosts: true, UpstreamHosts: []string{"127.0.0.1"}}}}
 	account := service.Account{ID: 7, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Concurrency: 2, Credentials: map[string]any{"api_key": "fixture", "base_url": provider.URL, "model_mapping": map[string]any{"gpt-realtime-2.1": "gpt-realtime-2.1"}}, AccountGroups: []service.AccountGroup{{AccountID: 7, GroupID: 3}}, Extra: map[string]any{service.UpstreamModelCatalogExtraKey: service.AccountModelCatalogSnapshot{Complete: true, Revision: 1, DiscoveredModels: []string{"gpt-realtime-2.1"}, EligibleModels: []service.AccountCatalogModel{{ID: "gpt-realtime-2.1", Endpoints: []string{"realtime", "chat_completions"}, EvidenceKind: "fixture", EvidenceObservedAt: "2026-09-18T00:00:00Z"}}}}}
 	repository := &openAIWSUsageHandlerAccountRepoStub{account: account}
 	require.True(t, service.AccountSupportsResolvedModel(ctx, &account, "gpt-realtime-2.1", service.AccountModelBindingOptions{Endpoint: "realtime"}), "fixture must expose realtime binding")
@@ -65,9 +71,15 @@ func TestOpenAIRealtimeHandlerFakeUpstream(t *testing.T) {
 	key := &service.APIKey{ID: 2, UserID: 1, GroupID: &groupID, User: &service.User{ID: 1, Status: service.StatusActive}, Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true, RateMultiplier: 1}}
 	router := gin.New()
 	finished := make(chan struct{})
-	// The production action descriptor is owned by the later wiring package.
-	// Use a fixture-only route to test the handler without changing that registry.
-	router.GET("/fixture/socket", func(request *gin.Context) {
+	router.Use(func(c *gin.Context) {
+		a := scope.Authorized{WorkspaceID: 7, ProjectID: 8, ActorID: key.UserID, KeyID: key.ID, KeyOwnerID: key.UserID, FundingUserID: key.UserID, Version: 1}
+		ctx := journal.WithReauthorization(journal.WithStore(scope.With(c.Request.Context(), a), store), func(context.Context, scope.Authorized, string) error { return nil })
+		c.Request = c.Request.WithContext(ctx)
+	}, InstallExecutionJournal(nil, nil))
+	router.GET("/v1/realtime", func(request *gin.Context) {
+		if !prepareGatewayDispatch(request) {
+			return
+		}
 		defer close(finished)
 		request.Set(string(middleware.ContextKeyAPIKey), key)
 		request.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1, Concurrency: 1})
@@ -75,7 +87,7 @@ func TestOpenAIRealtimeHandlerFakeUpstream(t *testing.T) {
 	})
 	server := httptest.NewServer(router)
 	defer server.Close()
-	client, response, err := ws.Dial(ctx, server.URL+"/fixture/socket?model=gpt-realtime-2.1", nil)
+	client, response, err := ws.Dial(ctx, server.URL+"/v1/realtime?model=gpt-realtime-2.1", &ws.DialOptions{HTTPHeader: http.Header{"Idempotency-Key": {"session-1"}}})
 	if err != nil && response != nil {
 		body, _ := io.ReadAll(response.Body)
 		t.Fatalf("handshake: %v status=%d body=%s", err, response.StatusCode, body)

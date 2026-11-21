@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 	"go.uber.org/zap"
 )
 
@@ -967,6 +967,13 @@ func maxBatchImageReferenceImagesForModel(model string) int {
 }
 
 func (s *BatchImagePublicService) selectProviderAndAccount(ctx context.Context, owner BatchImageOwner, requestedProvider, model string) (BatchImageProvider, *Account, error) {
+	if HasGatewayRoutingConstraints(ctx) {
+		checked, err := withNativePolicyAccounts(ctx, s.Config, model)
+		if err != nil {
+			return nil, nil, err
+		}
+		ctx = checked
+	}
 	providers := batchImageProviderSelectionOrder(requestedProvider)
 	for _, providerName := range providers {
 		provider, ok := s.ProviderRegistry.Get(providerName)
@@ -986,7 +993,7 @@ func (s *BatchImagePublicService) selectProviderAndAccount(ctx context.Context, 
 		})
 		for i := range accounts {
 			account := accounts[i]
-			if !account.IsSchedulable() || !account.IsModelSupported(model) {
+			if !nativePolicyAllows(ctx, &account) || !account.IsSchedulable() || !account.IsModelSupported(model) {
 				continue
 			}
 			if provider.SupportsAccount(&account) {

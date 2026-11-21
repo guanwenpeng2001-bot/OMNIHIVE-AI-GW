@@ -10,29 +10,32 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/apicompat"
 	"github.com/stretchr/testify/require"
 )
 
 const drainMessageStart = "event: message_start\nid: ignored\n: comment\ndata: {\ndata: \"type\":\"message_start\",\"message\":{\"id\":\"msg_test\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"usage\":{\"input_tokens\":7}}}\n\n"
+const drainEmptyDelta = "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":0}}\n\n"
+const drainToolDelta = "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":3}}\n\n"
 const drainMessageStop = "data: {\"type\":\"message_stop\"}\n\n"
 
 func TestAnthropicCompletionFrames(t *testing.T) {
 	for _, path := range []string{"responses", "responses-buffered", "chat", "chat-buffered"} {
 		for _, tc := range []struct {
-			name, body string
-			ok         bool
-			input      int
+			name, body    string
+			ok            bool
+			input, output int
 		}{
-			{"empty-eof", "", false, 0},
-			{"done-only", "data: [DONE]\n\n", false, 0},
-			{"empty-output", drainMessageStart + drainMessageStop, true, 7},
-			{"partial-usage", drainMessageStart, false, 7},
-			{"malformed", drainMessageStart + "data: {bad}\n\n" + drainMessageStop, false, 7},
-			{"comments-empty", ": keepalive\nid: 3\n\ndata:\n\n" + drainMessageStart + drainMessageStop, true, 7},
-			{"tool", drainMessageStart + "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"tool_1\",\"name\":\"lookup\",\"input\":{}}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"q\\\":1}\"}}\n\n" + drainMessageStop, true, 7},
-			{"half-tool", drainMessageStart + "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\"}}\n\n" + drainMessageStop, false, 7},
+			{"empty-eof", "", false, 0, 0},
+			{"done-only", "data: [DONE]\n\n", false, 0, 0},
+			{"empty-output", drainMessageStart + drainEmptyDelta + drainMessageStop, true, 7, 0},
+			{"stop-without-final-usage", drainMessageStart + drainMessageStop, false, 7, 0},
+			{"partial-usage", drainMessageStart, false, 7, 0},
+			{"malformed", drainMessageStart + "data: {bad}\n\n" + drainEmptyDelta + drainMessageStop, false, 7, 0},
+			{"comments-empty", ": keepalive\nid: 3\n\ndata:\n\n" + drainMessageStart + drainEmptyDelta + drainMessageStop, true, 7, 0},
+			{"tool", drainMessageStart + "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"tool_1\",\"name\":\"lookup\",\"input\":{}}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"q\\\":1}\"}}\n\n" + drainToolDelta + drainMessageStop, true, 7, 3},
+			{"half-tool", drainMessageStart + "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\"}}\n\n" + drainToolDelta + drainMessageStop, false, 7, 0},
 		} {
 			t.Run(path+"/"+tc.name, func(t *testing.T) {
 				rec := httptest.NewRecorder()
@@ -61,6 +64,9 @@ func TestAnthropicCompletionFrames(t *testing.T) {
 				}
 				require.NotNil(t, result)
 				require.Equal(t, tc.input, result.Usage.InputTokens)
+				if tc.ok {
+					require.Equal(t, tc.output, result.Usage.OutputTokens)
+				}
 			})
 		}
 	}
@@ -162,7 +168,7 @@ func TestAnthropicTerminalReleasesHTTPConnection(t *testing.T) {
 	released := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		if _, err := io.WriteString(w, drainMessageStart+drainMessageStop); err != nil {
+		if _, err := io.WriteString(w, drainMessageStart+drainEmptyDelta+drainMessageStop); err != nil {
 			return
 		}
 		if err := http.NewResponseController(w).Flush(); err != nil {

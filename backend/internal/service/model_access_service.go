@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 )
 
 var (
@@ -33,13 +33,14 @@ type ModelAccessGroup struct {
 }
 
 type ModelAccessSnapshot struct {
-	KeyGroup        GroupModelAllowlist
-	Generation      int64
-	RevisionKnown   bool
-	Key             []string
-	Accounts        map[int64][]string
-	AccountExcludes map[int64][]string
-	KeyExclude      []string
+	ProjectKeyPlatform string
+	KeyGroup           GroupModelAllowlist
+	Generation         int64
+	RevisionKnown      bool
+	Key                []string
+	Accounts           map[int64][]string
+	AccountExcludes    map[int64][]string
+	KeyExclude         []string
 }
 
 type ModelAccessPolicyReader interface {
@@ -192,6 +193,12 @@ func (access authenticatedModelAccess) authorize(ctx context.Context, groupID *i
 func withModelAccessSnapshot(ctx context.Context, snapshot ModelAccessSnapshot) context.Context {
 	ctx = context.WithValue(ctx, modelAccessSnapshotKey{}, snapshot)
 	return WithVisibleModelKeyPolicy(ctx, snapshot.Key)
+}
+
+func WithProjectKeyModelPolicy(ctx context.Context, platform string) context.Context {
+	snapshot, _ := ctx.Value(modelAccessSnapshotKey{}).(ModelAccessSnapshot)
+	snapshot.ProjectKeyPlatform = platform
+	return context.WithValue(ctx, modelAccessSnapshotKey{}, snapshot)
 }
 func modelAccessAccountAllows(ctx context.Context, accountID int64, model string) bool {
 	if ctx == nil {

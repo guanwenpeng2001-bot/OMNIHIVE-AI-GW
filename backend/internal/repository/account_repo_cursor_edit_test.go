@@ -3,15 +3,16 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/enttest"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/enttest"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 	_ "modernc.org/sqlite"
 )
@@ -21,6 +22,15 @@ import (
 // probe settings, and each interleaving is explicitly ordered before Update.
 type cursorEditTestDriver struct{ *entsql.Driver }
 type cursorEditTestTx struct{ dialect.Tx }
+
+var cursorEditPostgresPlaceholder = regexp.MustCompile(`\$[0-9]+`)
+
+func cursorEditSQLiteQuery(query string) string {
+	query = strings.TrimSuffix(query, " FOR UPDATE")
+	query = strings.ReplaceAll(query, "::jsonb", "")
+	query = strings.ReplaceAll(query, "NOW()", "CURRENT_TIMESTAMP")
+	return cursorEditPostgresPlaceholder.ReplaceAllString(query, "?")
+}
 
 func (d cursorEditTestDriver) Tx(ctx context.Context) (dialect.Tx, error) {
 	tx, err := d.Driver.Tx(ctx)
@@ -35,10 +45,12 @@ func (tx cursorEditTestTx) QueryContext(ctx context.Context, query string, args 
 		args = args[:1]
 	}
 	entTx, _ := tx.Tx.(*entsql.Tx)
+	query = cursorEditSQLiteQuery(query)
 	return entTx.QueryContext(ctx, query, args...)
 }
 func (tx cursorEditTestTx) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	entTx, _ := tx.Tx.(*entsql.Tx)
+	query = cursorEditSQLiteQuery(query)
 	return entTx.ExecContext(ctx, query, args...)
 }
 
@@ -54,7 +66,17 @@ func newCursorEditTestRepository(t *testing.T) (*accountRepository, *dbent.Clien
 	t.Cleanup(func() { _ = client.Close() })
 	_, err = db.Exec(`CREATE TABLE scheduler_outbox (id INTEGER PRIMARY KEY, event_type TEXT, account_id INTEGER, group_id INTEGER, payload BLOB, dedup_key TEXT UNIQUE)`)
 	require.NoError(t, err)
-	return newAccountRepositoryWithSQL(client, db, nil), client, db
+	_, err = db.Exec(`CREATE TABLE provider_connections (account_id INTEGER PRIMARY KEY REFERENCES accounts(id), legacy_dirty BOOLEAN DEFAULT false, verified_id TEXT, version INTEGER DEFAULT 1)`)
+	require.NoError(t, err)
+	_, err = db.Exec(`DROP TABLE credential_secrets`)
+	require.NoError(t, err)
+	_, err = db.Exec(`CREATE TABLE credential_secrets(id INTEGER PRIMARY KEY, reference TEXT NOT NULL UNIQUE, workspace_id INTEGER NOT NULL DEFAULT 1, account_id INTEGER NOT NULL UNIQUE, version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0), ciphertext TEXT NOT NULL, revoked_at DATETIME, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, api_key_digest TEXT)`)
+	require.NoError(t, err)
+	_, err = db.Exec(`CREATE TABLE audit_logs(id INTEGER PRIMARY KEY, actor_user_id INTEGER, actor_role TEXT, action TEXT, request_id TEXT, status_code INTEGER, extra BLOB)`)
+	require.NoError(t, err)
+	repository := newAccountRepositoryWithSQL(client, db, nil)
+	repository.credentialEncryptor = persistentTestAES(t, true)
+	return repository, client, db
 }
 
 func TestCursorMetadataEditRefreshRacePreservesDatabaseCooldown(t *testing.T) {
@@ -103,7 +125,10 @@ func TestCursorMetadataEditRefreshRacePreservesDatabaseCooldown(t *testing.T) {
 				current, err := client.Account.Get(ctx, entity.ID)
 				require.NoError(t, err)
 				require.Equal(t, "edited", current.Name)
-				require.Equal(t, snapshot.Credentials, current.Credentials)
+				require.NotContains(t, current.Credentials, "refresh_token")
+				resolved, err := repo.GetByID(ctx, entity.ID)
+				require.NoError(t, err)
+				require.Equal(t, snapshot.Credentials["refresh_token"], resolved.Credentials["refresh_token"])
 				if cleared {
 					require.Nil(t, current.TempUnschedulableUntil)
 					require.Nil(t, current.TempUnschedulableReason)
@@ -158,7 +183,11 @@ func TestCursorReauthRecoveryUsesCurrentReasonAndRollsBackWithCredentials(t *tes
 				require.Equal(t, service.StatusError, current.Status)
 				require.False(t, current.Schedulable)
 			} else {
-				require.Equal(t, edit.Credentials, current.Credentials)
+				resolved, err := repo.GetByID(ctx, entity.ID)
+				require.NoError(t, err)
+				require.Equal(t, "synthetic-new", resolved.Credentials["refresh_token"])
+				require.Equal(t, edit.Credentials[service.CredentialSecretReferenceKey], resolved.Credentials[service.CredentialSecretReferenceKey])
+				require.Equal(t, service.CredentialVersion(current.Credentials), service.CredentialVersion(resolved.Credentials))
 				require.Equal(t, service.StatusActive, current.Status)
 				require.True(t, current.Schedulable)
 			}
@@ -177,6 +206,47 @@ func TestCursorReauthRecoveryUsesCurrentReasonAndRollsBackWithCredentials(t *tes
 			} else {
 				require.Equal(t, 1, events)
 			}
+		})
+	}
+}
+
+func TestManagedConnectionRejectsLegacyAccountEdits(t *testing.T) {
+	ctx := context.Background()
+	repo, client, db := newCursorEditTestRepository(t)
+	original, err := client.Account.Create().SetName("original").SetPlatform(service.PlatformOpenAI).
+		SetType(service.AccountTypeAPIKey).SetCredentials(map[string]any{
+		"base_url": "https://old.example", "model_mapping": map[string]any{"alias": "model"},
+		service.CredentialSecretReferenceKey: "ref-1", service.CredentialSecretVersionKey: 1,
+	}).Save(ctx)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO provider_connections(account_id, verified_id) VALUES(?, 'verification-1')`, original.ID)
+	require.NoError(t, err)
+	for _, field := range []string{"name", "header_overrides", "base_url"} {
+		t.Run(field, func(t *testing.T) {
+			edit := accountEntityToService(original)
+			edit.Credentials = map[string]any{}
+			switch field {
+			case "name":
+				edit.Name = "renamed"
+			case "header_overrides":
+				edit.Credentials[field] = map[string]any{"X-Example": "test"}
+			case "base_url":
+				edit.Credentials[field] = "https://new.example"
+			}
+			err := repo.UpdateWithAccountBillingSettings(ctx, edit, nil, nil, nil)
+			require.ErrorIs(t, err, service.ErrAccountConnectionManaged)
+			current, err := client.Account.Get(ctx, original.ID)
+			require.NoError(t, err)
+			require.Equal(t, original.Name, current.Name)
+			require.Equal(t, "https://old.example", current.Credentials["base_url"])
+			require.Equal(t, map[string]any{"alias": "model"}, current.Credentials["model_mapping"])
+			require.Equal(t, "ref-1", current.Credentials[service.CredentialSecretReferenceKey])
+			require.EqualValues(t, 1, current.Credentials[service.CredentialSecretVersionKey])
+			var verified string
+			var version int
+			require.NoError(t, db.QueryRow(`SELECT verified_id, version FROM provider_connections WHERE account_id=? AND NOT legacy_dirty`, original.ID).Scan(&verified, &version))
+			require.Equal(t, "verification-1", verified)
+			require.Equal(t, 1, version)
 		})
 	}
 }

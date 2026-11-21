@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/cursor"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,11 +30,17 @@ func cursorTestProxy(t *testing.T, address string, identifier int64) *Proxy {
 	return &Proxy{ID: identifier, Protocol: parsed.Scheme, Host: hostname, Port: port}
 }
 
-func TestCursorRelayAccountProxyAndCatalogHeaders(t *testing.T) {
+func cursorRelayTestGateway(server *httptest.Server) *CursorGatewayService {
 	gateway := NewCursorGatewayService(nil, nil)
+	gateway.relayClient = server.Client()
+	return gateway
+}
+
+func TestCursorRelayAccountProxyAndCatalogHeaders(t *testing.T) {
 	var direct atomic.Int32
 	origin := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { direct.Add(1) }))
 	defer origin.Close()
+	gateway := cursorRelayTestGateway(origin)
 	for _, key := range []string{"account-alpha", "account-beta"} {
 		t.Run(key, func(t *testing.T) {
 			var requests atomic.Int32

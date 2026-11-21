@@ -3,18 +3,20 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="${SUB2API_ENV_FILE:-${SCRIPT_DIR}/.env}"
+ENV_FILE="${OMNIHIVE_ENV_FILE-${SUB2API_ENV_FILE-${SCRIPT_DIR}/.env}}"
 
-STACK_LABEL_KEY="org.sub2api.stack"
+STACK_LABEL_KEY="org.omnihive.stack"
+LEGACY_STACK_LABEL_KEY="org.sub2api.stack"
 STACK_LABEL_VALUE="apple-container"
-NETWORK_NAME="sub2api-apple"
-APP_CONTAINER="sub2api-apple"
-POSTGRES_CONTAINER="sub2api-apple-postgres"
-REDIS_CONTAINER="sub2api-apple-redis"
-APP_VOLUME="sub2api-apple-data"
-POSTGRES_VOLUME="sub2api-apple-postgres-data"
-REDIS_VOLUME="sub2api-apple-redis-data"
+NETWORK_NAME="omnihive-apple"
+APP_CONTAINER="omnihive-apple"
+POSTGRES_CONTAINER="omnihive-apple-postgres"
+REDIS_CONTAINER="omnihive-apple-redis"
+APP_VOLUME="omnihive-apple-data"
+POSTGRES_VOLUME="omnihive-apple-postgres-data"
+REDIS_VOLUME="omnihive-apple-redis-data"
 PLATFORM="linux/arm64"
+DATABASE_DEFAULT_NAME=omnihive
 
 TEMP_DIR=""
 LOCK_DIR="${TMPDIR:-/tmp}/sub2api-apple-container.lock"
@@ -71,7 +73,7 @@ Destroy options:
   --yes                 Skip the confirmation prompt
 
 Environment:
-  SUB2API_ENV_FILE      Path to the deployment env file (default: deploy/.env)
+  OMNIHIVE_ENV_FILE      Path to the deployment env file (default: deploy/.env)
 EOF
 }
 
@@ -190,6 +192,34 @@ assert_resource_owned() {
     if [[ "${compact}" != *"\"${STACK_LABEL_KEY}\":\"${STACK_LABEL_VALUE}\""* ]]; then
         die "Refusing to manage existing ${resource_type} '${resource_name}' because it is not owned by this stack."
     fi
+}
+
+stack_exists() {
+    local name=$1
+    resource_exists container "$name" || resource_exists container "$name-postgres" ||
+        resource_exists container "$name-redis" || resource_exists network "$name" ||
+        resource_exists volume "$name-data" || resource_exists volume "$name-postgres-data" ||
+        resource_exists volume "$name-redis-data"
+}
+
+select_stack_identity() {
+    local legacy=sub2api-apple
+    if ! stack_exists "$legacy"; then
+        return
+    fi
+    if [[ "$APP_CONTAINER" != "$legacy" ]] && stack_exists "$APP_CONTAINER"; then
+        die "Both current and legacy Apple Container stacks exist. Resolve the duplicate before proceeding."
+    fi
+    STACK_LABEL_KEY="$LEGACY_STACK_LABEL_KEY"
+    NETWORK_NAME="$legacy"
+    APP_CONTAINER="$legacy"
+    POSTGRES_CONTAINER="$legacy-postgres"
+    REDIS_CONTAINER="$legacy-redis"
+    APP_VOLUME="$legacy-data"
+    POSTGRES_VOLUME="$legacy-postgres-data"
+    REDIS_VOLUME="$legacy-redis-data"
+    DATABASE_DEFAULT_NAME=sub2api
+    warn "Using the deprecated stack names to preserve existing Apple Container data."
 }
 
 preflight_stack_ownership() {
@@ -372,7 +402,7 @@ cmd_init() {
     mv "${temp_file}" "${ENV_FILE}"
 
     info "Created ${ENV_FILE} with generated secrets."
-    info "Review the file, then run: SUB2API_ENV_FILE='${ENV_FILE}' ${SCRIPT_DIR}/apple-container.sh up"
+    info "Review the file, then run: OMNIHIVE_ENV_FILE='${ENV_FILE}' ${SCRIPT_DIR}/apple-container.sh up"
 }
 
 validate_port() {
@@ -414,14 +444,24 @@ validate_env_file_security() {
 prepare_environment() {
     validate_env_file_security
 
-    APP_IMAGE="$(read_env_value APPLE_CONTAINER_SUB2API_IMAGE 'ghcr.io/guanwenpeng2001-bot/omnihive-ai-gw:latest')"
+    local default_image=ghcr.io/guanwenpeng2001-bot/omnihive-ai-gw:latest
+    local missing_image_marker=__OMNIHIVE_IMAGE_UNSET__
+    APP_IMAGE="$(read_env_value APPLE_CONTAINER_OMNIHIVE_IMAGE "$missing_image_marker")"
+    if [[ "$APP_IMAGE" == "$missing_image_marker" ]]; then
+        APP_IMAGE="$(read_env_value APPLE_CONTAINER_SUB2API_IMAGE "$missing_image_marker")"
+        if [[ "$APP_IMAGE" == "$missing_image_marker" ]]; then
+            APP_IMAGE="$default_image"
+        else
+            warn "APPLE_CONTAINER_SUB2API_IMAGE is deprecated. Use APPLE_CONTAINER_OMNIHIVE_IMAGE."
+        fi
+    fi
     POSTGRES_IMAGE="$(read_env_value APPLE_CONTAINER_POSTGRES_IMAGE postgres:18-alpine)"
     REDIS_IMAGE="$(read_env_value APPLE_CONTAINER_REDIS_IMAGE redis:8-alpine)"
     BIND_HOST="$(read_env_value BIND_HOST 0.0.0.0)"
     HOST_PORT="$(read_env_value SERVER_PORT 8080)"
-    POSTGRES_USER="$(read_env_value POSTGRES_USER sub2api)"
+    POSTGRES_USER="$(read_env_value POSTGRES_USER "$DATABASE_DEFAULT_NAME")"
     POSTGRES_PASSWORD="$(read_env_value POSTGRES_PASSWORD)"
-    POSTGRES_DB="$(read_env_value POSTGRES_DB sub2api)"
+    POSTGRES_DB="$(read_env_value POSTGRES_DB "$DATABASE_DEFAULT_NAME")"
     REDIS_PASSWORD="$(read_env_value REDIS_PASSWORD)"
     TZ_VALUE="$(read_env_value TZ Asia/Shanghai)"
     NETWORK_SUBNET="$(read_env_value APPLE_CONTAINER_NETWORK_SUBNET)"
@@ -487,8 +527,9 @@ DATABASE_SSLMODE=disable
 REDIS_HOST=${REDIS_ADDRESS}
 REDIS_PORT=6379
 REDIS_PASSWORD=${REDIS_PASSWORD}
+OMNIHIVE_DATA_DIR=/app/storage/data
 DATA_DIR=/app/storage/data
-APPLE_CONTAINER_SUB2API_IMAGE_ID=${APP_IMAGE_ID}
+APPLE_CONTAINER_OMNIHIVE_IMAGE_ID=${APP_IMAGE_ID}
 EOF
     chmod 600 "${APP_ENV_FILE}"
 }
@@ -536,27 +577,36 @@ create_app_container() {
         "${APP_IMAGE}" \
         -c '
 set -e
-mkdir -p "$DATA_DIR"
-chown -R sub2api:sub2api "$DATA_DIR"
+mkdir -p "$OMNIHIVE_DATA_DIR"
+chown -R 1000:1000 "$OMNIHIVE_DATA_DIR"
 
+base_binary=/app/omnihive
+if [ ! -x "$base_binary" ]; then
+    base_binary=/app/sub2api
+    echo "Using a deprecated image executable. Upgrade to a current OmniHive image." >&2
+fi
 runtime_dir=/app/storage/runtime
-runtime_binary="$runtime_dir/sub2api"
+runtime_binary="$runtime_dir/omnihive"
 image_marker="$runtime_dir/base-image-id"
 installed_image_id=""
 if [ -f "$image_marker" ]; then
     installed_image_id="$(cat "$image_marker")"
 fi
-if [ ! -x "$runtime_binary" ] || [ "$installed_image_id" != "$APPLE_CONTAINER_SUB2API_IMAGE_ID" ]; then
+if [ ! -x "$runtime_binary" ] || [ "$installed_image_id" != "$APPLE_CONTAINER_OMNIHIVE_IMAGE_ID" ]; then
     mkdir -p "$runtime_dir"
-    cp /app/sub2api "${runtime_binary}.new"
-    chown sub2api:sub2api "${runtime_binary}.new"
+    source_binary="$base_binary"
+    if [ "$base_binary" = /app/sub2api ] && [ "$installed_image_id" = "$APPLE_CONTAINER_OMNIHIVE_IMAGE_ID" ] && [ -x "$runtime_dir/sub2api" ]; then
+        source_binary="$runtime_dir/sub2api"
+    fi
+    cp "$source_binary" "${runtime_binary}.new"
+    chown 1000:1000 "${runtime_binary}.new"
     chmod 0755 "${runtime_binary}.new"
     mv "${runtime_binary}.new" "$runtime_binary"
-    printf "%s\n" "$APPLE_CONTAINER_SUB2API_IMAGE_ID" >"${image_marker}.new"
+    printf "%s\n" "$APPLE_CONTAINER_OMNIHIVE_IMAGE_ID" >"${image_marker}.new"
     mv "${image_marker}.new" "$image_marker"
     rm -f "${runtime_binary}.backup"
 fi
-chown -R sub2api:sub2api "$runtime_dir"
+chown -R 1000:1000 "$runtime_dir"
 
 child_pid=""
 stop() {
@@ -570,7 +620,7 @@ stop() {
 trap stop TERM INT
 
 while true; do
-    su-exec sub2api "$runtime_binary" &
+    su-exec 1000:1000 "$runtime_binary" &
     child_pid=$!
     set +e
     wait "$child_pid"
@@ -723,6 +773,7 @@ cmd_up() {
     fi
 
     ensure_system
+    select_stack_identity
     prepare_environment
     preflight_stack_ownership
     ensure_network
@@ -762,6 +813,7 @@ cmd_down() {
         info "Apple container services are already stopped."
         return
     fi
+    select_stack_identity
     preflight_stack_ownership
     stop_container_if_running "${APP_CONTAINER}"
     stop_container_if_running "${REDIS_CONTAINER}"
@@ -797,6 +849,7 @@ cmd_status() {
     fi
 
     printf '%-12s %s\n' "system" "running"
+    select_stack_identity
     preflight_stack_ownership
     print_container_status app "${APP_CONTAINER}"
     print_container_status postgres "${POSTGRES_CONTAINER}"
@@ -847,15 +900,17 @@ cmd_logs() {
         exit 2
     fi
 
+    require_container_version
+    system_is_running || die "Apple container services are not running."
+    select_stack_identity
     case "${service}" in
-        app|sub2api) container_name="${APP_CONTAINER}" ;;
+        sub2api) warn "The sub2api service alias is deprecated. Use app."; container_name="${APP_CONTAINER}" ;;
+        app|omnihive) container_name="${APP_CONTAINER}" ;;
         postgres) container_name="${POSTGRES_CONTAINER}" ;;
         redis) container_name="${REDIS_CONTAINER}" ;;
         *) die "Unknown service '${service}'. Use app, postgres, or redis." ;;
     esac
 
-    require_container_version
-    system_is_running || die "Apple container services are not running."
     resource_exists container "${container_name}" || die "Container not found: ${container_name}"
     assert_resource_owned container "${container_name}"
     if [[ -n "${follow}" ]]; then
@@ -867,6 +922,7 @@ cmd_logs() {
 
 cmd_pull() {
     ensure_system
+    select_stack_identity
     prepare_environment
     info "Pulling ${APP_IMAGE}..."
     container image pull --platform "${PLATFORM}" "${APP_IMAGE}"
@@ -914,6 +970,7 @@ cmd_destroy() {
 
     require_container_version
     start_system
+    select_stack_identity
     preflight_stack_ownership
     if [[ "${assume_yes}" != true ]] && ! confirm_destroy "${include_volumes}"; then
         info "Cancelled."
@@ -941,6 +998,9 @@ cmd_destroy() {
 }
 
 main() {
+    if [[ ! ${OMNIHIVE_ENV_FILE+x} && ${SUB2API_ENV_FILE+x} ]]; then
+        warn "SUB2API_ENV_FILE is deprecated. Use OMNIHIVE_ENV_FILE."
+    fi
     local command=${1-}
     if [[ $# -gt 0 ]]; then
         shift

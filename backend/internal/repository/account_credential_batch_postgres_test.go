@@ -16,12 +16,13 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	adminhandler "github.com/Wei-Shaw/sub2api/internal/handler/admin"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	adminhandler "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
@@ -84,7 +85,7 @@ func TestCredentialBatchPostgresOrderQueriesRevisionAndCAS(t *testing.T) {
 	for i := 0; i < 24; i++ {
 		accounts = append(accounts, createBatchReferencedAccount(t, f, service.PlatformCursor, service.AccountTypeOAuth, map[string]any{"access_token": fmt.Sprintf("batch-access-%d", i), "refresh_token": fmt.Sprintf("batch-refresh-%d", i), "model_mapping": map[string]any{"alias": "model"}}))
 	}
-	inline := f.createAccount(t, f.ctx, uniqueName("inline-control"), service.PlatformOpenAI, service.AccountTypeOAuth, map[string]any{"refresh_token": "inline-refresh-control"})
+	inline := f.createLegacyInlineAccount(t, f.ctx, uniqueName("inline-control"), service.PlatformOpenAI, service.AccountTypeOAuth, map[string]any{"refresh_token": "inline-refresh-control"})
 	repo, counts := countingCredentialRepository(f)
 	for _, size := range []int{1, len(accounts)} {
 		ids := []int64{-1, 0, 999999999, accounts[size-1].ID}
@@ -168,7 +169,7 @@ func TestCredentialBatchPostgresScopeOwnershipCorruptionAndRace(t *testing.T) {
 			case "missing":
 				_, err = f.db.ExecContext(f.ctx, "DELETE FROM credential_secrets WHERE account_id=$1", bad.ID)
 			case "ciphertext":
-				_, err = f.db.ExecContext(f.ctx, "UPDATE credential_secrets SET ciphertext='broken-ciphertext' WHERE account_id=$1", bad.ID)
+				f.writeInconsistentSecret(t, "UPDATE credential_secrets SET ciphertext='broken-ciphertext' WHERE account_id=$1", bad.ID)
 			case "reference":
 				_, err = f.db.ExecContext(f.ctx, "UPDATE credential_secrets SET reference=$2 WHERE account_id=$1", bad.ID, uniqueName("unbound-fixture-reference"))
 			case "workspace":
@@ -181,11 +182,11 @@ func TestCredentialBatchPostgresScopeOwnershipCorruptionAndRace(t *testing.T) {
 			case "ciphertext_swap":
 				_, ciphertext, err = readCredentialSecret(f.ctx, f.db, good.ID)
 				require.NoError(t, err)
-				_, err = f.db.ExecContext(f.ctx, "UPDATE credential_secrets SET ciphertext=$2 WHERE account_id=$1", bad.ID, ciphertext)
+				f.writeInconsistentSecret(t, "UPDATE credential_secrets SET ciphertext=$2 WHERE account_id=$1", bad.ID, ciphertext)
 			case "payload_injection":
 				ciphertext, err = service.EncryptCredentialSecret(f.encryptor, *metadata, map[string]any{"refresh_token": "bad-batch-refresh", "credential_secret_reference": "injected"})
 				require.NoError(t, err)
-				_, err = f.db.ExecContext(f.ctx, "UPDATE credential_secrets SET ciphertext=$2 WHERE account_id=$1", bad.ID, ciphertext)
+				f.writeInconsistentSecret(t, "UPDATE credential_secrets SET ciphertext=$2 WHERE account_id=$1", bad.ID, ciphertext)
 			}
 			require.NoError(t, err)
 			out, err := f.accounts.GetByIDs(f.ctx, []int64{good.ID, bad.ID})
@@ -195,6 +196,27 @@ func TestCredentialBatchPostgresScopeOwnershipCorruptionAndRace(t *testing.T) {
 			require.NotContains(t, err.Error(), ciphertext)
 			_, singleErr := f.accounts.GetByID(f.ctx, bad.ID)
 			require.Error(t, singleErr)
+			omitted, err := f.accounts.GetByIDs(service.WithUnusableCredentialRowsOmitted(f.ctx), []int64{good.ID, bad.ID})
+			require.NoError(t, err)
+			require.Len(t, omitted, 1)
+			require.Equal(t, good.ID, omitted[0].ID)
+			listed, _, err := f.accounts.ListWithFilters(f.ctx, pagination.PaginationParams{Page: 1, PageSize: 20}, "", "", "", "", 0, "")
+			require.NoError(t, err, "one unusable credential must not fail the whole list")
+			require.Equal(t, []int64{good.ID}, listedAccountIDs(listed))
+			listed, _, err = f.accounts.ListWithFilters(service.WithUnresolvedCredentialRows(f.ctx), pagination.PaginationParams{Page: 1, PageSize: 20}, "", "", "", "", 0, "")
+			require.NoError(t, err)
+			require.ElementsMatch(t, []int64{good.ID, bad.ID}, listedAccountIDs(listed))
+			for _, account := range listed {
+				if account.ID != bad.ID {
+					require.False(t, account.CredentialUnavailable)
+					continue
+				}
+				require.True(t, account.CredentialUnavailable)
+				for field, value := range account.Credentials {
+					require.False(t, service.IsSensitiveCredentialKey(field), "unresolved row exposes %s", field)
+					require.NotContains(t, fmt.Sprint(value), "bad-batch-refresh")
+				}
+			}
 			for _, activeOnly := range []bool{true, false} {
 				page, err := f.accounts.ListOAuthRefreshCandidatePage(f.ctx, service.OAuthRefreshPageOptions{Platforms: []string{service.PlatformOpenAI}, Limit: 10, ActiveOnly: activeOnly, RequireRefreshToken: true})
 				require.NoError(t, err)
@@ -298,8 +320,7 @@ func TestCredentialBatchPostgresRefreshPagesActivationAndSkippedRows(t *testing.
 	_, err := f.secrets.Revoke(f.ctx, revoked.ID, 1)
 	require.NoError(t, err)
 	broken := create(map[string]any{"refresh_token": "broken-refresh"})
-	_, err = f.db.ExecContext(f.ctx, "UPDATE credential_secrets SET ciphertext='bad' WHERE account_id=$1", broken.ID)
-	require.NoError(t, err)
+	f.writeInconsistentSecret(t, "UPDATE credential_secrets SET ciphertext='bad' WHERE account_id=$1", broken.ID)
 	paused := create(map[string]any{"refresh_token": "paused-refresh"})
 	_, err = f.client.Account.UpdateOneID(paused.ID).SetStatus("inactive").Save(f.ctx)
 	require.NoError(t, err)
@@ -309,8 +330,8 @@ func TestCredentialBatchPostgresRefreshPagesActivationAndSkippedRows(t *testing.
 	good := create(map[string]any{"refresh_token": "good-refresh"})
 	_, err = f.client.Account.UpdateOneID(good.ID).SetSchedulable(false).Save(f.ctx)
 	require.NoError(t, err)
-	inline := f.createAccount(t, f.ctx, uniqueName("legacy-refresh"), service.PlatformCursor, service.AccountTypeOAuth, map[string]any{"refresh_token": "inline-refresh"})
-	legacyMissing := f.createAccount(t, f.ctx, uniqueName("legacy-missing"), service.PlatformCursor, service.AccountTypeOAuth, map[string]any{"access_token": "legacy-only-access"})
+	inline := f.createLegacyInlineAccount(t, f.ctx, uniqueName("legacy-refresh"), service.PlatformCursor, service.AccountTypeOAuth, map[string]any{"refresh_token": "inline-refresh"})
+	legacyMissing := f.createLegacyInlineAccount(t, f.ctx, uniqueName("legacy-missing"), service.PlatformCursor, service.AccountTypeOAuth, map[string]any{"access_token": "legacy-only-access"})
 	options := service.OAuthRefreshPageOptions{Platforms: []string{service.PlatformCursor}, Limit: 2, ActiveOnly: true, RequireRefreshToken: true, ExcludeRetryCooldown: true}
 	var found []int64
 	emptyPages := 0
@@ -437,4 +458,12 @@ func TestCredentialBatchPostgresStagedActivationAndConcurrentEligibility(t *test
 			require.Equal(t, account.ID, page.NextAfterID)
 		})
 	}
+}
+
+func listedAccountIDs(accounts []service.Account) []int64 {
+	ids := make([]int64, 0, len(accounts))
+	for _, account := range accounts {
+		ids = append(ids, account.ID)
+	}
+	return ids
 }

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
@@ -193,4 +193,16 @@ func TestBillingFinancialRowLockOrder(t *testing.T) {
 	mock.ExpectRollback()
 	require.NoError(t, tx.Rollback())
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestBillingAdmissionOverlapsIndependentReceiptPreparation(t *testing.T) {
+	q := newBillingAdmission(32, 1024, 64)
+	first, err := q.acquire(t.Context(), 1)
+	require.NoError(t, err)
+	defer first()
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	second, err := q.acquire(ctx, 1)
+	require.NoError(t, err)
+	second()
 }

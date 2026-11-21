@@ -14,6 +14,11 @@
         <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
       </div>
 
+      <div v-else-if="loadFailed" class="space-y-2" role="status">
+        <p class="text-sm text-oh-secondary">{{ t('common.error') }}</p>
+        <Button size="sm" variant="secondary" @click="loadStatus">{{ t('common.refresh') }}</Button>
+      </div>
+
       <!-- Feature disabled globally -->
       <div v-else-if="status && !status.feature_enabled" class="flex items-center gap-4 py-4">
         <div class="flex-shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-[var(--foreground)]">
@@ -104,23 +109,32 @@
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { totpAPI } from '@/api'
+import { Button } from '@/components/ui'
 import type { TotpStatus } from '@/types'
 import TotpSetupModal from './TotpSetupModal.vue'
 import TotpDisableDialog from './TotpDisableDialog.vue'
 
 const { t } = useI18n()
+const emit = defineEmits<{
+  (e: 'status-loaded', value: TotpStatus): void
+}>()
 
 const loading = ref(true)
+const loadFailed = ref(false)
 const status = ref<TotpStatus | null>(null)
 const showSetupModal = ref(false)
 const showDisableDialog = ref(false)
 
 const loadStatus = async () => {
   loading.value = true
+  loadFailed.value = false
   try {
     status.value = await totpAPI.getStatus()
-  } catch (error) {
-    console.error('Failed to load TOTP status:', error)
+    if (status.value) {
+      emit('status-loaded', status.value)
+    }
+  } catch {
+    loadFailed.value = true
   } finally {
     loading.value = false
   }

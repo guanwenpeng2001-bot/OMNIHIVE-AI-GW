@@ -9,10 +9,10 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
-	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/Wei-Shaw/sub2api/internal/testutil/testresources"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	_ "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/runtime"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testresources"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,16 +29,19 @@ func TestOpenCodeQuotaPostgresRecoveryAndIdentity(t *testing.T) {
 	require.NoError(t, ApplyMigrations(ctx, database))
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, database)))
 	repo := newAccountRepositoryWithSQL(client, database, nil)
+	repo.credentialEncryptor = persistentTestAES(t, true)
 	reset := time.Now().UTC().Add(10 * 24 * time.Hour).Truncate(time.Second).Add(123 * time.Millisecond)
 	result := &service.CNProviderQuotaProbeResult{StatusCode: 200, Success: true, CredentialValid: true, FetchedAt: time.Now().Unix(),
 		Tiers: []service.CNQuotaTier{{Window: "5h"}, {Window: "weekly"}, {Window: "monthly", UsedPercent: 100, ResetAt: reset.Format(time.RFC3339Nano)}}}
 	create := func(status string, schedulable bool) *service.Account {
-		entity, err := client.Account.Create().SetName("opencode-quota-fixture").SetPlatform(service.PlatformOpenCodeGo).
-			SetType(service.AccountTypeAPIKey).SetStatus(status).SetSchedulable(schedulable).
-			SetCredentials(map[string]any{"api_key": "old-test-only"}).SetExtra(map[string]any{}).Save(ctx)
+		entity := &service.Account{Name: "opencode-quota-fixture", Platform: service.PlatformOpenCodeGo, Type: service.AccountTypeAPIKey, Status: status, Schedulable: schedulable, Credentials: map[string]any{"api_key": "old-test-only"}}
+		require.NoError(t, repo.Create(ctx, entity))
+		_, err := database.Exec("DELETE FROM scheduler_outbox WHERE account_id=$1", entity.ID)
 		require.NoError(t, err)
 		t.Cleanup(func() {
 			_, err := database.Exec("DELETE FROM scheduler_outbox WHERE account_id = $1", entity.ID)
+			require.NoError(t, err)
+			_, err = database.Exec("DELETE FROM credential_secrets WHERE account_id=$1", entity.ID)
 			require.NoError(t, err)
 			require.NoError(t, client.Account.DeleteOneID(entity.ID).Exec(context.Background()))
 		})
@@ -95,7 +98,7 @@ func TestOpenCodeQuotaPostgresRecoveryAndIdentity(t *testing.T) {
 		tx, err := client.Tx(ctx)
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback() }()
-		_, err = tx.Client().Account.UpdateOneID(account.ID).SetCredentials(map[string]any{"api_key": "replacement-test-only"}).Save(ctx)
+		err = repo.UpdateCredentialsCAS(dbent.NewTxContext(ctx, tx), account, map[string]any{"api_key": "replacement-test-only"})
 		require.NoError(t, err)
 		done := make(chan error, 1)
 		go func() { done <- repo.ApplyOpenCodeQuotaProbe(ctx, account, result) }()

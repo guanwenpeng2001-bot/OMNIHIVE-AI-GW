@@ -1,8 +1,8 @@
 package handler
 
 import (
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 // KaggleImages serves POST /v1/images/generations for Kaggle notebook accounts.

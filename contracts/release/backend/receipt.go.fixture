@@ -1,0 +1,108 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"log"
+	"os"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/billing/settlement"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	_ "github.com/lib/pq"
+)
+
+type fixture struct {
+	Workspace, Project, User, Key, Account int64
+	Request, Attempt                       string
+}
+
+func must(err error) {
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func seed(db *sql.DB) fixture {
+	var f fixture
+	id := func(q string, args ...any) int64 {
+		var v int64
+		must(db.QueryRow(q, args...).Scan(&v))
+		return v
+	}
+	f.Workspace = id("INSERT INTO workspaces(name) VALUES('BE24') RETURNING id")
+	f.Project = id("SELECT id FROM projects WHERE workspace_id=$1 AND is_default", f.Workspace)
+	f.User = id("INSERT INTO users(email,password_hash,balance) VALUES($1,'fixture',100) RETURNING id", uuid.NewString()+"@example.invalid")
+	f.Key = id("INSERT INTO api_keys(workspace_id,user_id,name) VALUES($1,$2,'receipt') RETURNING id", f.Workspace, f.User)
+	f.Account = id("INSERT INTO accounts(name,workspace_id,platform,type) VALUES('test',$1,'openai','apikey') RETURNING id", f.Workspace)
+	f.Request, f.Attempt = uuid.NewString(), uuid.NewString()
+	_, err := db.Exec(`INSERT INTO gateway_executions(request_id,workspace_id,project_id,actor_id,api_key_id,owner_id,funding_user_id,authorization_version,kind,route,model,legacy_id,reservation_ref,attempt_budget,deadline,model_version,price_version,pricing_at)
+	 VALUES ($1,$2,$3,$4,$5,$4,$4,1,'request','/v1/responses','fixture','','',1,now()-interval '1 second','catalog-1','price-1',now())`, f.Request, f.Workspace, f.Project, f.User, f.Key)
+	must(err)
+	_, err = db.Exec(`INSERT INTO gateway_execution_attempts(attempt_id,request_id,ordinal,account_id,dispatched_at,acceptance,outcome) VALUES ($1,$2,1,$3,now(),'accepted','transport_response')`, f.Attempt, f.Request, f.Account)
+	must(err)
+	return f
+}
+
+// The parent kills this OS process after observing its phase barrier on stdout.
+func barrier() {
+	fmt.Println("AT_BOUNDARY")
+	for {
+		time.Sleep(time.Hour)
+	}
+}
+
+func main() {
+	db, err := sql.Open("postgres", "postgres://postgres@127.0.0.1:5432/job_test?sslmode=disable")
+	must(err)
+	defer db.Close()
+	ctx := context.Background()
+	mode := os.Args[1]
+	if mode == "seed" {
+		must(repository.ApplyMigrations(ctx, db))
+		must(json.NewEncoder(os.Stdout).Encode(seed(db)))
+		return
+	}
+	var f fixture
+	must(json.NewDecoder(os.Stdin).Decode(&f))
+	key := service.UsageSettlementKey{RequestID: f.Request, APIKeyID: f.Key, UserID: f.User}
+	repo := repository.NewUsageSettlementReceiptRepository(db)
+	const cost = 0.00225
+	if mode == "before-persist" {
+		barrier()
+	}
+	if mode == "after-persist" || mode == "before-commit" || mode == "after-commit" {
+		_, err = repo.Persist(ctx, &service.UsageSettlementReceipt{
+			Key: key, Command: service.UsageBillingCommand{RequestID: f.Request, APIKeyID: f.Key, UserID: f.User, AccountID: f.Account, RequestFingerprint: "be24-price-1", Model: "fixture", BalanceCost: cost},
+			Usage:           service.UsageLog{RequestID: f.Request, APIKeyID: f.Key, UserID: f.User, AccountID: f.Account, Model: "fixture", RateMultiplier: 1, ActualCost: cost, TotalCost: cost, PricingState: service.PricingStatePriced, PricingSnapshot: `{"pricing_state":"priced","model":"fixture","provider":"openai","mode":"per_request","source":"configured","unit_price":0.00225,"units":1,"rate_multiplier":1,"time_multiplier":1,"reasoning_multiplier":1,"total_cost":0.00225,"actual_cost":0.00225,"charged_amount":0.00225}`},
+			CompletionState: "complete", ResolutionState: "resolved",
+		})
+		must(err)
+		if mode == "after-persist" {
+			barrier()
+		}
+		if mode == "before-commit" {
+			repo = repository.NewUsageSettlementReceiptRepository(db, func(context.Context, *sql.Tx, *service.UsageLog) error { barrier(); return nil })
+		}
+	}
+	if mode == "replay" || mode == "before-commit" || mode == "after-commit" {
+		stored, e := repo.Get(ctx, key)
+		must(e)
+		_, e = repo.Settle(ctx, key, stored.Command.RequestFingerprint)
+		must(e)
+		if mode == "after-commit" {
+			barrier()
+		}
+	}
+	evidence, err := (settlement.FinancialReader{DB: db}).Read(ctx, settlement.Scope{WorkspaceID: f.Workspace, ProjectID: f.Project}, f.Request, f.Attempt)
+	must(err)
+	var balance string
+	var count int
+	must(db.QueryRow("SELECT balance::text FROM users WHERE id=$1", f.User).Scan(&balance))
+	must(db.QueryRow("SELECT count(*) FROM billing_settlement_outbox o JOIN usage_settlement_receipts r ON r.id=o.receipt_id WHERE r.request_id=$1", f.Request).Scan(&count))
+	must(json.NewEncoder(os.Stdout).Encode(map[string]any{"receipt": evidence.ReceiptState, "charge": evidence.PlatformCharge, "review_reason": evidence.ReviewReason, "version": evidence.PriceVersion, "balance": balance, "outbox": count, "movements": len(evidence.LedgerEventIDs)}))
+}

@@ -69,6 +69,27 @@ type PricingInput struct {
 	Group   *Group
 }
 
+func pricingGroupID(key *APIKey) *int64 {
+	if key == nil {
+		return nil
+	}
+	if key.Group != nil && key.Group.ID > 0 {
+		return &key.Group.ID
+	}
+	return key.GroupID
+}
+
+func (r *ModelPricingResolver) configuredForKey(ctx context.Context, model string, key *APIKey) *ResolvedPricing {
+	if r == nil || key == nil || (key.Group == nil && key.GroupID == nil) {
+		return nil
+	}
+	resolved := r.Resolve(ctx, PricingInput{Model: model, Group: key.Group, GroupID: pricingGroupID(key)})
+	if resolved.Source == PricingSourceGroup || resolved.Source == PricingSourceChannel {
+		return resolved
+	}
+	return nil
+}
+
 // Resolve 解析模型定价。
 // 1. 获取基础定价（LiteLLM → Fallback）
 // 2. 如果指定了 GroupID，查找渠道定价并覆盖

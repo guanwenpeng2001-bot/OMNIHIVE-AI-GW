@@ -20,14 +20,14 @@ DEFAULTS = {
     "SERVER_MAX_REQUEST_BODY_SIZE": "268435456",
     "GATEWAY_MAX_BODY_SIZE": "268435456",
     "GATEWAY_UPSTREAM_RESPONSE_READ_MAX_BYTES": "134217728",
-    "DATABASE_MAX_OPEN_CONNS": "256",
-    "DATABASE_MAX_IDLE_CONNS": "128",
+    "DATABASE_MAX_OPEN_CONNS": "32",
+    "DATABASE_MAX_IDLE_CONNS": "8",
     "REDIS_POOL_SIZE": "1024",
     "REDIS_MIN_IDLE_CONNS": "128",
-    "SECURITY_TRUST_FORWARDED_IP_FOR_API_KEY_ACL": "true",
+    "SERVER_TRUSTED_PROXIES": None,
     "SECURITY_URL_ALLOWLIST_ENABLED": "false",
-    "SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS": "true",
-    "SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP": "true",
+    "SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS": "false",
+    "SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP": "false",
 }
 CONNECTIONS = {
     "POSTGRES_PASSWORD": "deployment-fixture-password",
@@ -51,7 +51,7 @@ OVERRIDES = {
     "LOG_LEVEL": "warn",
     "LINUXDO_CONNECT_USE_PKCE": "true",
     "BATCH_IMAGE_VERTEX_MANAGED_GCS_PREFIX": "batch-image/{env}/{batch_id}",
-    "SECURITY_TRUST_FORWARDED_IP_FOR_API_KEY_ACL": "false",
+    "SERVER_TRUSTED_PROXIES": "127.0.0.1/32",
     "SECURITY_URL_ALLOWLIST_ENABLED": "true",
     "SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS": "false",
     "SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP": "false",
@@ -87,7 +87,7 @@ def verify_variant(source_path, fixture_dir):
             env_path.write_text("\n".join(f"{key}={value}" for key, value in
                                           OVERRIDES.items()), encoding="utf-8")
         services = render(compose_path, fixture_dir)
-        application = services["sub2api"]
+        application = services["omnihive"]
         actual = application["environment"]
         expected = DEFAULTS | (OVERRIDES if profile == "override" else {})
         expected["SERVER_PORT"] = "8080"

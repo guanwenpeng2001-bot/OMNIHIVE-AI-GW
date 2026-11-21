@@ -18,6 +18,9 @@ export default {
   darkMode: 'class',
   theme: {
     extend: {
+      screens: {
+        '3xl': '1800px'
+      },
       colors: {
         // 主色调 - OmniHive 蜜金琥珀色系 (Hive Aura Benchmark)
         primary: {
@@ -36,14 +39,69 @@ export default {
         // 辅助色 - 暖炭黑中性灰
         accent: hiveCarbonPalette,
         // 深色模式背景
-        dark: hiveCarbonPalette
+        dark: hiveCarbonPalette,
+        // OmniHive Design System v1 semantic tokens (--oh-*)
+        oh: {
+          canvas: 'var(--oh-bg-canvas)',
+          subtle: 'var(--oh-bg-subtle)',
+          surface: 'var(--oh-bg-surface)',
+          elevated: 'var(--oh-bg-elevated)',
+          inset: 'var(--oh-bg-inset)',
+          hover: 'var(--oh-bg-hover)',
+          selected: 'var(--oh-bg-selected)',
+          primary: 'var(--oh-fg-primary)',
+          secondary: 'var(--oh-fg-secondary)',
+          muted: 'var(--oh-fg-muted)',
+          disabled: 'var(--oh-fg-disabled)',
+          accent: {
+            DEFAULT: 'var(--oh-accent)',
+            hover: 'var(--oh-accent-hover)',
+            active: 'var(--oh-accent-active)',
+            ink: 'var(--oh-accent-ink)',
+            text: 'var(--oh-accent-text)',
+            subtle: 'var(--oh-accent-subtle)',
+            border: 'var(--oh-accent-border)'
+          },
+          status: {
+            'ok-fg': 'var(--oh-ok-fg)',
+            'ok-bg': 'var(--oh-ok-bg)',
+            'ok-border': 'var(--oh-ok-border)',
+            'warn-fg': 'var(--oh-warn-fg)',
+            'warn-bg': 'var(--oh-warn-bg)',
+            'warn-border': 'var(--oh-warn-border)',
+            'danger-fg': 'var(--oh-danger-fg)',
+            'danger-bg': 'var(--oh-danger-bg)',
+            'danger-border': 'var(--oh-danger-border)',
+            'info-fg': 'var(--oh-info-fg)',
+            'info-bg': 'var(--oh-info-bg)',
+            'info-border': 'var(--oh-info-border)',
+            'neutral-fg': 'var(--oh-neutral-fg)',
+            'neutral-bg': 'var(--oh-neutral-bg)',
+            'neutral-border': 'var(--oh-neutral-border)',
+            'unknown-fg': 'var(--oh-unknown-fg)',
+            'unknown-bg': 'var(--oh-unknown-bg)',
+            'unknown-border': 'var(--oh-unknown-border)'
+          }
+        }
+      },
+      borderColor: {
+        'oh-subtle': 'var(--oh-border-subtle)',
+        'oh-default': 'var(--oh-border-default)',
+        'oh-strong': 'var(--oh-border-strong)',
+        'oh-accent': 'var(--oh-accent-border)'
+      },
+      ringColor: {
+        'oh-focus': 'var(--oh-focus-ring)'
       },
       fontFamily: {
         sans: [
+          'Inter Variable',
           'Inter',
           'PingFang SC',
           'Hiragino Sans GB',
+          'Microsoft YaHei UI',
           'Microsoft YaHei',
+          'Noto Sans CJK SC',
           'system-ui',
           '-apple-system',
           'BlinkMacSystemFont',
@@ -54,6 +112,7 @@ export default {
           'sans-serif'
         ],
         mono: [
+          'JetBrains Mono Variable',
           'JetBrains Mono',
           'ui-monospace',
           'SFMono-Regular',
@@ -70,7 +129,11 @@ export default {
         'glow-lg': '0 0 40px rgba(245, 158, 11, 0.35)',
         card: '0 1px 3px rgba(19, 19, 22, 0.03), 0 1px 2px rgba(19, 19, 22, 0.02)',
         'card-hover': '0 12px 28px -6px rgba(19, 19, 22, 0.09)',
-        'inner-glow': 'inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+        'inner-glow': 'inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+        'oh-xs': 'var(--oh-shadow-xs)',
+        'oh-sm': 'var(--oh-shadow-sm)',
+        'oh-md': 'var(--oh-shadow-md)',
+        'oh-xl': 'var(--oh-shadow-xl)'
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
@@ -125,7 +188,13 @@ export default {
         xs: '2px'
       },
       borderRadius: {
-        '4xl': '2rem'
+        '4xl': '2rem',
+        'oh-xs': 'var(--oh-radius-xs)',
+        'oh-sm': 'var(--oh-radius-sm)',
+        'oh-md': 'var(--oh-radius-md)',
+        'oh-lg': 'var(--oh-radius-lg)',
+        'oh-xl': 'var(--oh-radius-xl)',
+        'oh-pill': 'var(--oh-radius-pill)'
       }
     }
   },

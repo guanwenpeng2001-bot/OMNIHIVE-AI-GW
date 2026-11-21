@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -864,7 +864,7 @@ type openAIWSConnPool struct {
 func newOpenAIWSConnPool(cfg *config.Config) *openAIWSConnPool {
 	pool := &openAIWSConnPool{
 		cfg:          cfg,
-		clientDialer: newDefaultOpenAIWSClientDialer(),
+		clientDialer: newDefaultOpenAIWSClientDialer(cfg),
 		workerStopCh: make(chan struct{}),
 	}
 	pool.startBackgroundWorkers()

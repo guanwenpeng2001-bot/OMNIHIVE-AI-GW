@@ -3,7 +3,7 @@ package service
 import (
 	"testing"
 
-	pluginv1 "github.com/Wei-Shaw/sub2api/pkg/pluginapi/v1"
+	pluginv1 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/pkg/pluginapi/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,6 +27,22 @@ func TestEvaluatePluginCompatibility(t *testing.T) {
 	result = EvaluatePluginCompatibility(manifest, host)
 	assert.False(t, result.Compatible)
 	assert.Equal(t, "incompatible", result.Status)
+}
+
+func TestEvaluatePluginCompatibilityPrefersOmniHiveManifestVersion(t *testing.T) {
+	manifest := testPluginManifest(nil)
+	manifest.Requires.OmniHive = ">=0.2.0 <0.3.0"
+	manifest.Requires.RecommendedOmniHiveVersion = "0.2.1"
+	manifest.Requires.TestedOmniHiveVersions = []string{"0.2.1"}
+	require.NoError(t, manifest.Validate())
+
+	require.False(t, EvaluatePluginCompatibility(manifest, PluginHostInfo{Version: "0.1.179"}).Compatible)
+	result := EvaluatePluginCompatibility(manifest, PluginHostInfo{Version: "0.2.1"})
+	require.True(t, result.Compatible)
+	require.True(t, result.Tested)
+	require.Equal(t, manifest.Requires.OmniHive, result.RequiredOmniHive)
+	require.Equal(t, result.RequiredOmniHive, result.RequiredSub2API)
+	require.Equal(t, "0.2.1", result.RecommendedOmniHive)
 }
 
 func TestEvaluatePluginCompatibilityRejectsProtocolMismatch(t *testing.T) {

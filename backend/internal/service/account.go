@@ -12,23 +12,26 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/openai_compat"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/xai"
 )
 
 type Account struct {
-	compatibleBinding       *compatibleRequestBinding
-	TPMLimit                int64
-	WorkspaceID             int64
-	ID                      int64
-	Name                    string
-	Notes                   *string
-	Platform                string
-	Type                    string
-	Credentials             map[string]any
-	CredentialRevision      string
+	compatibleBinding  *compatibleRequestBinding
+	TPMLimit           int64
+	WorkspaceID        int64
+	ID                 int64
+	Name               string
+	Notes              *string
+	Platform           string
+	Type               string
+	Credentials        map[string]any
+	CredentialRevision string
+	// CredentialUnavailable marks an operator-list row whose stored credential
+	// could not be resolved. Such rows carry no secret material.
+	CredentialUnavailable   bool
 	Extra                   map[string]any
 	ProxyID                 *int64
 	ProxyGroupID            *int64

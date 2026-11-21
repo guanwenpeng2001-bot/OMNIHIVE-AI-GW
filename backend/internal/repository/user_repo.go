@@ -9,19 +9,19 @@ import (
 	"strings"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/apikey"
-	"github.com/Wei-Shaw/sub2api/ent/authidentity"
-	"github.com/Wei-Shaw/sub2api/ent/authidentitychannel"
-	dbgroup "github.com/Wei-Shaw/sub2api/ent/group"
-	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
-	"github.com/Wei-Shaw/sub2api/ent/predicate"
-	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
-	dbuser "github.com/Wei-Shaw/sub2api/ent/user"
-	"github.com/Wei-Shaw/sub2api/ent/userallowedgroup"
-	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/apikey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/authidentity"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/authidentitychannel"
+	dbgroup "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/group"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/identityadoptiondecision"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/predicate"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/schema/mixins"
+	dbuser "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/user"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/userallowedgroup"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/usersubscription"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/lib/pq"
 
 	entsql "entgo.io/ent/dialect/sql"
@@ -159,6 +159,21 @@ func (r *userRepository) create(ctx context.Context, userIn *service.User, guard
 		return translatePersistenceError(err, nil, service.ErrEmailExists)
 	}
 
+	if consent := userIn.SignupAgreement; consent != nil {
+		settings, err := NewSettingRepository(txClient).GetMultiple(txCtx, []string{service.SettingKeyLoginAgreementEnabled, service.SettingKeyLoginAgreementUpdatedAt, service.SettingKeyLoginAgreementDocuments})
+		if err != nil {
+			return err
+		}
+		revision, err := consent.AcceptedRevision(settings)
+		if err != nil {
+			return err
+		}
+		if revision != "" {
+			if _, err := txClient.ExecContext(txCtx, "INSERT INTO registration_agreements(user_id,revision) VALUES ($1,$2)", created.ID, revision); err != nil {
+				return err
+			}
+		}
+	}
 	if err := r.syncUserAllowedGroupsWithClient(txCtx, txClient, created.ID, userIn.AllowedGroups); err != nil {
 		return err
 	}

@@ -14,7 +14,7 @@ import (
 	"testing/iotest"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/shirou/gopsutil/v4/disk"
 	"github.com/stretchr/testify/require"
 )
@@ -176,6 +176,8 @@ func TestPgDumperRestoreStreamsAtomicScript(t *testing.T) {
 	require.NoError(t, dumper.Restore(context.Background(), strings.NewReader("SELECT 1;")))
 	require.Contains(t, cmd.Env, "PGPASSWORD=secret")
 	require.Contains(t, cmd.Env, "PGSSLMODE=require")
+	require.Contains(t, cmd.Env, "PGTZ=UTC")
+	require.Contains(t, cmd.Env, "PGDATESTYLE=ISO, YMD")
 }
 
 func TestPgDumperRestoreReportsScriptFailure(t *testing.T) {
@@ -260,7 +262,7 @@ func TestPgDumperRestoreStagingFailures(t *testing.T) {
 			entries, err := os.ReadDir(tempDir)
 			require.NoError(t, err)
 			for _, entry := range entries {
-				require.NotContains(t, entry.Name(), "sub2api-restore-")
+				require.NotContains(t, entry.Name(), "omnihive-restore-")
 			}
 		})
 	}
@@ -287,7 +289,7 @@ func TestPgDumperRestorePrivateTemporaryFileAndCleanup(t *testing.T) {
 				entries, err := os.ReadDir(path)
 				require.NoError(t, err)
 				for _, entry := range entries {
-					if strings.HasPrefix(entry.Name(), "sub2api-restore-") {
+					if strings.HasPrefix(entry.Name(), "omnihive-restore-") {
 						scriptPath = path + "/" + entry.Name()
 						info, err := entry.Info()
 						require.NoError(t, err)

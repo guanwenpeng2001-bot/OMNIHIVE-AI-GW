@@ -1,10 +1,10 @@
 package handler
 
 import (
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
-	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/securityaudit"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 
 	"github.com/google/wire"
 )
@@ -201,7 +201,7 @@ func ProvideHandlers(
 	subscriptionHandler *SubscriptionHandler,
 	announcementHandler *AnnouncementHandler,
 	channelMonitorUserHandler *ChannelMonitorUserHandler,
-	channelMonitorV2Handler *ChannelMonitorV2Handler,
+	channelTelemetryHandler *ChannelTelemetryHandler,
 	adminHandlers *AdminHandlers,
 	gatewayHandler *GatewayHandler,
 	openaiGatewayHandler *OpenAIGatewayHandler,
@@ -215,12 +215,18 @@ func ProvideHandlers(
 	asyncImageHandler *AsyncImageHandler,
 	batchImageHandler *BatchImageHandler,
 	resourceHandler *GatewayResourceHandler,
+	usageSettlement *service.UsageSettlementService,
+	mcpGrants service.MCPGrantStore,
+	totpService *service.TotpService,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 	_ *service.OpenAIQuotaAutoResetService,
 ) *Handlers {
+	mcp := NewMCPGrantHandler()
+	mcp.SetCacheUsageRecorder(usageSettlement)
+	mcp.SetSecurityDependencies(mcpGrants, totpService)
 	return &Handlers{
-		MCP:              NewMCPGrantHandler(),
+		MCP:              mcp,
 		ModelAccess:      modelAccessHandler,
 		Workspace:        workspaceHandler,
 		Auth:             authHandler,
@@ -231,7 +237,7 @@ func ProvideHandlers(
 		Subscription:     subscriptionHandler,
 		Announcement:     announcementHandler,
 		ChannelMonitor:   channelMonitorUserHandler,
-		ChannelMonitorV2: channelMonitorV2Handler,
+		ChannelTelemetry: channelTelemetryHandler,
 		Admin:            adminHandlers,
 		Gateway:          gatewayHandler,
 		OpenAIGateway:    openaiGatewayHandler,
@@ -261,7 +267,7 @@ var ProviderSet = wire.NewSet(
 	NewSubscriptionHandler,
 	NewAnnouncementHandler,
 	NewChannelMonitorUserHandler,
-	NewChannelMonitorV2Handler,
+	NewChannelTelemetryHandler,
 	ProvideGatewayHandler,
 	ProvideOpenAIGatewayHandler,
 	NewTotpHandler,

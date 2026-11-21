@@ -6,6 +6,7 @@
 import { apiClient } from './client'
 import { refreshAuthTokens, captureAuthSession, isAuthSessionCurrent, type RefreshTokenResponse } from './tokenRefresh'
 export type { RefreshTokenResponse } from './tokenRefresh'
+import { authStorage } from './tokenRefresh'
 import type {
   LoginRequest,
   RegisterRequest,
@@ -18,6 +19,7 @@ import type {
   TotpLoginResponse,
   TotpLogin2FARequest,
 } from '@/types/user'
+import type { SignupAgreementPayload } from '@/features/public/legal'
 
 /**
  * Login response type - can be either full auth or 2FA required
@@ -121,6 +123,7 @@ export function clearAuthToken(): void {
   localStorage.removeItem('refresh_token')
   localStorage.removeItem('auth_user')
   localStorage.removeItem('token_expires_at')
+  authStorage.loginAgreement.remove()
 }
 
 /**
@@ -589,9 +592,10 @@ export async function resetPassword(request: ResetPasswordRequest): Promise<Rese
 export async function completeLinuxDoOAuthRegistration(
   invitationCode: string,
   decision?: OAuthAdoptionDecision,
-  affiliateCode?: string
+  affiliateCode?: string,
+  agreement?: Partial<SignupAgreementPayload>
 ): Promise<OAuthTokenResponse> {
-  return createPendingLinuxDoOAuthAccount(invitationCode, decision, affiliateCode)
+  return createPendingLinuxDoOAuthAccount(invitationCode, decision, affiliateCode, agreement)
 }
 
 /**
@@ -602,24 +606,27 @@ export async function completeLinuxDoOAuthRegistration(
 export async function completeOIDCOAuthRegistration(
   invitationCode: string,
   decision?: OAuthAdoptionDecision,
-  affiliateCode?: string
+  affiliateCode?: string,
+  agreement?: Partial<SignupAgreementPayload>
 ): Promise<OAuthTokenResponse> {
-  return createPendingOIDCOAuthAccount(invitationCode, decision, affiliateCode)
+  return createPendingOIDCOAuthAccount(invitationCode, decision, affiliateCode, agreement)
 }
 
 export async function completeWeChatOAuthRegistration(
   invitationCode: string,
   decision?: OAuthAdoptionDecision,
-  affiliateCode?: string
+  affiliateCode?: string,
+  agreement?: Partial<SignupAgreementPayload>
 ): Promise<OAuthTokenResponse> {
-  return createPendingWeChatOAuthAccount(invitationCode, decision, affiliateCode)
+  return createPendingWeChatOAuthAccount(invitationCode, decision, affiliateCode, agreement)
 }
 
 async function createPendingOAuthAccount(
   provider: 'linuxdo' | 'oidc' | 'wechat' | 'dingtalk',
   invitationCode: string,
   decision?: OAuthAdoptionDecision,
-  affiliateCode?: string
+  affiliateCode?: string,
+  agreement?: Partial<SignupAgreementPayload>
 ): Promise<PendingOAuthCreateAccountResponse> {
   const normalizedAffiliateCode = affiliateCode?.trim()
   const { data } = await apiClient.post<PendingOAuthCreateAccountResponse>(
@@ -627,7 +634,8 @@ async function createPendingOAuthAccount(
     {
       invitation_code: invitationCode,
       ...(normalizedAffiliateCode ? { aff_code: normalizedAffiliateCode } : {}),
-      ...serializeOAuthAdoptionDecision(decision)
+      ...serializeOAuthAdoptionDecision(decision),
+      ...(agreement?.login_agreement_accepted !== undefined ? agreement : {})
     }
   )
   return data
@@ -636,33 +644,37 @@ async function createPendingOAuthAccount(
 export async function createPendingLinuxDoOAuthAccount(
   invitationCode: string,
   decision?: OAuthAdoptionDecision,
-  affiliateCode?: string
+  affiliateCode?: string,
+  agreement?: Partial<SignupAgreementPayload>
 ): Promise<PendingOAuthCreateAccountResponse> {
-  return createPendingOAuthAccount('linuxdo', invitationCode, decision, affiliateCode)
+  return createPendingOAuthAccount('linuxdo', invitationCode, decision, affiliateCode, agreement)
 }
 
 export async function createPendingOIDCOAuthAccount(
   invitationCode: string,
   decision?: OAuthAdoptionDecision,
-  affiliateCode?: string
+  affiliateCode?: string,
+  agreement?: Partial<SignupAgreementPayload>
 ): Promise<PendingOAuthCreateAccountResponse> {
-  return createPendingOAuthAccount('oidc', invitationCode, decision, affiliateCode)
+  return createPendingOAuthAccount('oidc', invitationCode, decision, affiliateCode, agreement)
 }
 
 export async function createPendingWeChatOAuthAccount(
   invitationCode: string,
   decision?: OAuthAdoptionDecision,
-  affiliateCode?: string
+  affiliateCode?: string,
+  agreement?: Partial<SignupAgreementPayload>
 ): Promise<PendingOAuthCreateAccountResponse> {
-  return createPendingOAuthAccount('wechat', invitationCode, decision, affiliateCode)
+  return createPendingOAuthAccount('wechat', invitationCode, decision, affiliateCode, agreement)
 }
 
 export async function createPendingDingTalkOAuthAccount(
   invitationCode: string,
   decision?: OAuthAdoptionDecision,
-  affiliateCode?: string
+  affiliateCode?: string,
+  agreement?: Partial<SignupAgreementPayload>
 ): Promise<PendingOAuthCreateAccountResponse> {
-  return createPendingOAuthAccount('dingtalk', invitationCode, decision, affiliateCode)
+  return createPendingOAuthAccount('dingtalk', invitationCode, decision, affiliateCode, agreement)
 }
 
 export async function completePendingOAuthBindLogin(

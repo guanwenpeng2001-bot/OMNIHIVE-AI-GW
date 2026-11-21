@@ -5,19 +5,21 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
-	"github.com/Wei-Shaw/sub2api/migrations"
-
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/restoregate"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/timezone"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/migrations"
 	"github.com/lib/pq"
 )
 
@@ -102,6 +104,9 @@ func isTransientDatabaseInitializationError(err error) bool {
 //   - *sql.DB: 底层的 SQL 数据库连接，可用于直接执行原生 SQL
 //   - error: 初始化过程中的错误
 func InitEnt(cfg *config.Config) (*ent.Client, *sql.DB, error) {
+	if cfg.Server.Mode == "release" && !cfg.Totp.EncryptionKeyConfigured {
+		return nil, nil, fmt.Errorf("release mode requires a persistent TOTP_ENCRYPTION_KEY (32 bytes, hex-encoded)")
+	}
 	// 优先初始化时区设置，确保所有时间操作使用统一的时区。
 	// 这对于跨时区部署和日志时间戳的一致性至关重要。
 	if err := timezone.Init(cfg.Timezone); err != nil {
@@ -114,20 +119,11 @@ func InitEnt(cfg *config.Config) (*ent.Client, *sql.DB, error) {
 
 	// 使用 Ent 的 SQL 驱动打开 PostgreSQL 连接。
 	// dialect.Postgres 指定使用 PostgreSQL 方言进行 SQL 生成。
-	var drv *entsql.Driver
-	if cfg.Server.EnableServerTiming {
-		connector, err := pq.NewConnector(dsn)
-		if err != nil {
-			return nil, nil, err
-		}
-		drv = entsql.OpenDB(dialect.Postgres, sql.OpenDB(newServerTimingConnector(connector)))
-	} else {
-		var err error
-		drv, err = entsql.Open(dialect.Postgres, dsn)
-		if err != nil {
-			return nil, nil, err
-		}
+	db, err := OpenApplicationDB(dsn, cfg.Server.EnableServerTiming)
+	if err != nil {
+		return nil, nil, err
 	}
+	drv := entsql.OpenDB(dialect.Postgres, db)
 	applyDBPoolSettings(drv.DB(), cfg)
 
 	// 确保数据库 schema 已准备就绪。
@@ -157,6 +153,15 @@ func InitEnt(cfg *config.Config) (*ent.Client, *sql.DB, error) {
 		return nil, nil, fmt.Errorf("validate config after secret bootstrap: %w", err)
 	}
 
+	enc, err := NewAESEncryptor(cfg)
+	if err == nil {
+		err = backfillAccountSecrets(migrationCtx, drv.DB(), enc)
+	}
+	if err != nil {
+		_ = client.Close()
+		return nil, nil, err
+	}
+
 	// SIMPLE 模式：启动时补齐各平台默认分组。
 	// - anthropic/openai/gemini: 确保存在 <platform>-default
 	// - antigravity: 仅要求存在 >=2 个未软删除分组（用于 claude/gemini 混合调度场景）
@@ -174,4 +179,25 @@ func InitEnt(cfg *config.Config) (*ent.Client, *sql.DB, error) {
 	}
 
 	return client, drv.DB(), nil
+}
+
+// OpenApplicationDB opens a business database pool shared by application jobs.
+func OpenApplicationDB(dsn string, timing bool) (*sql.DB, error) {
+	connector, err := pq.NewConnector(dsn)
+	if err != nil {
+		return nil, err
+	}
+	var base driver.Connector = connector
+	if timing {
+		base = newServerTimingConnector(base)
+	}
+	if journalDSN := os.Getenv("OMNIHIVE_RESTORE_JOURNAL_DSN"); journalDSN != "" {
+		journal, err := sql.Open("postgres", journalDSN)
+		if err != nil {
+			return nil, err
+		}
+		journal.SetMaxOpenConns(4)
+		base = restoreConnector{base, journal, restoregate.NewBusinessPool(journal)}
+	}
+	return sql.OpenDB(base), nil
 }

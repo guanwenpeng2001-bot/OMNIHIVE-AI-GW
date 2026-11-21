@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"errors"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
 )
 
 // Only a single error chain ending in a known reference error permits recovery.

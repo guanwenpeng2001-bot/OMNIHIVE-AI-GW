@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"github.com/Wei-Shaw/sub2api/internal/testutil/testassert"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testassert"
 	"io"
 	"net"
 	"net/http"
@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	ws "github.com/coder/websocket"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,7 +71,7 @@ func TestProductionQianwenRealtimeUsageCompletion(test *testing.T) {
 			transport := testassert.Type[*http.Transport](test, original).Clone()
 			transport.Proxy = nil
 			transport.DialTLSContext = func(dialContext context.Context, network, address string) (net.Conn, error) {
-				if address != "dashscope.aliyuncs.com:443" {
+				if address != "127.0.0.1:443" {
 					return nil, errors.New("unexpected external destination")
 				}
 				dialer := tls.Dialer{Config: testassert.Type[*http.Transport](test, provider.Client().Transport).TLSClientConfig}

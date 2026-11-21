@@ -16,11 +16,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/gatewayerror"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/gatewayerror"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 type publicOpenAIModel struct {
@@ -106,6 +107,11 @@ func publicModelHeaders(ctx *gin.Context, revision string) {
 }
 func (h *GatewayHandler) publicModelView(ctx *gin.Context) (service.VisibleModelSet, map[string][]service.UpstreamModelMetadata, string, bool) {
 	ctx.Request = ctx.Request.WithContext(service.WithModelRegistrySnapshot(ctx.Request.Context(), service.ModelRegistrySnapshotFromContext(ctx.Request.Context())))
+	if raw, exists := ctx.Get("project_key_policy"); exists {
+		if policy, ok := raw.(*identity.KeyPolicy); ok {
+			ctx.Request = ctx.Request.WithContext(middleware.WithProjectKeyModelAccess(ctx.Request.Context(), policy))
+		}
+	}
 	key, _ := middleware.GetAPIKeyFromContext(ctx)
 	var groupID *int64
 	platform := ""

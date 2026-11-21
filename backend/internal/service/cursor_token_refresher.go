@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/cursor"
 )
 
 const cursorRefreshWindow = 5 * time.Minute

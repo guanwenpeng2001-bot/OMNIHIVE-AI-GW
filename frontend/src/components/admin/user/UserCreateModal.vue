@@ -81,6 +81,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useStepUp, isStepUpBlocked, isStepUpCancelled, stepUpBlockReason } from '@/composables/useStepUp'
 import TotpStepUpDialog from '@/components/auth/TotpStepUpDialog.vue'
+import { generateSecurePassword } from '@/utils/securePassword'
 
 const props = defineProps<{ show: boolean }>()
 const emit = defineEmits(['close', 'success']); const { t } = useI18n()
@@ -123,8 +124,6 @@ const submit = async () => {
 watch(() => props.show, (v) => { if(v) Object.assign(form, { email: '', password: '', username: '', notes: '', role: 'user', balance: '', concurrency: 1, rpm_limit: 0 }) })
 
 const generateRandomPassword = () => {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%^&*'
-  let p = ''; for (let i = 0; i < 16; i++) p += chars.charAt(Math.floor(Math.random() * chars.length))
-  form.password = p
+  form.password = generateSecurePassword(16)
 }
 </script>

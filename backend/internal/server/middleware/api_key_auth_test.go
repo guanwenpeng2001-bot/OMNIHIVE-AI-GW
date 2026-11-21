@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -630,12 +630,12 @@ func TestAPIKeyAuthMarksOnlyExpectedIngressRejections(t *testing.T) {
 			wantReason: IngressRejectInvalidAPIKey,
 		},
 		{
-			name:       "repository failure remains operational error",
+			name:       "repository failure is retryable service unavailability",
 			path:       "/t",
 			key:        "valid-shape",
 			repoErr:    errors.New("database unavailable"),
-			wantStatus: http.StatusInternalServerError,
-			wantCode:   "INTERNAL_ERROR",
+			wantStatus: http.StatusServiceUnavailable,
+			wantCode:   "API_KEY_AUTH_UNAVAILABLE",
 		},
 		{
 			name:       "auth lookup bulkhead rejection is an admission rejection",

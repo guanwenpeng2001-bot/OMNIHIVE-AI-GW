@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/urlvalidator"
 )
 
 type originalHostnameKey struct{}
@@ -51,17 +54,40 @@ func OriginalHostname(ctx context.Context) string {
 // pools are separate from unrestricted requests, so those cannot seed an unsafe
 // connection that a restricted request would later reuse.
 type PublicTransport struct {
-	base        *http.Transport
-	lookupIP    func(context.Context, string, string) ([]net.IP, error)
-	mu          sync.Mutex
-	transports  map[string]*http.Transport
-	lastUsed    map[string]time.Time
-	accessOrder map[string]uint64
-	nextAccess  uint64
+	privateHosts []string
+	Base         *http.Transport // Template cloned before each per-origin pool is created.
+	lookupIP     func(context.Context, string, string) ([]net.IP, error)
+	mu           sync.Mutex
+	transports   map[string]*http.Transport
+	lastUsed     map[string]time.Time
+	accessOrder  map[string]uint64
+	nextAccess   uint64
 }
 
 func NewPublicTransport(base *http.Transport) *PublicTransport {
-	return &PublicTransport{base: base, lookupIP: net.DefaultResolver.LookupIP, transports: make(map[string]*http.Transport), lastUsed: make(map[string]time.Time), accessOrder: make(map[string]uint64)}
+	return &PublicTransport{Base: base, lookupIP: net.DefaultResolver.LookupIP, transports: make(map[string]*http.Transport), lastUsed: make(map[string]time.Time), accessOrder: make(map[string]uint64)}
+}
+
+// NewUpstreamTransport permits private addresses only for explicitly named
+// origins. Every origin, including an exception, is resolved and pinned.
+func NewUpstreamTransport(base *http.Transport, privateHosts []string) *PublicTransport {
+	t := NewPublicTransport(base)
+	for _, host := range privateHosts {
+		host = strings.ToLower(strings.TrimSpace(host))
+		if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+			host = parsedHost
+		}
+		host = strings.TrimSuffix(host, ".")
+		if !strings.HasPrefix(host, "*.") {
+			t.privateHosts = append(t.privateHosts, host)
+		}
+	}
+	return t
+}
+
+// WithBase keeps the destination policy when an account selects another proxy.
+func (t *PublicTransport) WithBase(base *http.Transport) *PublicTransport {
+	return NewUpstreamTransport(base, t.privateHosts)
 }
 
 func (t *PublicTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -69,7 +95,11 @@ func (t *PublicTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("request host is empty")
 	}
 	host := req.URL.Hostname()
-	if urlvalidator.IsBlockedHost(host) {
+	host = strings.TrimSuffix(host, ".")
+	private := slices.Contains(t.privateHosts, strings.ToLower(host))
+	literal := net.ParseIP(host)
+	localName := strings.EqualFold(strings.TrimSuffix(host, "."), "localhost")
+	if urlvalidator.IsBlockedHost(host) && (!private || (!literal.IsPrivate() && !literal.IsLoopback() && !localName)) {
 		return nil, fmt.Errorf("host is not allowed: %s", host)
 	}
 	ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
@@ -91,7 +121,7 @@ func (t *PublicTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("dns resolution returned no addresses for %s", host)
 	}
 	for _, ip := range ips {
-		if !urlvalidator.IsPublicIP(ip) {
+		if !urlvalidator.IsPublicIP(ip) && (!private || !isPrivateUpstreamIP(ip)) {
 			return nil, fmt.Errorf("resolved ip %s is not allowed", ip)
 		}
 	}
@@ -139,6 +169,17 @@ func (t *PublicTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, err
 }
 
+func isPrivateUpstreamIP(ip net.IP) bool {
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return false
+	}
+	addr = addr.Unmap()
+	return addr.IsPrivate() || addr.IsLoopback() || addr.IsUnspecified() || privateBenchmarkIPv4.Contains(addr)
+}
+
+var privateBenchmarkIPv4 = netip.MustParsePrefix("198.18.0.0/15")
+
 func (t *PublicTransport) transportForHost(host string) *http.Transport {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -172,7 +213,7 @@ func (t *PublicTransport) transportForHost(host string) *http.Transport {
 	}
 	t.lastUsed[host] = now
 	t.accessOrder[host] = t.nextAccess
-	transport := t.base.Clone()
+	transport := t.Base.Clone()
 	if transport.TLSClientConfig == nil {
 		transport.TLSClientConfig = &tls.Config{}
 	}

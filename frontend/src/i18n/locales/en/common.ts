@@ -169,6 +169,7 @@ export default {
     dashboard: 'Dashboard',
     announcements: 'Announcements',
     apiKeys: 'API Keys',
+    byok: 'BYOK Credentials',
     batchImage: 'Batch Images',
     usage: 'Usage',
     redeem: 'Redeem',
@@ -220,6 +221,15 @@ export default {
     contentModeration: 'Content Moderation',
     promptAudit: 'Prompt Audit',
     auditLogs: 'Audit Logs',
+    home: 'Home',
+    pools: 'Resource Pools',
+    playground: 'Playground',
+    keyUsage: 'Quota Inspector',
+    pricing: 'Pricing',
+    status: 'Service Status',
+    modelCompare: 'Compare Models',
+    modelDetail: 'Model Detail',
+    legalDocument: 'Legal Document',
   },
 
   // Auth
@@ -293,6 +303,8 @@ export default {
     invalidCode: 'Please enter a valid 6-digit code',
     promoCodeLabel: 'Promo Code',
     promoCodePlaceholder: 'Enter promo code (optional)',
+    referralCodeLabel: 'Referral Code',
+    referralCodePlaceholder: 'Enter referral code (optional)',
     promoCodeValid: 'Valid! You will receive ${amount} bonus balance',
     promoCodeInvalid: 'Invalid promo code',
     promoCodeNotFound: 'Promo code not found',
@@ -460,6 +472,16 @@ export default {
     verifyFailed: 'Verification failed, please try again',
     notEnabled: 'This operation requires two-factor authentication. Please enable TOTP in your profile first.',
     adminApiKeyForbidden: 'Admin API keys cannot perform this operation. Use a two-factor verified admin session.'
+  },
+
+  playgroundConsole: {
+    title: 'Playground',
+    description: 'Separately funded native protocol workbench with SSE, reasoning, tool calls, and side-by-side compare.'
+  },
+
+  taskCenter: {
+    title: 'Task Center',
+    description: 'Asynchronous image and batch executions, scope-bound artifact tickets, cancellation, and paid retries.'
   },
 
   // Dashboard

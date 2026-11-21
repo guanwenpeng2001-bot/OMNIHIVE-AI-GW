@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,7 +19,7 @@ import (
 func TestAccountRepositorySetRateLimitedIfUnchanged(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 
 	makeAcct := func(name string) *service.Account {
 		return mustCreateAccount(t, tx.Client(), &service.Account{

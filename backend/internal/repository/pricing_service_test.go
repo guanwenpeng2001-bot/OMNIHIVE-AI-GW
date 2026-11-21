@@ -33,6 +33,7 @@ func (s *PricingServiceSuite) TearDownTest() {
 
 func (s *PricingServiceSuite) setupServer(handler http.HandlerFunc) {
 	s.srv = newLocalTestServer(s.T(), handler)
+	s.client = &pricingRemoteClient{httpClient: s.srv.Client()}
 }
 
 func (s *PricingServiceSuite) TestFetchPricingJSON_Success() {
@@ -133,7 +134,12 @@ func (s *PricingServiceSuite) TestFetchPricingJSON_ContextCancel() {
 		done <- err
 	}()
 
-	<-started
+	defer cancel()
+	select {
+	case <-started:
+	case err := <-done:
+		s.T().Fatalf("fetch ended before reaching the server: %v", err)
+	}
 	cancel()
 
 	err := <-done

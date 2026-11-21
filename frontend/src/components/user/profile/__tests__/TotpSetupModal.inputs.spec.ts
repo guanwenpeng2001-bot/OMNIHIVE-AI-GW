@@ -6,13 +6,13 @@ const api = vi.hoisted(() => ({ getVerificationMethod: vi.fn(), initiateSetup: v
 vi.mock('@/api', () => ({ totpAPI: api }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError: vi.fn(), showSuccess: vi.fn() }) }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
-vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn() } }))
+vi.mock('qrcode', () => ({ default: { toDataURL: async () => 'data:image/png;base64,qr' } }))
 enableAutoUnmount(afterEach)
 
 beforeEach(() => {
   vi.resetAllMocks()
   api.getVerificationMethod.mockResolvedValue({ method: 'password' })
-  api.initiateSetup.mockResolvedValue({ secret: 'EXAMPLE', qr_code_url: '', setup_token: 'setup-token' })
+  api.initiateSetup.mockResolvedValue({ secret: 'EXAMPLE', qr_code_url: 'otpauth://totp/test?secret=EXAMPLE', setup_token: 'setup-token' })
   api.enable.mockResolvedValue({ success: true })
 })
 

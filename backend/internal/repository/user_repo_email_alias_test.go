@@ -2,9 +2,11 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -152,4 +154,35 @@ func TestUserRepositoryCountUsersByEmailDomainEscapesLikeWildcards(t *testing.T)
 
 	require.NoError(t, err)
 	require.Equal(t, 1, count)
+}
+
+func TestRegistrationAgreementAtomic(t *testing.T) {
+	ctx := context.Background()
+	repo, client := newUserEntRepo(t)
+	_, err := client.ExecContext(ctx, `CREATE TABLE registration_agreements(user_id integer primary key,revision text not null)`)
+	require.NoError(t, err)
+	settings := NewSettingRepository(client)
+	require.NoError(t, settings.Set(ctx, service.SettingKeyLoginAgreementEnabled, "true"))
+	documents, err := json.Marshal([]service.LoginAgreementDocument{{ID: "terms", Title: "Terms", ContentMD: "Operator terms"}})
+	require.NoError(t, err)
+	require.NoError(t, settings.Set(ctx, service.SettingKeyLoginAgreementDocuments, string(documents)))
+	public, err := service.NewSettingService(settings, &config.Config{}).GetPublicSettings(ctx)
+	require.NoError(t, err)
+	u := &service.User{Email: "consent@example.org", PasswordHash: "hash", Role: service.RoleUser, Status: service.StatusActive, SignupAgreement: &service.SignupAgreement{}}
+	for _, a := range []service.SignupAgreement{{Revision: public.LoginAgreementRevision}, {Accepted: true, Revision: "stale"}} {
+		u.SignupAgreement = &a
+		require.ErrorIs(t, repo.CreateWithEmailAliasGuard(ctx, u), service.ErrRegistrationAgreement)
+		count, err := client.User.Query().Count(ctx)
+		require.NoError(t, err)
+		require.Zero(t, count)
+	}
+	u.SignupAgreement = &service.SignupAgreement{Accepted: true, Revision: public.LoginAgreementRevision}
+	require.NoError(t, repo.CreateWithEmailAliasGuard(ctx, u))
+	rows, err := client.QueryContext(ctx, "SELECT revision FROM registration_agreements WHERE user_id=$1", u.ID)
+	require.NoError(t, err)
+	defer rows.Close()
+	require.True(t, rows.Next())
+	var saved string
+	require.NoError(t, rows.Scan(&saved))
+	require.Equal(t, public.LoginAgreementRevision, saved)
 }

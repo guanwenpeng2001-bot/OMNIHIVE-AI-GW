@@ -11,10 +11,12 @@
 # =============================================================================
 
 services:
-  sub2api:
+  omnihive:
     image: ghcr.io/guanwenpeng2001-bot/omnihive-ai-gw:latest
-    container_name: sub2api
+    container_name: omnihive
     restart: unless-stopped
+    # main.go grants shutdownApplication 20s; keep 10s for transport cleanup.
+    stop_grace_period: 30s
     security_opt:
       - no-new-privileges:true
     ulimits:
@@ -22,9 +24,11 @@ services:
         soft: 100000
         hard: 100000
     ports:
+      # No reverse proxy is bundled. If this port is exposed beyond a trusted
+      # local network, the operator must provide TLS in front of the application.
       - "${BIND_HOST:-0.0.0.0}:${SERVER_PORT:-8080}:8080"
     volumes:
-      - sub2api_data:/app/data
+      - omnihive_data:/app/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # Compose 2.24+: pass application settings through; topology below stays explicit.
@@ -50,10 +54,11 @@ services:
       - SERVER_H2C_MAX_READ_FRAME_SIZE=${SERVER_H2C_MAX_READ_FRAME_SIZE:-1048576}
       - SERVER_H2C_MAX_UPLOAD_BUFFER_PER_CONNECTION=${SERVER_H2C_MAX_UPLOAD_BUFFER_PER_CONNECTION:-2097152}
       - SERVER_H2C_MAX_UPLOAD_BUFFER_PER_STREAM=${SERVER_H2C_MAX_UPLOAD_BUFFER_PER_STREAM:-524288}
-      - SECURITY_TRUST_FORWARDED_IP_FOR_API_KEY_ACL=${SECURITY_TRUST_FORWARDED_IP_FOR_API_KEY_ACL:-true}
+      - SERVER_TRUSTED_PROXIES
       - SECURITY_URL_ALLOWLIST_ENABLED=${SECURITY_URL_ALLOWLIST_ENABLED:-false}
-      - SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS=${SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS:-true}
-      - SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP=${SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP:-true}
+      - SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS
+      - SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS=${SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS:-false}
+      - SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP=${SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP:-false}
       - SERVER_MODE=${SERVER_MODE:-release}
       - ENABLE_SERVER_TIMING=${ENABLE_SERVER_TIMING:-false}
       - RUN_MODE=${RUN_MODE:-standard}
@@ -64,12 +69,12 @@ services:
       # =======================================================================
       - DATABASE_HOST=${DATABASE_HOST:?DATABASE_HOST is required}
       - DATABASE_PORT=${DATABASE_PORT:-5432}
-      - DATABASE_USER=${DATABASE_USER:-sub2api}
+      - DATABASE_USER=${DATABASE_USER:-omnihive}
       - DATABASE_PASSWORD=${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}
-      - DATABASE_DBNAME=${DATABASE_DBNAME:-sub2api}
+      - DATABASE_DBNAME=${DATABASE_DBNAME:-omnihive}
       - DATABASE_SSLMODE=${DATABASE_SSLMODE:-disable}
-      - DATABASE_MAX_OPEN_CONNS=${DATABASE_MAX_OPEN_CONNS:-256}
-      - DATABASE_MAX_IDLE_CONNS=${DATABASE_MAX_IDLE_CONNS:-128}
+      - DATABASE_MAX_OPEN_CONNS=${DATABASE_MAX_OPEN_CONNS:-32}
+      - DATABASE_MAX_IDLE_CONNS=${DATABASE_MAX_IDLE_CONNS:-8}
       - DATABASE_CONN_MAX_LIFETIME_MINUTES=${DATABASE_CONN_MAX_LIFETIME_MINUTES:-30}
       - DATABASE_CONN_MAX_IDLE_TIME_MINUTES=${DATABASE_CONN_MAX_IDLE_TIME_MINUTES:-5}
 
@@ -88,13 +93,14 @@ services:
       # =======================================================================
       # Admin Account (auto-created on first run)
       # =======================================================================
-      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@sub2api.local}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@omnihive.local}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
 
       # =======================================================================
       # JWT Configuration
       # =======================================================================
       - JWT_SECRET=${JWT_SECRET:-}
+      - JWT_ROTATE=${JWT_ROTATE:-false}
       # Persist the same 64-hex encryption key across rebuilds and database restores.
       - TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY:-}
       - JWT_EXPIRE_HOUR=${JWT_EXPIRE_HOUR:-24}
@@ -130,7 +136,7 @@ services:
       # Fallbacks mirror OmniHive backend defaults so omitted values preserve behavior.
       - GATEWAY_FORCE_CODEX_CLI=${GATEWAY_FORCE_CODEX_CLI:-false}
       - GATEWAY_OPENAI_COMPACT_MODEL=${GATEWAY_OPENAI_COMPACT_MODEL:-gpt-5.4}
-      - SUB2API_IMAGES_MAIN_MODEL=${SUB2API_IMAGES_MAIN_MODEL:-gpt-5.6-luna}
+      - OMNIHIVE_IMAGES_MAIN_MODEL=${OMNIHIVE_IMAGES_MAIN_MODEL-${SUB2API_IMAGES_MAIN_MODEL:-gpt-5.6-luna}}
       - GATEWAY_OPENAI_RESPONSE_HEADER_TIMEOUT=${GATEWAY_OPENAI_RESPONSE_HEADER_TIMEOUT:-0}
       - GATEWAY_OPENAI_WS_FORCE_HTTP=${GATEWAY_OPENAI_WS_FORCE_HTTP:-false}
       - GATEWAY_OPENAI_HTTP2_ENABLED=${GATEWAY_OPENAI_HTTP2_ENABLED:-true}
@@ -177,5 +183,6 @@ services:
       start_period: 30s
 
 volumes:
-  sub2api_data:
-    driver: local
+  omnihive_data:
+    name: ${OMNIHIVE_DATA_VOLUME:-${COMPOSE_PROJECT_NAME}_omnihive_data}
+    external: ${OMNIHIVE_DATA_VOLUME_EXTERNAL:-false}

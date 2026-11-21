@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	ws "github.com/coder/websocket"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -14,6 +13,8 @@ import (
 	"net/url"
 	"strings"
 
+	ws "github.com/coder/websocket"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -58,6 +59,8 @@ func openAIActionCatalogEndpoint(action string) string {
 	switch action {
 	case "video.generate", "video.edit", "video.extend":
 		return CompositeRouteEndpointImages
+	case "audio.translate":
+		return "audio_translations"
 	default:
 		return action
 	}
@@ -291,7 +294,8 @@ func (s *OpenAIGatewayService) OpenOpenAIRealtime(ctx context.Context, account *
 	parsed.RawQuery = query.Encode()
 	baseTransport, _ := http.DefaultTransport.(*http.Transport)
 	transport := baseTransport.Clone()
-	defer transport.CloseIdleConnections()
+	pinned := httpclient.NewUpstreamTransport(transport, privateUpstreamHosts(s.cfg))
+	defer pinned.CloseIdleConnections()
 	proxyURL, egressErr := account.EgressProxyURL(ctx)
 	if egressErr != nil {
 		return nil, egressErr
@@ -306,7 +310,7 @@ func (s *OpenAIGatewayService) OpenOpenAIRealtime(ctx context.Context, account *
 	headers := http.Header{}
 	account.ApplyHeaderOverrides(headers)
 	headers.Set("Authorization", "Bearer "+credential)
-	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := &http.Client{Transport: pinned, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	connection, response, err := ws.Dial(ctx, parsed.String(), &ws.DialOptions{HTTPClient: client, HTTPHeader: headers, CompressionMode: ws.CompressionDisabled})
 	if err != nil {
 		if response != nil {

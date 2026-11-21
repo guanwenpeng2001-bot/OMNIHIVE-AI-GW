@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
 	"github.com/stretchr/testify/require"
 )
 
@@ -90,7 +90,7 @@ func runChatOnlyPlatformProbe(t *testing.T, platform, model string) ([]*http.Req
 			},
 		},
 		httpUpstream: chatOnlyProbeStubTransport{client: server.Client()},
-		cfg:          rawChatCompletionsTestConfig(),
+		cfg:          loopbackHTTPTestConfig(),
 	}
 	c, recorder := newTestContext()
 

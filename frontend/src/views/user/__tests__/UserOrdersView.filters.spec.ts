@@ -24,7 +24,7 @@ async function openOrders() {
   const wrapper = mount(UserOrdersView, {
     global: { stubs: {
       AppLayout: { template: '<div><slot /></div>' },
-      OrderTable: true, BaseDialog: true, Icon: true, Pagination: true, teleport: true
+      BillingNav: true, OrderTable: true, BaseDialog: true, Icon: true, Pagination: true, teleport: true
     } }
   })
   await flushPromises()
@@ -50,5 +50,12 @@ describe('order status filtering', () => {
     await wrapper.get('[title="common.refresh"]').trigger('click')
     await flushPromises()
     expect(api.getMyOrders).toHaveBeenLastCalledWith({ page: 4, page_size: 20, status: undefined })
+  })
+
+  it('renders order invoice and receipt human-support instructions [E1-4]', async () => {
+    const wrapper = await openOrders()
+    const invoiceCard = wrapper.find('[data-testid="order-invoice-support"]')
+    expect(invoiceCard.exists()).toBe(true)
+    expect(invoiceCard.html()).toContain('/docs#support')
   })
 })

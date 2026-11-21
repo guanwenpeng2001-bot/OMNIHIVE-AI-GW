@@ -6,7 +6,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Wei-Shaw/sub2api/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
 )
 
 // The APIKeyFunc type is an adapter to allow the use of ordinary

@@ -2,15 +2,15 @@ package service
 
 import (
 	"fmt"
-	"net/http"
 	"testing"
 	"time"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCoderOpenAIWSClientDialer_ProxyHTTPClientReuse(t *testing.T) {
-	dialer := newDefaultOpenAIWSClientDialer()
+	dialer := newDefaultOpenAIWSClientDialer(nil)
 	impl, ok := dialer.(*coderOpenAIWSClientDialer)
 	require.True(t, ok)
 
@@ -26,7 +26,7 @@ func TestCoderOpenAIWSClientDialer_ProxyHTTPClientReuse(t *testing.T) {
 }
 
 func TestCoderOpenAIWSClientDialer_ProxyHTTPClientInvalidURL(t *testing.T) {
-	dialer := newDefaultOpenAIWSClientDialer()
+	dialer := newDefaultOpenAIWSClientDialer(nil)
 	impl, ok := dialer.(*coderOpenAIWSClientDialer)
 	require.True(t, ok)
 
@@ -35,7 +35,7 @@ func TestCoderOpenAIWSClientDialer_ProxyHTTPClientInvalidURL(t *testing.T) {
 }
 
 func TestCoderOpenAIWSClientDialer_TransportMetricsSnapshot(t *testing.T) {
-	dialer := newDefaultOpenAIWSClientDialer()
+	dialer := newDefaultOpenAIWSClientDialer(nil)
 	impl, ok := dialer.(*coderOpenAIWSClientDialer)
 	require.True(t, ok)
 
@@ -53,7 +53,7 @@ func TestCoderOpenAIWSClientDialer_TransportMetricsSnapshot(t *testing.T) {
 }
 
 func TestCoderOpenAIWSClientDialer_ProxyClientCacheCapacity(t *testing.T) {
-	dialer := newDefaultOpenAIWSClientDialer()
+	dialer := newDefaultOpenAIWSClientDialer(nil)
 	impl, ok := dialer.(*coderOpenAIWSClientDialer)
 	require.True(t, ok)
 
@@ -71,7 +71,7 @@ func TestCoderOpenAIWSClientDialer_ProxyClientCacheCapacity(t *testing.T) {
 }
 
 func TestCoderOpenAIWSClientDialer_ProxyClientCacheIdleTTL(t *testing.T) {
-	dialer := newDefaultOpenAIWSClientDialer()
+	dialer := newDefaultOpenAIWSClientDialer(nil)
 	impl, ok := dialer.(*coderOpenAIWSClientDialer)
 	require.True(t, ok)
 
@@ -97,7 +97,7 @@ func TestCoderOpenAIWSClientDialer_ProxyClientCacheIdleTTL(t *testing.T) {
 }
 
 func TestCoderOpenAIWSClientDialer_ProxyTransportTLSHandshakeTimeout(t *testing.T) {
-	dialer := newDefaultOpenAIWSClientDialer()
+	dialer := newDefaultOpenAIWSClientDialer(nil)
 	impl, ok := dialer.(*coderOpenAIWSClientDialer)
 	require.True(t, ok)
 
@@ -105,10 +105,10 @@ func TestCoderOpenAIWSClientDialer_ProxyTransportTLSHandshakeTimeout(t *testing.
 	require.NoError(t, err)
 	require.NotNil(t, client)
 
-	transport, ok := client.Transport.(*http.Transport)
+	transport, ok := client.Transport.(*httpclient.PublicTransport)
 	require.True(t, ok)
 	require.NotNil(t, transport)
-	require.Equal(t, 10*time.Second, transport.TLSHandshakeTimeout)
+	require.Equal(t, 10*time.Second, transport.Base.TLSHandshakeTimeout)
 }
 
 func TestCoderOpenAIWSClientConn_DoesNotSupportIdlePingWithoutReader(t *testing.T) {

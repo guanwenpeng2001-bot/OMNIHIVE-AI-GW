@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 func ProvideAccountRepositoryWithSecrets(client *dbent.Client, database *sql.DB, cache service.SchedulerCache, encryptor service.SecretEncryptor, runtime *service.ProxyGroupRuntime) service.AccountRepository {
@@ -38,6 +38,28 @@ func (r *accountRepository) resolveAccountCredentials(ctx context.Context, datab
 		return err
 	}
 	return r.applyStoredCredentialSecret(ctx, account, metadata, ciphertext)
+}
+
+// resolveListedAccountCredentials separates an unusable stored credential
+// (reported as unusable=true) from database and transport failures, which
+// always fail the caller's read.
+func (r *accountRepository) resolveListedAccountCredentials(ctx context.Context, database credentialSQL, account *service.Account) (unusable bool, err error) {
+	account.AttachEgress(r.egressRuntime)
+	account.CredentialRevision = credentialRevision(account.Credentials)
+	if _, referenced := service.CredentialReference(account.Credentials); !referenced {
+		return false, nil
+	}
+	metadata, ciphertext, err := readCredentialSecret(ctx, database, account.ID)
+	if err != nil {
+		if err == service.ErrCredentialSecretNotFound {
+			return true, err
+		}
+		return false, err
+	}
+	if err := r.applyStoredCredentialSecret(ctx, account, metadata, ciphertext); err != nil {
+		return credentialReadUnavailable(err), err
+	}
+	return false, nil
 }
 
 // UpdateCredentialsCAS preserves the expected read revision even if a caller

@@ -13,7 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/servertiming"
 	"github.com/tidwall/gjson"
 )
 
@@ -24,18 +25,18 @@ var monitorHTTPClient = newSSRFSafeHTTPClient(monitorRequestTimeout)
 // monitorPingHTTPClient 用于 endpoint origin 的 HEAD ping，超时更短。
 var monitorPingHTTPClient = newSSRFSafeHTTPClient(monitorPingTimeout)
 
-// newSSRFSafeHTTPClient 返回一个使用 safeDialContext 的 http.Client。
+// newSSRFSafeHTTPClient pins each monitor request to validated public addresses.
 // 仅供监控模块对外发起请求使用——所有目标都应是公网 endpoint。
 func newSSRFSafeHTTPClient(timeout time.Duration) *http.Client {
 	tr := &http.Transport{
-		DialContext:           safeDialContext,
+		DialContext:           monitorDialer.DialContext,
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          16,
 		IdleConnTimeout:       monitorIdleConnTimeout,
 		TLSHandshakeTimeout:   monitorTLSHandshakeTimeout,
 		ResponseHeaderTimeout: monitorResponseHeaderTimeout,
 	}
-	return &http.Client{Timeout: timeout, Transport: servertiming.WrapRoundTripper(tr)}
+	return &http.Client{Timeout: timeout, Transport: servertiming.WrapRoundTripper(httpclient.NewPublicTransport(tr))}
 }
 
 // CheckOptions 承载一次检测的自定义入参。

@@ -8,12 +8,12 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ip"
+	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"go.uber.org/zap"
@@ -49,6 +49,9 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 	}
 	model := strings.TrimSpace(gjson.GetBytes(request.Session, "model").String())
 	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, model, "live", h.maxAccountSwitches)()
+	if c.IsAborted() {
+		return
+	}
 	// 入口前置 hold：媒体/音频/realtime/异步 job 在调用上游之前先按估算占用周期预算，
 	// 结算时按实际消耗修正；没有周期预算的 Key 不产生额外工作（T3-2.2）。
 	if !reserveGatewayRequestBudget(c, apiKey, model, nil) {

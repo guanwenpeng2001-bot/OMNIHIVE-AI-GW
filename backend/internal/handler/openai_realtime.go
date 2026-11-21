@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	ws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
+	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
@@ -77,7 +77,13 @@ func (h *OpenAIGatewayHandler) OpenAIRealtime(c *gin.Context) {
 		return
 	}
 	model := strings.TrimSpace(c.Query("model"))
+	if !prepareGatewayPayload(c, nil) {
+		return
+	}
 	defer beginGatewayRequestPlan(c, h.gatewayService, key, model, "realtime", h.maxAccountSwitches)()
+	if c.IsAborted() {
+		return
+	}
 	// 入口前置 hold：媒体/音频/realtime/异步 job 在调用上游之前先按估算占用周期预算，
 	// 结算时按实际消耗修正；没有周期预算的 Key 不产生额外工作（T3-2.2）。
 	if !reserveGatewayRequestBudget(c, key, model, nil) {
@@ -185,9 +191,17 @@ func (h *OpenAIGatewayHandler) OpenAIRealtime(c *gin.Context) {
 	ctx, cancelSession := context.WithTimeout(ctx, 120*time.Second)
 	defer cancelSession()
 	setOpsSelectedAccount(c, account.ID, account.Platform)
+	finishHandshake, err := service.GatewayRequestPlanFromContext(ctx).AdmitRealtimeHandshake(ctx, account.ID)
+	if err != nil {
+		finishCode = "handshake_failed"
+		h.errorResponse(c, 503, "api_error", "Realtime dispatch permit unavailable")
+		return
+	}
 	handshakeTimer := time.AfterFunc(12*time.Second, cancelSession)
 	upstream, err := h.gatewayService.OpenOpenAIRealtime(ctx, account, snapshot.Model)
 	handshakeTimer.Stop()
+	// A successful upgrade proves the upstream received the handshake.
+	finishHandshake(err)
 	if err != nil {
 		finishCode = "handshake_failed"
 		h.openAIRealtimeDialError(c, err)

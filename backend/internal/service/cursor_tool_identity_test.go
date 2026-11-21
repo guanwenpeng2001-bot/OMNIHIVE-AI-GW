@@ -15,9 +15,9 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/cursor"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
@@ -45,8 +45,8 @@ func assertCursorIdentityRestored(t *testing.T, gateway *CursorGatewayService, i
 
 func TestCursorToolIdentityRedisRestartAndCrossInstance(t *testing.T) {
 	server := miniredis.RunT(t)
-	first := ProvideCursorGatewayService(nil, nil, cursorIdentityRedisClient(t, server))
-	second := ProvideCursorGatewayService(nil, nil, cursorIdentityRedisClient(t, server))
+	first := ProvideCursorGatewayService(nil, nil, cursorIdentityRedisClient(t, server), nil)
+	second := ProvideCursorGatewayService(nil, nil, cursorIdentityRedisClient(t, server), nil)
 	call := cursor.ToolCall{CallID: "opaque\ncall", ExecID: "opaque\nexec", Arguments: json.RawMessage(`{"large":"not retained"}`)}
 	id := first.publicToolID(context.Background(), call)
 	require.Len(t, id, 55)
@@ -67,7 +67,7 @@ func TestCursorToolIdentityRedisRestartAndCrossInstance(t *testing.T) {
 		assertCursorIdentityRestored(t, first, otherID, other)
 	})
 	t.Run("restart-empty-L1", func(t *testing.T) {
-		restarted := ProvideCursorGatewayService(nil, nil, cursorIdentityRedisClient(t, server))
+		restarted := ProvideCursorGatewayService(nil, nil, cursorIdentityRedisClient(t, server), nil)
 		require.Empty(t, restarted.toolIDs)
 		assertCursorIdentityRestored(t, restarted, id, call)
 	})
@@ -84,13 +84,13 @@ func TestCursorToolIdentityRedisRestartAndCrossInstance(t *testing.T) {
 func TestCursorToolIdentityRedisTTLReturns400ThreeProtocols(t *testing.T) {
 	server := miniredis.RunT(t)
 	client := cursorIdentityRedisClient(t, server)
-	first := ProvideCursorGatewayService(nil, nil, client)
+	first := ProvideCursorGatewayService(nil, nil, client, nil)
 	id := first.publicToolID(context.Background(), cursor.ToolCall{CallID: "call\nopaque", ExecID: "exec"})
 	server.FastForward(cursor.ToolIdentityTTL + time.Second)
 	require.Empty(t, server.Keys())
 	for _, protocol := range []string{APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses} {
 		t.Run(protocol, func(t *testing.T) {
-			gateway := ProvideCursorGatewayService(nil, nil, client)
+			gateway := ProvideCursorGatewayService(nil, nil, client, nil)
 			writer := httptest.NewRecorder()
 			requestContext, _ := gin.CreateTestContext(writer)
 			account := &Account{Platform: PlatformCursor, Type: AccountTypeAPIKey}
@@ -118,7 +118,7 @@ func TestCursorToolIdentityL1TTL(t *testing.T) {
 func TestCursorToolIdentityRedisUnavailableWarnsOnceAndRecovers(t *testing.T) {
 	server := miniredis.RunT(t)
 	client := cursorIdentityRedisClient(t, server)
-	gateway := ProvideCursorGatewayService(nil, nil, client)
+	gateway := ProvideCursorGatewayService(nil, nil, client, nil)
 	var logs bytes.Buffer
 	previous := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
@@ -136,6 +136,6 @@ func TestCursorToolIdentityRedisUnavailableWarnsOnceAndRecovers(t *testing.T) {
 	server.SetError("")
 	call := cursor.ToolCall{CallID: "recovered\ncall", ExecID: "exec"}
 	id := gateway.publicToolID(context.Background(), call)
-	assertCursorIdentityRestored(t, ProvideCursorGatewayService(nil, nil, client), id, call)
+	assertCursorIdentityRestored(t, ProvideCursorGatewayService(nil, nil, client, nil), id, call)
 	require.Equal(t, 1, strings.Count(logs.String(), "tool identity Redis unavailable"))
 }

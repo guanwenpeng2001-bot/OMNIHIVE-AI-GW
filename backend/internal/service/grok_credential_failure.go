@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/gin-gonic/gin"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 )
 
 const (
@@ -542,7 +542,7 @@ func grokCredentialMutationSnapshot(account *Account) GrokCredentialMutationSnap
 		return GrokCredentialMutationSnapshot{}
 	}
 	credentialsJSON := "null"
-	if encoded, err := json.Marshal(account.Credentials); err == nil {
+	if encoded, err := json.Marshal(StoredCredentialDocument(account.Credentials)); err == nil {
 		credentialsJSON = string(encoded)
 	}
 	snapshot := GrokCredentialMutationSnapshot{

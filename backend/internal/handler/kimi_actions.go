@@ -7,12 +7,12 @@ import (
 	"net/http"
 	"strings"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	pkghttputil "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httputil"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ip"
+	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"go.uber.org/zap"
 )
 
@@ -55,6 +55,9 @@ func (h *OpenAIGatewayHandler) KimiSearch(c *gin.Context) {
 		model = "kimi-search-pro"
 	}
 	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, model, "search", h.maxAccountSwitches)()
+	if c.IsAborted() {
+		return
+	}
 	setOpsRequestContext(c, model, false)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeSync))
 	auditBody, _ := json.Marshal(map[string]any{

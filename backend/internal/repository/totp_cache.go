@@ -8,7 +8,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 const (
@@ -16,6 +16,7 @@ const (
 	totpLoginKeyPrefix    = "totp:login:"
 	totpAttemptsKeyPrefix = "totp:attempts:"
 	totpStepUpKeyPrefix   = "totp:stepup:"
+	totpConsumedKeyPrefix = "totp:consumed:"
 	totpAttemptsTTL       = 15 * time.Minute
 )
 
@@ -147,6 +148,11 @@ func (c *TotpCache) GetVerifyAttempts(ctx context.Context, userID int64) (int, e
 func (c *TotpCache) ClearVerifyAttempts(ctx context.Context, userID int64) error {
 	key := fmt.Sprintf("%s%d", totpAttemptsKeyPrefix, userID)
 	return c.rdb.Del(ctx, key).Err()
+}
+
+func (c *TotpCache) ConsumeCodeTimeStep(ctx context.Context, userID int64, timeStep int64, ttl time.Duration) (bool, error) {
+	key := fmt.Sprintf("%s%d:%d", totpConsumedKeyPrefix, userID, timeStep)
+	return c.rdb.SetNX(ctx, key, "1", ttl).Result()
 }
 
 func totpStepUpKey(userID int64, sessionKey string) string {

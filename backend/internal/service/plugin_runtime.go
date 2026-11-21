@@ -16,13 +16,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	pluginv1 "github.com/Wei-Shaw/sub2api/pkg/pluginapi/v1"
+	pluginv1 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/pkg/pluginapi/v1"
 	hclog "github.com/hashicorp/go-hclog"
 	hcplugin "github.com/hashicorp/go-plugin"
 )
 
 type pluginRuntime struct {
 	installation *PluginInstallation
+	extension    *extensionRuntime
 	client       *hcplugin.Client
 	api          pluginv1.TransportPluginClient
 	inFlight     atomic.Int64
@@ -144,7 +145,7 @@ func (r *pluginRuntime) validateAndApplyNormalizedConfig(ctx context.Context, co
 }
 
 func (r *pluginRuntime) checkHealth(ctx context.Context) error {
-	if r == nil || r.api == nil || r.client == nil || r.client.Exited() {
+	if r == nil || r.api == nil || r.exited() {
 		return errors.New("插件进程已退出")
 	}
 	health, err := r.api.Health(ctx, &pluginv1.HealthRequest{})
@@ -197,6 +198,10 @@ func (r *pluginRuntime) drain(timeout time.Duration) {
 }
 
 func (r *pluginRuntime) kill() {
+	if r != nil && r.extension != nil {
+		r.extension.close()
+		return
+	}
 	if r != nil && r.client != nil {
 		r.client.Kill()
 	}

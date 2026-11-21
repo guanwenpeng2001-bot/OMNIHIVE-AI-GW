@@ -16,10 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/xai"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
@@ -36,7 +37,7 @@ func TestHTTPUpstreamDoCanDisableRedirectsPerRequest(t *testing.T) {
 	}))
 	t.Cleanup(redirector.Close)
 
-	upstream := NewHTTPUpstream(nil)
+	upstream := NewHTTPUpstream(loopbackUpstreamConfig())
 	req, err := http.NewRequestWithContext(
 		service.WithHTTPUpstreamRedirectsDisabled(t.Context()),
 		http.MethodGet,
@@ -68,7 +69,7 @@ func TestHTTPUpstreamDoWithTLSPlainHTTPUsesConfiguredHTTPProxy(t *testing.T) {
 
 	req, err := http.NewRequest(http.MethodGet, upstream.URL, nil)
 	require.NoError(t, err)
-	client := NewHTTPUpstream(nil)
+	client := NewHTTPUpstream(loopbackUpstreamConfig())
 	resp, err := client.DoWithTLS(req, proxy.URL, 41, 1, &tlsfingerprint.Profile{Name: "unused-for-http"})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusNoContent, resp.StatusCode)
@@ -88,7 +89,7 @@ func TestHTTPUpstreamDoWithTLSPlainHTTPUsesConfiguredSOCKSProxy(t *testing.T) {
 
 	req, err := http.NewRequest(http.MethodGet, upstream.URL, nil)
 	require.NoError(t, err)
-	client := NewHTTPUpstream(nil)
+	client := NewHTTPUpstream(loopbackUpstreamConfig())
 	resp, err := client.DoWithTLS(req, proxyURL, 42, 1, &tlsfingerprint.Profile{Name: "unused-for-http"})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusNoContent, resp.StatusCode)
@@ -195,7 +196,7 @@ func TestHTTPUpstreamDoAppliesGrokCLIIdentityBeforeOAuthRoundTrip(t *testing.T) 
 
 	for _, endpoint := range []string{"responses", "chat/completions"} {
 		t.Run(endpoint, func(t *testing.T) {
-			upstream := NewHTTPUpstream(nil)
+			upstream := NewHTTPUpstream(loopbackUpstreamConfig())
 			svc, ok := upstream.(*httpUpstreamService)
 			require.True(t, ok)
 
@@ -245,7 +246,7 @@ func TestHTTPUpstreamDoAppliesGrokCLIIdentityBeforeOAuthRoundTrip(t *testing.T) 
 }
 
 func TestHTTPUpstreamDoFallsBackToOfficialGrokAPIOnCLIAccessDenied(t *testing.T) {
-	upstream := NewHTTPUpstream(nil)
+	upstream := NewHTTPUpstream(loopbackUpstreamConfig())
 	svc, ok := upstream.(*httpUpstreamService)
 	require.True(t, ok)
 
@@ -565,7 +566,7 @@ func (s *HTTPUpstreamSuite) SetupTest() {
 	s.cfg = &config.Config{
 		Security: config.SecurityConfig{
 			URLAllowlist: config.URLAllowlistConfig{
-				AllowPrivateHosts: true,
+				AllowPrivateHosts: true, UpstreamHosts: []string{"127.0.0.1"},
 			},
 		},
 	}
@@ -585,8 +586,9 @@ func (s *HTTPUpstreamSuite) newService() *httpUpstreamService {
 func (s *HTTPUpstreamSuite) TestDefaultResponseHeaderTimeout() {
 	svc := s.newService()
 	entry := mustGetOrCreateClient(s.T(), svc, "", 0, 0)
-	transport, ok := entry.client.Transport.(*http.Transport)
-	require.True(s.T(), ok, "expected *http.Transport")
+	public, ok := entry.client.Transport.(*httpclient.PublicTransport)
+	require.True(s.T(), ok, "expected PublicTransport")
+	transport := public.Base
 	require.Equal(s.T(), defaultResponseHeaderTimeout, transport.ResponseHeaderTimeout, "ResponseHeaderTimeout mismatch")
 }
 
@@ -596,8 +598,9 @@ func (s *HTTPUpstreamSuite) TestNilConfigResponseHeaderTimeoutFallback() {
 	svc, ok := up.(*httpUpstreamService)
 	require.True(s.T(), ok, "expected *httpUpstreamService")
 	entry := mustGetOrCreateClient(s.T(), svc, "", 0, 0)
-	transport, ok := entry.client.Transport.(*http.Transport)
-	require.True(s.T(), ok, "expected *http.Transport")
+	publicTransport, ok := entry.client.Transport.(*httpclient.PublicTransport)
+	require.True(s.T(), ok, "expected *httpclient.PublicTransport")
+	transport := publicTransport.Base
 	require.Equal(s.T(), 300*time.Second, transport.ResponseHeaderTimeout, "ResponseHeaderTimeout mismatch")
 }
 
@@ -607,8 +610,9 @@ func (s *HTTPUpstreamSuite) TestCustomResponseHeaderTimeout() {
 	s.cfg.Gateway = config.GatewayConfig{ResponseHeaderTimeout: 7}
 	svc := s.newService()
 	entry := mustGetOrCreateClient(s.T(), svc, "", 0, 0)
-	transport, ok := entry.client.Transport.(*http.Transport)
-	require.True(s.T(), ok, "expected *http.Transport")
+	publicTransport, ok := entry.client.Transport.(*httpclient.PublicTransport)
+	require.True(s.T(), ok, "expected *httpclient.PublicTransport")
+	transport := publicTransport.Base
 	require.Equal(s.T(), 7*time.Second, transport.ResponseHeaderTimeout, "ResponseHeaderTimeout mismatch")
 }
 
@@ -631,8 +635,9 @@ func (s *HTTPUpstreamSuite) TestOpenAIProfileDefaultsToHTTP2AndFiniteHeaderTimeo
 	svc := s.newService()
 	entry, err := svc.getClientEntry("", 1, 1, service.HTTPUpstreamProfileOpenAI, false, false)
 	require.NoError(s.T(), err)
-	transport, ok := entry.client.Transport.(*http.Transport)
-	require.True(s.T(), ok, "expected *http.Transport")
+	publicTransport, ok := entry.client.Transport.(*httpclient.PublicTransport)
+	require.True(s.T(), ok, "expected *httpclient.PublicTransport")
+	transport := publicTransport.Base
 	require.Equal(s.T(), defaultResponseHeaderTimeout, transport.ResponseHeaderTimeout, "OpenAI profile should not inherit generic header timeout")
 	require.True(s.T(), transport.ForceAttemptHTTP2, "OpenAI profile should prefer HTTP/2")
 	require.Equal(s.T(), upstreamProtocolModeOpenAIH2, entry.protocolMode)
@@ -648,8 +653,9 @@ func (s *HTTPUpstreamSuite) TestLongStreamProfileUsesSharedHTTP2KeepAlive() {
 	svc := s.newService()
 	entry, err := svc.getClientEntry("", 1, 1, service.HTTPUpstreamProfileLongStream, false, false)
 	require.NoError(s.T(), err)
-	transport, ok := entry.client.Transport.(*http.Transport)
-	require.True(s.T(), ok, "expected *http.Transport")
+	publicTransport, ok := entry.client.Transport.(*httpclient.PublicTransport)
+	require.True(s.T(), ok, "expected *httpclient.PublicTransport")
+	transport := publicTransport.Base
 	require.Equal(s.T(), 600*time.Second, transport.ResponseHeaderTimeout, "long-stream profile should retain the generic header timeout")
 	require.True(s.T(), transport.ForceAttemptHTTP2, "long-stream profile must enable HTTP/2 independently of OpenAI settings")
 	require.True(s.T(), transport.Protocols.HTTP2(), "long-stream profile must install HTTP/2 PING health checks")
@@ -667,8 +673,9 @@ func (s *HTTPUpstreamSuite) TestOpenAIProfileCustomHeaderTimeout() {
 	svc := s.newService()
 	entry, err := svc.getClientEntry("", 1, 1, service.HTTPUpstreamProfileOpenAI, false, false)
 	require.NoError(s.T(), err)
-	transport, ok := entry.client.Transport.(*http.Transport)
-	require.True(s.T(), ok, "expected *http.Transport")
+	publicTransport, ok := entry.client.Transport.(*httpclient.PublicTransport)
+	require.True(s.T(), ok, "expected *httpclient.PublicTransport")
+	transport := publicTransport.Base
 	require.Equal(s.T(), 1800*time.Second, transport.ResponseHeaderTimeout)
 }
 
@@ -682,8 +689,9 @@ func (s *HTTPUpstreamSuite) TestOpenAIProfileTLSFingerprintDoesNotInheritGeneric
 	svc := s.newService()
 	entry, err := svc.getClientEntryWithTLS("", 1, 1, &tlsfingerprint.Profile{Name: "test"}, service.HTTPUpstreamProfileOpenAI, false, false)
 	require.NoError(s.T(), err)
-	transport, ok := entry.client.Transport.(*http.Transport)
-	require.True(s.T(), ok, "expected *http.Transport")
+	publicTransport, ok := entry.client.Transport.(*httpclient.PublicTransport)
+	require.True(s.T(), ok, "expected *httpclient.PublicTransport")
+	transport := publicTransport.Base
 	require.Equal(s.T(), defaultResponseHeaderTimeout, transport.ResponseHeaderTimeout, "OpenAI TLS path should not inherit generic header timeout")
 }
 
@@ -694,8 +702,9 @@ func (s *HTTPUpstreamSuite) TestOpenAIProfileHTTP2DisabledUsesHTTP1Transport() {
 	svc := s.newService()
 	entry, err := svc.getClientEntry("", 1, 1, service.HTTPUpstreamProfileOpenAI, false, false)
 	require.NoError(s.T(), err)
-	transport, ok := entry.client.Transport.(*http.Transport)
-	require.True(s.T(), ok, "expected *http.Transport")
+	publicTransport, ok := entry.client.Transport.(*httpclient.PublicTransport)
+	require.True(s.T(), ok, "expected *httpclient.PublicTransport")
+	transport := publicTransport.Base
 	require.False(s.T(), transport.ForceAttemptHTTP2, "OpenAI HTTP/2 disabled should not force H2")
 	require.NotNil(s.T(), transport.TLSNextProto, "HTTP/1 mode should disable automatic H2 negotiation")
 	require.Equal(s.T(), upstreamProtocolModeOpenAIH1, entry.protocolMode)
@@ -713,8 +722,9 @@ func (s *HTTPUpstreamSuite) TestOpenAIHeaderTimeoutChangeRebuildsClient() {
 	entry2, err := svc.getClientEntry("", 1, 1, service.HTTPUpstreamProfileOpenAI, false, false)
 	require.NoError(s.T(), err)
 	require.NotSame(s.T(), entry1, entry2, "OpenAI header timeout changes must rebuild cached client")
-	transport, ok := entry2.client.Transport.(*http.Transport)
-	require.True(s.T(), ok, "expected *http.Transport")
+	publicTransport, ok := entry2.client.Transport.(*httpclient.PublicTransport)
+	require.True(s.T(), ok, "expected *httpclient.PublicTransport")
+	transport := publicTransport.Base
 	require.Equal(s.T(), 1800*time.Second, transport.ResponseHeaderTimeout)
 }
 
@@ -751,8 +761,9 @@ func (s *HTTPUpstreamSuite) TestOpenAIHTTP2ProxyCompatibilityErrorActivatesFallb
 
 	entry, err := svc.getClientEntry(proxyURL, 1, 1, service.HTTPUpstreamProfileOpenAI, false, false)
 	require.NoError(s.T(), err)
-	transport, ok := entry.client.Transport.(*http.Transport)
-	require.True(s.T(), ok, "expected *http.Transport")
+	publicTransport, ok := entry.client.Transport.(*httpclient.PublicTransport)
+	require.True(s.T(), ok, "expected *httpclient.PublicTransport")
+	transport := publicTransport.Base
 	require.False(s.T(), transport.ForceAttemptHTTP2)
 	require.NotNil(s.T(), transport.TLSNextProto)
 	require.Equal(s.T(), upstreamProtocolModeOpenAIH1Fallback, entry.protocolMode)
@@ -821,7 +832,7 @@ func (s *HTTPUpstreamSuite) TestDo_WithHTTPProxy_UsesProxy() {
 	up := NewHTTPUpstream(s.cfg)
 
 	// 发送请求到外部地址，应通过代理
-	req, err := http.NewRequest(http.MethodGet, "http://example.com/test", nil)
+	req, err := http.NewRequest(http.MethodGet, "http://93.184.216.34:80/test", nil)
 	require.NoError(s.T(), err, "NewRequest")
 	resp, err := up.Do(req, proxySrv.URL, 1, 1)
 	require.NoError(s.T(), err, "Do")
@@ -832,7 +843,7 @@ func (s *HTTPUpstreamSuite) TestDo_WithHTTPProxy_UsesProxy() {
 	// 验证代理收到的是绝对 URI 格式（HTTP 代理规范要求）
 	select {
 	case uri := <-seen:
-		require.Equal(s.T(), "http://example.com/test", uri, "expected absolute-form request URI")
+		require.Equal(s.T(), "http://93.184.216.34:80/test", uri, "expected absolute-form request URI")
 	default:
 		require.Fail(s.T(), "expected proxy to receive request")
 	}
@@ -900,8 +911,9 @@ func (s *HTTPUpstreamSuite) TestAccountConcurrencyOverridesPoolSettings() {
 	svc := s.newService()
 	// 账户并发数为 12
 	entry := mustGetOrCreateClient(s.T(), svc, "", 1, 12)
-	transport, ok := entry.client.Transport.(*http.Transport)
-	require.True(s.T(), ok, "expected *http.Transport")
+	publicTransport, ok := entry.client.Transport.(*httpclient.PublicTransport)
+	require.True(s.T(), ok, "expected *httpclient.PublicTransport")
+	transport := publicTransport.Base
 	// 连接池参数应与并发数一致
 	require.Equal(s.T(), 12, transport.MaxConnsPerHost, "MaxConnsPerHost mismatch")
 	require.Equal(s.T(), 12, transport.MaxIdleConns, "MaxIdleConns mismatch")
@@ -920,8 +932,9 @@ func (s *HTTPUpstreamSuite) TestAccountConcurrencyFallbackToDefault() {
 	svc := s.newService()
 	// 账户并发数为 0，应使用全局配置
 	entry := mustGetOrCreateClient(s.T(), svc, "", 1, 0)
-	transport, ok := entry.client.Transport.(*http.Transport)
-	require.True(s.T(), ok, "expected *http.Transport")
+	publicTransport, ok := entry.client.Transport.(*httpclient.PublicTransport)
+	require.True(s.T(), ok, "expected *httpclient.PublicTransport")
+	transport := publicTransport.Base
 	require.Equal(s.T(), 66, transport.MaxConnsPerHost, "MaxConnsPerHost fallback mismatch")
 	require.Equal(s.T(), 77, transport.MaxIdleConns, "MaxIdleConns fallback mismatch")
 	require.Equal(s.T(), 55, transport.MaxIdleConnsPerHost, "MaxIdleConnsPerHost fallback mismatch")
@@ -997,7 +1010,7 @@ func TestHTTPUpstreamDoPublicHostsOnlyRejectsPrivateDestinationBeforeConnecting(
 	}))
 	t.Cleanup(target.Close)
 
-	upstream := NewHTTPUpstream(nil)
+	upstream := NewHTTPUpstream(loopbackUpstreamConfig())
 
 	plain, err := http.NewRequestWithContext(t.Context(), http.MethodGet, target.URL, nil)
 	require.NoError(t, err)
@@ -1016,7 +1029,7 @@ func TestHTTPUpstreamDoPublicHostsOnlyRejectsPrivateDestinationBeforeConnecting(
 }
 
 func TestHTTPUpstreamPublicHostsOnlyValidatesEveryRedirectHop(t *testing.T) {
-	upstream, ok := NewHTTPUpstream(nil).(*httpUpstreamService)
+	upstream, ok := NewHTTPUpstream(loopbackUpstreamConfig()).(*httpUpstreamService)
 	require.True(t, ok)
 	base := &http.Client{}
 
@@ -1061,5 +1074,9 @@ func TestHTTPUpstreamDNSPreflightRespectsRequestContext(t *testing.T) {
 	require.ErrorIs(t, upstream.validateRequestHost(request), context.Canceled)
 	require.ErrorIs(t, upstream.redirectChecker(request, nil), context.Canceled)
 	cfg.Security.URLAllowlist.Enabled = false
-	require.NoError(t, upstream.validateRequestHost(request), "default unrestricted path is unchanged")
+	require.ErrorIs(t, upstream.validateRequestHost(request), context.Canceled)
+}
+
+func loopbackUpstreamConfig() *config.Config {
+	return &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{AllowPrivateHosts: true, UpstreamHosts: []string{"127.0.0.1"}}}}
 }

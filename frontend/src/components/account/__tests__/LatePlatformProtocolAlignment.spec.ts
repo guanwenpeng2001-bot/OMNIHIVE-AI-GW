@@ -892,7 +892,7 @@ describe('cross-language plan URL runtime contract', () => {
   beforeAll(async () => {
     // One service-package compilation/export, reused by every assertion. Missing
     // Go, nonzero exit, timeout, invalid JSON and missing/repeated markers fail.
-    backend = parsePlanURLContract(execFileSync('go', ['test', '-mod=readonly', '-p', '1', '-count=1', '-run', '^TestExportPlanBaseURLContract$', '-v', './internal/service'], {
+    backend = parsePlanURLContract(execFileSync('go', ['test', '-mod=readonly', '-p', '2', '-count=1', '-run', '^TestExportPlanBaseURLContract$', '-v', './internal/service'], {
       cwd: resolve(process.cwd(), '../backend'), encoding: 'utf8', timeout: 300_000,
       maxBuffer: 4 * 1024 * 1024
     }))
@@ -930,7 +930,7 @@ describe('cross-language plan URL runtime contract', () => {
         add(platform, preset.mode, preset.protocol, site, preset.url, role)
       }
     }
-  }, 330_000)
+  }, 300_000)
 
   it('matches every active plan preset and default against the Go runtime contract', () => {
     assertPlanURLKeys(backend, [...frontend.keys(), backendOnlyKey])

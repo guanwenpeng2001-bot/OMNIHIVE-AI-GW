@@ -2,7 +2,11 @@
   <AuthLayout>
     <div class="space-y-4">
       <!-- Title -->
-      <div>
+      <div class="space-y-1">
+        <div class="flex items-center justify-between gap-2">
+          <Badge tone="neutral" mono>CREATE ACCOUNT</Badge>
+          <Badge v-if="!settingsLoaded" tone="neutral" dot mono>SYNCING</Badge>
+        </div>
         <h1 class="auth-title">
           {{ t('auth.createAccount') }}
         </h1>
@@ -11,9 +15,32 @@
         </p>
       </div>
 
+      <div v-if="!settingsLoaded" class="space-y-2 py-1" aria-hidden="true">
+        <Skeleton width="100%" height="36px" />
+        <Skeleton width="100%" height="36px" />
+      </div>
+
+      <div
+        v-if="publicSettingsError"
+        data-testid="register-settings-error"
+        role="alert"
+        class="auth-summary flex items-center justify-between gap-3 border border-red-200 bg-red-50/80 p-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200"
+      >
+        <span>{{ t('publicPortal.legal.settingsLoadFailedHint') }}</span>
+        <button
+          type="button"
+          data-testid="register-settings-retry"
+          class="btn btn-outline shrink-0 text-xs"
+          :disabled="isLoading"
+          @click="loadPublicSettings"
+        >
+          {{ t('publicPortal.legal.retry') }}
+        </button>
+      </div>
+
       <!-- Registration Disabled Message -->
       <div
-        v-if="!registrationEnabled && settingsLoaded"
+        v-if="!publicSettingsError && !registrationEnabled && settingsLoaded"
         class="auth-summary"
       >
         <div class="flex items-start gap-3">
@@ -264,7 +291,7 @@
         <p v-if="promoValidation.invalid" id="promo-error" role="alert" class="auth-field-error">{{ promoValidation.message }}</p>
         <div data-testid="referral-code-field">
           <label for="aff_code" class="input-label">
-            推荐码
+            {{ t('auth.referralCodeLabel') }}
             <span class="ml-1 text-xs font-normal text-[var(--muted-foreground)]">({{ t('common.optional') }})</span>
           </label>
           <input
@@ -273,7 +300,7 @@
             type="text"
             :disabled="registrationActionDisabled"
             class="input"
-            placeholder="输入推荐码（可选）"
+            :placeholder="t('auth.referralCodePlaceholder')"
           />
         </div>
         <div v-if="captchaEnabled" data-testid="registration-turnstile">
@@ -295,6 +322,7 @@
         </div>
 
         <LoginAgreementPrompt
+          :enabled="loginAgreementEnabled"
           :accepted="agreementAccepted"
           :documents="loginAgreementDocuments"
           :mode="loginAgreementMode"
@@ -303,57 +331,35 @@
           @accept="acceptLoginAgreement"
           @reject="rejectLoginAgreement"
           @open="showAgreementModal = true"
+          @close="showAgreementModal = false"
         />
 
         <!-- Submit Button -->
         <div class="auth-actions">
-        <button
+        <Button
           type="submit"
+          variant="primary"
+          :loading="isLoading"
+          block
           :disabled="registrationActionDisabled || (turnstileEnabled && !turnstileToken)"
           class="btn btn-primary w-full"
         >
-          <svg
-            v-if="isLoading"
-            class="-ml-1 mr-2 h-4 w-4 animate-spin text-current"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle
-              class="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              stroke-width="4"
-            ></circle>
-            <path
-              class="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-            ></path>
-          </svg>
-          <Icon v-else name="userPlus" size="md" class="mr-2" />
-          {{
+          <Icon v-if="!isLoading" name="userPlus" size="sm" />
+          <span>{{
             isLoading
               ? t('auth.processing')
               : emailVerifyEnabled
                 ? t('auth.sendCode')
                 : t('auth.createAccount')
-          }}
-        </button>
+          }}</span>
+        </Button>
         <router-link :to="{ path: '/login', query: route.query }" class="btn btn-outline">{{ t('auth.backToLogin') }}</router-link>
         </div>
 
       </form>
 
       <div v-if="showOAuthLogin" class="space-y-3 pt-1">
-        <div class="flex items-center gap-3">
-          <div class="h-px flex-1 bg-[var(--border)]"></div>
-          <span class="text-xs text-[var(--muted-foreground)]">
-            {{ t('auth.oauthOrContinue') }}
-          </span>
-          <div class="h-px flex-1 bg-[var(--border)]"></div>
-        </div>
+        <div class="auth-divider">{{ t('auth.oauthOrContinue') }}</div>
 
         <OAuthLoginSections
           :disabled="registrationActionDisabled"
@@ -372,7 +378,7 @@
     </div>
 
     <!-- Footer -->
-    <template v-if="!registrationEnabled && settingsLoaded" #footer>
+    <template v-if="!publicSettingsError && !registrationEnabled && settingsLoaded" #footer>
       <p class="text-[var(--muted-foreground)]">
         {{ t('auth.alreadyHaveAccount') }}
         <router-link
@@ -391,11 +397,13 @@ import { computed, ref, reactive, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
+import { Badge, Button, Skeleton } from '@/components/ui'
 import OAuthLoginSections from '@/components/auth/OAuthLoginSections.vue'
 import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
 import Icon from '@/components/icons/Icon.vue'
 import TurnstileWidget from '@/components/CaptchaChallenge.vue'
 import { useAuthStore, useAppStore } from '@/stores'
+import { authStorage } from '@/api/tokenRefresh'
 import {
   buildOAuthLoginStartURL,
   getPublicSettings,
@@ -417,10 +425,13 @@ import {
   loadAffiliateReferralCode,
   resolveAffiliateReferralCode
 } from '@/utils/oauthAffiliate'
+import {
+  buildSignupAgreementPayload,
+  resolveAgreementState,
+} from '@/features/public/legal'
 import type { LoginAgreementDocument } from '@/types'
 
 const { t, locale } = useI18n()
-const LOGIN_AGREEMENT_STORAGE_KEY = 'sub2api_login_agreement_consent'
 
 // ==================== Router & Stores ====================
 
@@ -433,6 +444,7 @@ const appStore = useAppStore()
 
 const isLoading = ref<boolean>(false)
 const settingsLoaded = ref<boolean>(false)
+const publicSettingsError = ref<boolean>(false)
 const errorMessage = ref<string>('')
 const showPassword = ref<boolean>(false)
 const showConfirmPassword = ref<boolean>(false)
@@ -470,6 +482,7 @@ const loginAgreementUpdatedAt = ref<string>('')
 const loginAgreementRevision = ref<string>('')
 const loginAgreementDocuments = ref<LoginAgreementDocument[]>([])
 const agreementAccepted = ref<boolean>(false)
+const acceptedAgreementRevision = ref<string>('')
 const showAgreementModal = ref<boolean>(false)
 
 // Turnstile
@@ -556,7 +569,11 @@ const agreementGateActive = computed(
 )
 
 const registrationActionDisabled = computed(
-  () => isLoading.value || !settingsLoaded.value || (agreementGateActive.value && loginAgreementMode.value !== 'checkbox')
+  () =>
+    isLoading.value ||
+    !settingsLoaded.value ||
+    publicSettingsError.value ||
+    (agreementGateActive.value && loginAgreementMode.value !== 'checkbox')
 )
 
 watch(validationToastMessage, (value, previousValue) => {
@@ -575,9 +592,9 @@ function syncAffiliateReferralCode(): string {
 
 // ==================== Lifecycle ====================
 
-onMounted(async () => {
-  syncAffiliateReferralCode()
-
+async function loadPublicSettings(): Promise<boolean> {
+  settingsLoaded.value = false
+  publicSettingsError.value = false
   try {
     const settings = await getPublicSettings()
     registrationEnabled.value = settings.registration_enabled
@@ -606,7 +623,29 @@ onMounted(async () => {
     )
     emailDomainQuotaEnabled.value = settings.registration_email_domain_quota_enabled === true
     applyLoginAgreementSettings(settings)
+    errorMessage.value = ''
+    return true
+  } catch (error) {
+    console.error('Failed to load public settings:', error)
+    publicSettingsError.value = true
+    loginAgreementEnabled.value = false
+    agreementAccepted.value = false
+    acceptedAgreementRevision.value = ''
+    errorMessage.value = t('publicPortal.legal.settingsLoadFailedHint')
+    return false
+  } finally {
+    settingsLoaded.value = true
+  }
+}
 
+onMounted(async () => {
+  syncAffiliateReferralCode()
+  const loaded = await loadPublicSettings()
+  if (!loaded) {
+    return
+  }
+
+  try {
     // Read promo code from URL parameter only if promo code is enabled
     if (promoCodeEnabled.value) {
       const promoParam = [route.query.promo, route.query.promo_code].find(
@@ -624,11 +663,7 @@ onMounted(async () => {
     }
     syncAffiliateReferralCode()
   } catch (error) {
-    console.error('Failed to load public settings:', error)
-    loginAgreementEnabled.value = false
-    agreementAccepted.value = true
-  } finally {
-    settingsLoaded.value = true
+    console.error('Failed to initialize registration query params:', error)
   }
 })
 
@@ -657,54 +692,31 @@ function applyLoginAgreementSettings(settings: {
   login_agreement_revision?: string
   login_agreement_documents?: LoginAgreementDocument[]
 }): void {
-  const documents = Array.isArray(settings.login_agreement_documents)
-    ? settings.login_agreement_documents.filter((doc) => doc.title?.trim())
-    : []
-  loginAgreementDocuments.value = documents
-  loginAgreementEnabled.value = settings.login_agreement_enabled === true && documents.length > 0
-  loginAgreementMode.value = settings.login_agreement_mode === 'checkbox' ? 'checkbox' : 'modal'
-  loginAgreementUpdatedAt.value = settings.login_agreement_updated_at || ''
-  loginAgreementRevision.value =
-    settings.login_agreement_revision ||
-    `${loginAgreementUpdatedAt.value}:${documents.map((doc) => `${doc.id}:${doc.title}`).join('|')}`
+  const resolved = resolveAgreementState(settings)
+  loginAgreementDocuments.value = resolved.documents
+  loginAgreementEnabled.value = resolved.enabled
+  loginAgreementMode.value = resolved.mode
+  loginAgreementUpdatedAt.value = resolved.updatedAt
+  loginAgreementRevision.value = resolved.revision
 
-  agreementAccepted.value = !loginAgreementEnabled.value || hasAcceptedLoginAgreement(loginAgreementRevision.value)
+  // Registration must require explicit consent per registration attempt (never inherit cached consent across accounts).
+  const sameRevisionAccepted =
+    Boolean(acceptedAgreementRevision.value) &&
+    acceptedAgreementRevision.value === loginAgreementRevision.value
+  agreementAccepted.value = !loginAgreementEnabled.value || sameRevisionAccepted
   showAgreementModal.value =
     loginAgreementEnabled.value && !agreementAccepted.value && loginAgreementMode.value !== 'checkbox'
 }
 
-function hasAcceptedLoginAgreement(revision: string): boolean {
-  if (!revision) {
-    return false
-  }
-  try {
-    const raw = localStorage.getItem(LOGIN_AGREEMENT_STORAGE_KEY)
-    if (!raw) {
-      return false
-    }
-    const parsed = JSON.parse(raw) as { revision?: string }
-    return parsed.revision === revision
-  } catch {
-    return false
-  }
-}
-
 function acceptLoginAgreement(): void {
-  if (loginAgreementRevision.value) {
-    localStorage.setItem(
-      LOGIN_AGREEMENT_STORAGE_KEY,
-      JSON.stringify({
-        revision: loginAgreementRevision.value,
-        accepted_at: new Date().toISOString()
-      })
-    )
-  }
+  acceptedAgreementRevision.value = loginAgreementRevision.value
   agreementAccepted.value = true
   showAgreementModal.value = false
 }
 
 function rejectLoginAgreement(): void {
-  localStorage.removeItem(LOGIN_AGREEMENT_STORAGE_KEY)
+  authStorage.loginAgreement.remove()
+  acceptedAgreementRevision.value = ''
   agreementAccepted.value = false
   showAgreementModal.value = false
   appStore.showWarning(t('legal.loginAgreementPrompt.registerRejectedWarning'))
@@ -970,6 +982,11 @@ function validateForm(): boolean {
 
   let isValid = true
 
+  if (publicSettingsError.value) {
+    errorMessage.value = t('publicPortal.legal.settingsLoadFailedHint')
+    return false
+  }
+
   if (agreementGateActive.value) {
     appStore.showWarning(t('legal.loginAgreementPrompt.registerRequiredWarning'))
     if (loginAgreementMode.value !== 'checkbox') {
@@ -1090,26 +1107,29 @@ async function handleRegister(): Promise<void> {
     if (affCode) {
       formData.aff_code = affCode
     }
+    const agreementPayload = buildSignupAgreementPayload(
+      loginAgreementEnabled.value,
+      agreementAccepted.value,
+      loginAgreementRevision.value
+    )
 
     // If email verification is enabled, redirect to verification page
     if (emailVerifyEnabled.value) {
       // Store registration data in sessionStorage
-      sessionStorage.setItem(
-        'register_data',
-        JSON.stringify({
-          email: formData.email,
-          ...(formData.username.trim() ? { username: formData.username.trim() } : {}),
-          ...(typeof route.query.redirect === 'string' ? { redirect: safeRedirect(route.query.redirect) } : {}),
-          password: formData.password,
-          turnstile_token:
-            turnstileEnabled.value || aliyunCaptchaEnabled.value ? turnstileToken.value : undefined,
-          tencent_captcha_ticket: tencentCaptchaEnabled.value ? turnstileToken.value : undefined,
-          tencent_captcha_randstr: tencentCaptchaEnabled.value ? tencentCaptchaRandstr.value : undefined,
-          promo_code: formData.promo_code || undefined,
-          invitation_code: formData.invitation_code.trim() || undefined,
-          ...(affCode ? { aff_code: affCode } : {})
-        })
-      )
+      authStorage.registerDraft.setJSON({
+        email: formData.email,
+        ...(formData.username.trim() ? { username: formData.username.trim() } : {}),
+        ...(typeof route.query.redirect === 'string' ? { redirect: safeRedirect(route.query.redirect) } : {}),
+        password: formData.password,
+        turnstile_token:
+          turnstileEnabled.value || aliyunCaptchaEnabled.value ? turnstileToken.value : undefined,
+        tencent_captcha_ticket: tencentCaptchaEnabled.value ? turnstileToken.value : undefined,
+        tencent_captcha_randstr: tencentCaptchaEnabled.value ? tencentCaptchaRandstr.value : undefined,
+        promo_code: formData.promo_code || undefined,
+        invitation_code: formData.invitation_code.trim() || undefined,
+        ...(affCode ? { aff_code: affCode } : {}),
+        ...agreementPayload
+      })
 
       // Navigate to email verification page
       await router.push('/email-verify')
@@ -1127,7 +1147,8 @@ async function handleRegister(): Promise<void> {
       tencent_captcha_randstr: tencentCaptchaEnabled.value ? tencentCaptchaRandstr.value : undefined,
       promo_code: formData.promo_code || undefined,
       invitation_code: formData.invitation_code.trim() || undefined,
-      ...(affCode ? { aff_code: affCode } : {})
+      ...(affCode ? { aff_code: affCode } : {}),
+      ...agreementPayload
     })
     clearAffiliateReferralCode()
 
@@ -1137,6 +1158,17 @@ async function handleRegister(): Promise<void> {
     // Redirect to dashboard
     await router.push(safeRedirect(route.query.redirect))
   } catch (error: unknown) {
+    if (extractApiErrorCode(error) === 'LOGIN_AGREEMENT_REQUIRED') {
+      acceptedAgreementRevision.value = ''
+      agreementAccepted.value = false
+      await loadPublicSettings()
+      errorMessage.value = t('publicPortal.legal.agreementRequiredRefresh')
+      appStore.showWarning(errorMessage.value)
+      if (loginAgreementEnabled.value && loginAgreementMode.value !== 'checkbox') {
+        showAgreementModal.value = true
+      }
+      return
+    }
     // Handle registration error
     errorMessage.value = buildRegistrationErrorMessage(error, t('auth.registrationFailed'))
 
@@ -1163,70 +1195,11 @@ function buildRegistrationErrorMessage(error: unknown, fallback: string): string
 </script>
 
 <style scoped>
-:is(input, select, textarea).input {
-  min-height: 40px;
-  min-width: 0;
-  border-radius: 8px;
-  border-color: var(--field-border, var(--input));
-  background: var(--card);
-  color: var(--foreground);
-  box-shadow: none;
-  transition: border-color 150ms ease, background-color 150ms ease;
+.border-green-500 {
+  border-color: var(--oh-ok-border) !important;
 }
 
-:is(input, select, textarea).input::placeholder { color: var(--muted-foreground); }
-:is(input, select, textarea).input:disabled { background: var(--surface-2); }
-:is(input, select, textarea).input:focus {
-  border-color: var(--field-border, var(--brand));
-  outline: 2px solid color-mix(in srgb, var(--field-border, var(--brand)) 22%, transparent);
-  outline-offset: 2px;
-  box-shadow: none;
-}
-
-.input-error { --field-border: var(--bad); }
-label.input-label { color: var(--foreground); }
-p.input-hint { color: var(--muted-foreground); }
-
-:is(button, a).btn {
-  min-height: 40px;
-  border-radius: 8px;
-  background-image: none;
-  box-shadow: none;
-  transform: none;
-  transition: background-color 150ms ease, border-color 150ms ease;
-}
-
-.btn.btn-primary { background: var(--primary); color: var(--primary-foreground); }
-.btn.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 90%, var(--card)); }
-.btn.btn-outline { border-color: var(--border); background: var(--card); color: var(--foreground); }
-.btn.btn-outline:hover:not(:disabled) { background: var(--surface-2); }
-
-.border-green-500 { --field-border: var(--ok); }
-.border-red-500 { --field-border: var(--bad); }
-
-button:focus-visible, a:focus-visible, summary:focus-visible {
-  outline: 2px solid var(--brand);
-  outline-offset: 3px;
-}
-
-input[type='checkbox'] { accent-color: var(--brand); }
-
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: all 0.3s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-  transform: translateY(-8px);
-}
-@media (prefers-reduced-motion: reduce) {
-  :is(button, a).btn, :is(input, select, textarea).input, .fade-enter-active, .fade-leave-active,
-  .agreement-fade-enter-active, .agreement-fade-leave-active,
-  .agreement-fade-enter-active > div, .agreement-fade-leave-active > div {
-    transition: none;
-  }
+.border-red-500 {
+  border-color: var(--oh-danger-border) !important;
 }
 </style>

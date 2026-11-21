@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
-	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/securitysecret"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 )
 
 const (
@@ -33,6 +33,16 @@ func ensureBootstrapSecrets(ctx context.Context, client *ent.Client, cfg *config
 	}
 
 	cfg.JWT.Secret = strings.TrimSpace(cfg.JWT.Secret)
+	if cfg.JWT.Secret != "" || cfg.JWT.Rotate {
+		if err := config.ValidateJWTSecret(cfg.Server.Mode, cfg.JWT.Secret); err != nil {
+			return err
+		}
+	}
+	if cfg.JWT.Rotate {
+		// The single upsert also repairs legacy values too short for normal bootstrap.
+		return client.SecuritySecret.Create().SetKey(securitySecretKeyJWT).SetValue(cfg.JWT.Secret).
+			OnConflictColumns(securitysecret.FieldKey).UpdateValue().Exec(ctx)
+	}
 	if cfg.JWT.Secret != "" {
 		storedSecret, err := createSecuritySecretIfAbsent(ctx, client, securitySecretKeyJWT, cfg.JWT.Secret)
 		if err != nil {
@@ -42,7 +52,7 @@ func ensureBootstrapSecrets(ctx context.Context, client *ent.Client, cfg *config
 			log.Println("Warning: configured JWT secret mismatches persisted value; using persisted secret for cross-instance consistency.")
 		}
 		cfg.JWT.Secret = storedSecret
-		return nil
+		return config.ValidateJWTSecret(cfg.Server.Mode, storedSecret)
 	}
 
 	secret, created, err := getOrCreateGeneratedSecuritySecret(ctx, client, securitySecretKeyJWT, 32)
@@ -50,6 +60,9 @@ func ensureBootstrapSecrets(ctx context.Context, client *ent.Client, cfg *config
 		return fmt.Errorf("ensure jwt secret: %w", err)
 	}
 	cfg.JWT.Secret = secret
+	if err := config.ValidateJWTSecret(cfg.Server.Mode, secret); err != nil {
+		return err
+	}
 
 	if created {
 		log.Println("Warning: JWT secret auto-generated and persisted to database. Consider rotating to a managed secret for production.")
@@ -62,7 +75,7 @@ func getOrCreateGeneratedSecuritySecret(ctx context.Context, client *ent.Client,
 	if err == nil {
 		value := strings.TrimSpace(existing.Value)
 		if len([]byte(value)) < 32 {
-			return "", false, fmt.Errorf("stored secret %q must be at least 32 bytes", key)
+			return "", false, fmt.Errorf("stored secret %q must be at least 32 bytes; set a fresh JWT_SECRET and JWT_ROTATE=true", key)
 		}
 		return value, false, nil
 	}
@@ -92,7 +105,7 @@ func getOrCreateGeneratedSecuritySecret(ctx context.Context, client *ent.Client,
 	}
 	value := strings.TrimSpace(stored.Value)
 	if len([]byte(value)) < 32 {
-		return "", false, fmt.Errorf("stored secret %q must be at least 32 bytes", key)
+		return "", false, fmt.Errorf("stored secret %q must be at least 32 bytes; set a fresh JWT_SECRET and JWT_ROTATE=true", key)
 	}
 	return value, value == generated, nil
 }
@@ -120,7 +133,7 @@ func createSecuritySecretIfAbsent(ctx context.Context, client *ent.Client, key, 
 	}
 	storedValue := strings.TrimSpace(stored.Value)
 	if len([]byte(storedValue)) < 32 {
-		return "", fmt.Errorf("stored secret %q must be at least 32 bytes", key)
+		return "", fmt.Errorf("stored secret %q must be at least 32 bytes; set a fresh JWT_SECRET and JWT_ROTATE=true", key)
 	}
 	return storedValue, nil
 }

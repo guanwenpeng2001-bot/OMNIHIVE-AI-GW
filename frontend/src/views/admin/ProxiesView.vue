@@ -111,6 +111,7 @@
               type="checkbox"
               class="h-4 w-4 cursor-pointer rounded border-gray-300 text-primary-600 focus:ring-primary-500"
               :checked="allVisibleSelected"
+              :aria-label="t('common.selectAll')"
               @click.stop
               @change="toggleSelectAllVisible($event)"
             />
@@ -121,6 +122,7 @@
               type="checkbox"
               class="h-4 w-4 cursor-pointer rounded border-gray-300 text-primary-600 focus:ring-primary-500"
               :checked="selectedProxyIds.has(row.id)"
+              :aria-label="row.name || `#${row.id}`"
               @click.stop
               @change="toggleSelectRow(row.id, $event)"
             />

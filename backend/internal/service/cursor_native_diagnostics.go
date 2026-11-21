@@ -6,9 +6,9 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
-	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/cursor"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/logredact"
 )
 
 func appendCursorNativeFailure(ctx context.Context, requestContext *gin.Context, account *Account, stage string, err error, run ...*cursor.RunDiagnostics) {

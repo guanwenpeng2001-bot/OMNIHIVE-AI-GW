@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	pkghttputil "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httputil"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ip"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"go.uber.org/zap"
 )
 
@@ -157,6 +157,9 @@ func (h *OpenAIGatewayHandler) handleQianfanAction(c *gin.Context, endpoint serv
 
 	reqLog = reqLog.With(zap.String("model", requestModel))
 	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, requestModel, endpoint.PlanProtocol(), h.maxAccountSwitches)()
+	if c.IsAborted() {
+		return
+	}
 	// 入口前置 hold：媒体/音频/realtime/异步 job 在调用上游之前先按估算占用周期预算，
 	// 结算时按实际消耗修正；没有周期预算的 Key 不产生额外工作（T3-2.2）。
 	if !reserveGatewayRequestBudget(c, apiKey, requestModel, body) {

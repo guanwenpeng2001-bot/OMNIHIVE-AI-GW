@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 func NewProxyExitInfoProber(cfg *config.Config) service.ProxyExitInfoProber {
@@ -32,6 +32,10 @@ func NewProxyExitInfoProber(cfg *config.Config) service.ProxyExitInfoProber {
 		log.Printf("[ProxyProbe] Warning: insecure_skip_verify is not allowed and will cause probe failure.")
 	}
 	// 构建探测 URL 列表：配置存在时覆盖内置默认列表。
+	var privateHosts []string
+	if cfg != nil {
+		privateHosts = cfg.Security.URLAllowlist.PrivateUpstreamHosts()
+	}
 	var configuredTargets []configuredProbeTarget
 	if cfg != nil && len(cfg.Security.ProxyProbe.URLs) > 0 {
 		configuredTargets = make([]configuredProbeTarget, 0, len(cfg.Security.ProxyProbe.URLs))
@@ -44,8 +48,8 @@ func NewProxyExitInfoProber(cfg *config.Config) service.ProxyExitInfoProber {
 	}
 
 	return &proxyProbeService{
-		insecureSkipVerify:  insecure,
-		allowPrivateHosts:   allowPrivate,
+		insecureSkipVerify: insecure,
+		allowPrivateHosts:  allowPrivate, privateHosts: privateHosts,
 		validateResolvedIP:  validateResolvedIP,
 		maxResponseBytes:    maxResponseBytes,
 		configuredProbeURLs: configuredTargets,
@@ -75,6 +79,7 @@ type configuredProbeTarget struct {
 
 type proxyProbeService struct {
 	insecureSkipVerify  bool
+	privateHosts        []string
 	allowPrivateHosts   bool
 	validateResolvedIP  bool
 	maxResponseBytes    int64
@@ -87,7 +92,7 @@ func (s *proxyProbeService) ProbeProxy(ctx context.Context, proxyURL string) (*s
 		Timeout:            defaultProxyProbeTimeout,
 		InsecureSkipVerify: s.insecureSkipVerify,
 		ValidateResolvedIP: s.validateResolvedIP,
-		AllowPrivateHosts:  s.allowPrivateHosts,
+		AllowPrivateHosts:  s.allowPrivateHosts, PrivateHosts: s.privateHosts,
 	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to create proxy client: %w", err)

@@ -2,6 +2,9 @@ package service
 
 import (
 	"encoding/json"
+	"os"
+	"os/exec"
+	"regexp"
 	"strconv"
 	"testing"
 
@@ -587,6 +590,19 @@ func buildToolSchemaNullTypeBody(t *testing.T, hits int) []byte {
 // 构造请求可以塞进百万级命中，会被放大成 TB 级 memcpy。这里用分配次数锁死该行为：
 // 命中数放大 500 倍，分配次数不得随之增长。
 func TestSanitizeOpenAIResponsesToolParameterTypes_RewriteCountIndependentOfHits(t *testing.T) {
+	// AllocsPerRun samples process-wide counters. Run without goroutines left
+	// behind by other service tests so only the rewrite is measured.
+	const child = "OMNIHIVE_TEST_SCHEMA_ALLOC_CHILD"
+	if os.Getenv(child) != "1" {
+		executable, err := os.Executable()
+		require.NoError(t, err)
+		cmd := exec.CommandContext(t.Context(), executable, "-test.run=^"+regexp.QuoteMeta(t.Name())+"$", "-test.v")
+		cmd.Env = append(os.Environ(), child+"=1")
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, "%s", output)
+		t.Logf("%s", output)
+		return
+	}
 	small := buildToolSchemaNullTypeBody(t, 4)
 	large := buildToolSchemaNullTypeBody(t, 2000)
 
@@ -597,6 +613,7 @@ func TestSanitizeOpenAIResponsesToolParameterTypes_RewriteCountIndependentOfHits
 		_, _, _ = sanitizeOpenAIResponsesToolParameterTypes(large)
 	})
 
+	t.Logf("allocations: 4 hits=%v, 2000 hits=%v", smallAllocs, largeAllocs)
 	// 命中切片扩容是对数级，留出充裕余量；线性写法在这里会是 2000 量级。
 	// 干净环境实测 large 约 17 allocs，200 是 10 倍余量，同时容忍 CI 慢 pod 上
 	// 包内后台 goroutine（日志/ticker）对进程级 Mallocs 的噪声污染。

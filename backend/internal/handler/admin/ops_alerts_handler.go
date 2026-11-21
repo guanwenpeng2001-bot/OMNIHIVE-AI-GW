@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/response"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 var validOpsAlertMetricTypes = []string{
@@ -408,6 +408,7 @@ func (h *OpsHandler) GetAlertEvent(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	ev.ErrorsURL = "/api/v1/admin/ops/requests?kind=error"
 	response.Success(c, ev)
 }
 
@@ -610,6 +611,9 @@ func (h *OpsHandler) ListAlertEvents(c *gin.Context) {
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
+	}
+	for _, event := range events {
+		event.ErrorsURL = "/api/v1/admin/ops/requests?kind=error"
 	}
 	response.Success(c, events)
 }

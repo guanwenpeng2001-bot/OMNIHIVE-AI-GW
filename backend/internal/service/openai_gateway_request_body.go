@@ -10,12 +10,12 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
-	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/apicompat"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/openai"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/urlvalidator"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -33,12 +33,9 @@ func (s *OpenAIGatewayService) validateOutboundURL(raw string) (string, error) {
 	if s.cfg == nil {
 		return urlvalidator.ValidateURLFormat(raw, false)
 	}
-	if !s.cfg.Security.URLAllowlist.Enabled {
-		return urlvalidator.ValidateURLFormat(raw, s.cfg.Security.URLAllowlist.AllowInsecureHTTP)
-	}
-	return urlvalidator.ValidateHTTPSURL(raw, urlvalidator.ValidationOptions{
+	return urlvalidator.ValidateHTTPURL(raw, s.cfg.Security.URLAllowlist.AllowInsecureHTTP, urlvalidator.ValidationOptions{
 		AllowedHosts:     s.cfg.Security.URLAllowlist.UpstreamHosts,
-		RequireAllowlist: true,
+		RequireAllowlist: s.cfg.Security.URLAllowlist.Enabled,
 		AllowPrivate:     s.cfg.Security.URLAllowlist.AllowPrivateHosts,
 	})
 }
@@ -1857,7 +1854,7 @@ func (e *OpenAIFastBlockedError) Error() string { return e.Message }
 //
 // Matching rules:
 //   - Scope filters by account type (all / oauth / apikey / bedrock)
-//   - UserIDs, when present, filters by the trusted Sub2API user that owns the API key
+//   - UserIDs, when present, filters by the trusted OmniHive user that owns the API key
 //   - ServiceTier must be empty (= any), "all", "missing", or equal the normalized tier
 //   - ModelWhitelist narrows the rule to specific models; FallbackAction
 //     handles the non-matching case (default: pass)

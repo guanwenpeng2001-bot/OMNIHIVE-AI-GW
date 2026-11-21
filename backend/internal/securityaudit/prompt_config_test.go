@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -193,7 +193,7 @@ func TestConfigManagerUndecryptableTokenStillFailsClosedForBlockingIntent(t *tes
 	require.NoError(t, manager.Reload(context.Background()))
 	require.Equal(t, ModeBlocking, manager.EffectiveMode())
 
-	service := &PromptService{config: manager, evaluator: NewGuardEvaluator(NewOpenAICompatibleScanner(), nil, nil)}
+	service := &PromptService{config: manager, evaluator: NewGuardEvaluator(localScanner(), nil, nil)}
 	decision, err := service.Evaluate(context.Background(), Request{
 		Protocol: "openai_chat_completions",
 		Body:     []byte(`{"messages":[{"role":"user","content":"hi"}]}`),

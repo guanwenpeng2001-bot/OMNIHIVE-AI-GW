@@ -13,12 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/Wei-Shaw/sub2api/internal/testutil"
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -100,6 +100,8 @@ func newInterruptedWSHandlerHarness(test *testing.T, upstreamURL, mode string, d
 	cfg.Default.RateMultiplier = 1
 	cfg.Security.URLAllowlist.Enabled = false
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	cfg.Security.URLAllowlist.AllowPrivateHosts = true
+	cfg.Security.URLAllowlist.UpstreamHosts = []string{"127.0.0.1"}
 	cfg.Gateway.OpenAIWS.Enabled = true
 	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
 	cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true

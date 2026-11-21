@@ -105,6 +105,8 @@ export interface RegisterRequest {
   promo_code?: string
   invitation_code?: string
   aff_code?: string
+  login_agreement_accepted?: boolean
+  login_agreement_revision?: string
 }
 
 export interface AffiliateInvitee {

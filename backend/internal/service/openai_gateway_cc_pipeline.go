@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/apicompat"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/responseheaders"
 	"go.uber.org/zap"
 )
 
@@ -204,7 +204,7 @@ func (s *OpenAIGatewayService) resolveCCFallbackTarget(account *Account) (apiKey
 // 账号级 header 覆写，最后经代理发出。传输层失败（DNS/TCP/TLS，无 HTTP 响应）
 // 统一由 handleOpenAIUpstreamTransportError 归一为 failover。
 //
-// userAgent 为空时保留默认 UA；Grok 的默认 UA 兜底由调用方解析后传入。
+// userAgent 是调用方解析的显式 UA 或 Grok 默认 UA。
 func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	ctx context.Context,
 	c *gin.Context,
@@ -271,6 +271,7 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	// 官方 OpenCode / Command Code 上游收敛为规范客户端 UA：客户端透传的编程库
 	// UA 会命中其前置 Cloudflare bot 拦截（CF 1010/403），并被计入账号 403 strike。
 	applyOpenCodeUpstreamUserAgent(account, targetURL, upstreamReq.Header)
+	applyOpenAIAPIKeyDefaultUserAgent(account, upstreamReq.Header)
 
 	// 账号级请求头覆写：放在所有内置默认头（含 Grok CLI 身份头）之后应用，
 	// 使配置值获得除共享传输层强制头之外的最高优先级。
@@ -356,9 +357,21 @@ func (s *OpenAIGatewayService) scanCCStream(
 		}
 
 		if u := extractCCStreamUsage(payload); u != nil {
-			if (account.Platform != PlatformMistral && account.Platform != PlatformOpenRouter) || mistralChatUsageKnown([]byte(payload)) {
+			if mistralChatUsageKnown([]byte(payload)) {
 				st.Usage = *u
 				st.UsageKnown = true
+			} else if !st.UsageKnown {
+				// Preserve observed counters for review. Separate partial chunks
+				// do not establish a complete, billable usage report.
+				raw := []byte(payload)
+				if _, ok := openRouterCounter(raw, "usage.prompt_tokens"); ok {
+					st.Usage.InputTokens = u.InputTokens
+				}
+				if _, ok := openRouterCounter(raw, "usage.completion_tokens"); ok {
+					st.Usage.OutputTokens = u.OutputTokens
+				}
+				u.InputTokens, u.OutputTokens = 0, 0
+				mergeOpenAIUsageNonZero(&st.Usage, *u)
 			}
 		}
 
@@ -394,14 +407,15 @@ func (s *OpenAIGatewayService) scanCCStream(
 		}
 		st.Err = err
 	}
+	if st.Err == nil {
+		switch {
+		case !st.SawDone:
+			st.Err = ErrOpenAIUpstreamStreamTruncated
+		case !st.UsageKnown:
+			st.Err = errors.New("upstream chat usage is unknown")
+		}
+	}
 	return st
-}
-
-// logCCStreamMissingDoneSentinel 记录"上游未发 [DONE] 哨兵即结束"的 debug 日志。
-func logCCStreamMissingDoneSentinel(logPrefix, requestID string) {
-	logger.L().Debug(logPrefix+": upstream stream ended without done sentinel",
-		zap.String("request_id", requestID),
-	)
 }
 
 // readCCUpstreamJSONResponse 读取并解析 CC 非流式 JSON 响应，失败时以调用方

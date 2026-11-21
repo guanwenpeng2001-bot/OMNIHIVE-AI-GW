@@ -6,10 +6,10 @@ import (
 	"errors"
 
 	entsql "entgo.io/ent/dialect/sql"
-	"github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/google/wire"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -113,7 +113,7 @@ var ProviderSet = wire.NewSet(
 	NewPluginRepository,
 	NewChannelRepository,
 	NewChannelMonitorRepository,
-	NewChannelMonitorV2Repository,
+	NewChannelTelemetryRepository,
 	NewChannelMonitorRequestTemplateRepository,
 	NewContentModerationRepository,
 	NewAffiliateRepository,
@@ -149,6 +149,7 @@ var ProviderSet = wire.NewSet(
 	NewAuthCacheInvalidationOutboxRepository,
 	NewProxyLatencyCache,
 	NewTotpCache,
+	NewMCPGrantRepository,
 	NewRefreshTokenCache,
 	NewErrorPassthroughCache,
 	NewTLSFingerprintProfileCache,

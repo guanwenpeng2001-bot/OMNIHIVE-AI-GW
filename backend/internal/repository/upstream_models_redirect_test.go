@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -58,7 +58,7 @@ func TestModelsDevRegistryRejectsRedirectWithoutCaching(t *testing.T) {
 	localTransport.Proxy = nil
 	defer localTransport.CloseIdleConnections()
 	transport := &modelsDevRedirectTransport{targetURL: target.URL + "/registry", localTransport: localTransport}
-	upstream, _ := NewHTTPUpstream(nil).(*httpUpstreamService)
+	upstream, _ := NewHTTPUpstream(loopbackUpstreamConfig()).(*httpUpstreamService)
 	entry, err := upstream.getOrCreateClient("", 99301, 1)
 	require.NoError(t, err)
 	// Substitute only network responses; the real repository HTTPUpstream,

@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -131,6 +131,9 @@ func ParseGrokMediaRequest(contentType string, body []byte) GrokMediaRequestInfo
 	info.SizeTier = NormalizeImageBillingTierOrDefault(info.Size)
 	info.AspectRatio = strings.TrimSpace(info.AspectRatio)
 	info.ImageResolution = grokImagineImageResolution(info.ImageResolution)
+	if info.ImageResolution != "" {
+		info.SizeTier = NormalizeImageBillingTierOrDefault(info.ImageResolution)
+	}
 	info.Resolution = NormalizeVideoBillingResolutionOrDefault(info.Resolution)
 	info.DurationSeconds = NormalizeVideoBillingDurationSecondsOrDefault(info.DurationSeconds)
 	if info.N <= 0 {

@@ -2527,6 +2527,12 @@
 
 <script setup lang="ts">
 import { nativeProfileBases, buildNativeProfileBases } from './nativeProfilePresets'
+import {
+  parsePoolModeRetryStatusCodes,
+  formatPoolModeRetryStatusCodes,
+  buildTempUnschedRules,
+  buildMixedChannelDetails
+} from '@/features/connections/rules'
 import TpmLimitField from '@/components/common/TpmLimitField.vue'
 import ModelAccessRuleEditor from '@/components/model-access/ModelAccessRuleEditor.vue'
 import CNProviderQuotaCell from './CNProviderQuotaCell.vue'
@@ -3135,37 +3141,6 @@ const poolModeEnabled = ref(false)
 const poolModeRetryCount = ref(DEFAULT_POOL_MODE_RETRY_COUNT)
 const poolModeRetryStatusCodesInput = ref('')
 
-function parsePoolModeRetryStatusCodes(input: string): number[] {
-  if (!input || !input.trim()) return []
-  const seen = new Set<number>()
-  const out: number[] = []
-  for (const token of input.split(/[,\s]+/)) {
-    const trimmed = token.trim()
-    if (!trimmed) continue
-    const n = Number(trimmed)
-    if (!Number.isFinite(n) || !Number.isInteger(n)) continue
-    if (n < 100 || n > 599) continue
-    if (seen.has(n)) continue
-    seen.add(n)
-    out.push(n)
-  }
-  return out.sort((a, b) => a - b)
-}
-
-function formatPoolModeRetryStatusCodes(value: unknown): string {
-  if (!Array.isArray(value)) return ''
-  const out: number[] = []
-  const seen = new Set<number>()
-  for (const v of value) {
-    const n = typeof v === 'string' ? Number(v.trim()) : Number(v)
-    if (!Number.isFinite(n) || !Number.isInteger(n)) continue
-    if (n < 100 || n > 599) continue
-    if (seen.has(n)) continue
-    seen.add(n)
-    out.push(n)
-  }
-  return out.sort((a, b) => a - b).join(', ')
-}
 const customErrorCodesEnabled = ref(false)
 const selectedErrorCodes = ref<number[]>([])
 const customErrorCodeInput = ref<number | null>(null)
@@ -4286,38 +4261,6 @@ const moveTempUnschedRule = (index: number, direction: number) => {
   rules[target] = current
 }
 
-const buildTempUnschedRules = (rules: TempUnschedRuleForm[]) => {
-  const out: Array<{
-    error_code: number
-    keywords: string[]
-    duration_minutes: number
-    description: string
-  }> = []
-
-  for (const rule of rules) {
-    const errorCode = Number(rule.error_code)
-    const duration = Number(rule.duration_minutes)
-    const keywords = splitTempUnschedKeywords(rule.keywords)
-    if (!Number.isFinite(errorCode) || errorCode < 100 || errorCode > 599) {
-      continue
-    }
-    if (!Number.isFinite(duration) || duration <= 0) {
-      continue
-    }
-    if (keywords.length === 0) {
-      continue
-    }
-    out.push({
-      error_code: Math.trunc(errorCode),
-      keywords,
-      duration_minutes: Math.trunc(duration),
-      description: rule.description.trim()
-    })
-  }
-
-  return out
-}
-
 const applyTempUnschedConfig = (credentials: Record<string, unknown>) => {
   if (!tempUnschedEnabled.value) {
     delete credentials.temp_unschedulable_enabled
@@ -4512,13 +4455,6 @@ function formatTempUnschedKeywords(value: unknown) {
   return ''
 }
 
-const splitTempUnschedKeywords = (value: string) => {
-  return value
-    .split(/[,;]/)
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0)
-}
-
 function toPositiveNumber(value: unknown) {
   const num = Number(value)
   if (!Number.isFinite(num) || num <= 0) {
@@ -4528,18 +4464,6 @@ function toPositiveNumber(value: unknown) {
 }
 
 const needsMixedChannelCheck = () => props.account?.platform === 'antigravity' || props.account?.platform === 'anthropic'
-
-const buildMixedChannelDetails = (resp?: CheckMixedChannelResponse) => {
-  const details = resp?.details
-  if (!details) {
-    return null
-  }
-  return {
-    groupName: details.group_name || 'Unknown',
-    currentPlatform: details.current_platform || 'Unknown',
-    otherPlatform: details.other_platform || 'Unknown'
-  }
-}
 
 const clearMixedChannelDialog = () => {
   showMixedChannelWarning.value = false

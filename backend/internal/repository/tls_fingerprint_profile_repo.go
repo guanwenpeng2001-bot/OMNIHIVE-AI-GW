@@ -3,9 +3,9 @@ package repository
 import (
 	"context"
 
-	"github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
-	"github.com/Wei-Shaw/sub2api/internal/model"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/tlsfingerprintprofile"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/model"
 )
 
 type tlsFingerprintProfileRepository struct {

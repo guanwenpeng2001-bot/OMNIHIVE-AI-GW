@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/geminicli"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
 )
 
 const defaultGeminiBatchRequeueAfter = 30 * time.Second
@@ -536,7 +536,10 @@ func batchImageDefaultHTTPClient() *http.Client {
 		ResponseHeaderTimeout: 60 * time.Second,
 	})
 	if err != nil {
-		return http.DefaultClient
+		baseTransport, _ := http.DefaultTransport.(*http.Transport)
+		transport := baseTransport.Clone()
+		transport.ResponseHeaderTimeout = 60 * time.Second
+		return &http.Client{Transport: httpclient.NewPublicTransport(transport)}
 	}
 	return client
 }

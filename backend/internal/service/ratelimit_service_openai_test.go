@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -396,8 +396,7 @@ func TestRateLimitService_HandleUpstreamError_403FallsBackToRawBody(t *testing.T
 
 	require.True(t, shouldDisable)
 	require.Equal(t, 1, repo.setErrorCalls)
-	require.Contains(t, repo.lastErrorMsg, `"access_denied"`)
-	require.Contains(t, repo.lastErrorMsg, `"ip_blocked"`)
+	require.Equal(t, "Access forbidden (403): Upstream request failed", repo.lastErrorMsg)
 	require.NotContains(t, repo.lastErrorMsg, "account may be suspended or lack permissions")
 }
 

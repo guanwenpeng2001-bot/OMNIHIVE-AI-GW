@@ -1,8 +1,34 @@
 <template>
   <AppLayout>
+    <BillingNav />
     <div class="w-full space-y-6">
       <div v-if="loading" class="flex items-center justify-center py-20">
         <LoadingSpinner size="md" color="primary" />
+      </div>
+      <div
+        v-else-if="isPaymentDisabled"
+        data-testid="payment-disabled-notice"
+        class="card p-6 sm:p-8"
+      >
+        <div class="space-y-3">
+          <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+            {{ t('publicPortal.paymentDisabled.title') }}
+          </h2>
+          <p class="text-sm text-gray-600 dark:text-dark-300">
+            {{ t('publicPortal.paymentDisabled.description') }}
+          </p>
+          <div class="flex flex-wrap gap-3 pt-2">
+            <router-link to="/redeem" class="btn btn-primary text-sm">
+              {{ t('publicPortal.paymentDisabled.redeemAction') }}
+            </router-link>
+            <router-link to="/dashboard" class="btn btn-secondary text-sm">
+              {{ t('publicPortal.paymentDisabled.dashboardAction') }}
+            </router-link>
+            <router-link to="/docs#support" class="btn btn-secondary text-sm">
+              {{ t('publicPortal.paymentDisabled.supportAction') }}
+            </router-link>
+          </div>
+        </div>
       </div>
       <template v-else>
         <!-- Tab Switcher (hide during payment and subscription confirm) -->
@@ -278,6 +304,7 @@ import { isMobileDevice } from '@/utils/device'
 import { hasPeakRate, formatPeakRateWindow, serverTimezoneLabel, type PeakRateFields } from '@/utils/peak-rate'
 import type { SubscriptionPlan, CheckoutInfoResponse, CreateOrderResult, OrderType } from '@/types/payment'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import BillingNav from '@/features/billing/components/BillingNav.vue'
 import AmountInput from '@/components/payment/AmountInput.vue'
 import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
 import { METHOD_ORDER, getPaymentPopupFeatures, isBuiltInAlipayMethod, isBuiltInWxpayMethod } from '@/components/payment/providerConfig'
@@ -333,6 +360,7 @@ function subscriptionPeakRateLabel(sub: { group?: PeakRateFields | null }): stri
 }
 
 const loading = ref(true)
+const isPaymentDisabled = computed(() => appStore.cachedPublicSettings?.payment_enabled === false)
 const submitting = ref(false)
 const errorMessage = ref('')
 const errorHintMessage = ref('')
@@ -1144,6 +1172,10 @@ async function resumeWechatPaymentFromQuery() {
 }
 
 onMounted(async () => {
+  if (isPaymentDisabled.value) {
+    loading.value = false
+    return
+  }
   try {
     const res = await paymentAPI.getCheckoutInfo()
     if (!lifecycle.isCurrent()) return

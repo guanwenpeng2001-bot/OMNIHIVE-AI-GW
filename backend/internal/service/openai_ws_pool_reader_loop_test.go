@@ -14,7 +14,7 @@ import (
 	coderws "github.com/coder/websocket"
 	"github.com/stretchr/testify/require"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 )
 
 // openAIWSReaderLoopFakeConn 模拟 coder/websocket 的契约：
@@ -553,7 +553,7 @@ func TestOpenAIWSConnReaderLoop_ReadTimeoutAbortsWithoutCloseHandshake(t *testin
 	}))
 	defer server.Close()
 
-	ws, _, _, err := newDefaultOpenAIWSClientDialer().Dial(context.Background(), "ws"+strings.TrimPrefix(server.URL, "http"), nil, "")
+	ws, _, _, err := newDefaultOpenAIWSClientDialer(wsLoopbackTestConfig()).Dial(context.Background(), "ws"+strings.TrimPrefix(server.URL, "http"), nil, "")
 	require.NoError(t, err)
 	conn := newOpenAIWSConn("rl_read_timeout_abort", 1, ws, nil)
 	defer conn.close()
@@ -707,7 +707,7 @@ func TestOpenAIWSConnReaderLoop_RealConnAnswersServerPingWhileIdle(t *testing.T)
 	}))
 	defer server.Close()
 
-	ws, _, _, err := newDefaultOpenAIWSClientDialer().Dial(context.Background(), "ws"+strings.TrimPrefix(server.URL, "http"), nil, "")
+	ws, _, _, err := newDefaultOpenAIWSClientDialer(wsLoopbackTestConfig()).Dial(context.Background(), "ws"+strings.TrimPrefix(server.URL, "http"), nil, "")
 	require.NoError(t, err)
 	conn := newOpenAIWSConn("rl_real", 1, ws, nil)
 	defer conn.close()
@@ -791,4 +791,14 @@ func TestOpenAIWSConnPool_AcquireSkipsDirtyIdleConn(t *testing.T) {
 	require.NotEqual(t, firstID, second.ConnID(), "脏连接不应再被借出")
 	require.Len(t, dialer.dialed(), 2)
 	requireConnClosed(t, first.conn)
+}
+
+func loopbackHTTPTestConfig() *config.Config {
+	cfg := wsLoopbackTestConfig()
+	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	return cfg
+}
+
+func wsLoopbackTestConfig() *config.Config {
+	return &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{AllowPrivateHosts: true, UpstreamHosts: []string{"127.0.0.1"}}}}
 }

@@ -1,8 +1,8 @@
 package handler
 
 import (
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 	"go.uber.org/zap"
 )
 

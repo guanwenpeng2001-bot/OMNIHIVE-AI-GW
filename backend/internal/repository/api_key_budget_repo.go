@@ -10,7 +10,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/gatewaybudget"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/shopspring/decimal"
 )
 
 // This file owns the period-budget persistence: the policy projection on
@@ -242,9 +245,10 @@ func (r *apiKeyRepository) AdjustAPIKeyBudgetUsage(ctx context.Context, cmd *ser
 type budgetRow struct {
 	apiKeyID    int64
 	policy      service.APIKeyBudgetPolicy
-	used        float64
-	reserved    float64
-	overrun     float64
+	used        decimal.Decimal
+	reserved    decimal.Decimal
+	overrun     decimal.Decimal
+	limit       decimal.Decimal
 	periodStart *time.Time
 	periodEnd   *time.Time
 }
@@ -256,7 +260,7 @@ func lockBudgetRow(ctx context.Context, tx *sql.Tx, apiKeyID int64) (*budgetRow,
 			budget_period_start,budget_period_end
 		FROM api_keys WHERE id = $1 AND deleted_at IS NULL FOR NO KEY UPDATE`, apiKeyID).
 		Scan(&row.apiKeyID, &row.policy.Mode, &row.policy.DurationSeconds, &row.policy.Anchor,
-			&row.policy.CalendarUnit, &row.policy.Timezone, &row.policy.LimitUSD, &row.policy.Enforced,
+			&row.policy.CalendarUnit, &row.policy.Timezone, &row.limit, &row.policy.Enforced,
 			&row.used, &row.reserved, &row.overrun, &row.periodStart, &row.periodEnd)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, service.ErrAPIKeyNotFound
@@ -264,6 +268,7 @@ func lockBudgetRow(ctx context.Context, tx *sql.Tx, apiKeyID int64) (*budgetRow,
 	if err != nil {
 		return nil, err
 	}
+	row.policy.LimitUSD = row.limit.InexactFloat64()
 	row.policy = row.policy.Normalize()
 	return &row, nil
 }
@@ -282,7 +287,7 @@ func freezeBudgetPeriod(ctx context.Context, tx *sql.Tx, row *budgetRow, start, 
 				limit_amount = EXCLUDED.limit_amount,
 				closed_at = NOW(),
 				updated_at = NOW()`,
-			row.apiKeyID, row.periodStart.UTC(), row.periodEnd.UTC(), row.policy.LimitUSD, row.used, row.overrun); err != nil {
+			row.apiKeyID, row.periodStart.UTC(), row.periodEnd.UTC(), row.limit, row.used, row.overrun); err != nil {
 			return err
 		}
 	}
@@ -297,21 +302,35 @@ func freezeBudgetPeriod(ctx context.Context, tx *sql.Tx, row *budgetRow, start, 
 		WHERE id = $1 AND deleted_at IS NULL`, row.apiKeyID, start.UTC(), end.UTC()); err != nil {
 		return err
 	}
-	row.used, row.reserved, row.overrun = 0, 0, 0
+	row.used, row.reserved, row.overrun = decimal.Zero, decimal.Zero, decimal.Zero
 	row.periodStart, row.periodEnd = &start, &end
 	return nil
 }
 
 // ReserveKeyBudget takes one atomic request-level hold.
 //
-// Lock order is users -> api_keys -> reservation, and settlement/release use the
-// same order (reservation -> users -> api_keys). Consistency matters: a hold and
-// a settlement of the same payer must never deadlock, and no request may overdraw
-// the budget or the payer balance.
+// Admission locks payer then key before inserting a new identity. A duplicate
+// reads the existing reservation without taking its row lock. Settlement and
+// release lock the existing reservation before payer and key.
 func (r *usageSettlementReceiptRepository) ReserveKeyBudget(ctx context.Context, cmd *service.KeyBudgetReservationCommand) (*service.KeyBudgetReservationOutcome, error) {
-	if cmd == nil {
+	if cmd == nil || service.ValidateUsageBillingAmount(cmd.HoldAmount) != nil {
 		return nil, service.ErrAPIKeyBudgetInvalid
 	}
+	return r.reserveExactKeyBudget(ctx, cmd, decimal.NewFromFloat(cmd.HoldAmount).RoundCeil(service.UsageBillingMonetaryScale))
+}
+
+func (r *usageSettlementReceiptRepository) ReserveKeyBudgetAmount(ctx context.Context, cmd *service.KeyBudgetReservationCommand, amount money.Money) (*service.KeyBudgetReservationOutcome, error) {
+	if cmd == nil || amount.Currency() != "USD" {
+		return nil, service.ErrAPIKeyBudgetInvalid
+	}
+	hold, err := decimal.NewFromString(amount.String())
+	if err != nil {
+		return nil, err
+	}
+	return r.reserveExactKeyBudget(ctx, cmd, hold)
+}
+
+func (r *usageSettlementReceiptRepository) reserveExactKeyBudget(ctx context.Context, cmd *service.KeyBudgetReservationCommand, hold decimal.Decimal) (*service.KeyBudgetReservationOutcome, error) {
 	copy := *cmd
 	copy.Normalize()
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -322,12 +341,11 @@ func (r *usageSettlementReceiptRepository) ReserveKeyBudget(ctx context.Context,
 	// wanted outcome when the key turns out to have no active period budget.
 	defer func() { _ = tx.Rollback() }()
 
-	hold := copy.HoldAmount
-	if hold < 0 {
-		hold = 0
+	if hold.IsNegative() {
+		return nil, service.ErrAPIKeyBudgetInvalid
 	}
 	balanceHeld := !copy.SkipBalanceHold
-	if hold > 0 && balanceHeld {
+	if hold.IsPositive() && balanceHeld {
 		// The hold is real money: deduct it from the payer balance now so a
 		// concurrent request cannot spend the same balance twice.
 		res, err := tx.ExecContext(ctx, `
@@ -375,18 +393,18 @@ func (r *usageSettlementReceiptRepository) ReserveKeyBudget(ctx context.Context,
 		return &service.KeyBudgetReservationOutcome{
 			Duplicate:   true,
 			LimitUSD:    row.policy.LimitUSD,
-			UsedUSD:     row.used,
-			ReservedUSD: row.reserved,
+			UsedUSD:     row.used.InexactFloat64(),
+			ReservedUSD: row.reserved.InexactFloat64(),
 		}, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
 
-	if row.policy.LimitUSD > 0 && row.used+row.reserved+hold > row.policy.LimitUSD+1e-9 {
+	if row.limit.IsPositive() && row.used.Add(row.reserved).Add(hold).GreaterThan(row.limit) {
 		return nil, service.ErrAPIKeyBudgetExceeded
 	}
-	if hold > 0 {
+	if hold.IsPositive() {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE api_keys SET budget_reserved = budget_reserved + $1, updated_at = NOW()
 			WHERE id = $2 AND deleted_at IS NULL`, hold, copy.APIKeyID); err != nil {
@@ -413,14 +431,14 @@ func (r *usageSettlementReceiptRepository) ReserveKeyBudget(ctx context.Context,
 			RequestID:   copy.RequestID,
 			APIKeyID:    copy.APIKeyID,
 			UserID:      copy.UserID,
-			HoldAmount:  hold,
+			HoldAmount:  hold.InexactFloat64(),
 			BalanceHeld: balanceHeld,
 			PeriodStart: start.UTC(),
 			PeriodEnd:   end.UTC(),
 		},
 		LimitUSD:    row.policy.LimitUSD,
-		UsedUSD:     row.used,
-		ReservedUSD: row.reserved,
+		UsedUSD:     row.used.InexactFloat64(),
+		ReservedUSD: row.reserved.InexactFloat64(),
 	}, nil
 }
 
@@ -446,7 +464,7 @@ func releaseKeyBudgetReservationTx(ctx context.Context, tx *sql.Tx, apiKeyID int
 	var (
 		id          int64
 		userID      int64
-		hold        float64
+		hold        decimal.Decimal
 		balanceHeld bool
 		status      string
 		periodStart *time.Time
@@ -465,20 +483,34 @@ func releaseKeyBudgetReservationTx(ctx context.Context, tx *sql.Tx, apiKeyID int
 	if status != keyBudgetReservationStatusReserved {
 		return false, nil
 	}
+	// Dispatch locks the execution before publishing its attempt. Take the same
+	// lock before deciding whether this hold still has an unsettled sender.
+	if _, err := tx.ExecContext(ctx, `SELECT e.request_id FROM gateway_executions e JOIN api_key_budget_reservations h
+   ON e.api_key_id=h.api_key_id AND e.funding_user_id=h.user_id AND e.reservation_ref=h.request_id
+   WHERE h.id=$1 ORDER BY e.request_id FOR UPDATE OF e`, id); err != nil {
+		return false, err
+	}
+	var unresolved bool
+	if err := tx.QueryRowContext(ctx, `SELECT `+gatewaybudget.UnresolvedDispatch+` FROM api_key_budget_reservations h WHERE h.id=$1`, id).Scan(&unresolved); err != nil {
+		return false, err
+	}
+	if unresolved {
+		return false, nil
+	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE api_key_budget_reservations
 		SET status = 'released', updated_at = NOW()
 		WHERE id = $1`, id); err != nil {
 		return false, err
 	}
-	if hold > 0 && balanceHeld {
+	if hold.IsPositive() && balanceHeld {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE users SET balance = balance + $1, updated_at = NOW()
 			WHERE id = $2 AND deleted_at IS NULL`, hold, userID); err != nil {
 			return false, err
 		}
 	}
-	if hold > 0 {
+	if hold.IsPositive() {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE api_keys SET budget_reserved = GREATEST(budget_reserved - $1, 0), updated_at = NOW()
 			WHERE id = $2 AND deleted_at IS NULL
@@ -492,50 +524,80 @@ func releaseKeyBudgetReservationTx(ctx context.Context, tx *sql.Tx, apiKeyID int
 
 const keyBudgetReservationStatusReserved = "reserved"
 
-// ReleaseExpiredKeyBudgetReservations refunds abandoned holds so a crashed
-// process cannot strand budget or balance.
+// The hold and the receipt need not share a request ID. Journaled requests
+// bind the original reservation reference to a distinct execution UUID.
+const unownedExpiredHold = `h.status='reserved' AND h.expires_at < $1
+ AND NOT EXISTS (SELECT 1 FROM usage_settlement_receipts r
+   WHERE r.api_key_id=h.api_key_id AND r.user_id=h.user_id AND r.state='pending'
+     AND (r.request_id=h.request_id OR r.billing_command->>'BudgetReservationID'=h.id::text))
+ AND NOT EXISTS (SELECT 1 FROM gateway_executions e
+   WHERE e.api_key_id=h.api_key_id AND e.funding_user_id=h.user_id AND e.reservation_ref=h.request_id
+     AND ((e.finished_at IS NULL AND e.deadline>clock_timestamp()) OR ` + gatewaybudget.UnresolvedDispatch + `))`
+
 func (r *usageSettlementReceiptRepository) ReleaseExpiredKeyBudgetReservations(ctx context.Context, now time.Time, limit int) (int, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT api_key_id, request_id
-		FROM api_key_budget_reservations
-		WHERE status = 'reserved' AND expires_at < $1
-		ORDER BY id
-		LIMIT $2`, now.UTC(), limit)
+	rows, err := r.db.QueryContext(ctx, `SELECT h.id FROM api_key_budget_reservations h WHERE `+unownedExpiredHold+` ORDER BY h.id LIMIT $2`, now.UTC(), limit)
 	if err != nil {
 		return 0, err
 	}
-	type identity struct {
-		apiKeyID  int64
-		requestID string
-	}
-	pending := make([]identity, 0, limit)
+	var ids []int64
 	for rows.Next() {
-		var item identity
-		if err := rows.Scan(&item.apiKeyID, &item.requestID); err != nil {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
 			_ = rows.Close()
 			return 0, err
 		}
-		pending = append(pending, item)
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return 0, err
+		ids = append(ids, id)
 	}
 	_ = rows.Close()
-
-	released := 0
-	for _, item := range pending {
-		if err := r.ReleaseKeyBudgetReservation(ctx, item.apiKeyID, item.requestID); err != nil {
-			slog.Warn("release expired key budget reservation",
-				"api_key_id", item.apiKeyID, "error", err)
-			continue
-		}
-		released++
+	if err := rows.Err(); err != nil {
+		return 0, err
 	}
-	return released, nil
+	count := 0
+	for _, id := range ids {
+		released, err := r.releaseExpiredHold(ctx, now, id)
+		if err != nil {
+			return count, err
+		}
+		if released {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (r *usageSettlementReceiptRepository) releaseExpiredHold(ctx context.Context, now time.Time, id int64) (bool, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	// Serialize with dispatch first and hold adoption second. The final ownership
+	// query uses a fresh READ COMMITTED snapshot after waiting for those writers.
+	if _, err = tx.ExecContext(ctx, `SELECT e.request_id FROM gateway_executions e JOIN api_key_budget_reservations h
+   ON e.api_key_id=h.api_key_id AND e.funding_user_id=h.user_id AND e.reservation_ref=h.request_id
+   WHERE h.id=$1 ORDER BY e.request_id FOR UPDATE OF e`, id); err != nil {
+		return false, err
+	}
+	if _, err = tx.ExecContext(ctx, `SELECT id FROM api_key_budget_reservations WHERE id=$1 FOR UPDATE`, id); err != nil {
+		return false, err
+	}
+	var keyID int64
+	var ref string
+	err = tx.QueryRowContext(ctx, `SELECT h.api_key_id,h.request_id FROM api_key_budget_reservations h WHERE h.id=$2 AND `+unownedExpiredHold, now.UTC(), id).Scan(&keyID, &ref)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	released, err := releaseKeyBudgetReservationTx(ctx, tx, keyID, ref)
+	if err != nil {
+		return false, err
+	}
+	return released, tx.Commit()
 }
 
 // keyBudgetHold is the locked hold handed from the reservation phase to the
@@ -544,7 +606,7 @@ type keyBudgetHold struct {
 	reservationID int64
 	apiKeyID      int64
 	userID        int64
-	holdAmount    float64
+	holdAmount    decimal.Decimal
 	balanceHeld   bool
 	periodStart   *time.Time
 	periodEnd     *time.Time
@@ -562,8 +624,8 @@ func lockKeyBudgetReservation(ctx context.Context, tx *sql.Tx, cmd *service.Usag
 	err := tx.QueryRowContext(ctx, `
 		SELECT id, api_key_id, user_id, hold_amount, balance_held, status, period_start, period_end
 		FROM api_key_budget_reservations
-		WHERE id = $1 AND api_key_id = $2
-		FOR UPDATE`, cmd.BudgetReservationID, cmd.APIKeyID).
+		WHERE id = $1 AND api_key_id = $2 AND user_id=$3
+		FOR UPDATE`, cmd.BudgetReservationID, cmd.APIKeyID, cmd.UserID).
 		Scan(&hold.reservationID, &hold.apiKeyID, &hold.userID, &hold.holdAmount, &hold.balanceHeld, &status, &hold.periodStart, &hold.periodEnd)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -577,7 +639,7 @@ func lockKeyBudgetReservation(ctx context.Context, tx *sql.Tx, cmd *service.Usag
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE api_key_budget_reservations
 		SET status = 'settled', settled_amount = $2, updated_at = NOW()
-		WHERE id = $1`, hold.reservationID, cmd.BalanceCost); err != nil {
+		WHERE id = $1`, hold.reservationID, cmd.CustomerEffect(cmd.BalanceCost+cmd.SubscriptionCost)); err != nil {
 		return nil, err
 	}
 	return hold, nil
@@ -590,13 +652,13 @@ func lockKeyBudgetReservation(ctx context.Context, tx *sql.Tx, cmd *service.Usag
 // A settlement without a live hold (released, expired or never reserved) still
 // charges the key's current period: the actual cost must never be dropped from
 // the budget just because the hold is gone.
-func settleKeyBudgetCounters(ctx context.Context, tx *sql.Tx, hold *keyBudgetHold, apiKeyID int64, actual float64, result *service.UsageBillingApplyResult) error {
+func settleKeyBudgetCounters(ctx context.Context, tx *sql.Tx, hold *keyBudgetHold, apiKeyID int64, actual decimal.Decimal, result *service.UsageBillingApplyResult) error {
 	if hold == nil {
 		return chargeKeyBudgetPeriodWithoutHold(ctx, tx, apiKeyID, actual, result)
 	}
 	var (
 		currentStart *time.Time
-		limit        float64
+		limit        decimal.Decimal
 	)
 	err := tx.QueryRowContext(ctx, `
 		SELECT budget_period_start, budget_limit
@@ -641,7 +703,7 @@ func settleKeyBudgetCounters(ctx context.Context, tx *sql.Tx, hold *keyBudgetHol
 	if hold.periodStart == nil || hold.periodEnd == nil {
 		return nil
 	}
-	var frozenLimit float64
+	var frozenLimit decimal.Decimal
 	err = tx.QueryRowContext(ctx, `
 		SELECT limit_amount FROM api_key_budget_periods
 		WHERE api_key_id = $1 AND period_start = $2`, hold.apiKeyID, hold.periodStart.UTC()).Scan(&frozenLimit)
@@ -688,8 +750,8 @@ func settleKeyBudgetCounters(ctx context.Context, tx *sql.Tx, hold *keyBudgetHol
 // chargeKeyBudgetPeriodWithoutHold records an actual cost whose request hold is
 // gone. It only touches keys that really have an active period budget, clamps at
 // the limit and keeps the excess as overrun instead of dropping it.
-func chargeKeyBudgetPeriodWithoutHold(ctx context.Context, tx *sql.Tx, apiKeyID int64, actual float64, result *service.UsageBillingApplyResult) error {
-	if apiKeyID <= 0 || actual <= 0 {
+func chargeKeyBudgetPeriodWithoutHold(ctx context.Context, tx *sql.Tx, apiKeyID int64, actual decimal.Decimal, result *service.UsageBillingApplyResult) error {
+	if apiKeyID <= 0 || !actual.IsPositive() {
 		return nil
 	}
 	var (
@@ -724,7 +786,7 @@ func chargeKeyBudgetPeriodWithoutHold(ctx context.Context, tx *sql.Tx, apiKeyID 
 
 // refundKeyBudgetHold returns the held balance before the actual cost is applied.
 func refundKeyBudgetHold(ctx context.Context, tx *sql.Tx, hold *keyBudgetHold) error {
-	if hold == nil || hold.holdAmount <= 0 || !hold.balanceHeld {
+	if hold == nil || !hold.holdAmount.IsPositive() || !hold.balanceHeld {
 		return nil
 	}
 	_, err := tx.ExecContext(ctx, `
@@ -750,8 +812,8 @@ func observeBillingBalanceUncovered(amount float64) {
 // recordKeyBudgetUncovered persists the part of the actual cost the payer
 // balance could not cover, so the shortfall is on the books instead of being
 // silently dropped or written as an unconditional overdraft.
-func recordKeyBudgetUncovered(ctx context.Context, tx *sql.Tx, hold *keyBudgetHold, uncovered float64) error {
-	if hold == nil || uncovered <= 0 {
+func recordKeyBudgetUncovered(ctx context.Context, tx *sql.Tx, hold *keyBudgetHold, uncovered decimal.Decimal) error {
+	if hold == nil || !uncovered.IsPositive() {
 		return nil
 	}
 	_, err := tx.ExecContext(ctx, `

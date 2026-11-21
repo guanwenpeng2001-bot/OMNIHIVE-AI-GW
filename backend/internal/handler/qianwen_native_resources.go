@@ -5,11 +5,11 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ip"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
@@ -100,6 +100,9 @@ func (h *OpenAIGatewayHandler) handleQianwenNativeSyncResource(c *gin.Context, o
 	// Voice listing and deletion are resource management, not generation.
 	if operation != service.QianwenNativeVoiceEnrollment || gjson.GetBytes(body, "input.action").String() == "create" {
 		defer beginGatewayRequestPlan(c, h.gatewayService, key, model, "resources", h.maxAccountSwitches)()
+		if c.IsAborted() {
+			return
+		}
 	}
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 	result, err := h.gatewayService.ForwardQianwenNative(c.Request.Context(), c, account, operation, body, false)

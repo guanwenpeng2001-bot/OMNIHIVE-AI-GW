@@ -1,0 +1,112 @@
+{
+  "path": "/openai/v1/messages",
+  "request": {
+    "model": "grok",
+    "max_tokens": 16,
+    "messages": [
+      {
+        "role": "user",
+        "content": "hello"
+      }
+    ]
+  },
+  "terminal": "\"type\":\"message\"",
+  "failures": [
+    {
+      "mode": "revoked",
+      "attempt_number": 0,
+      "remaining": 4,
+      "action": "switch_account",
+      "reason": "account_switch",
+      "excluded": [
+        801
+      ],
+      "acceptance": "not_sent"
+    },
+    {
+      "mode": "first_429",
+      "attempt_number": 1,
+      "remaining": 3,
+      "action": "switch_account",
+      "reason": "account_switch",
+      "excluded": [
+        801
+      ],
+      "acceptance": "not_sent"
+    },
+    {
+      "mode": "first_429",
+      "event": "heartbeat",
+      "action": "switch_account",
+      "reason": "account_switch",
+      "excluded": [
+        801
+      ],
+      "attempt_number": 1,
+      "acceptance": "not_sent",
+      "remaining": 3
+    },
+    {
+      "mode": "first_429",
+      "event": "semantic",
+      "action": "stop",
+      "reason": "response_committed",
+      "excluded": [],
+      "attempt_number": 1,
+      "acceptance": "not_sent",
+      "remaining": 3
+    },
+    {
+      "mode": "first_429",
+      "event": "terminal_failed",
+      "action": "stop",
+      "reason": "response_committed",
+      "excluded": [],
+      "attempt_number": 1,
+      "acceptance": "not_sent",
+      "remaining": 3
+    },
+    {
+      "mode": "first_429",
+      "event": "terminal_twice",
+      "action": "stop",
+      "reason": "response_committed",
+      "excluded": [],
+      "attempt_number": 1,
+      "acceptance": "not_sent",
+      "remaining": 3
+    },
+    {
+      "mode": "first_429",
+      "event": "lost_ack",
+      "action": "stop",
+      "reason": "acceptance_unknown",
+      "excluded": [],
+      "attempt_number": 1,
+      "acceptance": "unknown",
+      "remaining": 3
+    },
+    {
+      "mode": "first_429",
+      "event": "deadline",
+      "action": "stop",
+      "reason": "deadline",
+      "excluded": [],
+      "attempt_number": 1,
+      "acceptance": "not_sent",
+      "remaining": 3
+    },
+    {
+      "mode": "first_capacity",
+      "event": "",
+      "action": "switch_account",
+      "reason": "account_switch",
+      "excluded": [
+        801
+      ],
+      "attempt_number": 1,
+      "acceptance": "not_sent",
+      "remaining": 3
+    }
+  ]
+}

@@ -9,9 +9,10 @@ import (
 	"strings"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/shopspring/decimal"
 )
 
 type usageBillingRepository struct {
@@ -233,6 +234,16 @@ func (r *usageBillingRepository) applyBatchImageBalanceHoldOnce(ctx context.Cont
 }
 
 func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand, result *service.UsageBillingApplyResult) error {
+	if charge := cmd.ChargedAmount; charge != nil {
+		amount := decimal.RequireFromString(charge.String())
+		// Legacy fields select which effects apply; an exact amount may only
+		// refine the same validated charge at the precision of those fields.
+		if charge.Currency() != "USD" || amount.IsNegative() || service.ValidateUsageBillingAmount(amount.InexactFloat64()) != nil ||
+			amount.InexactFloat64() != cmd.BalanceCost+cmd.SubscriptionCost {
+			return service.ErrInvalidBillingAmount
+		}
+	}
+
 	// Request budget holds lock first: a hold is claimed by exactly one
 	// settlement, and release uses the same reservation -> user -> key order.
 	hold, err := lockKeyBudgetReservation(ctx, tx, cmd)
@@ -253,28 +264,29 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 		if err := refundKeyBudgetHold(ctx, tx, hold); err != nil {
 			return err
 		}
-		newBalance, uncovered, err := deductUsageBillingBalance(ctx, tx, cmd.UserID, cmd.BalanceCost)
+		newBalance, uncovered, err := deductUsageBillingBalance(ctx, tx, cmd.UserID, cmd.CustomerEffect(cmd.BalanceCost))
 		if err != nil {
 			return err
 		}
-		result.NewBalance = &newBalance
-		result.BalanceUncovered = uncovered
-		result.BalanceOverdrafted = uncovered > 0
+		displayBalance := newBalance.InexactFloat64()
+		result.NewBalance = &displayBalance
+		result.BalanceUncovered = uncovered.InexactFloat64()
+		result.BalanceOverdrafted = uncovered.IsPositive()
 		if err := recordKeyBudgetUncovered(ctx, tx, hold, uncovered); err != nil {
 			return err
 		}
 	}
-	if err := settleKeyBudgetCounters(ctx, tx, hold, cmd.APIKeyID, cmd.BalanceCost, result); err != nil {
+	if err := settleKeyBudgetCounters(ctx, tx, hold, cmd.APIKeyID, cmd.CustomerEffect(cmd.BalanceCost+cmd.SubscriptionCost), result); err != nil {
 		return err
 	}
 	if cmd.SubscriptionCost > 0 && cmd.SubscriptionID != nil {
-		if err := incrementUsageBillingSubscription(ctx, tx, *cmd.SubscriptionID, cmd.SubscriptionCost); err != nil {
+		if err := incrementUsageBillingSubscription(ctx, tx, *cmd.SubscriptionID, cmd.CustomerEffect(cmd.SubscriptionCost)); err != nil {
 			return err
 		}
 	}
 
 	if cmd.APIKeyQuotaCost > 0 {
-		exhausted, err := incrementUsageBillingAPIKeyQuota(ctx, tx, cmd.APIKeyID, cmd.APIKeyQuotaCost)
+		exhausted, err := incrementUsageBillingAPIKeyQuota(ctx, tx, cmd.APIKeyID, cmd.CustomerEffect(cmd.APIKeyQuotaCost))
 		if err != nil {
 			return err
 		}
@@ -282,7 +294,7 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 	}
 
 	if cmd.APIKeyRateLimitCost > 0 {
-		if err := incrementUsageBillingAPIKeyRateLimit(ctx, tx, cmd.APIKeyID, cmd.APIKeyRateLimitCost); err != nil {
+		if err := incrementUsageBillingAPIKeyRateLimit(ctx, tx, cmd.APIKeyID, cmd.CustomerEffect(cmd.APIKeyRateLimitCost)); err != nil {
 			return err
 		}
 	}
@@ -331,7 +343,7 @@ func lockUsageBillingEffects(ctx context.Context, tx *sql.Tx, cmd *service.Usage
 	return nil
 }
 
-func incrementUsageBillingSubscription(ctx context.Context, tx *sql.Tx, subscriptionID int64, costUSD float64) error {
+func incrementUsageBillingSubscription(ctx context.Context, tx *sql.Tx, subscriptionID int64, costUSD decimal.Decimal) error {
 	const updateSQL = `
 		UPDATE user_subscriptions us
 		SET
@@ -366,48 +378,27 @@ func incrementUsageBillingSubscription(ctx context.Context, tx *sql.Tx, subscrip
 // the reservation and the ops signal) instead of being hidden in a negative
 // balance that concurrent requests could each re-spend. The usage row always
 // keeps the full actual cost, so nothing is dropped from the books.
-func deductUsageBillingBalance(ctx context.Context, tx *sql.Tx, userID int64, amount float64) (newBalance float64, uncovered float64, err error) {
-	if amount <= 0 {
-		var balance float64
-		err = tx.QueryRowContext(ctx, `
-			SELECT balance FROM users WHERE id = $1 AND deleted_at IS NULL`, userID).Scan(&balance)
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, 0, service.ErrUserNotFound
-		}
-		if err != nil {
-			return 0, 0, err
-		}
-		return balance, 0, nil
-	}
-	var balance float64
-	err = tx.QueryRowContext(ctx, `
-		SELECT balance FROM users WHERE id = $1 AND deleted_at IS NULL FOR NO KEY UPDATE`, userID).Scan(&balance)
+func deductUsageBillingBalance(ctx context.Context, tx *sql.Tx, userID int64, amount decimal.Decimal) (decimal.Decimal, decimal.Decimal, error) {
+	var balance decimal.Decimal
+	err := tx.QueryRowContext(ctx, `SELECT balance FROM users WHERE id = $1 AND deleted_at IS NULL FOR NO KEY UPDATE`, userID).Scan(&balance)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, 0, service.ErrUserNotFound
+		err = service.ErrUserNotFound
 	}
 	if err != nil {
-		return 0, 0, err
+		return decimal.Zero, decimal.Zero, err
 	}
-	covered := balance
-	if covered > amount {
-		covered = amount
+	if !amount.IsPositive() {
+		return balance, decimal.Zero, nil
 	}
-	if covered < 0 {
-		covered = 0
+	covered := decimal.Max(decimal.Zero, decimal.Min(balance, amount))
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET balance = balance - $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`, covered, userID); err != nil {
+		return decimal.Zero, decimal.Zero, err
 	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE users
-		SET balance = balance - $1,
-			updated_at = NOW()
-		WHERE id = $2 AND deleted_at IS NULL
-	`, covered, userID); err != nil {
-		return 0, 0, err
+	uncovered := amount.Sub(covered)
+	if uncovered.IsPositive() {
+		observeBillingBalanceUncovered(uncovered.InexactFloat64())
 	}
-	uncovered = amount - covered
-	if uncovered > 0 {
-		observeBillingBalanceUncovered(uncovered)
-	}
-	return balance - covered, uncovered, nil
+	return balance.Sub(covered), uncovered, nil
 }
 
 func reserveUsageBillingBatchImageBalance(ctx context.Context, tx *sql.Tx, cmd *service.BatchImageBalanceHoldCommand) (*service.BatchImageBalanceHoldResult, error) {
@@ -551,7 +542,7 @@ func userExistsForBilling(ctx context.Context, tx *sql.Tx, userID int64) (bool, 
 	return true, nil
 }
 
-func incrementUsageBillingAPIKeyQuota(ctx context.Context, tx *sql.Tx, apiKeyID int64, amount float64) (bool, error) {
+func incrementUsageBillingAPIKeyQuota(ctx context.Context, tx *sql.Tx, apiKeyID int64, amount decimal.Decimal) (bool, error) {
 	var exhausted bool
 	err := tx.QueryRowContext(ctx, `
 		UPDATE api_keys
@@ -577,7 +568,7 @@ func incrementUsageBillingAPIKeyQuota(ctx context.Context, tx *sql.Tx, apiKeyID 
 	return exhausted, nil
 }
 
-func incrementUsageBillingAPIKeyRateLimit(ctx context.Context, tx *sql.Tx, apiKeyID int64, cost float64) error {
+func incrementUsageBillingAPIKeyRateLimit(ctx context.Context, tx *sql.Tx, apiKeyID int64, cost decimal.Decimal) error {
 	res, err := tx.ExecContext(ctx, `
 		UPDATE api_keys SET
 			usage_5h = CASE WHEN window_5h_start IS NOT NULL AND window_5h_start + INTERVAL '5 hours' <= NOW() THEN $1 ELSE usage_5h + $1 END,

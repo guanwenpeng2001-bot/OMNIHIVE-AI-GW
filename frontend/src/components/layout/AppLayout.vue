@@ -1,84 +1,124 @@
 <template>
-  <div class="app-shell min-h-screen" style="background-color: var(--background); color: var(--foreground)">
-    <!-- Subtle OmniHive Ambient Glow & Honeycomb Watermark -->
-    <div class="pointer-events-none fixed inset-0 overflow-hidden z-0">
-      <div
-        class="absolute inset-0 opacity-40 dark:opacity-25"
-        style="
-          background-image: radial-gradient(
-            720px circle at 78% -10%,
-            color-mix(in srgb, var(--brand, #f59e0b) 8%, transparent),
-            transparent 70%
-          );
-        "
-      ></div>
-    </div>
+  <!-- Deduplicate accidental nested AppLayout wrappers -->
+  <slot v-if="isNestedShell" />
 
+  <!-- Tier 1: Public Architectural Shell -->
+  <PublicShell
+    v-else-if="resolvedTier === 'public'"
+    :padded="!resolvedFullBleed"
+  >
+    <template v-if="$slots.subbar" #subbar>
+      <slot name="subbar" />
+    </template>
+    <slot />
+    <template v-if="$slots.footer" #footer>
+      <slot name="footer" />
+    </template>
+  </PublicShell>
+
+  <!-- Tier 2 & 3: User Console & Admin Console Shell -->
+  <div
+    v-else
+    :data-shell-tier="resolvedTier"
+    class="app-shell min-h-screen bg-oh-canvas text-oh-primary"
+  >
     <AppHeader />
 
     <AppSidebar />
 
-    <!-- Main Content Area -->
     <div
-      class="relative z-10 min-h-[calc(100vh-3.5rem)] min-w-0 transition-[margin] duration-300 motion-reduce:transition-none"
-      :class="[sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-[248px]']"
+      class="relative z-10 flex min-h-[calc(100vh-3.5rem)] min-w-0 flex-col transition-[margin] duration-150 motion-reduce:transition-none"
+      :class="[sidebarCollapsed ? 'lg:ml-[64px]' : 'lg:ml-[240px]']"
     >
-      <!-- Admin Operations Pulse Strip (常驻蜂巢运行脉搏条) -->
+      <!-- Admin Telemetry Strip (1px structural border, tabular mono, zero fake zeros) -->
       <div
-        v-if="isAdminRoute"
-        class="border-b px-4 py-1.5 md:px-6 lg:px-8 transition-colors"
-        style="
-          border-color: var(--border);
-          background: linear-gradient(
-            90deg,
-            color-mix(in srgb, var(--brand, #f59e0b) 5%, var(--card, #ffffff)),
-            var(--card, #ffffff) 65%
-          );
-        "
+        v-if="resolvedTier === 'admin'"
+        data-testid="admin-telemetry-strip"
+        class="border-b border-oh-default bg-oh-subtle px-3 py-1.5 sm:px-4 lg:px-6"
       >
         <div class="flex w-full flex-wrap items-center justify-between gap-2 text-xs">
-          <div class="flex flex-wrap items-center gap-2.5 min-w-0">
-            <span class="pulse-dot" :class="pulseStatusClass"></span>
-            <span class="font-semibold tracking-tight" style="color: var(--foreground)">
-              蜂巢运行脉搏
+          <div class="flex min-w-0 flex-wrap items-center gap-2.5">
+            <span
+              data-testid="admin-telemetry-dot"
+              :data-telemetry-state="pulseState"
+              :class="[
+                'inline-block h-2 w-2 shrink-0 rounded-full',
+                pulseDotClass
+              ]"
+            />
+            <span class="oh-eyebrow text-oh-primary">{{ t('routing.telemetry.title') }}</span>
+            <span
+              data-testid="admin-telemetry-status"
+              class="rounded border border-oh-default bg-oh-surface px-1.5 py-0.5 font-mono text-[11px] text-oh-secondary"
+            >
+              {{ t(`routing.telemetry.status.${pulseState}`) }}
             </span>
-            <!-- Live Telemetry Strip (OpenRouter / OpenCode NOC style) -->
+            <span
+              data-testid="admin-telemetry-observed"
+              class="font-mono text-[11px] text-oh-muted oh-tabular"
+            >
+              {{
+                pulseLastObservedAt
+                  ? t('routing.telemetry.lastObservedLabel', { time: pulseLastObservedAt })
+                  : t('routing.telemetry.lastObservedUnknown')
+              }}
+            </span>
+
             <div
               v-if="pulseMetrics"
-              class="hidden md:flex flex-wrap items-center gap-1.5 font-mono text-[11px] tabular-nums"
+              class="hidden flex-wrap items-center gap-3 md:flex"
             >
-              <span class="pill pill-ghost" title="今日累计调度请求">
-                <span class="opacity-55">REQ</span>
-                <strong>{{ formatCompact(pulseMetrics.today_requests) }}</strong>
+              <span class="oh-tabular text-[11.5px] text-oh-secondary">
+                <span class="text-oh-muted">REQ</span>
+                {{ ' ' }}
+                <strong class="text-oh-primary">{{ formatCompact(pulseMetrics.today_requests) }}</strong>
               </span>
-              <span class="pill pill-ghost" title="实时吞吐率">
-                <span class="opacity-55">RATE</span>
-                <strong>{{ Math.round(pulseMetrics.rpm || 0) }} RPM</strong>
-                <span class="opacity-40">·</span>
-                <span>{{ formatCompact(pulseMetrics.tpm || 0) }} TPM</span>
+              <span class="oh-tabular text-[11.5px] text-oh-secondary">
+                <span class="text-oh-muted">RPM</span>
+                {{ ' ' }}
+                <strong class="text-oh-primary">
+                  {{ pulseMetrics.rpm != null ? Math.round(pulseMetrics.rpm) : '—' }}
+                </strong>
+                <span class="mx-1 text-oh-muted">·</span>
+                <span class="text-oh-muted">TPM</span>
+                {{ ' ' }}
+                <span>{{ formatCompact(pulseMetrics.tpm) }}</span>
               </span>
-              <span v-if="pulseMetrics.p95_latency_ms != null" class="pill pill-ghost" title="P95 响应延迟">
-                <span class="opacity-55">P95</span>
-                <strong :style="{ color: pulseMetrics.p95_latency_ms > 2500 ? 'var(--warn-text)' : 'var(--ok-text)' }">
-                  {{ Math.round(pulseMetrics.p95_latency_ms) }}ms
+              <span class="oh-tabular text-[11.5px] text-oh-secondary">
+                <span class="text-oh-muted">P95</span>
+                {{ ' ' }}
+                <strong
+                  :class="[
+                    pulseMetrics.p95_latency_ms != null && pulseMetrics.p95_latency_ms > 2500
+                      ? 'text-[var(--oh-warn-fg)]'
+                      : 'text-oh-primary'
+                  ]"
+                >
+                  {{
+                    pulseMetrics.p95_latency_ms != null
+                      ? `${Math.round(pulseMetrics.p95_latency_ms)}ms`
+                      : '—'
+                  }}
                 </strong>
               </span>
-              <span v-if="pulseMetrics.error_rate_percent != null" class="pill pill-ghost" title="窗口错误率">
-                <span class="opacity-55">ERR</span>
-                <strong :style="{ color: pulseMetrics.error_rate_percent > 2 ? 'var(--bad-text)' : 'var(--foreground)' }">
-                  {{ pulseMetrics.error_rate_percent.toFixed(2) }}%
-                </strong>
-              </span>
-              <span v-if="(pulseMetrics.total_accounts ?? 0) > 0" class="pill pill-ghost" title="可调度上游账号池">
-                <span class="opacity-55">POOL</span>
-                <strong style="color: var(--brand-text)">
-                  {{ pulseMetrics.active_accounts ?? 0 }}/{{ pulseMetrics.total_accounts }}
+              <span class="oh-tabular text-[11.5px] text-oh-secondary">
+                <span class="text-oh-muted">ERR</span>
+                {{ ' ' }}
+                <strong
+                  :class="[
+                    pulseMetrics.error_rate_percent != null && pulseMetrics.error_rate_percent > 2
+                      ? 'text-[var(--oh-danger-fg)]'
+                      : 'text-oh-primary'
+                  ]"
+                >
+                  {{
+                    pulseMetrics.error_rate_percent != null
+                      ? `${pulseMetrics.error_rate_percent.toFixed(2)}%`
+                      : '—'
+                  }}
                 </strong>
               </span>
             </div>
-            <span v-else class="hidden sm:inline font-mono text-[11px] opacity-60 truncate">
-              ENGINE ONLINE · REALTIME DISPATCH
-            </span>
           </div>
 
           <div class="flex flex-wrap items-center gap-1.5">
@@ -87,135 +127,285 @@
                 v-for="item in pulseLinks"
                 :key="item.path"
                 type="button"
-                @click="navigatePulse(item.path)"
-                class="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11.5px] font-medium transition-all hover:border-[var(--brand)] cursor-pointer"
-                :style="
+                :class="[
+                  'oh-focus-ring inline-flex items-center gap-1 rounded-oh-sm border px-2 py-0.5 font-mono text-[11px] transition-colors',
                   currentPath.startsWith(item.path)
-                    ? 'border-color: var(--brand, #f59e0b); background: color-mix(in srgb, var(--brand, #f59e0b) 12%, var(--card)); color: var(--brand-text, #92610a); font-weight: 600;'
-                    : 'border-color: var(--border); background: var(--card); color: var(--foreground);'
-                "
+                    ? 'border-oh-accent bg-oh-selected font-semibold text-oh-accent-text'
+                    : 'border-oh-default bg-oh-surface text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
+                ]"
+                @click="navigatePulse(item.path)"
               >
-                <span>{{ item.label }}</span>
-                <span class="opacity-50">→</span>
+                <span>{{ isZh ? item.labelZh : item.labelEn }}</span>
               </button>
             </template>
 
             <button
               type="button"
+              :aria-expanded="!pulseCollapsed"
+              class="oh-focus-ring rounded-oh-sm px-1.5 py-0.5 font-mono text-[11px] text-oh-muted hover:text-oh-primary"
               @click="pulseCollapsed = !pulseCollapsed"
-              class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] opacity-65 transition-opacity hover:opacity-100 cursor-pointer"
-              :aria-expanded="!pulseCollapsed ? 'true' : 'false'"
-              :title="pulseCollapsed ? '展开运行脉搏快捷入口' : '收起运行脉搏快捷入口'"
             >
-              <span>{{ pulseCollapsed ? '展开快捷台 ▾' : '收起 ▴' }}</span>
+              {{ pulseCollapsed ? '▾' : '▴' }}
             </button>
           </div>
         </div>
       </div>
 
-      <!-- Main Content -->
-      <main class="w-full p-4 pb-14 md:p-6 md:pb-16 lg:p-7 lg:pb-16">
-        <div class="w-full">
-          <div v-if="route.params?.workspace_id" class="card mb-4 flex items-center gap-3 p-3 text-sm">
-            <RouterLink to="/workspaces" class="text-primary-600 dark:text-primary-400">{{ t('workspaces.title') }}</RouterLink>
-            <span>#{{ route.params.workspace_id }}</span>
+      <!-- Optional Sub-header / Banner Slot -->
+      <div
+        v-if="$slots.subbar"
+        class="border-b border-oh-default bg-oh-subtle px-4 py-2.5 sm:px-6 lg:px-7"
+      >
+        <slot name="subbar" />
+      </div>
+
+      <!-- Main Console Canvas -->
+      <main
+        :class="[
+          'flex min-w-0 w-full flex-1 flex-col',
+          resolvedFullBleed ? 'p-0' : 'p-4 pb-12 sm:p-5 sm:pb-14 lg:p-6 lg:pb-16'
+        ]"
+      >
+        <div
+          :class="[
+            'min-w-0 w-full flex-1',
+            resolvedContained ? 'mx-auto max-w-[1600px]' : ''
+          ]"
+        >
+          <div
+            v-if="route.params?.workspace_id"
+            class="mb-4 flex items-center gap-2 rounded-oh-md border border-oh-default bg-oh-surface px-3 py-2 text-xs text-oh-secondary"
+          >
+            <RouterLink to="/workspaces" class="font-medium text-oh-accent-text hover:underline">
+              {{ t('workspaces.title') }}
+            </RouterLink>
+            <span class="text-oh-muted">/</span>
+            <span class="font-mono text-oh-primary">#{{ route.params.workspace_id }}</span>
           </div>
-          <slot />
+
+          <div v-if="$slots.header" class="mb-5">
+            <slot name="header" />
+          </div>
+
+          <div
+            v-if="$slots.aside"
+            class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]"
+          >
+            <div class="min-w-0">
+              <slot />
+            </div>
+            <aside class="min-w-0">
+              <slot name="aside" />
+            </aside>
+          </div>
+          <slot v-else />
         </div>
       </main>
+
+      <footer
+        v-if="$slots.footer"
+        class="border-t border-oh-default bg-oh-subtle px-4 py-3 text-xs text-oh-muted sm:px-6 lg:px-7"
+      >
+        <slot name="footer" />
+      </footer>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import '@/styles/onboarding.css'
-import { computed, getCurrentInstance, onMounted, onUnmounted, ref, watch } from 'vue'
+import {
+  computed,
+  getCurrentInstance,
+  inject,
+  onMounted,
+  onUnmounted,
+  provide,
+  ref,
+  watch,
+  type InjectionKey
+} from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores'
 import { useAuthStore } from '@/stores/auth'
+import { StorageKeys } from '@/api/tokenRefresh'
 import { useOnboardingTour } from '@/composables/useOnboardingTour'
 import { useOnboardingStore } from '@/stores/onboarding'
 import type { AdminPulseDTO } from '@/api/mcp'
 import AppSidebar from './AppSidebar.vue'
 import AppHeader from './AppHeader.vue'
+import PublicShell from './PublicShell.vue'
+import { activeConsoleShellCount } from './shellState'
 
-const appStore = useAppStore()
-const { t } = useI18n()
-const authStore = useAuthStore()
-const sidebarCollapsed = computed(() => appStore.sidebarCollapsed)
-const isAdmin = computed(() => authStore.user?.role === 'admin')
+const SHELL_MOUNTED_KEY: InjectionKey<boolean> = Symbol('omnihive-shell-mounted')
 
-const { replayTour, cancelTour } = useOnboardingTour({
-  storageKey: isAdmin.value ? 'admin_guide' : 'user_guide',
-  autoStart: true
+export interface AppLayoutProps {
+  tier?: 'auto' | 'public' | 'user' | 'admin'
+  contained?: boolean
+  fullBleed?: boolean
+}
+
+const props = withDefaults(defineProps<AppLayoutProps>(), {
+  tier: 'auto',
+  contained: false,
+  fullBleed: false
 })
 
+const isNestedShell = inject(SHELL_MOUNTED_KEY, false)
+if (!isNestedShell) {
+  provide(SHELL_MOUNTED_KEY, true)
+}
+
+const appStore = useAppStore()
+const { t, locale } = useI18n()
+const authStore = useAuthStore()
 const onboardingStore = useOnboardingStore()
 const route = useRoute()
 const instance = getCurrentInstance()
 
-const pulseCollapsed = ref(false)
-const pulseMetrics = ref<AdminPulseDTO | null>(null)
-let pulseTimer: ReturnType<typeof setInterval> | null = null
+const isZh = computed(() => String(locale?.value || 'zh').toLowerCase().startsWith('zh'))
+const sidebarCollapsed = computed(() => Boolean(appStore.sidebarCollapsed))
+const isAdmin = computed(() => authStore.user?.role === 'admin')
 const currentPath = computed(() => route.path || route.fullPath || '')
-const isAdminRoute = computed(() => currentPath.value.startsWith('/admin'))
-const pulseStatusClass = computed(() => {
-  if (!pulseMetrics.value) return 'pulse-ok'
-  if (pulseMetrics.value.status === 'degraded' || (pulseMetrics.value.error_rate_percent ?? 0) > 5) return 'pulse-warn'
-  return 'pulse-ok'
+
+const resolvedTier = computed<'public' | 'user' | 'admin'>(() => {
+  if (props.tier !== 'auto') return props.tier
+  if (route.meta?.shellTier === 'public') return 'public'
+  if (route.meta?.shellTier === 'admin' || currentPath.value.startsWith('/admin')) {
+    return 'admin'
+  }
+  return 'user'
 })
 
-function formatCompact(num: number): string {
-  if (!Number.isFinite(num)) return '0'
+const resolvedContained = computed(() => props.contained || Boolean(route.meta?.contained))
+const resolvedFullBleed = computed(() => props.fullBleed || Boolean(route.meta?.fullBleed))
+const autoStartTour = computed(
+  () => currentPath.value === '/dashboard' || currentPath.value === '/admin/dashboard'
+)
+
+const { replayTour, cancelTour } = useOnboardingTour({
+  storageKey: isAdmin.value
+    ? StorageKeys.ONBOARDING_ADMIN_GUIDE
+    : StorageKeys.ONBOARDING_USER_GUIDE,
+  autoStart: autoStartTour.value
+})
+
+const pulseCollapsed = ref(false)
+const pulseMetrics = ref<AdminPulseDTO | null>(null)
+const pulseLastObservedAt = ref<string | null>(null)
+const pulsePollFailed = ref(false)
+let pulseTimer: ReturnType<typeof setInterval> | null = null
+
+const pulseState = computed<'unknown' | 'healthy' | 'degraded' | 'failed' | 'disconnected'>(() => {
+  if (pulsePollFailed.value) {
+    return pulseLastObservedAt.value ? 'disconnected' : 'failed'
+  }
+  if (!pulseMetrics.value) return 'unknown'
+  if (
+    pulseMetrics.value.status === 'degraded' ||
+    (pulseMetrics.value.error_rate_percent ?? 0) > 5
+  ) {
+    return 'degraded'
+  }
+  return 'healthy'
+})
+
+const pulseDotClass = computed(() => {
+  switch (pulseState.value) {
+    case 'healthy':
+      return 'bg-[var(--oh-ok-fg)]'
+    case 'degraded':
+      return 'bg-[var(--oh-warn-fg)]'
+    case 'failed':
+    case 'disconnected':
+      return 'bg-[var(--oh-danger-fg)]'
+    default:
+      return 'bg-oh-muted'
+  }
+})
+
+function formatCompact(num: number | null | undefined): string {
+  if (num === null || num === undefined || !Number.isFinite(num)) return '—'
+  if (num >= 1_000_000_000) return `${(num / 1_000_000_000).toFixed(1)}B`
   if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`
   if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`
   return String(Math.round(num))
 }
 
-async function refreshPulse() {
-  if (!isAdminRoute.value || !isAdmin.value) return
+async function refreshPulse(): Promise<void> {
+  if (isNestedShell || resolvedTier.value !== 'admin' || !isAdmin.value) return
   try {
     const { mcpAPI } = await import('@/api/mcp')
     const data = await mcpAPI.getAdminPulse()
-    if (data) pulseMetrics.value = data
+    if (data) {
+      pulseMetrics.value = data
+      pulsePollFailed.value = false
+      pulseLastObservedAt.value = data.updated_at || new Date().toISOString()
+    } else {
+      pulsePollFailed.value = true
+    }
   } catch {
-    // Isolated component unit tests may mock vue-i18n without full apiClient setup.
+    pulsePollFailed.value = true
   }
 }
 
 const pulseLinks = [
-  { label: '运维实时监控', path: '/admin/ops' },
-  { label: '渠道监控', path: '/admin/channels/monitor' },
-  { label: '上游账号池', path: '/admin/accounts' },
-  { label: '用量记录', path: '/admin/usage' },
-  { label: '系统设置', path: '/admin/settings' }
+  { labelZh: '实时监控', labelEn: 'Ops', path: '/admin/ops' },
+  { labelZh: '健康探测', labelEn: 'Probes', path: '/admin/channels/monitor' },
+  { labelZh: '上游连接', labelEn: 'Connections', path: '/admin/accounts' },
+  { labelZh: '全局账本', labelEn: 'Ledger', path: '/admin/billing' },
+  { labelZh: '系统设置', labelEn: 'Settings', path: '/admin/settings' }
 ]
 
-function navigatePulse(path: string) {
-  const router = instance?.appContext.config.globalProperties.$router
-  if (router && typeof router.push === 'function') {
-    router.push(path)
+function navigatePulse(path: string): void {
+  const globalRouter = instance?.appContext.config.globalProperties.$router
+  if (globalRouter && typeof globalRouter.push === 'function') {
+    void globalRouter.push(path)
+  }
+}
+
+let registeredConsoleShell = false
+function syncConsoleShellRegistration(shouldRegister: boolean): void {
+  if (shouldRegister && !registeredConsoleShell) {
+    registeredConsoleShell = true
+    activeConsoleShellCount.value += 1
+  } else if (!shouldRegister && registeredConsoleShell) {
+    registeredConsoleShell = false
+    activeConsoleShellCount.value = Math.max(0, activeConsoleShellCount.value - 1)
   }
 }
 
 watch(() => route.fullPath, cancelTour, { flush: 'sync' })
 watch(sidebarCollapsed, cancelTour, { flush: 'sync' })
-watch(isAdminRoute, (active) => {
-  if (active) void refreshPulse()
-}, { immediate: true })
+watch(
+  () => resolvedTier.value,
+  (tier) => {
+    if (!isNestedShell) {
+      syncConsoleShellRegistration(tier !== 'public')
+    }
+    if (tier === 'admin') void refreshPulse()
+  },
+  { immediate: true }
+)
 
 onMounted(() => {
+  if (isNestedShell) return
   onboardingStore.setReplayCallback(replayTour)
-  if (isAdminRoute.value) void refreshPulse()
   pulseTimer = setInterval(() => {
-    if (isAdminRoute.value && typeof document !== 'undefined' && document.visibilityState === 'visible') {
+    if (
+      resolvedTier.value === 'admin' &&
+      typeof document !== 'undefined' &&
+      document.visibilityState === 'visible'
+    ) {
       void refreshPulse()
     }
   }, 30000)
 })
 
 onUnmounted(() => {
+  syncConsoleShellRegistration(false)
+  if (isNestedShell) return
   onboardingStore.setReplayCallback(null)
   if (pulseTimer) {
     clearInterval(pulseTimer)

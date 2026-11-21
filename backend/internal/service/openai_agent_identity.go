@@ -12,11 +12,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
 	"golang.org/x/crypto/curve25519"
 	"golang.org/x/crypto/nacl/box"
 )
@@ -28,6 +29,7 @@ const (
 )
 
 var openAIAgentIdentityAuthAPIBaseURL = agentIdentityAuthAPIBaseURL
+var agentIdentityHTTPClient = httpclient.GetClient
 
 var agentIdentityTaskLocks sync.Map // map[int64]*sync.Mutex
 
@@ -172,7 +174,7 @@ func decryptAgentTaskID(key agentIdentityKey, encoded string) (string, error) {
 	return taskID, nil
 }
 
-func registerAgentIdentityTask(ctx context.Context, account *Account) (string, error) {
+func registerAgentIdentityTask(ctx context.Context, account *Account, privateHosts ...[]string) (string, error) {
 	key, err := agentIdentityKeyFromAccount(account)
 	if err != nil {
 		return "", err
@@ -185,10 +187,12 @@ func registerAgentIdentityTask(ctx context.Context, account *Account) (string, e
 	if egressErr != nil {
 		return "", egressErr
 	}
-	client, err := httpclient.GetClient(httpclient.Options{
+	client, err := agentIdentityHTTPClient(httpclient.Options{
 		ProxyURL:              proxyURL,
 		Timeout:               agentIdentityTaskRegistrationTimeout,
 		ResponseHeaderTimeout: 15 * time.Second,
+		AllowPrivateHosts:     len(slices.Concat(privateHosts...)) > 0,
+		PrivateHosts:          slices.Concat(privateHosts...),
 	})
 	if err != nil {
 		return "", errors.New("invalid proxy configuration for agent task registration")
@@ -235,7 +239,7 @@ func registerAgentIdentityTask(ctx context.Context, account *Account) (string, e
 	return decryptAgentTaskID(key, encrypted)
 }
 
-func ensureAgentIdentityTaskForAccount(ctx context.Context, repo AccountRepository, wsInvalidator agentIdentityWSConnectionInvalidator, taskMu *sync.Mutex, account *Account, expectedTaskID string) error {
+func ensureAgentIdentityTaskForAccount(ctx context.Context, repo AccountRepository, wsInvalidator agentIdentityWSConnectionInvalidator, taskMu *sync.Mutex, account *Account, expectedTaskID string, privateHosts ...[]string) error {
 	if account == nil || !account.IsOpenAIAgentIdentity() {
 		return nil
 	}
@@ -292,7 +296,7 @@ func ensureAgentIdentityTaskForAccount(ctx context.Context, repo AccountReposito
 	if currentTaskID != "" && (expectedTaskID == "" || currentTaskID != expectedTaskID) {
 		return nil
 	}
-	newTaskID, err := registerAgentIdentityTask(ctx, credAccount)
+	newTaskID, err := registerAgentIdentityTask(ctx, credAccount, privateHosts...)
 	if err != nil {
 		return err
 	}
@@ -317,7 +321,7 @@ func (s *OpenAIGatewayService) ensureAgentIdentityTask(ctx context.Context, acco
 	if s == nil {
 		return errors.New("openai gateway service is nil")
 	}
-	return ensureAgentIdentityTaskForAccount(ctx, s.accountRepo, s, &s.agentIdentityTaskMu, account, expectedTaskID)
+	return ensureAgentIdentityTaskForAccount(ctx, s.accountRepo, s, &s.agentIdentityTaskMu, account, expectedTaskID, privateUpstreamHosts(s.cfg))
 }
 
 func isAgentIdentityTaskInvalidHTTPResponse(statusCode int, body []byte) bool {
@@ -392,11 +396,11 @@ func (s *OpenAIGatewayService) buildOpenAIAuthenticationHeaders(ctx context.Cont
 	return headers, nil
 }
 
-func buildAgentIdentityAuthenticationHeaders(ctx context.Context, repo AccountRepository, wsInvalidator agentIdentityWSConnectionInvalidator, taskMu *sync.Mutex, account *Account) (http.Header, error) {
+func buildAgentIdentityAuthenticationHeaders(ctx context.Context, repo AccountRepository, wsInvalidator agentIdentityWSConnectionInvalidator, taskMu *sync.Mutex, account *Account, privateHosts ...[]string) (http.Header, error) {
 	if account == nil || !account.IsOpenAIAgentIdentity() {
 		return nil, errors.New("agent identity account is required")
 	}
-	if err := ensureAgentIdentityTaskForAccount(ctx, repo, wsInvalidator, taskMu, account, ""); err != nil {
+	if err := ensureAgentIdentityTaskForAccount(ctx, repo, wsInvalidator, taskMu, account, "", privateHosts...); err != nil {
 		return nil, err
 	}
 	key, err := agentIdentityKeyFromAccount(account)
@@ -431,7 +435,7 @@ func (s *OpenAIGatewayService) refreshOpenAIAgentIdentityHeaders(ctx context.Con
 	if refreshed == nil {
 		refreshed = make(http.Header)
 	}
-	authHeaders, err := buildAgentIdentityAuthenticationHeaders(ctx, s.accountRepo, s, &s.agentIdentityTaskMu, credAccount)
+	authHeaders, err := buildAgentIdentityAuthenticationHeaders(ctx, s.accountRepo, s, &s.agentIdentityTaskMu, credAccount, privateUpstreamHosts(s.cfg))
 	if err != nil {
 		return nil, err
 	}

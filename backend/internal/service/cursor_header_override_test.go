@@ -47,7 +47,7 @@ func TestCursorRelayAppliesHeaderOverrides(t *testing.T) {
 						credKeyHeaderOverrides:       map[string]any{"x-CUSTOM": "configured", "USER-agent": "configured-agent", "AUTHORIZATION": "bad", "CONTENT-TYPE": "bad", "aCcEpT": "bad", "Anthropic-Version": "bad", "X-Api-Key": "bad"},
 					}}
 					requestContext, _ := gin.CreateTestContext(httptest.NewRecorder())
-					_, err := callCursorProtocol(NewCursorGatewayService(nil, nil), requestContext, account, cursorProtocolRequest(protocol, stream), protocol)
+					_, err := callCursorProtocol(cursorRelayTestGateway(server), requestContext, account, cursorProtocolRequest(protocol, stream), protocol)
 					require.NoError(t, err)
 					require.Equal(t, "Bearer real-key", received.Get("Authorization"))
 					require.Equal(t, "application/json", received.Get("Content-Type"))

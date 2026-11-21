@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1085,7 +1085,7 @@ func TestUpstreamBillingProbeFiveInstancesRunOneConcurrentBatch(t *testing.T) {
 		Type:        AccountTypeAPIKey,
 		Status:      StatusActive,
 		Concurrency: 1,
-		Credentials: map[string]any{"api_key": "sk-test", "base_url": "http://127.0.0.1:8080"},
+		Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://upstream.example"},
 		Extra:       map[string]any{UpstreamBillingProbeEnabledExtraKey: true},
 	}
 	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
@@ -1141,7 +1141,7 @@ func TestUpstreamBillingProbeManualBatchesShareConcurrencyLimit(t *testing.T) {
 			Type:        AccountTypeAPIKey,
 			Status:      StatusActive,
 			Concurrency: 1,
-			Credentials: map[string]any{"api_key": "sk-test", "base_url": "http://127.0.0.1:8080"},
+			Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://upstream.example"},
 		}
 	}
 	repo := &upstreamBillingProbeAccountRepo{accounts: accounts}
@@ -1277,7 +1277,7 @@ func TestUpstreamBillingProbeLeaderLockCoversStaggeredInstancesInCadenceWindow(t
 			Type:        AccountTypeAPIKey,
 			Status:      StatusActive,
 			Concurrency: 1,
-			Credentials: map[string]any{"api_key": "sk-test", "base_url": "http://127.0.0.1:8080"},
+			Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://upstream.example"},
 			Extra:       map[string]any{UpstreamBillingProbeEnabledExtraKey: true},
 		}
 	}

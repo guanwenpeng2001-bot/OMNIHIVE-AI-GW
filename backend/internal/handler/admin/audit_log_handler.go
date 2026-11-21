@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/response"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -98,6 +98,13 @@ func (h *AuditLogHandler) Get(c *gin.Context) {
 		return
 	}
 	response.Success(c, item)
+}
+
+// Export returns the same administrator-only, redacted page as List.
+// GET /api/v1/admin/audit-logs/export
+func (h *AuditLogHandler) Export(c *gin.Context) {
+	c.Header("Content-Disposition", `attachment; filename="audit-logs.json"`)
+	h.List(c)
 }
 
 type auditLogClearRequest struct {

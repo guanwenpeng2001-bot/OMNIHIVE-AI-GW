@@ -3,14 +3,15 @@ import { RouterView, useRouter, useRoute } from 'vue-router'
 import { computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { i18n } from '@/i18n'
 import SiteICPFooter from '@/components/layout/SiteICPFooter.vue'
+import ShellCommandPalette from '@/components/layout/ShellCommandPalette.vue'
+import { activeConsoleShellCount, activePublicShellCount } from '@/components/layout/shellState'
 import Toast from '@/components/common/Toast.vue'
+import UiToastViewport from '@/components/ui/Toast.vue'
 import NavigationProgress from '@/components/common/NavigationProgress.vue'
 import AdminComplianceDialog from '@/components/admin/AdminComplianceDialog.vue'
 import { resolveRouteDocumentTitle } from '@/router/title'
 import { watchIdentityRouteRecovery } from '@/router/identityScope'
 import AnnouncementPopup from '@/components/common/AnnouncementPopup.vue'
-import CommandPalette from '@/components/common/CommandPalette.vue'
-import ThemeStyleDock from '@/components/common/ThemeStyleDock.vue'
 import OmniHiveDrawer from '@/components/common/OmniHiveDrawer.vue'
 import { useAppStore, useAuthStore, useSubscriptionStore, useAnnouncementStore, useAdminComplianceStore, useAdminSettingsStore } from '@/stores'
 import { useThemeDirection } from '@/composables/useThemeDirection'
@@ -85,6 +86,14 @@ function onAdminComplianceRequired(event: Event) {
 
 // 订阅功能开关（opt-out）。关闭后不再预加载/轮询订阅接口；开关在登录后才到达时补启动，反向则清空。
 const subscriptionFeatureEnabled = computed(() => isFeatureFlagEnabled(FeatureFlags.subscription))
+const showGlobalICPFooter = computed(() => activePublicShellCount.value === 0)
+const globalICPFooterClass = computed(() => {
+  if (activeConsoleShellCount.value <= 0) return ''
+  return [
+    'transition-[margin] duration-150 motion-reduce:transition-none',
+    appStore.sidebarCollapsed ? 'lg:ml-[64px]' : 'lg:ml-[240px]'
+  ].join(' ')
+})
 
 function startSubscriptionSync() {
   subscriptionStore.fetchActiveSubscriptions().catch((error) => {
@@ -106,13 +115,17 @@ watch(subscriptionFeatureEnabled, (enabled) => {
 
 watch(
   [() => authStore.isAuthenticated, () => authStore.user?.id, () => authStore.user?.role, () => authStore.sessionRevision],
-  ([isAuthenticated], [oldValue], onCleanup) => {
+  ([isAuthenticated, userId, _role, sessionRev], [oldValue, oldUserId, _oldRole, oldSessionRev], onCleanup) => {
     onCleanup(() => {
       clearTimeout(announcementLoginTimer)
       document.removeEventListener('visibilitychange', onVisibilityChange)
     })
     clearTimeout(announcementLoginTimer)
     if (isAuthenticated) {
+      if (oldValue === true && (userId !== oldUserId || sessionRev !== oldSessionRev)) {
+        appStore.resetScopes()
+      }
+      void appStore.fetchScopes()
       if (authStore.isAdmin) {
         adminComplianceStore.fetchStatus().catch((error) => {
           console.error('Failed to fetch admin compliance status:', error)
@@ -141,6 +154,7 @@ watch(
       subscriptionStore.clear()
       announcementStore.reset()
       adminComplianceStore.reset()
+      appStore.resetScopes()
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   },
@@ -194,11 +208,11 @@ onMounted(async () => {
 <template>
   <NavigationProgress />
   <RouterView />
-  <SiteICPFooter />
+  <SiteICPFooter v-if="showGlobalICPFooter" :class="globalICPFooterClass" />
   <Toast />
+  <UiToastViewport />
   <AnnouncementPopup />
   <AdminComplianceDialog />
-  <CommandPalette />
-  <ThemeStyleDock :floating="route.path === '/home' || route.path === '/'" />
+  <ShellCommandPalette />
   <OmniHiveDrawer />
 </template>

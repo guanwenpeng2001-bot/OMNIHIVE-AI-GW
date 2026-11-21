@@ -12,10 +12,11 @@ export interface OnboardingOptions {
 }
 
 export function useOnboardingTour(options: OnboardingOptions) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const userStore = useUserStore()
   const onboardingStore = useOnboardingStore()
-  const storageVersion = 'v4_interactive' // Bump version for new tour type
+  const storageVersion = 'v5_compact'
+  const isZh = () => String(locale?.value || 'zh').toLowerCase().startsWith('zh')
 
   // Timing constants for better maintainability
   const TIMING = {
@@ -158,7 +159,7 @@ export function useOnboardingTour(options: OnboardingOptions) {
     // 动态获取当前用户角色和步骤
     const isAdmin = userStore.user?.role === 'admin'
     const isSimpleMode = userStore.isSimpleMode
-    const steps = isAdmin ? getAdminSteps(t, isSimpleMode) : getUserSteps(t)
+    const steps = isAdmin ? getAdminSteps(t, isSimpleMode, isZh()) : getUserSteps(t, isZh())
 
     // 确保 DOM 就绪
     await nextTick()
@@ -180,7 +181,8 @@ export function useOnboardingTour(options: OnboardingOptions) {
       animate: false,
       allowClose: true,
       allowKeyboardControl: false, // Keyboard navigation is managed below.
-      overlayClickBehavior: () => {},
+      overlayOpacity: 0.2,
+      overlayClickBehavior: dismissTour,
       stagePadding: 4,
       popoverClass: 'theme-tour-popover',
       nextBtnText: t('common.next'),
@@ -229,8 +231,13 @@ export function useOnboardingTour(options: OnboardingOptions) {
         popover.closeButton.style.display = 'block'
         popover.closeButton.style.setProperty('width', 'auto', 'important')
         popover.closeButton.style.setProperty('padding', '0 8px', 'important')
-        popover.closeButton.textContent = t('onboarding.navigation.exit')
-        popover.closeButton.setAttribute('aria-label', t('onboarding.navigation.exit'))
+        popover.closeButton.textContent = state.activeIndex === 0
+          ? t('onboarding.navigation.skip')
+          : t('onboarding.navigation.exit')
+        popover.closeButton.setAttribute(
+          'aria-label',
+          state.activeIndex === 0 ? t('onboarding.navigation.skip') : t('onboarding.navigation.exit')
+        )
         // Class name constants for easier maintenance
         const CLASS_REORGANIZED = 'reorganized'
         const CLASS_FOOTER_LEFT = 'footer-left'
@@ -326,6 +333,11 @@ export function useOnboardingTour(options: OnboardingOptions) {
           // 3. 状态更新
           const isLastStep = state.activeIndex === (config.steps?.length ?? 0) - 1
           const activeNextBtn = nextButton || footerEl.querySelector(`.${CLASS_NEXT_BTN}`)
+          const activePrevBtn = previousButton || footerEl.querySelector(`.${CLASS_PREV_BTN}`)
+
+          // The first step has no previous destination; keep a real, enabled
+          // skip action instead of a disabled "previous" button.
+          if (activePrevBtn) activePrevBtn.style.display = state.activeIndex === 0 ? 'none' : ''
 
           if (activeNextBtn) {
              if (isLastStep) {

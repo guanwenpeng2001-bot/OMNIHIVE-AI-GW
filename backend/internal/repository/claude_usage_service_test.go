@@ -46,8 +46,8 @@ func (s *ClaudeUsageServiceSuite) TestFetchUsage_Success() {
 	}))
 
 	s.fetcher = &claudeUsageService{
-		usageURL:          s.srv.URL,
-		allowPrivateHosts: true,
+		usageURL:     s.srv.URL,
+		privateHosts: []string{"127.0.0.1"},
 	}
 
 	resp, err := s.fetcher.FetchUsage(context.Background(), "at", "")
@@ -68,8 +68,8 @@ func (s *ClaudeUsageServiceSuite) TestFetchUsage_NonOK() {
 	}))
 
 	s.fetcher = &claudeUsageService{
-		usageURL:          s.srv.URL,
-		allowPrivateHosts: true,
+		usageURL:     s.srv.URL,
+		privateHosts: []string{"127.0.0.1"},
 	}
 
 	_, err := s.fetcher.FetchUsage(context.Background(), "at", "")
@@ -85,8 +85,8 @@ func (s *ClaudeUsageServiceSuite) TestFetchUsage_BadJSON() {
 	}))
 
 	s.fetcher = &claudeUsageService{
-		usageURL:          s.srv.URL,
-		allowPrivateHosts: true,
+		usageURL:     s.srv.URL,
+		privateHosts: []string{"127.0.0.1"},
 	}
 
 	_, err := s.fetcher.FetchUsage(context.Background(), "at", "")
@@ -101,8 +101,8 @@ func (s *ClaudeUsageServiceSuite) TestFetchUsage_ContextCancel() {
 	}))
 
 	s.fetcher = &claudeUsageService{
-		usageURL:          s.srv.URL,
-		allowPrivateHosts: true,
+		usageURL:     s.srv.URL,
+		privateHosts: []string{"127.0.0.1"},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -114,8 +114,8 @@ func (s *ClaudeUsageServiceSuite) TestFetchUsage_ContextCancel() {
 
 func (s *ClaudeUsageServiceSuite) TestFetchUsage_InvalidProxyReturnsError() {
 	s.fetcher = &claudeUsageService{
-		usageURL:          "http://example.com",
-		allowPrivateHosts: true,
+		usageURL:     "http://example.com",
+		privateHosts: []string{"127.0.0.1"},
 	}
 
 	_, err := s.fetcher.FetchUsage(context.Background(), "at", "://bad-proxy-url")

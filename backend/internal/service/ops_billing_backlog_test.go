@@ -8,13 +8,13 @@ import (
 	"errors"
 	"log/slog"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/Wei-Shaw/sub2api/migrations"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testresources"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/migrations"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
@@ -45,7 +45,8 @@ func TestBillingBacklogIndependentGauges(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	mock.ExpectQuery(`SELECT`).WillReturnRows(sqlmock.NewRows([]string{
 		"pending", "review", "oldest_pending", "jobs", "unknown", "retries", "oldest_due", "terminal_review", "terminal_waiver",
-	}).AddRow(3, 5, 11.5, 7, 13, 2, 17.5, 19, 23))
+		"execution_review",
+	}).AddRow(3, 5, 11.5, 7, 13, 2, 17.5, 19, 23, 29))
 	require.NoError(t, (&OpsMetricsCollector{db: db}).collectBillingBacklog(context.Background()))
 	record := readBillingBacklogLog(t, output)
 	for key, want := range map[string]float64{
@@ -53,6 +54,7 @@ func TestBillingBacklogIndependentGauges(t *testing.T) {
 		"pending_jobs": 7, "submission_unknown_count": 13, "retry_jobs": 2,
 		"oldest_due_age_seconds": 17.5, "terminal_jobs_needs_review_count": 19,
 		"terminal_jobs_manual_waiver_count": 23,
+		"execution_needs_review_count":      29,
 	} {
 		require.Equal(t, want, record[key], key)
 	}
@@ -82,8 +84,8 @@ func TestBillingBacklogFailureDoesNotLogZeroSnapshot(t *testing.T) {
 					cancel()
 				case "scan failure":
 					mock.ExpectQuery(`SELECT`).WillReturnRows(sqlmock.NewRows([]string{
-						"a", "b", "c", "d", "e", "f", "g", "h", "i",
-					}).AddRow(0, 0, 0, 0, 0, 0, 0, 1, "invalid count"))
+						"a", "b", "c", "d", "e", "f", "g", "h", "i", "j",
+					}).AddRow(0, 0, 0, 0, 0, 0, 0, 1, "invalid count", 0))
 				default:
 					mock.ExpectQuery(`SELECT`).WillReturnError(errors.New("private database error"))
 				}
@@ -97,10 +99,7 @@ func TestBillingBacklogFailureDoesNotLogZeroSnapshot(t *testing.T) {
 // Uses only temporary tables on a single connection, never application tables.
 // Opt in with a loopback PostgreSQL URL for the dedicated test database.
 func TestBillingBacklogPostgres(t *testing.T) {
-	dsn := os.Getenv("OPS_BILLING_BACKLOG_TEST_DSN")
-	if dsn == "" {
-		t.Skip("set OPS_BILLING_BACKLOG_TEST_DSN to local ops_billing_backlog_test")
-	}
+	dsn := testresources.DedicatedPostgresDSN(t, "OPS_BILLING_BACKLOG_TEST_DSN", "ops_billing_backlog_test")
 	u, err := url.Parse(dsn)
 	require.NoError(t, err)
 	require.Contains(t, []string{"postgres", "postgresql"}, u.Scheme)
@@ -124,7 +123,8 @@ func TestBillingBacklogPostgres(t *testing.T) {
 	 charged_usage_log_id bigint, family text, attempt_count integer DEFAULT 0,
 	 next_poll_at timestamptz DEFAULT NOW(), billing_snapshot jsonb DEFAULT '{}');
 	 CREATE TEMP TABLE usage_settlement_receipts (
-	 request_id text, state text, created_at timestamptz DEFAULT NOW());`)
+	 request_id text, state text, created_at timestamptz DEFAULT NOW());
+	 CREATE TEMP VIEW gateway_execution_reconciliation AS SELECT ''::text AS request_id WHERE false;`)
 	require.NoError(t, err)
 	output := captureBillingBacklogLog(t)
 	collector := &OpsMetricsCollector{db: db}

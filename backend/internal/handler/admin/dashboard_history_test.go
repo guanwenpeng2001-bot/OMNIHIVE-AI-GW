@@ -8,20 +8,23 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/usagestats"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
 type dashboardHistoryRepo struct {
 	service.UsageLogRepository
-	failure  error
-	revision string
+	failure       error
+	revision      string
+	trend         []usagestats.TrendDataPoint
+	modelsFailure error
 }
 
 func (repo *dashboardHistoryRepo) DashboardCoverageRevision(context.Context) (string, error) {
@@ -31,9 +34,12 @@ func (repo *dashboardHistoryRepo) GetDashboardStats(context.Context) (*usagestat
 	return &usagestats.DashboardStats{Coverage: &usagestats.Coverage{Complete: false, Reason: "raw_history_unavailable", RawRetainedFrom: time.Date(2026, 3, 5, 0, 0, 0, 0, time.UTC)}}, repo.failure
 }
 func (repo *dashboardHistoryRepo) GetUsageTrendWithUsageFilters(context.Context, time.Time, time.Time, string, usagestats.UsageLogFilters) ([]usagestats.TrendDataPoint, error) {
-	return []usagestats.TrendDataPoint{}, repo.failure
+	return repo.trend, repo.failure
 }
 func (repo *dashboardHistoryRepo) GetModelStatsWithUsageFiltersBySource(context.Context, time.Time, time.Time, usagestats.UsageLogFilters, string) ([]usagestats.ModelStat, error) {
+	if repo.modelsFailure != nil {
+		return nil, repo.modelsFailure
+	}
 	return []usagestats.ModelStat{}, repo.failure
 }
 func (repo *dashboardHistoryRepo) GetGroupStatsWithUsageFilters(context.Context, time.Time, time.Time, usagestats.UsageLogFilters) ([]usagestats.GroupStat, error) {
@@ -77,9 +83,24 @@ func TestDashboardHistoryErrors(t *testing.T) {
 			router := dashboardHistoryRouter(&dashboardHistoryRepo{failure: failure})
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, httptest.NewRequest("GET", path, nil))
-			require.Equal(t, 409, response.Code)
 			var body map[string]any
 			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+			if path == "/users" || strings.HasPrefix(path, "/snapshot") {
+				require.Equal(t, 200, response.Code)
+				data, ok := body["data"].(map[string]any)
+				require.True(t, ok)
+				gap, ok := data["data_completeness"].(map[string]any)
+				require.True(t, ok)
+				require.Equal(t, false, gap["complete"])
+				require.Equal(t, "2026-03-05T00:00:00Z", gap["raw_retained_from"])
+				if path == "/users" {
+					require.Equal(t, []any{}, data["trend"])
+				} else {
+					require.Len(t, gap["unavailable_sections"], 1)
+				}
+				return
+			}
+			require.Equal(t, 409, response.Code)
 			require.Equal(t, "USAGE_HISTORY_INCOMPLETE", body["reason"])
 			metadata, ok := body["metadata"].(map[string]any)
 			require.True(t, ok)
@@ -128,7 +149,34 @@ func TestDashboardCoverageRevisionInvalidatesCaches(t *testing.T) {
 			request.Header.Set("If-None-Match", first.Header().Get("ETag"))
 			refreshed := httptest.NewRecorder()
 			router.ServeHTTP(refreshed, request)
-			require.Equal(t, 409, refreshed.Code)
+			if path == "/users" || strings.HasPrefix(path, "/snapshot") {
+				require.Equal(t, 200, refreshed.Code)
+				require.Contains(t, refreshed.Body.String(), "USAGE_HISTORY_INCOMPLETE")
+			} else {
+				require.Equal(t, 409, refreshed.Code)
+			}
+		})
+	}
+}
+
+func TestDashboardSnapshotPreservesVerifiedTrend(t *testing.T) {
+	for _, partial := range []bool{false, true} {
+		t.Run(strconv.FormatBool(partial), func(t *testing.T) {
+			resetDashboardReadCachesForTest()
+			t.Cleanup(resetDashboardReadCachesForTest)
+			repo := &dashboardHistoryRepo{trend: []usagestats.TrendDataPoint{{Requests: 17}}}
+			if partial {
+				repo.modelsFailure = infraerrors.Conflict("USAGE_HISTORY_INCOMPLETE", "missing history")
+			}
+			rec := httptest.NewRecorder()
+			dashboardHistoryRouter(repo).ServeHTTP(rec, httptest.NewRequest("GET", "/snapshot?include_stats=false", nil))
+			require.Equal(t, 200, rec.Code)
+			require.Contains(t, rec.Body.String(), `"requests":17`)
+			if partial {
+				require.Contains(t, rec.Body.String(), `"unavailable_sections":["models"]`)
+			} else {
+				require.NotContains(t, rec.Body.String(), "data_completeness")
+			}
 		})
 	}
 }

@@ -2,11 +2,16 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	auditdomain "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/audit"
 )
 
 const (
@@ -35,7 +40,10 @@ type AuditLogService struct {
 	droppedCount uint64
 	writeFailed  uint64
 	writtenCount uint64
+	scoped       *auditdomain.Store
 }
+
+func (s *AuditLogService) SetScopedStore(store *auditdomain.Store) { s.scoped = store }
 
 func NewAuditLogService(repo AuditLogRepository, settingService *SettingService) *AuditLogService {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -81,20 +89,83 @@ func (s *AuditLogService) Record(entry *AuditLog) {
 	default:
 	}
 	select {
-	case s.queue <- entry:
+	case s.queue <- scopedAuditProjection(entry):
 	default:
 		atomic.AddUint64(&s.droppedCount, 1)
 	}
 }
 
+func (s *AuditLogService) captureScoped(entry *AuditLog) {
+	if s.scoped == nil || entry.ProjectID == nil || entry.ActorUserID == nil || entry.RequestID == "" || entry.StatusCode < 200 || entry.StatusCode >= 400 {
+		return
+	}
+	workspace := auditParam(entry, "workspace_id")
+	workspaceID, _ := strconv.ParseInt(workspace, 10, 64)
+	changes, _ := json.Marshal(auditChanges(entry.Extra))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.scoped.Capture(ctx, auditdomain.Operation{Workspace: workspaceID, Project: *entry.ProjectID, Actor: *entry.ActorUserID,
+		Action: entry.Action, Route: entry.Path, RequestID: entry.RequestID, ResourceID: entry.ResourceID, Method: entry.Method,
+		ActorEmail: entry.ActorEmail, ActorRole: entry.ActorRole, Status: entry.StatusCode, At: entry.CreatedAt, Changes: changes,
+		Reason: auditReason(entry.Extra)}); err != nil {
+		atomic.AddUint64(&s.writeFailed, 1)
+	}
+}
+
+func auditParam(entry *AuditLog, key string) string {
+	switch params := entry.Extra["params"].(type) {
+	case map[string]string:
+		return params[key]
+	case map[string]any:
+		value, _ := params[key].(string)
+		return value
+	}
+	return ""
+}
+
+func auditReason(extra map[string]any) string {
+	reason, _ := extra["reason"].(string)
+	return truncateStringForAudit(reason, 512)
+}
+
+func truncateStringForAudit(value string, limit int) string {
+	runes := []rune(strings.TrimSpace(value))
+	if len(runes) > limit {
+		return string(runes[:limit])
+	}
+	return string(runes)
+}
+
+func auditChanges(extra map[string]any) []ConfigurationFieldDiff {
+	for _, key := range []string{"diff", "submitted_diff"} {
+		raw, err := json.Marshal(extra[key])
+		if err != nil {
+			continue
+		}
+		var changes []ConfigurationFieldDiff
+		if json.Unmarshal(raw, &changes) == nil && len(changes) > 0 {
+			return changes
+		}
+	}
+	return []ConfigurationFieldDiff{}
+}
+
 // List 分页查询审计日志。
 func (s *AuditLogService) List(ctx context.Context, filter *AuditLogFilter) (*AuditLogList, error) {
-	return s.repo.List(ctx, filter)
+	page, err := s.repo.List(ctx, filter)
+	if err != nil || page == nil {
+		return page, err
+	}
+	for i, v := range page.Logs {
+		page.Logs[i] = auditManagementView(v)
+	}
+	return page, nil
 }
 
 // GetByID 查询单条详情。
 func (s *AuditLogService) GetByID(ctx context.Context, id int64) (*AuditLog, error) {
-	return s.repo.GetByID(ctx, id)
+	row, err := s.repo.GetByID(ctx, id)
+	return auditManagementView(row), err
 }
 
 // ClearAll 全量清空审计日志并写入留痕记录。
@@ -130,9 +201,12 @@ func (s *AuditLogService) runWriter() {
 		cancel()
 		if err != nil {
 			atomic.AddUint64(&s.writeFailed, uint64(len(batch)))
-			_, _ = fmt.Fprintf(os.Stderr, "time=%s level=WARN msg=\"audit log flush failed\" err=%v batch=%d\n",
-				time.Now().Format(time.RFC3339Nano), err, len(batch))
+			_, _ = fmt.Fprintf(os.Stderr, "time=%s level=WARN msg=\"audit log flush failed\" batch=%d\n",
+				time.Now().Format(time.RFC3339Nano), len(batch))
 		} else {
+			for _, entry := range batch {
+				s.captureScoped(entry)
+			}
 			atomic.AddUint64(&s.writtenCount, uint64(inserted))
 		}
 		batch = batch[:0]
@@ -213,8 +287,8 @@ func (s *AuditLogService) runRetentionOnce() {
 	for {
 		deleted, err := s.repo.DeleteBefore(ctx, cutoff, auditRetentionBatchSize)
 		if err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "time=%s level=WARN msg=\"audit log retention cleanup failed\" err=%v\n",
-				time.Now().Format(time.RFC3339Nano), err)
+			_, _ = fmt.Fprintf(os.Stderr, "time=%s level=WARN msg=\"audit log retention cleanup failed\"\n",
+				time.Now().Format(time.RFC3339Nano))
 			return
 		}
 		if deleted == 0 {

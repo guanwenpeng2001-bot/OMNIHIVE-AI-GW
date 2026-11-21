@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 // gatewayResourceMetadataBodyLimit bounds the batch metadata bodies. Larger
@@ -446,6 +446,9 @@ func (h *GatewayResourceHandler) CreateBatch(c *gin.Context) {
 	// The submission's child job plan inherits TPM storage and frozen scope from
 	// this ingress plan, including keys without a monetary period budget.
 	defer beginGatewayRequestPlan(c, h.openAI.gatewayService, key, model, "resources", h.openAI.maxAccountSwitches)()
+	if c.IsAborted() {
+		return
+	}
 	release, ok := h.checkResourceAdmission(c, key, subject)
 	if !ok {
 		return
@@ -672,6 +675,9 @@ func (h *GatewayResourceHandler) CreateMessageBatch(c *gin.Context) {
 		return
 	}
 	defer beginGatewayRequestPlan(c, h.openAI.gatewayService, key, model, "resources", h.openAI.maxAccountSwitches)()
+	if c.IsAborted() {
+		return
+	}
 	template := &service.UpstreamJob{Platform: service.PlatformAnthropic, Family: "batch", AccountID: account.ID, UserID: key.UserID, APIKeyID: key.ID, GroupID: key.GroupID, Billing: billing}
 	job, err := h.upstreamJobs.Submit(c.Request.Context(), template, canonical, func(ctx context.Context) (service.UpstreamJobUpdate, error) {
 		return h.openAI.gatewayService.SubmitAnthropicMessageBatch(ctx, account, template, canonical)

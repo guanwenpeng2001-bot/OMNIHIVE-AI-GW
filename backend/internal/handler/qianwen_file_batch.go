@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/tidwall/gjson"
 )
 
@@ -319,6 +319,9 @@ func (h *OpenAIGatewayHandler) handleQianwenFileBatch(c *gin.Context) bool {
 	}
 	if family == "batch" {
 		defer beginGatewayRequestPlan(c, h.gatewayService, key, snapshot.BatchModel(), "resources", h.maxAccountSwitches)()
+		if c.IsAborted() {
+			return true
+		}
 	}
 	submit := func() (*service.UpstreamJob, error) {
 		return h.upstreamJobs.Submit(c.Request.Context(), &service.UpstreamJob{Platform: service.PlatformQianwen, Family: family, AccountID: account.ID, UserID: key.UserID, APIKeyID: key.ID, GroupID: key.GroupID, Billing: billing}, fingerprint, func(ctx context.Context) (service.UpstreamJobUpdate, error) {

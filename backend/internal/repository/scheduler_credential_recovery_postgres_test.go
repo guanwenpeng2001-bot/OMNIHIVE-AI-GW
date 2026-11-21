@@ -5,15 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"testing"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/alicebob/miniredis/v2"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testresources"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
@@ -21,10 +21,7 @@ import (
 // These tests can only write the task's dedicated synthetic database.
 func schedulerRecoveryPostgresFixture(t *testing.T) *credentialSecretFixture {
 	t.Helper()
-	dsn := os.Getenv("SCHEDULER_RECOVERY_TEST_DSN")
-	if dsn == "" {
-		t.Skip("set SCHEDULER_RECOVERY_TEST_DSN to the isolated scheduler_recovery_test database")
-	}
+	dsn := testresources.DedicatedPostgresDSN(t, "SCHEDULER_RECOVERY_TEST_DSN", "scheduler_recovery_test")
 	parsed, err := url.Parse(dsn)
 	require.True(t, err == nil && (parsed.Scheme == "postgres" || parsed.Scheme == "postgresql") && parsed.Path == "/scheduler_recovery_test" &&
 		(parsed.Hostname() == "localhost" || parsed.Hostname() == "127.0.0.1") && parsed.Query().Get("dbname") == "" && parsed.Query().Get("host") == "", "only the dedicated local synthetic database is allowed")
@@ -129,7 +126,7 @@ func TestSchedulerRecoveryPostgresHealthyBackupAndScope(t *testing.T) {
 			case "revoked":
 				_, err = f.secrets.Revoke(f.ctx, bad.ID, 1)
 			case "corrupt":
-				_, err = f.db.ExecContext(f.ctx, "UPDATE credential_secrets SET ciphertext='synthetic-corrupt-envelope' WHERE account_id=$1", bad.ID)
+				f.writeInconsistentSecret(t, "UPDATE credential_secrets SET ciphertext='synthetic-corrupt-envelope' WHERE account_id=$1", bad.ID)
 			case "conflict":
 				_, err = f.db.ExecContext(f.ctx, "UPDATE accounts SET credentials=jsonb_set(credentials,'{credential_secret_version}','99'::jsonb) WHERE id=$1", bad.ID)
 			}

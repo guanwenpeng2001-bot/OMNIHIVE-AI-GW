@@ -43,11 +43,15 @@ func isFingerprintedEmbeddedAssetPath(cleanPath string) bool {
 	return true
 }
 
-// applyStaticAssetCacheHeaders sets Cache-Control for long-cacheable static paths.
+// applyStaticAssetCacheHeaders sets the cache lifetime for embedded and override files.
 // index.html / SPA routes must keep no-cache and are not handled here.
 func applyStaticAssetCacheHeaders(header http.Header, cleanPath string) {
-	if header == nil || !isFingerprintedEmbeddedAssetPath(cleanPath) {
+	if header == nil || cleanPath == "index.html" {
 		return
 	}
-	header.Set("Cache-Control", staticAssetsCacheControl)
+	if isFingerprintedEmbeddedAssetPath(cleanPath) {
+		header.Set("Cache-Control", staticAssetsCacheControl)
+		return
+	}
+	header.Set("Cache-Control", "public, max-age=300")
 }

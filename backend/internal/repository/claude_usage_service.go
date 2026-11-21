@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"time"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 const defaultClaudeUsageURL = "https://api.anthropic.com/api/oauth/usage"
@@ -19,9 +19,9 @@ const defaultClaudeUsageURL = "https://api.anthropic.com/api/oauth/usage"
 const defaultUsageUserAgent = "claude-code/2.1.7"
 
 type claudeUsageService struct {
-	usageURL          string
-	allowPrivateHosts bool
-	httpUpstream      service.HTTPUpstream
+	usageURL     string
+	privateHosts []string
+	httpUpstream service.HTTPUpstream
 }
 
 // NewClaudeUsageFetcher 创建 Claude 用量获取服务
@@ -80,7 +80,7 @@ func (s *claudeUsageService) FetchUsageWithOptions(ctx context.Context, opts *se
 			ProxyURL:           opts.ProxyURL,
 			Timeout:            30 * time.Second,
 			ValidateResolvedIP: true,
-			AllowPrivateHosts:  s.allowPrivateHosts,
+			PrivateHosts:       s.privateHosts, AllowPrivateHosts: len(s.privateHosts) > 0,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("create http client failed: %w", err)

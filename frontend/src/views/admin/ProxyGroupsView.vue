@@ -8,6 +8,8 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import ProxyGroupEditModal from '@/components/proxyGroup/ProxyGroupEditModal.vue'
 import ProxyGroupMembersModal from '@/components/proxyGroup/ProxyGroupMembersModal.vue'
 import ProxyGroupBindingsDrawer from '@/components/proxyGroup/ProxyGroupBindingsDrawer.vue'
+import EgressPoolsPanel from '@/features/egress/EgressPoolsPanel.vue'
+import { ErrorState } from '@/components/ui'
 import { proxyGroupsAPI, type ProxyGroup } from '@/api/admin/proxyGroups'
 import { extractApiErrorMessage } from '@/utils/apiError'
 const { t } = useI18n()
@@ -71,11 +73,20 @@ function saved() { editor.value = null; memberGroup.value = null; void load() }
           </form>
           <p class="text-sm text-[var(--muted-foreground)]">{{ t('admin.proxyGroups.countsHint') }} {{ t('admin.proxyGroups.tagsHint') }}</p>
           <p v-if="error" role="alert" class="text-sm text-[var(--bad-text)]">{{ error }}</p>
+          <EgressPoolsPanel />
         </div>
       </template>
       <template #table>
         <div class="table-wrapper bg-[var(--card)] text-[var(--foreground)]" :aria-busy="loading">
           <p v-if="loading" role="status" class="p-8 text-center text-sm text-[var(--muted-foreground)]">{{ t('common.loading') }}</p>
+          <div v-else-if="error && !groups.length" class="p-6">
+            <ErrorState
+              :title="t('admin.proxyGroups.loadFailed')"
+              :message="error"
+              :retry-label="t('common.tryAgain')"
+              @retry="load"
+            />
+          </div>
           <p v-else-if="!groups.length && !error" class="p-8 text-center text-sm text-[var(--muted-foreground)]">{{ t('admin.proxyGroups.empty') }}</p>
           <div v-else class="divide-y divide-[var(--border)]">
             <div class="hidden grid-cols-[minmax(0,2fr)_1fr_1fr_1fr_minmax(0,2fr)] gap-4 bg-[var(--surface-2)] px-4 py-3 text-sm text-[var(--muted-foreground)] lg:grid"><span>{{ t('admin.proxyGroups.name') }} / {{ t('admin.proxyGroups.services') }}</span><span>{{ t('admin.proxyGroups.counts') }}</span><span>{{ t('admin.proxyGroups.accounts') }}</span><span>{{ t('admin.proxyGroups.fallback') }}</span><span>{{ t('common.actions') }}</span></div>

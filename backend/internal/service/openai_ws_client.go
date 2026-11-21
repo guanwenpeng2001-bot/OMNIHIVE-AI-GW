@@ -12,9 +12,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	openaiwsv2 "github.com/Wei-Shaw/sub2api/internal/service/openai_ws_v2"
 	coderws "github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
+	openaiwsrelay "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service/openai_ws_relay"
 )
 
 const openAIWSMessageReadLimitBytes int64 = 16 * 1024 * 1024
@@ -72,13 +74,25 @@ type openAIWSTransportMetricsDialer interface {
 	SnapshotTransportMetrics() OpenAIWSTransportMetricsSnapshot
 }
 
-func newDefaultOpenAIWSClientDialer() openAIWSClientDialer {
+func newDefaultOpenAIWSClientDialer(cfg *config.Config) openAIWSClientDialer {
+	hosts := privateUpstreamHosts(cfg)
+	baseTransport, _ := http.DefaultTransport.(*http.Transport)
 	return &coderOpenAIWSClientDialer{
+		privateHosts: hosts, direct: &http.Client{Transport: httpclient.NewUpstreamTransport(baseTransport, hosts)},
 		proxyClients: make(map[string]*openAIWSProxyClientEntry),
 	}
 }
 
+func privateUpstreamHosts(cfg *config.Config) []string {
+	if cfg == nil {
+		return nil
+	}
+	return cfg.Security.URLAllowlist.PrivateUpstreamHosts()
+}
+
 type coderOpenAIWSClientDialer struct {
+	privateHosts []string
+	direct       *http.Client
 	proxyMu      sync.Mutex
 	proxyClients map[string]*openAIWSProxyClientEntry
 	proxyHits    atomic.Int64
@@ -125,7 +139,7 @@ func (d *coderOpenAIWSClientDialer) Dial(
 
 	wrapped := &coderOpenAIWSClientConn{}
 	opts := &coderws.DialOptions{
-		HTTPHeader:      cloneHeader(headers),
+		HTTPClient: d.direct, HTTPHeader: cloneHeader(headers),
 		CompressionMode: coderws.CompressionContextTakeover,
 		OnPingReceived: func(context.Context, []byte) bool {
 			wrapped.upstreamPings.Add(1)
@@ -196,7 +210,7 @@ func (d *coderOpenAIWSClientDialer) proxyHTTPClient(proxy string) (*http.Client,
 		TLSHandshakeTimeout: 10 * time.Second,
 		ForceAttemptHTTP2:   true,
 	}
-	client := &http.Client{Transport: transport}
+	client := &http.Client{Transport: httpclient.NewUpstreamTransport(transport, d.privateHosts)}
 	d.proxyClients[normalizedProxy] = &openAIWSProxyClientEntry{
 		client:           client,
 		lastUsedUnixNano: now,
@@ -265,9 +279,7 @@ func closeOpenAIWSProxyClient(client *http.Client) {
 	if client == nil || client.Transport == nil {
 		return
 	}
-	if transport, ok := client.Transport.(*http.Transport); ok && transport != nil {
-		transport.CloseIdleConnections()
-	}
+	client.CloseIdleConnections()
 }
 
 func (d *coderOpenAIWSClientDialer) SnapshotTransportMetrics() OpenAIWSTransportMetricsSnapshot {
@@ -300,7 +312,7 @@ func (c *coderOpenAIWSClientConn) UpstreamPingCount() int64 {
 	return c.upstreamPings.Load()
 }
 
-var _ openaiwsv2.FrameConn = (*coderOpenAIWSClientConn)(nil)
+var _ openaiwsrelay.FrameConn = (*coderOpenAIWSClientConn)(nil)
 
 func (c *coderOpenAIWSClientConn) WriteJSON(ctx context.Context, value any) error {
 	if c == nil || c.conn == nil {
@@ -339,11 +351,8 @@ func (c *coderOpenAIWSClientConn) ReadFrame(ctx context.Context) (coderws.Messag
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	msgType, payload, err := c.conn.Read(ctx)
-	if err != nil {
-		return coderws.MessageText, nil, err
-	}
-	return msgType, payload, nil
+	// Read returns partial message bytes on error. Keep them as timeout evidence.
+	return c.conn.Read(ctx)
 }
 
 func (c *coderOpenAIWSClientConn) WriteFrame(ctx context.Context, msgType coderws.MessageType, payload []byte) error {

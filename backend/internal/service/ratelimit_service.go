@@ -13,8 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 	"github.com/tidwall/gjson"
 )
 
@@ -404,6 +405,10 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	if upstreamMsg != "" {
 		upstreamMsg = truncateForLog([]byte(upstreamMsg), 512)
 	}
+	diagnostic := upstreamMsg
+	if ctxkey.PrivateGatewayContent(ctx) {
+		diagnostic = ""
+	}
 
 	if account.IsCommandCode() {
 		if handled, disable := s.handleCommandCodeError(ctx, account, statusCode, responseBody); handled {
@@ -415,17 +420,17 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	case 400:
 		// "organization has been disabled" → 永久禁用
 		if strings.Contains(strings.ToLower(upstreamMsg), "organization has been disabled") {
-			msg := "Organization disabled (400): " + upstreamMsg
+			msg := "Organization disabled (400): " + diagnostic
 			s.handleAuthError(ctx, account, msg)
 			shouldDisable = true
 		} else if account.Platform == PlatformAnthropic && strings.Contains(strings.ToLower(upstreamMsg), "credit balance") {
 			// Anthropic API key 余额不足（语义等同 402），停止调度
-			msg := "Credit balance exhausted (400): " + upstreamMsg
+			msg := "Credit balance exhausted (400): " + diagnostic
 			s.handleAuthError(ctx, account, msg)
 			shouldDisable = true
 		} else if strings.Contains(strings.ToLower(upstreamMsg), "identity verification is required") {
 			// KYC 身份验证要求 → 永久禁用，账号需完成身份验证后才能恢复
-			msg := "Identity verification required (400): " + upstreamMsg
+			msg := "Identity verification required (400): " + diagnostic
 			s.handleAuthError(ctx, account, msg)
 			shouldDisable = true
 		}
@@ -444,8 +449,8 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		openai401Code := extractUpstreamErrorCode(responseBody)
 		if authAccount.Platform == PlatformOpenAI && (openai401Code == "token_invalidated" || openai401Code == "token_revoked") {
 			msg := "Token revoked (401): account authentication permanently revoked"
-			if upstreamMsg != "" {
-				msg = "Token revoked (401): " + upstreamMsg
+			if diagnostic != "" {
+				msg = "Token revoked (401): " + diagnostic
 			}
 			s.handleAuthError(ctx, authAccount, msg)
 			shouldDisable = true
@@ -454,8 +459,8 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		// OpenAI: {"detail":"Unauthorized"} 表示 token 完全无效（非标准 OpenAI 错误格式），直接标记 error
 		if authAccount.Platform == PlatformOpenAI && gjson.GetBytes(responseBody, "detail").String() == "Unauthorized" {
 			msg := "Unauthorized (401): account authentication failed permanently"
-			if upstreamMsg != "" {
-				msg = "Unauthorized (401): " + upstreamMsg
+			if diagnostic != "" {
+				msg = "Unauthorized (401): " + diagnostic
 			}
 			s.handleAuthError(ctx, authAccount, msg)
 			shouldDisable = true
@@ -473,8 +478,8 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			// 直接走 SetError 永久禁用，避免冷却结束后再被选中产生一发无意义的 502。
 			if strings.TrimSpace(authAccount.GetCredential("refresh_token")) == "" {
 				msg := "Authentication failed (401): refresh_token missing, cannot recover"
-				if upstreamMsg != "" {
-					msg = "OAuth 401 (no refresh_token): " + upstreamMsg
+				if diagnostic != "" {
+					msg = "OAuth 401 (no refresh_token): " + diagnostic
 				}
 				s.handleAuthError(ctx, authAccount, msg)
 				shouldDisable = true
@@ -490,8 +495,8 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			// 这里仅依赖 InvalidateToken + SetTempUnschedulable 让账号在冷却期内不被调度，
 			// 冷却结束后由 token_provider 的 NeedsRefresh / token_refresh_service 走带分布式锁的正路刷新。
 			msg := "Authentication failed (401): invalid or expired credentials"
-			if upstreamMsg != "" {
-				msg = "OAuth 401: " + upstreamMsg
+			if diagnostic != "" {
+				msg = "OAuth 401: " + diagnostic
 			}
 			if authAccount.Platform == PlatformAntigravity {
 				extraUpdates := antigravityForceTokenRefreshExtra("401_invalid")
@@ -520,22 +525,22 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		} else {
 			// 非 OAuth：保持 SetError 行为
 			msg := "Authentication failed (401): invalid or expired credentials"
-			if upstreamMsg != "" {
-				msg = "Authentication failed (401): " + upstreamMsg
+			if diagnostic != "" {
+				msg = "Authentication failed (401): " + diagnostic
 			}
 			s.handleAuthError(ctx, authAccount, msg)
 			shouldDisable = true
 		}
 	case 402:
 		if account.IsOpenCodeGoPlan() {
-			s.handleOpenCodeModelQuotaFailure(ctx, account, headers, responseBody, openCodePaymentReason+": "+upstreamMsg)
+			s.handleOpenCodeModelQuotaFailure(ctx, account, headers, responseBody, openCodePaymentReason+": "+diagnostic)
 			shouldDisable = true
 			break
 		}
 		// 国产供应商：余额不足是可恢复状态（充值/检测恢复后由周期任务自动解除），
 		// 不能走 handleAuthError 永久置 status=error。改为可恢复的临时停调。
 		if account.IsCNProvider() || account.IsOpenCodeZen() {
-			s.handleCNProviderInsufficientBalance(ctx, account, upstreamMsg)
+			s.handleCNProviderInsufficientBalance(ctx, account, diagnostic)
 			shouldDisable = true
 			break
 		}
@@ -548,23 +553,25 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		}
 		// 支付要求：余额不足或计费问题，停止调度
 		msg := "Payment required (402): insufficient balance or billing issue"
-		if upstreamMsg != "" {
-			msg = "Payment required (402): " + upstreamMsg
+		if diagnostic != "" {
+			msg = "Payment required (402): " + diagnostic
 		}
 		s.handleAuthError(ctx, account, msg)
 		shouldDisable = true
 	case 403:
-		logger.LegacyPrintf(
-			"service.ratelimit",
-			"[HandleUpstreamErrorRaw] account_id=%d platform=%s type=%s status=403 request_id=%s cf_ray=%s upstream_msg=%s raw_body=%s",
-			account.ID,
-			account.Platform,
-			account.Type,
-			strings.TrimSpace(headers.Get("x-request-id")),
-			strings.TrimSpace(headers.Get("cf-ray")),
-			upstreamMsg,
-			truncateForLog(responseBody, 1024),
-		)
+		if !ctxkey.PrivateGatewayContent(ctx) {
+			logger.LegacyPrintf(
+				"service.ratelimit",
+				"[HandleUpstreamErrorRaw] account_id=%d platform=%s type=%s status=403 request_id=%s cf_ray=%s upstream_msg=%s raw_body=%s",
+				account.ID,
+				account.Platform,
+				account.Type,
+				strings.TrimSpace(headers.Get("x-request-id")),
+				strings.TrimSpace(headers.Get("cf-ray")),
+				upstreamMsg,
+				truncateForLog(responseBody, 1024),
+			)
+		}
 		shouldDisable = s.handle403(ctx, account, upstreamMsg, responseBody)
 	case 429:
 		s.handle429(ctx, account, headers, responseBody)
@@ -576,8 +583,8 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		// 自定义错误码启用时：在列表中的错误码都应该停止调度
 		if customErrorCodesEnabled {
 			msg := "Custom error code triggered"
-			if upstreamMsg != "" {
-				msg = upstreamMsg
+			if diagnostic != "" {
+				msg = diagnostic
 			}
 			s.handleCustomErrorCode(ctx, account, statusCode, msg)
 			shouldDisable = true
@@ -1014,6 +1021,9 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	// 信号而非封禁：按 429 口径冷却到真实窗口重置点，避免落入下方通用 403
 	// 升级计数后被永久 SetError。
 	if isCNProviderQuotaExhausted403(account, responseBody, upstreamMsg) {
+		if ctxkey.PrivateGatewayContent(ctx) {
+			upstreamMsg = ""
+		}
 		s.handleCNProviderQuotaExhausted403(ctx, account, upstreamMsg)
 		return true
 	}
@@ -1022,6 +1032,9 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	// 一层坏代理连环永久禁用整组账号。走 HTML 豁免 + N 次累计 + 临时冷却。
 	if account.Platform == PlatformOpenAI || IsCNProvider(account.Platform) || account.IsOpenCodeGo() {
 		return s.handleOpenAI403(ctx, account, upstreamMsg, responseBody)
+	}
+	if ctxkey.PrivateGatewayContent(ctx) {
+		upstreamMsg, responseBody = "", nil
 	}
 	// 非 Antigravity 平台：保持原有行为
 	msg := buildForbiddenErrorMessage(
@@ -1036,6 +1049,9 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 
 func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
 	ctx = WithAccountRuntimeIdentity(ctx, account)
+	if ctxkey.PrivateGatewayContent(ctx) {
+		upstreamMsg = ""
+	}
 	// 上游代理 / CDN 在请求到达 OpenAI API 之前就拦下时，回的是 HTML 403 页面而不是
 	// {"error":{...}} 结构化错误。这类响应描述的是「这条链路 / 这个端点被挡了」，
 	// 不构成账号凭据或权限失效的证据——例如无效的 /v1/responses 子路径（#5334）。
@@ -1067,6 +1083,9 @@ func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account
 		return false
 	}
 
+	if ctxkey.PrivateGatewayContent(ctx) {
+		responseBody = nil
+	}
 	msg := buildForbiddenErrorMessage(
 		"Access forbidden (403):",
 		upstreamMsg,
@@ -1125,6 +1144,9 @@ func isCloudflareBotBlockResponse(body []byte) bool {
 // generic（通用禁止）→ 永久 SetError
 func (s *RateLimitService) handleAntigravity403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
 	fbType := classifyForbiddenType(string(responseBody))
+	if ctxkey.PrivateGatewayContent(ctx) {
+		upstreamMsg, responseBody = "", nil
+	}
 
 	switch fbType {
 	case forbiddenTypeValidation:
@@ -2730,6 +2752,9 @@ func (s *RateLimitService) triggerTempUnschedulable(ctx context.Context, account
 		MatchedKeyword:  matchedKeyword,
 		RuleIndex:       ruleIndex,
 		ErrorMessage:    truncateTempUnschedMessage(responseBody, tempUnschedMessageMaxBytes),
+	}
+	if ctxkey.PrivateGatewayContent(ctx) {
+		state.ErrorMessage = ""
 	}
 
 	reason := ""

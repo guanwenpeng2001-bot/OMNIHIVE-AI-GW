@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"maps"
 	"net/url"
 	"os"
 	"sync"
@@ -13,31 +14,25 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/account"
-	"github.com/Wei-Shaw/sub2api/ent/migrate"
-	"github.com/Wei-Shaw/sub2api/ent/proxygroup"
-	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
-	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/Wei-Shaw/sub2api/internal/testutil/testresources"
-	"github.com/Wei-Shaw/sub2api/migrations"
 	"github.com/google/uuid"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/account"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/migrate"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/proxygroup"
+	_ "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/runtime"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/schema/mixins"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testresources"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/migrations"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
 
 func proxyGroupTestPostgres(t *testing.T) (*sql.DB, *dbent.Client) {
 	t.Helper()
-	if os.Getenv("IP_GROUP_DEDICATED_TESTS") != "1" {
-		t.Skip("requires dedicated job_test on 127.0.0.1:55439")
-	}
-	password := os.Getenv("IP_GROUP_TEST_PASSWORD")
-	require.NotEmpty(t, password, "dedicated test password must be supplied by the test runner")
-	connection := url.URL{Scheme: "postgres", Host: "127.0.0.1:55439", Path: "/job_test", User: url.UserPassword("codex_test_admin", password), RawQuery: "sslmode=disable&connect_timeout=5"}
-	db, err := testresources.OpenPostgres(context.Background(), connection.String(), "job_test")
+	db, err := testresources.OpenPostgres(context.Background(), dedicatedJobDSN(t), "job_test")
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
@@ -91,6 +86,7 @@ func TestProxyGroupRepositoryDedicatedPostgres(t *testing.T) {
 	otherCtx := domain.WithWorkspaceScope(ctx, otherWorkspace.ID)
 	repo := NewProxyGroupRepository(client)
 	accounts := newAccountRepositoryWithSQL(client, db, nil)
+	accounts.credentialEncryptor = persistentTestAES(t, true)
 	createProxy := func(ctx context.Context, name, status string, expired bool) *dbent.Proxy {
 		b := c.Proxy.Create().SetName(name).SetHost("fixture.invalid").SetPort(8080).SetProtocol("http").SetStatus(status)
 		if expired {
@@ -176,6 +172,8 @@ func TestProxyGroupRepositoryDedicatedPostgres(t *testing.T) {
 		require.Len(t, batch, 1)
 		require.NotNil(t, batch[0].ProxyGroup)
 		copy := *got
+		copy.Credentials = maps.Clone(got.Credentials)
+		service.StripCredentialReferenceKeys(copy.Credentials)
 		copy.ID = 0
 		copy.Name = "copy-account"
 		require.NoError(t, accounts.CreateWithAccountGroups(ctx, &copy, nil))
@@ -297,6 +295,7 @@ func TestProxyGroupRepositoryConcurrentReplacement(t *testing.T) {
 
 	// An account attachment holds the group lock until its transaction commits.
 	accounts := newAccountRepositoryWithSQL(client, db, nil)
+	accounts.credentialEncryptor = persistentTestAES(t, true)
 	tx, err = client.Tx(ctx)
 	require.NoError(t, err)
 	defer tx.Rollback()
@@ -322,4 +321,18 @@ func TestProxyGroupRepositoryConcurrentReplacement(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, &group.ID, stored.ProxyGroupID)
 	require.Nil(t, stored.ProxyID)
+}
+
+func dedicatedJobDSN(t *testing.T) string {
+	t.Helper()
+	if os.Getenv("IP_GROUP_DEDICATED_TESTS") != "1" {
+		t.Skip("requires dedicated job_test on 127.0.0.1:55439")
+	}
+	if dsn := os.Getenv("IP_GROUP_TEST_DSN"); dsn != "" {
+		return dsn
+	}
+	password := os.Getenv("IP_GROUP_TEST_PASSWORD")
+	require.NotEmpty(t, password, "dedicated test password must be supplied by the test runner")
+	connection := url.URL{Scheme: "postgres", Host: "127.0.0.1:55439", Path: "/job_test", User: url.UserPassword("codex_test_admin", password), RawQuery: "sslmode=disable&connect_timeout=5"}
+	return connection.String()
 }

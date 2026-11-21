@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/apicompat"
 	"github.com/stretchr/testify/require"
 )
 
@@ -244,7 +244,7 @@ func TestGeminiToolIDsResponsePreservation(t *testing.T) {
 			require.NoError(t, marshalErr)
 			_, _ = events.WriteString("data: " + string(chunk) + "\n\n")
 		}
-		_, _ = events.WriteString("data: {\"candidates\":[{\"finishReason\":\"STOP\"}]}\n\n") // strings.Builder writes cannot fail.
+		_, _ = events.WriteString("data: {\"candidates\":[{\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":1,\"candidatesTokenCount\":2}}\n\n") // strings.Builder writes cannot fail.
 		upstream := &http.Response{Body: io.NopCloser(strings.NewReader(events.String()))}
 		collected, _, collectErr := collectGeminiSSE(nil, strings.NewReader(events.String()), false)
 		require.NoError(t, collectErr)

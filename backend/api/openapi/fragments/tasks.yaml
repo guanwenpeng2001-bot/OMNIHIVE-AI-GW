@@ -1,0 +1,796 @@
+paths:
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks:
+    parameters:
+    - $ref: '#/components/parameters/IdentityWorkspaceID'
+    - $ref: '#/components/parameters/IdentityProjectID'
+    get:
+      operationId: imageTaskList
+      x-required-grant: tasks.read
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - code
+                - message
+                - data
+                additionalProperties: false
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/ImageTaskPage'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      parameters:
+      - $ref: '#/components/parameters/IdentityCursor'
+      - $ref: '#/components/parameters/IdentityLimit'
+      - in: query
+        name: kind
+        schema:
+          type: array
+          items:
+            type: string
+      - in: query
+        name: state
+        schema:
+          type: array
+          items:
+            type: string
+      - in: query
+        name: model_id
+        schema:
+          type: array
+          items:
+            type: string
+      - in: query
+        name: from
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: to
+        schema:
+          type: string
+          format: date-time
+    post:
+      operationId: imageTaskCreate
+      x-required-grant: tasks.create
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - code
+                - message
+                - data
+                additionalProperties: false
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: accepted
+                  data:
+                    $ref: '#/components/schemas/ImageTaskDetail'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      parameters:
+      - $ref: '#/components/parameters/IdentityIdempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskCenterCreate'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}:
+    parameters:
+    - $ref: '#/components/parameters/IdentityWorkspaceID'
+    - $ref: '#/components/parameters/IdentityProjectID'
+    - $ref: '#/components/parameters/ImageTaskID'
+    get:
+      operationId: imageTaskDetail
+      x-required-grant: tasks.read
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - code
+                - message
+                - data
+                additionalProperties: false
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/ImageTaskDetail'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}/items:
+    parameters:
+    - $ref: '#/components/parameters/IdentityWorkspaceID'
+    - $ref: '#/components/parameters/IdentityProjectID'
+    - $ref: '#/components/parameters/ImageTaskID'
+    get:
+      operationId: imageTaskItems
+      x-required-grant: tasks.read
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - code
+                - message
+                - data
+                additionalProperties: false
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/ImageTaskItemPage'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      parameters:
+      - $ref: '#/components/parameters/IdentityCursor'
+      - $ref: '#/components/parameters/IdentityLimit'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}/cancel:
+    parameters:
+    - $ref: '#/components/parameters/IdentityWorkspaceID'
+    - $ref: '#/components/parameters/IdentityProjectID'
+    - $ref: '#/components/parameters/ImageTaskID'
+    post:
+      operationId: imageTaskCancel
+      x-required-grant: tasks.cancel
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - code
+                - message
+                - data
+                additionalProperties: false
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: accepted
+                  data:
+                    $ref: '#/components/schemas/ImageTaskCancelResult'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      parameters:
+      - $ref: '#/components/parameters/IdentityIdempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: []
+              additionalProperties: false
+              properties: {}
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}/retry:
+    parameters:
+    - $ref: '#/components/parameters/IdentityWorkspaceID'
+    - $ref: '#/components/parameters/IdentityProjectID'
+    - $ref: '#/components/parameters/ImageTaskID'
+    post:
+      operationId: imageTaskRetry
+      x-required-grant: tasks.retry
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - code
+                - message
+                - data
+                additionalProperties: false
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: accepted
+                  data:
+                    $ref: '#/components/schemas/ImageTaskRetryResult'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      parameters:
+      - $ref: '#/components/parameters/IdentityIdempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageTaskRetry'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}/artifacts/{artifact_id}/download:
+    parameters:
+    - $ref: '#/components/parameters/IdentityWorkspaceID'
+    - $ref: '#/components/parameters/IdentityProjectID'
+    - $ref: '#/components/parameters/ImageTaskID'
+    - $ref: '#/components/parameters/ImageArtifactID'
+    post:
+      operationId: imageArtifactTicket
+      x-required-grant: tasks.artifacts.read
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - code
+                - message
+                - data
+                additionalProperties: false
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/ImageTaskTicket'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: []
+              additionalProperties: false
+              properties: {}
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}/artifacts/{artifact_id}/content:
+    parameters:
+    - $ref: '#/components/parameters/IdentityWorkspaceID'
+    - $ref: '#/components/parameters/IdentityProjectID'
+    - $ref: '#/components/parameters/ImageTaskID'
+    - $ref: '#/components/parameters/ImageArtifactID'
+    get:
+      operationId: imageArtifactContent
+      x-required-grant: tasks.artifacts.read
+      responses:
+        '200':
+          description: Authorized download
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      parameters:
+      - $ref: '#/components/parameters/ImageTaskTicketHeader'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}/artifacts/{artifact_id}:
+    parameters:
+    - $ref: '#/components/parameters/IdentityWorkspaceID'
+    - $ref: '#/components/parameters/IdentityProjectID'
+    - $ref: '#/components/parameters/ImageTaskID'
+    - $ref: '#/components/parameters/ImageArtifactID'
+    delete:
+      operationId: imageArtifactRevoke
+      x-required-grant: tasks.artifacts.revoke
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - code
+                - message
+                - data
+                additionalProperties: false
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    type: object
+                    required:
+                    - state
+                    additionalProperties: false
+                    properties:
+                      state:
+                        const: revoked
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+components:
+  parameters:
+    ImageTaskID:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+    ImageArtifactID:
+      in: path
+      name: artifact_id
+      required: true
+      schema:
+        type: string
+    ImageTaskTicketHeader:
+      name: X-Artifact-Ticket
+      in: header
+      required: true
+      schema:
+        type: string
+  schemas:
+    ImageTaskSummary:
+      type: object
+      required:
+      - id
+      - kind
+      - state
+      - stage
+      - model_id
+      - created_at
+      - updated_at
+      - progress
+      - settlement_state
+      - allowed_actions
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        kind:
+          $ref: '#/components/schemas/TaskCenterKind'
+        state:
+          type: string
+          enum:
+          - queued
+          - running
+          - succeeded
+          - failed
+          - canceled
+          - unknown
+        stage:
+          type: string
+        model_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        progress:
+          anyOf:
+          - type: integer
+            minimum: 0
+            maximum: 100
+          - type: 'null'
+        settlement_state:
+          type: string
+        allowed_actions:
+          type: array
+          items:
+            type: string
+    ImageTaskDetail:
+      type: object
+      required:
+      - id
+      - kind
+      - state
+      - stage
+      - model_id
+      - created_at
+      - updated_at
+      - progress
+      - settlement_state
+      - allowed_actions
+      - project_id
+      - source
+      - request_id
+      - request_url
+      - settlement_id
+      - settlement_url
+      - parent_task_id
+      - provider_state
+      - artifact_state
+      - cancel_state
+      - progress_source
+      - items
+      - artifacts
+      - estimate
+      - actual_charge
+      - action_reasons
+      - version
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        kind:
+          $ref: '#/components/schemas/TaskCenterKind'
+        state:
+          type: string
+          enum:
+          - queued
+          - running
+          - succeeded
+          - failed
+          - canceled
+          - unknown
+        stage:
+          type: string
+        model_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        progress:
+          anyOf:
+          - type: integer
+            minimum: 0
+            maximum: 100
+          - type: 'null'
+        settlement_state:
+          type: string
+        allowed_actions:
+          type: array
+          items:
+            type: string
+        project_id:
+          type: string
+          pattern: ^[0-9]+$
+        source:
+          type: string
+        request_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+        request_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+        settlement_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+        settlement_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+        parent_task_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+        provider_state:
+          type: string
+        artifact_state:
+          type: string
+        cancel_state:
+          type: string
+        progress_source:
+          type: string
+        items:
+          type: object
+          required:
+          - total
+          - succeeded
+          - failed
+          - pending
+          - canceled
+          additionalProperties: false
+          properties:
+            total:
+              type: string
+              pattern: ^[0-9]+$
+            succeeded:
+              type: string
+              pattern: ^[0-9]+$
+            failed:
+              type: string
+              pattern: ^[0-9]+$
+            pending:
+              type: string
+              pattern: ^[0-9]+$
+            canceled:
+              type: string
+              pattern: ^[0-9]+$
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImageTaskArtifact'
+        estimate:
+          anyOf:
+          - type: object
+            required:
+            - currency
+            - amount
+            additionalProperties: false
+            properties:
+              currency:
+                type: string
+                pattern: ^[A-Z]{3}$
+              amount:
+                type: string
+                pattern: ^-?[0-9]+\.[0-9]{8}$
+          - type: 'null'
+        actual_charge:
+          anyOf:
+          - type: object
+            required:
+            - currency
+            - amount
+            additionalProperties: false
+            properties:
+              currency:
+                type: string
+                pattern: ^[A-Z]{3}$
+              amount:
+                type: string
+                pattern: ^-?[0-9]+\.[0-9]{8}$
+          - type: 'null'
+        action_reasons:
+          type: object
+          additionalProperties:
+            type: string
+        version:
+          type: string
+          pattern: ^[0-9]+$
+    ImageTaskArtifact:
+      type: object
+      required:
+      - id
+      - content_type
+      - size_bytes
+      - expires_at
+      - state
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        content_type:
+          type: string
+        size_bytes:
+          anyOf:
+          - type: string
+            pattern: ^[0-9]+$
+          - type: 'null'
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        state:
+          type: string
+    ImageTaskItem:
+      type: object
+      required:
+      - id
+      - state
+      - acceptance
+      - reason
+      - retryable
+      - artifact_ids
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        state:
+          type: string
+        acceptance:
+          type: string
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+        retryable:
+          type: boolean
+        artifact_ids:
+          type: array
+          items:
+            type: string
+    ImageTaskPage:
+      type: object
+      required:
+      - items
+      - next_cursor
+      - as_of
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImageTaskSummary'
+        next_cursor:
+          anyOf:
+          - type: string
+          - type: 'null'
+        as_of:
+          type: string
+          format: date-time
+    ImageTaskItemPage:
+      type: object
+      required:
+      - items
+      - next_cursor
+      - as_of
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImageTaskItem'
+        next_cursor:
+          anyOf:
+          - type: string
+          - type: 'null'
+        as_of:
+          type: string
+          format: date-time
+    ImageTaskCreate:
+      type: object
+      required:
+      - kind
+      - model_id
+      - api_key_id
+      - input
+      - funding_acknowledged
+      additionalProperties: false
+      properties:
+        kind:
+          const: image
+        model_id:
+          type: string
+        api_key_id:
+          type: string
+          pattern: ^[0-9]+$
+        input:
+          type: object
+          required:
+          - prompt
+          additionalProperties: false
+          properties:
+            prompt:
+              type: string
+              minLength: 1
+              maxLength: 8000
+            size:
+              type: string
+            count:
+              type: integer
+              minimum: 1
+              maximum: 4
+        funding_acknowledged:
+          const: true
+    ImageTaskRetry:
+      type: object
+      required:
+      - funding_acknowledged
+      additionalProperties: false
+      properties:
+        item_ids:
+          type: array
+          items:
+            type: string
+        funding_acknowledged:
+          const: true
+    ImageTaskRetryResult:
+      type: object
+      required:
+      - task_id
+      - parent_task_id
+      - new_request_id
+      - state
+      additionalProperties: false
+      properties:
+        task_id:
+          type: string
+        parent_task_id:
+          type: string
+        new_request_id:
+          type: string
+        state:
+          type: string
+    ImageTaskCancelResult:
+      type: object
+      required:
+      - task_id
+      - cancel_state
+      - state
+      - version
+      additionalProperties: false
+      properties:
+        task_id:
+          type: string
+        cancel_state:
+          type: string
+        state:
+          type: string
+        version:
+          type: string
+          pattern: ^[0-9]+$
+    ImageTaskTicket:
+      type: object
+      required:
+      - url
+      - ticket
+      - expires_at
+      - content_type
+      - size_bytes
+      additionalProperties: false
+      properties:
+        url:
+          type: string
+        ticket:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        content_type:
+          type: string
+        size_bytes:
+          anyOf:
+          - type: string
+            pattern: ^[0-9]+$
+          - type: 'null'

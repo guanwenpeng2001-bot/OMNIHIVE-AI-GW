@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/response"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 var workspaceResourcePaths = map[string]string{
@@ -53,7 +53,11 @@ func WorkspaceResources(workspaces *service.WorkspaceService) gin.HandlerFunc {
 		if identifier := ctx.Param("id"); identifier != "" && resource != "" {
 			parsed, err := strconv.ParseInt(identifier, 10, 64)
 			if err != nil || parsed <= 0 {
-				response.ErrorFrom(ctx, service.ErrWorkspaceNotFound)
+				if resource == "groups" {
+					response.ErrorFrom(ctx, service.ErrGroupNotFound)
+				} else {
+					response.ErrorFrom(ctx, service.ErrWorkspaceNotFound)
+				}
 				ctx.Abort()
 				return
 			}

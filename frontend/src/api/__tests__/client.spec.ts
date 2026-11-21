@@ -91,6 +91,51 @@ describe('API Client', () => {
       expect(config.params).toHaveProperty('timezone')
     })
 
+    it('v2 GET 请求不自动附加浏览器 timezone，避免严格查询参数接口 422', async () => {
+      const adapter = vi.fn().mockResolvedValue({
+        status: 200,
+        data: { code: 0, data: {} },
+        headers: {},
+        config: {},
+        statusText: 'OK',
+      })
+      apiClient.defaults.adapter = adapter
+
+      await apiClient.get('/api/v2/public/models', { params: { limit: 20 } })
+
+      const config = adapter.mock.calls[0][0]
+      expect(config.params).not.toHaveProperty('timezone')
+      expect(config.params.limit).toBe(20)
+    })
+
+    it('v2 absolute GET 请求也不自动附加 timezone', async () => {
+      const adapter = vi.fn().mockResolvedValue({
+        status: 200,
+        data: { code: 0, data: {} },
+        headers: {},
+        config: {},
+        statusText: 'OK',
+      })
+      apiClient.defaults.adapter = adapter
+
+      await apiClient.get('http://127.0.0.1:18080/api/v2/me/scopes', { baseURL: '', params: { limit: 50 } })
+
+      const config = adapter.mock.calls[0][0]
+      expect(config.params).not.toHaveProperty('timezone')
+      expect(config.params.limit).toBe(50)
+    })
+
+    it('v2 GET 仍保留调用方显式传入的 timezone', async () => {
+      const adapter = vi.fn().mockImplementation(config => Promise.resolve({ data: {}, status: 200, statusText: 'OK', headers: {}, config }))
+      apiClient.defaults.adapter = adapter
+
+      await apiClient.get('/api/v2/workspaces/1/projects/1/billing', {
+        params: { from: '2026-11-01T00:00:00Z', to: '2026-11-02T00:00:00Z', timezone: 'UTC' }
+      })
+
+      expect(adapter.mock.calls[0][0].params.timezone).toBe('UTC')
+    })
+
     it.each(['object', 'search', 'tuples'])('preserves explicit timezone for %s params', async shape => {
       const entries = [['timezone', 'America/Los_Angeles'], ['page', '2']]
       const params = shape === 'object' ? Object.fromEntries(entries) : shape === 'search' ? new URLSearchParams(entries) : entries

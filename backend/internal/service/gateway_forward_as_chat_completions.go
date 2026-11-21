@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/apicompat"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/claude"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
@@ -307,11 +307,11 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 	}
 
 	if err := scanner.Err(); err != nil {
-		return &ForwardResult{RequestID: requestID, UpstreamHeaders: resp.Header, Usage: usage, Model: originalModel, UpstreamModel: mappedModel, ReasoningEffort: reasoningEffort, Duration: time.Since(startTime)}, newOpenAIUpstreamStreamReadError(err)
+		return &ForwardResult{UsageIncomplete: !scanner.completed, RequestID: requestID, UpstreamHeaders: resp.Header, Usage: usage, Model: originalModel, UpstreamModel: mappedModel, ReasoningEffort: reasoningEffort, Duration: time.Since(startTime)}, newOpenAIUpstreamStreamReadError(err)
 	}
 
 	if readerContext != nil && readerContext.Err() != nil {
-		return &ForwardResult{RequestID: requestID, UpstreamHeaders: resp.Header, Usage: usage, Model: originalModel, UpstreamModel: mappedModel, ReasoningEffort: reasoningEffort, Duration: time.Since(startTime)}, readerContext.Err()
+		return &ForwardResult{UsageIncomplete: !scanner.completed, RequestID: requestID, UpstreamHeaders: resp.Header, Usage: usage, Model: originalModel, UpstreamModel: mappedModel, ReasoningEffort: reasoningEffort, Duration: time.Since(startTime)}, readerContext.Err()
 	}
 	if finalResp == nil {
 		writeGatewayCCError(c, http.StatusBadGateway, "server_error", "Upstream stream ended without a response")
@@ -405,6 +405,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 
 	resultWithUsage := func() *ForwardResult {
 		return &ForwardResult{
+			UsageIncomplete: !scanner.completed,
 			RequestID:       requestID,
 			UpstreamHeaders: resp.Header,
 			Usage:           usage,

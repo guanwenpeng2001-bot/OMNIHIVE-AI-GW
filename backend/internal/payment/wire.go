@@ -8,9 +8,9 @@ import (
 	"log/slog"
 	"strings"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/google/wire"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 )
 
 // EncryptionKey is a named type for the payment encryption key (AES-256, 32 bytes).

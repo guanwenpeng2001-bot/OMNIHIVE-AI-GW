@@ -11,7 +11,8 @@ import (
 	"strings"
 	"time"
 
-	pluginv1 "github.com/Wei-Shaw/sub2api/pkg/pluginapi/v1"
+	pluginv1 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/pkg/pluginapi/v1"
+	pluginv2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/pkg/pluginapi/v2"
 )
 
 const (
@@ -31,6 +32,9 @@ var ErrPluginStateChanged = errors.New("插件状态已在其他实例中变化�
 
 // PluginManifest 是 .s2plugin 包中可在执行二进制前检查的声明。
 type PluginManifest struct {
+	ProductID     string                   `json:"product_id,omitempty"`
+	PublisherID   string                   `json:"publisher_id,omitempty"`
+	Origin        *pluginv2.Origin         `json:"origin,omitempty"`
 	SchemaVersion int                      `json:"schema_version"`
 	ID            string                   `json:"id"`
 	Name          string                   `json:"name"`
@@ -45,12 +49,22 @@ type PluginManifest struct {
 }
 
 type PluginRequirements struct {
-	Sub2API                   string   `json:"sub2api"`
-	RecommendedSub2APIVersion string   `json:"recommended_sub2api_version,omitempty"`
-	TestedSub2APIVersions     []string `json:"tested_sub2api_versions,omitempty"`
-	PluginProtocol            int      `json:"plugin_protocol"`
-	TransportAPI              int      `json:"transport_api"`
-	UIBridge                  int      `json:"ui_bridge"`
+	OmniHive                   string   `json:"omnihive,omitempty"`
+	RecommendedOmniHiveVersion string   `json:"recommended_omnihive_version,omitempty"`
+	TestedOmniHiveVersions     []string `json:"tested_omnihive_versions,omitempty"`
+	Sub2API                    string   `json:"sub2api,omitempty"`
+	RecommendedSub2APIVersion  string   `json:"recommended_sub2api_version,omitempty"`
+	TestedSub2APIVersions      []string `json:"tested_sub2api_versions,omitempty"`
+	PluginProtocol             int      `json:"plugin_protocol"`
+	TransportAPI               int      `json:"transport_api"`
+	UIBridge                   int      `json:"ui_bridge"`
+}
+
+func (r PluginRequirements) hostVersions() (required string, recommended string, tested []string) {
+	if r.OmniHive != "" {
+		return r.OmniHive, r.RecommendedOmniHiveVersion, r.TestedOmniHiveVersions
+	}
+	return r.Sub2API, r.RecommendedSub2APIVersion, r.TestedSub2APIVersions
 }
 
 type PluginCapability struct {
@@ -75,16 +89,19 @@ type PluginSignature struct {
 
 // PluginCompatibility 是管理页面展示和启用门禁共同使用的兼容性结论。
 type PluginCompatibility struct {
-	Compatible         bool   `json:"compatible"`
-	Tested             bool   `json:"tested"`
-	Status             string `json:"status"`
-	Message            string `json:"message"`
-	CurrentSub2API     string `json:"current_sub2api_version"`
-	RequiredSub2API    string `json:"required_sub2api_version"`
-	RecommendedSub2API string `json:"recommended_sub2api_version"`
-	PluginProtocol     int    `json:"plugin_protocol"`
-	TransportAPI       int    `json:"transport_api"`
-	UIBridge           int    `json:"ui_bridge"`
+	Compatible          bool   `json:"compatible"`
+	Tested              bool   `json:"tested"`
+	Status              string `json:"status"`
+	Message             string `json:"message"`
+	CurrentOmniHive     string `json:"current_omnihive_version"`
+	RequiredOmniHive    string `json:"required_omnihive_version"`
+	RecommendedOmniHive string `json:"recommended_omnihive_version"`
+	CurrentSub2API      string `json:"current_sub2api_version"`
+	RequiredSub2API     string `json:"required_sub2api_version"`
+	RecommendedSub2API  string `json:"recommended_sub2api_version"`
+	PluginProtocol      int    `json:"plugin_protocol"`
+	TransportAPI        int    `json:"transport_api"`
+	UIBridge            int    `json:"ui_bridge"`
 }
 
 type PluginInstallation struct {
@@ -127,6 +144,7 @@ type PluginBinding struct {
 }
 
 type PluginRepository interface {
+	ExtensionInventory(context.Context) ([]ExtensionInventoryItem, error)
 	List(ctx context.Context) ([]*PluginInstallation, error)
 	GetByID(ctx context.Context, id int64) (*PluginInstallation, error)
 	GetByKey(ctx context.Context, key string) (*PluginInstallation, error)
@@ -141,10 +159,19 @@ type PluginRepository interface {
 }
 
 func (m PluginManifest) RuntimeKey() string {
+	if m.SchemaVersion == 2 {
+		return pluginv2.RuntimeKey
+	}
 	return runtime.GOOS + "-" + runtime.GOARCH
 }
 
 func (m PluginManifest) Validate() error {
+	if m.SchemaVersion == 2 {
+		return validateExtensionManifest(m)
+	}
+	if m.ProductID != "" || m.PublisherID != "" || m.Origin != nil {
+		return errors.New("unexpected v2 fields on v1 manifest")
+	}
 	if m.SchemaVersion != 1 {
 		return fmt.Errorf("不支持的插件清单版本: %d", m.SchemaVersion)
 	}
@@ -157,8 +184,9 @@ func (m PluginManifest) Validate() error {
 	if normalizeSemver(m.Version) == "" {
 		return errors.New("插件版本必须是有效的语义化版本")
 	}
-	if strings.TrimSpace(m.Requires.Sub2API) == "" {
-		return errors.New("插件必须声明 requires.sub2api")
+	required, _, _ := m.Requires.hostVersions()
+	if strings.TrimSpace(required) == "" {
+		return errors.New("插件必须声明 requires.omnihive")
 	}
 	if m.Requires.PluginProtocol != pluginv1.ProtocolVersion ||
 		m.Requires.TransportAPI != pluginv1.TransportAPIVersion ||

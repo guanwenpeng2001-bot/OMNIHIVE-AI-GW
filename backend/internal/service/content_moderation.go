@@ -20,10 +20,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
 )
 
 const (
@@ -307,18 +307,19 @@ type ContentModerationModelFilter struct {
 }
 
 type ContentModerationCheckInput struct {
-	RequestID  string
-	UserID     int64
-	UserEmail  string
-	APIKeyID   int64
-	APIKeyName string
-	GroupID    *int64
-	GroupName  string
-	Endpoint   string
-	Provider   string
-	Model      string
-	Protocol   string
-	Body       []byte
+	RequestID   string
+	UserID      int64
+	UserEmail   string
+	APIKeyID    int64
+	APIKeyName  string
+	GroupID     *int64
+	GroupName   string
+	Endpoint    string
+	Provider    string
+	Model       string
+	Protocol    string
+	Body        []byte
+	omitContent bool
 }
 
 type ContentModerationInput struct {
@@ -506,6 +507,7 @@ type ContentModerationService struct {
 	proxyRepo                ProxyRepository
 	authCacheInvalidator     APIKeyAuthCacheInvalidator
 	emailService             *EmailService
+	privateHosts             []string
 	httpClient               *http.Client
 	moderationProxyCache     atomic.Pointer[moderationProxyURLCacheEntry]
 	asyncQueue               chan contentModerationTask
@@ -589,7 +591,6 @@ func NewContentModerationService(
 		proxyRepo:            proxyRepo,
 		authCacheInvalidator: authCacheInvalidator,
 		emailService:         emailService,
-		httpClient:           servertiming.InstrumentClient(nil),
 		workerCount:          maxContentModerationWorkerCount,
 		asyncQueue:           make(chan contentModerationTask, maxContentModerationQueueSize),
 		keyHealth:            make(map[string]*contentModerationKeyHealth),
@@ -812,6 +813,7 @@ func (s *ContentModerationService) TestAPIKeys(ctx context.Context, input TestCo
 }
 
 func (s *ContentModerationService) Check(ctx context.Context, input ContentModerationCheckInput) (*ContentModerationDecision, error) {
+	input.omitContent = ctxkey.PrivateGatewayContent(ctx)
 	allow := &ContentModerationDecision{Allowed: true, Action: ContentModerationActionAllow}
 	if s == nil || s.settingRepo == nil || s.repo == nil {
 		slog.Info("content_moderation.skip_unavailable",
@@ -914,6 +916,9 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 			keywordText := extractContentModerationKeywordText(input.Protocol, input.Body)
 			if keyword, hit := runtimeSnapshot.matchBlockedKeyword(keywordText); hit {
 				s.recordPreBlockSyncMetric(0, ContentModerationActionKeywordBlock)
+				if input.omitContent {
+					keyword = ""
+				}
 				slog.Info("content_moderation.keyword_block",
 					"user_id", input.UserID,
 					"api_key_id", input.APIKeyID,
@@ -1046,6 +1051,9 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 }
 
 func (s *ContentModerationService) checkSync(ctx context.Context, input ContentModerationCheckInput, cfg *ContentModerationConfig, content ContentModerationInput, hashText string, queueDelay *int, allowBlock bool) *ContentModerationDecision {
+	if input.omitContent {
+		ctx = ctxkey.WithPrivateGatewayContent(ctx)
+	}
 	allow := &ContentModerationDecision{Allowed: true, Action: ContentModerationActionAllow}
 	trackPreBlock := queueDelay == nil && allowBlock && cfg != nil && cfg.Mode == ContentModerationModePreBlock
 	if trackPreBlock {
@@ -1056,6 +1064,9 @@ func (s *ContentModerationService) checkSync(ctx context.Context, input ContentM
 	result, err := s.callModeration(ctx, cfg, content.ModerationInput(), trackPreBlock)
 	latency := int(time.Since(start).Milliseconds())
 	if err != nil {
+		if input.omitContent {
+			err = errors.New("moderation upstream request failed")
+		}
 		if trackPreBlock {
 			s.recordPreBlockSyncMetric(latency, ContentModerationActionError)
 		}
@@ -1716,7 +1727,11 @@ func (s *ContentModerationService) callModeration(ctx context.Context, cfg *Cont
 		if trackLoad {
 			s.finishModerationAPIKeyCall(key, latency, false)
 		}
-		s.markAPIKeyError(key, err.Error(), latency, httpStatus)
+		diagnostic := err.Error()
+		if ctxkey.PrivateGatewayContent(ctx) {
+			diagnostic = "moderation upstream request failed"
+		}
+		s.markAPIKeyError(key, diagnostic, latency, httpStatus)
 		lastErr = err
 		if httpStatus == http.StatusBadRequest {
 			break
@@ -1803,17 +1818,17 @@ const contentModerationProxyURLCacheTTL = time.Minute
 // 未配置代理时沿用默认客户端；配置了代理时通过共享客户端池构建，
 // 代理解析/构建失败直接返回错误，绝不回退直连（避免 IP 关联风险）。
 func (s *ContentModerationService) moderationHTTPClient(ctx context.Context, cfg *ContentModerationConfig) (*http.Client, error) {
-	if cfg == nil || cfg.ProxyID == nil {
-		if s.httpClient == nil {
-			return http.DefaultClient, nil
+	var proxyURL string
+	if cfg != nil && cfg.ProxyID != nil {
+		var err error
+		proxyURL, err = s.resolveModerationProxyURL(ctx, *cfg.ProxyID)
+		if err != nil {
+			return nil, err
 		}
+	} else if s.httpClient != nil {
 		return s.httpClient, nil
 	}
-	proxyURL, err := s.resolveModerationProxyURL(ctx, *cfg.ProxyID)
-	if err != nil {
-		return nil, err
-	}
-	client, err := httpclient.GetClient(httpclient.Options{ProxyURL: proxyURL})
+	client, err := httpclient.GetClient(httpclient.Options{ProxyURL: proxyURL, PrivateHosts: s.privateHosts, AllowPrivateHosts: len(s.privateHosts) > 0})
 	if err != nil {
 		return nil, fmt.Errorf("build moderation proxy client: %w", err)
 	}
@@ -1857,6 +1872,10 @@ func (s *ContentModerationService) resolveModerationProxyURL(ctx context.Context
 }
 
 func (s *ContentModerationService) buildLog(input ContentModerationCheckInput, cfg *ContentModerationConfig, action string, flagged bool, highestCategory string, highestScore float64, scores map[string]float64, text string, latency *int, queueDelay *int, errText string) *ContentModerationLog {
+	if input.omitContent {
+		text = ""
+		errText = ""
+	}
 	var userID *int64
 	if input.UserID > 0 {
 		userID = &input.UserID
@@ -2101,11 +2120,11 @@ func contentModerationEmailVariables(log *ContentModerationLog, cfg *ContentMode
 
 func (s *ContentModerationService) siteName(ctx context.Context) string {
 	if s == nil || s.settingRepo == nil {
-		return "Sub2API"
+		return "OmniHive"
 	}
 	name, err := s.settingRepo.GetValue(ctx, SettingKeySiteName)
 	if err != nil || strings.TrimSpace(name) == "" {
-		return "Sub2API"
+		return "OmniHive"
 	}
 	return strings.TrimSpace(name)
 }

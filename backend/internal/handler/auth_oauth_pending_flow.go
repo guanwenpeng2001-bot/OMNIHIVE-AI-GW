@@ -11,12 +11,12 @@ import (
 	"strconv"
 	"strings"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/oauth"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ip"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/oauth"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/response"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -61,6 +61,7 @@ type bindPendingOAuthLoginRequest struct {
 }
 
 type createPendingOAuthAccountRequest struct {
+	service.SignupAgreement
 	Email                 string `json:"email" binding:"required,email"`
 	VerifyCode            string `json:"verify_code,omitempty"`
 	Password              string `json:"password" binding:"required,min=6"`
@@ -974,7 +975,7 @@ func (h *AuthHandler) createPendingOAuthAccount(c *gin.Context, provider string)
 	}
 
 	tokenPair, user, err := h.authService.RegisterOAuthEmailAccount(
-		c.Request.Context(),
+		req.Context(c.Request.Context()),
 		email,
 		req.Password,
 		strings.TrimSpace(req.VerifyCode),

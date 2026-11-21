@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/model"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/model"
 	"github.com/redis/go-redis/v9"
 )
 

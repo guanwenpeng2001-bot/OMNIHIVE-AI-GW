@@ -1,6 +1,6 @@
 package repository
 
-import "github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+import "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
 
 func paginationResultFromTotal(total int64, params pagination.PaginationParams) *pagination.PaginationResult {
 	pages := int(total) / params.Limit()

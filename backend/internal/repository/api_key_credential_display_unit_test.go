@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
 
-	"github.com/Wei-Shaw/sub2api/ent/apikeycredential"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/apikeycredential"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -123,7 +123,9 @@ func createAuditLogsTableForSQLite(t *testing.T, client *dbent.Client) {
 			request_body TEXT NOT NULL DEFAULT '',
 			status_code INTEGER NOT NULL DEFAULT 0,
 			latency_ms BIGINT NOT NULL DEFAULT 0,
-			extra TEXT NOT NULL DEFAULT '{}'
+			extra TEXT NOT NULL DEFAULT '{}',
+			project_id BIGINT,
+			resource_id TEXT
 		)`)
 	require.NoError(t, err)
 }

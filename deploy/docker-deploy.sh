@@ -20,8 +20,11 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# GitHub raw content base URL
-GITHUB_RAW_URL="https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/main/deploy"
+# Pin this preparation script to its release; update this tag with the script.
+# Operators may explicitly select another release with OMNIHIVE_RELEASE_TAG.
+DEFAULT_RELEASE_TAG="v0.2.4"
+RELEASE_TAG="${OMNIHIVE_RELEASE_TAG:-$DEFAULT_RELEASE_TAG}"
+GITHUB_RAW_URL="https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/${RELEASE_TAG}/deploy"
 
 # Print colored message
 print_info() {
@@ -52,6 +55,8 @@ command_exists() {
 
 # Main installation function
 main() {
+    local staging_dir=""
+    trap 'if [ -n "$staging_dir" ]; then rm -rf -- "$staging_dir"; fi' EXIT
     echo ""
     echo "=========================================="
     echo "  OmniHive Deployment Preparation"
@@ -64,23 +69,20 @@ main() {
         exit 1
     fi
 
-    # Check if deployment already exists
-    if [ -f "docker-compose.yml" ] && [ -f ".env" ]; then
-        print_warning "Deployment files already exist in current directory."
-        read -p "Overwrite existing files? (y/N): " -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            print_info "Cancelled."
-            exit 0
-        fi
+    # Protect each local file independently; never replace an existing deployment.
+    if [ -e "docker-compose.yml" ] || [ -e ".env" ]; then
+        print_error "docker-compose.yml or .env already exists; refusing to overwrite either file."
+        exit 1
     fi
+
+    staging_dir=$(mktemp -d "./.omnihive-deploy.XXXXXX")
 
     # Download docker-compose.local.yml and save as docker-compose.yml
     print_info "Downloading docker-compose.yml..."
     if command_exists curl; then
-        curl -sSL --globoff "${GITHUB_RAW_URL}/docker-compose.local.yml" -o docker-compose.yml
+        curl -fsSL --globoff "${GITHUB_RAW_URL}/docker-compose.local.yml" -o "${staging_dir}/docker-compose.yml"
     elif command_exists wget; then
-        wget -q "${GITHUB_RAW_URL}/docker-compose.local.yml" -O docker-compose.yml
+        wget -q "${GITHUB_RAW_URL}/docker-compose.local.yml" -O "${staging_dir}/docker-compose.yml"
     else
         print_error "Neither curl nor wget is installed. Please install one of them."
         exit 1
@@ -90,36 +92,51 @@ main() {
     # Download .env.example
     print_info "Downloading .env.example..."
     if command_exists curl; then
-        curl -sSL --globoff "${GITHUB_RAW_URL}/.env.example" -o .env.example
+        curl -fsSL --globoff "${GITHUB_RAW_URL}/.env.example" -o "${staging_dir}/.env.example"
     else
-        wget -q "${GITHUB_RAW_URL}/.env.example" -O .env.example
+        wget -q "${GITHUB_RAW_URL}/.env.example" -O "${staging_dir}/.env.example"
     fi
     print_success "Downloaded .env.example"
+
+    if ! grep -q '^POSTGRES_PASSWORD=' "${staging_dir}/.env.example" ||
+        ! grep -q '^JWT_SECRET=' "${staging_dir}/.env.example" ||
+        ! grep -q '^TOTP_ENCRYPTION_KEY=' "${staging_dir}/.env.example"; then
+        print_error "Downloaded .env.example is missing required configuration keys."
+        exit 1
+    fi
+
+    # Same-filesystem renames publish only complete downloads. Recheck the
+    # destinations in case another process created them during the download.
+    if [ -e "docker-compose.yml" ] || [ -e ".env" ]; then
+        print_error "A deployment file appeared during download; refusing to overwrite it."
+        exit 1
+    fi
+    mv "${staging_dir}/docker-compose.yml" docker-compose.yml
+    mv "${staging_dir}/.env.example" .env.example
+    rm -rf -- "$staging_dir"
+    staging_dir=""
 
     # Generate .env file with auto-generated secrets
     print_info "Generating secure secrets..."
     echo ""
 
-    # Generate secrets
-    JWT_SECRET=$(generate_secret)
-    TOTP_ENCRYPTION_KEY=$(generate_secret)
-    POSTGRES_PASSWORD=$(generate_secret)
-
-    # Create .env from .env.example
-    cp .env.example .env
-
-    # Update .env with generated secrets (cross-platform compatible)
-    if sed --version >/dev/null 2>&1; then
-        # GNU sed (Linux)
-        sed -i "s/^JWT_SECRET=.*/JWT_SECRET=${JWT_SECRET}/" .env
-        sed -i "s/^TOTP_ENCRYPTION_KEY=.*/TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY}/" .env
-        sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=${POSTGRES_PASSWORD}/" .env
-    else
-        # BSD sed (macOS)
-        sed -i '' "s/^JWT_SECRET=.*/JWT_SECRET=${JWT_SECRET}/" .env
-        sed -i '' "s/^TOTP_ENCRYPTION_KEY=.*/TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY}/" .env
-        sed -i '' "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=${POSTGRES_PASSWORD}/" .env
-    fi
+    (
+        set +x
+        umask 077
+        tmp_env=$(mktemp .env.XXXXXXXX)
+        trap 'rm -f "$tmp_env"' EXIT
+        while IFS= read -r line || [[ -n $line ]]; do
+            case "$line" in
+                JWT_SECRET=*|TOTP_ENCRYPTION_KEY=*|POSTGRES_PASSWORD=*) continue ;;
+            esac
+            printf '%s\n' "$line"
+        done < .env.example > "$tmp_env"
+        for name in JWT_SECRET TOTP_ENCRYPTION_KEY POSTGRES_PASSWORD; do
+            value=$(generate_secret)
+            printf '%s=%s\n' "$name" "$value" >> "$tmp_env"
+        done
+        mv -f "$tmp_env" .env
+    )
 
     # Create data directories
     print_info "Creating data directories..."
@@ -135,13 +152,7 @@ main() {
     echo "  Preparation Complete!"
     echo "=========================================="
     echo ""
-    echo "Generated secure credentials:"
-    echo "  POSTGRES_PASSWORD:     ${POSTGRES_PASSWORD}"
-    echo "  JWT_SECRET:            ${JWT_SECRET}"
-    echo "  TOTP_ENCRYPTION_KEY:   ${TOTP_ENCRYPTION_KEY}"
-    echo ""
-    print_warning "These credentials have been saved to .env file."
-    print_warning "Please keep them secure and do not share publicly!"
+    print_info "Credentials file: $(pwd)/.env"
     echo ""
     echo "Directory structure:"
     echo "  docker-compose.yml        - Docker Compose configuration"
@@ -157,13 +168,14 @@ main() {
     echo "     docker-compose up -d"
     echo ""
     echo "  3. View logs:"
-    echo "     docker-compose logs -f sub2api"
+    echo "     docker-compose logs -f omnihive"
     echo ""
     echo "  4. Access Web UI:"
     echo "     http://localhost:8080"
+    echo "     For remote access, configure Caddy TLS; do not expose this HTTP port publicly."
     echo ""
     print_info "If admin password is not set in .env, it will be auto-generated."
-    print_info "Check logs for the generated admin password on first startup."
+    print_info "First-start logs identify the private admin password file."
     echo ""
 }
 

@@ -1,13 +1,17 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 )
 
 const CredentialSecretReferenceKey = "credential_secret_reference"
@@ -182,4 +186,77 @@ func ResolveCredentialSecret(ctx context.Context, encryptor SecretEncryptor, met
 		return nil, ErrCredentialSecretInvalid
 	}
 	return payload.Credentials, nil
+}
+
+func EncryptVerifiedCredential(ctx context.Context, enc SecretEncryptor, m CredentialSecret, values map[string]any) (string, error) {
+	cipher, err := EncryptCredentialSecret(enc, m, values)
+	if err != nil {
+		return "", err
+	}
+	decoded, err := ResolveCredentialSecret(ctx, enc, m, cipher)
+	if err != nil {
+		return "", err
+	}
+	before, e1 := json.Marshal(values)
+	after, e2 := json.Marshal(decoded)
+	if e1 != nil || e2 != nil || !bytes.Equal(before, after) {
+		return "", ErrCredentialSecretInvalid
+	}
+	return cipher, nil
+}
+
+func AccountAPIKeyDigest(credentials map[string]any) string {
+	key, ok := credentials["api_key"].(string)
+	if !ok || key == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(sum[:])
+}
+
+// StoredCredentialDocument returns the JSON used by row-level compare-and-swap.
+func StoredCredentialDocument(credentials map[string]any) map[string]any {
+	if _, ok := CredentialReference(credentials); !ok {
+		return credentials
+	}
+	result := make(map[string]any, len(credentials))
+	for k, v := range credentials {
+		if !IsSensitiveCredentialKey(k) {
+			result[k] = v
+		}
+	}
+	return result
+}
+
+type unresolvedCredentialRowsKey struct{}
+
+// WithUnresolvedCredentialRows lets an operator list show accounts whose
+// stored credential cannot be resolved, with secret fields removed, so the
+// operator can find and repair them. Other reads omit such rows.
+func WithUnresolvedCredentialRows(ctx context.Context) context.Context {
+	return context.WithValue(ctx, unresolvedCredentialRowsKey{}, true)
+}
+
+func UnresolvedCredentialRowsVisible(ctx context.Context) bool {
+	visible, _ := ctx.Value(unresolvedCredentialRowsKey{}).(bool)
+	return visible
+}
+
+type unusableCredentialRowsOmittedKey struct{}
+
+// WithUnusableCredentialRowsOmitted lets a batch read treat accounts whose
+// stored credential cannot be resolved as absent instead of failing the batch.
+func WithUnusableCredentialRowsOmitted(ctx context.Context) context.Context {
+	return context.WithValue(ctx, unusableCredentialRowsOmittedKey{}, true)
+}
+
+func UnusableCredentialRowsOmitted(ctx context.Context) bool {
+	omitted, _ := ctx.Value(unusableCredentialRowsOmittedKey{}).(bool)
+	return omitted
+}
+
+// IsCredentialUnusable reports a stored credential that cannot be used until an
+// operator repairs it. Transient version races are not included.
+func IsCredentialUnusable(err error) bool {
+	return errors.Is(err, ErrCredentialSecretNotFound) || errors.Is(err, ErrCredentialSecretInvalid) || errors.Is(err, ErrCredentialSecretRevoked)
 }

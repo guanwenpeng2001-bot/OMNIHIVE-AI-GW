@@ -3,17 +3,18 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/dto"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/response"
+	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -32,13 +33,14 @@ func NewAPIKeyHandler(apiKeyService *service.APIKeyService) *APIKeyHandler {
 
 // CreateAPIKeyRequest represents the create API key request payload
 type CreateAPIKeyRequest struct {
-	Name          string   `json:"name" binding:"required"`
-	GroupID       *int64   `json:"group_id"`        // nullable
-	CustomKey     *string  `json:"custom_key"`      // 可选的自定义key
-	IPWhitelist   []string `json:"ip_whitelist"`    // IP 白名单
-	IPBlacklist   []string `json:"ip_blacklist"`    // IP 黑名单
-	Quota         *float64 `json:"quota"`           // 配额限制 (USD)
-	ExpiresInDays *int     `json:"expires_in_days"` // 过期天数
+	Name          string       `json:"name" binding:"required"`
+	GroupID       *int64       `json:"group_id"` // nullable
+	ProjectID     *json.Number `json:"project_id,omitempty"`
+	CustomKey     *string      `json:"custom_key"`      // 可选的自定义key
+	IPWhitelist   []string     `json:"ip_whitelist"`    // IP 白名单
+	IPBlacklist   []string     `json:"ip_blacklist"`    // IP 黑名单
+	Quota         *float64     `json:"quota"`           // 配额限制 (USD)
+	ExpiresInDays *int         `json:"expires_in_days"` // 过期天数
 
 	// Rate limit fields (0 = unlimited)
 	RateLimit5h *float64 `json:"rate_limit_5h"`
@@ -260,6 +262,17 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 		IPWhitelist:   req.IPWhitelist,
 		IPBlacklist:   req.IPBlacklist,
 		ExpiresInDays: req.ExpiresInDays,
+	}
+	if req.ProjectID != nil {
+		project, err := req.ProjectID.Int64()
+		if err != nil || project <= 0 {
+			response.BadRequest(c, "project_id must be a positive integer")
+			return
+		}
+		svcReq.ProjectID = &project
+	}
+	if workspace := c.Param("workspace_id"); workspace != "" {
+		svcReq.WorkspaceID, _ = strconv.ParseInt(workspace, 10, 64) // authorized by WorkspaceScope
 	}
 	if req.Quota != nil {
 		svcReq.Quota = *req.Quota

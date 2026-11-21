@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/xai"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
@@ -1541,52 +1541,68 @@ func TestForwardGrokMediaImagesEditMultipartPreservesExplicitGeometry(t *testing
 	t.Setenv(xai.EnvAllowUnsafeURLOverrides, "true")
 	gin.SetMode(gin.TestMode)
 
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
-	require.NoError(t, writer.WriteField("model", "grok-imagine-edit"))
-	require.NoError(t, writer.WriteField("prompt", "edit this private image"))
-	require.NoError(t, writer.WriteField("size", "1024x1024"))
-	require.NoError(t, writer.WriteField("resolution", "2k"))
-	require.NoError(t, writer.WriteField("aspect_ratio", "16:9"))
-	partHeader := textproto.MIMEHeader{}
-	partHeader.Set("Content-Disposition", `form-data; name="image"; filename="input.png"`)
-	partHeader.Set("Content-Type", "image/png")
-	part, err := writer.CreatePart(partHeader)
-	require.NoError(t, err)
-	_, err = part.Write([]byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a})
-	require.NoError(t, err)
-	require.NoError(t, writer.Close())
+	for _, tc := range []struct {
+		name, size string
+		accepted   bool
+	}{
+		{name: "resolution and aspect", accepted: true},
+		{name: "contradictory size", size: "1024x1024"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			writer := multipart.NewWriter(&buf)
+			require.NoError(t, writer.WriteField("model", "grok-imagine-edit"))
+			require.NoError(t, writer.WriteField("prompt", "edit this private image"))
+			if tc.size != "" {
+				require.NoError(t, writer.WriteField("size", tc.size))
+			}
+			require.NoError(t, writer.WriteField("resolution", "2k"))
+			require.NoError(t, writer.WriteField("aspect_ratio", "16:9"))
+			partHeader := textproto.MIMEHeader{}
+			partHeader.Set("Content-Disposition", `form-data; name="image"; filename="input.png"`)
+			partHeader.Set("Content-Type", "image/png")
+			part, err := writer.CreatePart(partHeader)
+			require.NoError(t, err)
+			_, err = part.Write([]byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a})
+			require.NoError(t, err)
+			require.NoError(t, writer.Close())
 
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits", bytes.NewReader(buf.Bytes()))
-	c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits", bytes.NewReader(buf.Bytes()))
+			c.Request.Header.Set("Content-Type", writer.FormDataContentType())
 
-	account := &Account{
-		ID:          67,
-		Name:        "grok",
-		Platform:    PlatformGrok,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"api_key":  "api-key",
-			"base_url": "https://xai.test/v1",
-		},
+			account := &Account{
+				ID:          67,
+				Name:        "grok",
+				Platform:    PlatformGrok,
+				Type:        AccountTypeAPIKey,
+				Concurrency: 1,
+				Credentials: map[string]any{
+					"api_key":  "api-key",
+					"base_url": "https://xai.test/v1",
+				},
+			}
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"data":[{"url":"https://images.test/edited.png"}]}`)),
+			}}
+			svc := &OpenAIGatewayService{httpUpstream: upstream}
+
+			result, err := svc.ForwardGrokMedia(context.Background(), c, account, GrokMediaEndpointImagesEdits, "", buf.Bytes(), writer.FormDataContentType())
+			if !tc.accepted {
+				require.ErrorContains(t, err, "image size and resolution disagree")
+				require.Nil(t, upstream.lastReq, "a contradictory geometry must not reach the provider")
+				return
+			}
+			require.NoError(t, err)
+			require.False(t, gjson.GetBytes(upstream.lastBody, "size").Exists())
+			require.Equal(t, "2k", gjson.GetBytes(upstream.lastBody, "resolution").String())
+			require.Equal(t, "16:9", gjson.GetBytes(upstream.lastBody, "aspect_ratio").String())
+			require.Equal(t, ImageBillingSize2K, result.ImageSize, "billing follows the resolution that was sent")
+		})
 	}
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body:       io.NopCloser(strings.NewReader(`{"data":[{"url":"https://images.test/edited.png"}]}`)),
-	}}
-	svc := &OpenAIGatewayService{httpUpstream: upstream}
-
-	result, err := svc.ForwardGrokMedia(context.Background(), c, account, GrokMediaEndpointImagesEdits, "", buf.Bytes(), writer.FormDataContentType())
-	require.NoError(t, err)
-	require.False(t, gjson.GetBytes(upstream.lastBody, "size").Exists())
-	require.Equal(t, "2k", gjson.GetBytes(upstream.lastBody, "resolution").String())
-	require.Equal(t, "16:9", gjson.GetBytes(upstream.lastBody, "aspect_ratio").String())
-	require.Equal(t, ImageBillingSize1K, result.ImageSize)
-	require.Equal(t, "1024x1024", result.ImageInputSize)
 }
 
 func TestForwardGrokMediaVideoGenerationReturnsUsageAndResponseID(t *testing.T) {

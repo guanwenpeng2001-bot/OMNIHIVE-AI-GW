@@ -11,7 +11,7 @@ import (
 
 	"github.com/pquerna/otp/totp"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 )
 
 var (
@@ -41,6 +41,7 @@ type TotpCache interface {
 	IncrementVerifyAttempts(ctx context.Context, userID int64) (int, error)
 	GetVerifyAttempts(ctx context.Context, userID int64) (int, error)
 	ClearVerifyAttempts(ctx context.Context, userID int64) error
+	ConsumeCodeTimeStep(ctx context.Context, userID int64, timeStep int64, ttl time.Duration) (bool, error)
 
 	// Step-up grant methods (敏感操作 sudo 窗口)
 	SetStepUpGrant(ctx context.Context, userID int64, sessionKey string, ttl time.Duration) error
@@ -93,7 +94,7 @@ const (
 	totpLoginTTL    = 5 * time.Minute
 	totpAttemptsTTL = 15 * time.Minute
 	maxTotpAttempts = 5
-	totpIssuer      = "Sub2API"
+	totpIssuer      = "OmniHive"
 )
 
 // TotpService handles TOTP operations
@@ -104,6 +105,7 @@ type TotpService struct {
 	settingService    *SettingService
 	emailService      *EmailService
 	emailQueueService *EmailQueueService
+	now               func() time.Time
 }
 
 // NewTotpService creates a new TOTP service
@@ -247,19 +249,15 @@ func (s *TotpService) CompleteSetup(ctx context.Context, userID int64, totpCode,
 		return ErrTotpSetupExpired
 	}
 
-	// Verify the TOTP code
-	if !totp.Validate(totpCode, session.Secret) {
-		return ErrTotpInvalidCode
+	now := time.Now()
+	if s.now != nil {
+		now = s.now()
 	}
-
-	setupSecretPrefix := "N/A"
-	if len(session.Secret) >= 4 {
-		setupSecretPrefix = session.Secret[:4]
+	// Verify and atomically consume the matching time step before persisting
+	// the newly enabled authenticator.
+	if err := s.verifyAndConsumeCode(ctx, userID, session.Secret, totpCode, now); err != nil {
+		return err
 	}
-	slog.Debug("totp_complete_setup_before_encrypt",
-		"user_id", userID,
-		"secret_len", len(session.Secret),
-		"secret_prefix", setupSecretPrefix)
 
 	// Encrypt the secret
 	encryptedSecret, err := s.encryptor.Encrypt(session.Secret)
@@ -278,16 +276,11 @@ func (s *TotpService) CompleteSetup(ctx context.Context, userID int64, totpCode,
 			"user_id", userID,
 			"error", decErr)
 	} else {
-		decryptedPrefix := "N/A"
-		if len(decrypted) >= 4 {
-			decryptedPrefix = decrypted[:4]
-		}
 		slog.Debug("totp_complete_setup_verified",
 			"user_id", userID,
 			"original_len", len(session.Secret),
 			"decrypted_len", len(decrypted),
-			"match", session.Secret == decrypted,
-			"decrypted_prefix", decryptedPrefix)
+			"match", session.Secret == decrypted)
 	}
 
 	// Update user with encrypted TOTP secret
@@ -373,34 +366,45 @@ func (s *TotpService) VerifyCode(ctx context.Context, userID int64, code string)
 		return infraerrors.InternalServer("TOTP_VERIFY_ERROR", "failed to verify totp code")
 	}
 
-	secretPrefix := "N/A"
-	if len(secret) >= 4 {
-		secretPrefix = secret[:4]
+	now := time.Now()
+	if s.now != nil {
+		now = s.now()
 	}
-	slog.Debug("totp_verify_decrypted",
-		"user_id", userID,
-		"secret_len", len(secret),
-		"secret_prefix", secretPrefix)
-
-	// Verify the code
-	valid := totp.Validate(code, secret)
-	slog.Debug("totp_verify_result",
-		"user_id", userID,
-		"valid", valid,
-		"secret_len", len(secret),
-		"secret_prefix", secretPrefix,
-		"server_time", time.Now().UTC().Format(time.RFC3339))
-
-	if !valid {
+	if err := s.verifyAndConsumeCode(ctx, userID, secret, code, now); err != nil {
 		// Increment failed attempts
 		_, _ = s.cache.IncrementVerifyAttempts(ctx, userID)
-		return ErrTotpInvalidCode
+		return err
 	}
 
 	// Clear attempt counter on success
 	_ = s.cache.ClearVerifyAttempts(ctx, userID)
 
 	return nil
+}
+
+func (s *TotpService) verifyAndConsumeCode(ctx context.Context, userID int64, secret, code string, now time.Time) error {
+	currentStep := now.Unix() / 30
+	for offset := int64(-1); offset <= 1; offset++ {
+		timeStep := currentStep + offset
+		valid, err := totp.ValidateCustom(code, secret, time.Unix(timeStep*30, 0), totp.ValidateOpts{
+			Period:    30,
+			Skew:      0,
+			Digits:    6,
+			Algorithm: 0,
+		})
+		if err != nil || !valid {
+			continue
+		}
+		consumed, err := s.cache.ConsumeCodeTimeStep(ctx, userID, timeStep, 3*time.Minute)
+		if err != nil {
+			return infraerrors.ServiceUnavailable("TOTP_UNAVAILABLE", "totp verification is temporarily unavailable")
+		}
+		if !consumed {
+			return ErrTotpInvalidCode
+		}
+		return nil
+	}
+	return ErrTotpInvalidCode
 }
 
 // StepUpGrantTTL 敏感操作 step-up 验证的有效窗口（sudo 模式）。

@@ -1,0 +1,349 @@
+paths:
+  /api/v2/public/status:
+    get:
+      operationId: publicStatus
+      summary: Read published service health
+      description: Returns allowlisted component measurements, the latest 90 UTC dates and up to 25 active incidents.
+      security: []
+      parameters:
+        - name: window
+          in: query
+          schema: {type: string, enum: [1h, 24h, 7d, 30d], default: 24h}
+        - $ref: '#/components/parameters/StatusIfNoneMatch'
+        - $ref: '#/components/parameters/StatusIfModifiedSince'
+      responses:
+        '200':
+          description: Public service status
+          headers:
+            ETag: {$ref: '#/components/headers/StatusETag'}
+            Last-Modified: {$ref: '#/components/headers/StatusLastModified'}
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {const: success}
+                  data: {$ref: '#/components/schemas/StatusSummary'}
+        '304': {$ref: '#/components/responses/StatusNotModified'}
+        default: {$ref: '#/components/responses/StatusError'}
+
+  /api/v2/public/status/incidents:
+    get:
+      operationId: publicIncidentList
+      summary: List published incidents
+      description: Results seek by newest incident start first. From and to filter incident start using a half-open interval.
+      security: []
+      parameters:
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
+        - {name: cursor, in: query, schema: {type: string, maxLength: 1024}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 25}}
+        - $ref: '#/components/parameters/StatusIfNoneMatch'
+        - $ref: '#/components/parameters/StatusIfModifiedSince'
+      responses:
+        '200':
+          description: Public incident page with a publication cutoff
+          headers:
+            ETag: {$ref: '#/components/headers/StatusETag'}
+            Last-Modified: {$ref: '#/components/headers/StatusLastModified'}
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {const: success}
+                  data:
+                    type: object
+                    required: [items, next_cursor, as_of]
+                    properties:
+                      items: {type: array, items: {$ref: '#/components/schemas/StatusIncidentSummary'}}
+                      next_cursor: {type: [string, 'null']}
+                      as_of: {type: string, format: date-time}
+        '304': {$ref: '#/components/responses/StatusNotModified'}
+        '410': {$ref: '#/components/responses/StatusError'}
+        default: {$ref: '#/components/responses/StatusError'}
+
+  /api/v2/public/status/incidents/{id}:
+    parameters:
+      - $ref: '#/components/parameters/StatusIncidentID'
+    get:
+      operationId: publicIncidentDetail
+      summary: Read a published incident and its full update history
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/StatusIfNoneMatch'
+        - $ref: '#/components/parameters/StatusIfModifiedSince'
+      responses:
+        '200':
+          description: Incident with updates in chronological order
+          headers:
+            ETag: {$ref: '#/components/headers/StatusETag'}
+            Last-Modified: {$ref: '#/components/headers/StatusLastModified'}
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {const: success}
+                  data: {$ref: '#/components/schemas/StatusIncident'}
+        '304': {$ref: '#/components/responses/StatusNotModified'}
+        '404': {$ref: '#/components/responses/StatusError'}
+        default: {$ref: '#/components/responses/StatusError'}
+
+  /api/v2/admin/status/incidents:
+    post:
+      operationId: statusIncidentCreate
+      summary: Publish an incident and its initial investigating update
+      description: Requires a console session and ops.incidents.publish. Title and message are shown publicly as plain text.
+      parameters:
+        - $ref: '#/components/parameters/IdentityIdempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [title, severity, component_ids, message]
+              properties:
+                title: {type: string, minLength: 1, maxLength: 160}
+                severity: {$ref: '#/components/schemas/StatusSeverity'}
+                component_ids: {$ref: '#/components/schemas/StatusAffectedComponents'}
+                message: {$ref: '#/components/schemas/StatusMessage'}
+      responses:
+        '201': {$ref: '#/components/responses/StatusPublication'}
+        '409': {$ref: '#/components/responses/StatusError'}
+        default: {$ref: '#/components/responses/StatusError'}
+
+  /api/v2/admin/status/incidents/{id}/updates:
+    parameters:
+      - $ref: '#/components/parameters/StatusIncidentID'
+    post:
+      operationId: statusIncidentUpdate
+      summary: Append an incident timeline update
+      description: Requires ops.incidents.publish. The incident can stay in its current active state or advance toward resolved.
+      parameters:
+        - $ref: '#/components/parameters/IdentityIdempotency'
+        - $ref: '#/components/parameters/IdentityVersion'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [state, message]
+              properties:
+                state: {$ref: '#/components/schemas/StatusIncidentState'}
+                message: {$ref: '#/components/schemas/StatusMessage'}
+      responses:
+        '201': {$ref: '#/components/responses/StatusPublication'}
+        '409': {$ref: '#/components/responses/StatusError'}
+        '412':
+          description: Stale incident version
+          headers:
+            ETag: {$ref: '#/components/headers/StatusETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/IdentityError'}
+        default: {$ref: '#/components/responses/StatusError'}
+
+components:
+  parameters:
+    StatusIncidentID:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    StatusIfNoneMatch:
+      name: If-None-Match
+      in: header
+      schema: {type: string}
+    StatusIfModifiedSince:
+      name: If-Modified-Since
+      in: header
+      schema: {type: string}
+  headers:
+    StatusETag:
+      schema: {type: string}
+      description: Representation validator on public GET or version on a publication response
+    StatusLastModified:
+      schema: {type: string}
+      description: HTTP date for this representation
+  responses:
+    StatusNotModified:
+      description: The public representation is unchanged
+      headers:
+        ETag: {$ref: '#/components/headers/StatusETag'}
+    StatusError:
+      description: Request failed
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/IdentityError'}
+    StatusPublication:
+      description: Published incident including its optimistic version
+      headers:
+        ETag: {$ref: '#/components/headers/StatusETag'}
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message, data]
+            properties:
+              code: {const: 0}
+              message: {const: success}
+              data:
+                allOf:
+                  - $ref: '#/components/schemas/StatusIncident'
+                  - type: object
+                    required: [version]
+                    properties:
+                      version: {$ref: '#/components/schemas/StatusCount'}
+  schemas:
+    StatusCount:
+      type: string
+      pattern: '^(0|[1-9][0-9]*)$'
+    StatusState:
+      type: string
+      enum: [operational, degraded, outage, maintenance, unknown]
+    StatusReason:
+      type: [string, 'null']
+      enum: [INSUFFICIENT_SAMPLES, STALE_DATA, SOURCE_UNAVAILABLE, ROLLUP_PENDING, OUTCOME_UNKNOWN, null]
+    StatusPercent:
+      type: [number, 'null']
+      minimum: 0
+      maximum: 100
+    StatusComponentID:
+      type: string
+      enum: [inference, openai_compatible, anthropic_compatible, gemini_compatible, console_auth, async_workers]
+    StatusCounts:
+      type: object
+      additionalProperties: false
+      required: [succeeded, gateway_errors, upstream_errors, upstream_rate_limits, stream_interruptions, unknown_outcomes,
+                 admission_denials, client_cancellations, attempts, first_byte_timeouts, stream_samples, stream_succeeded]
+      properties:
+        succeeded: {$ref: '#/components/schemas/StatusCount'}
+        gateway_errors: {$ref: '#/components/schemas/StatusCount'}
+        upstream_errors: {$ref: '#/components/schemas/StatusCount'}
+        upstream_rate_limits: {$ref: '#/components/schemas/StatusCount'}
+        stream_interruptions: {$ref: '#/components/schemas/StatusCount'}
+        unknown_outcomes: {$ref: '#/components/schemas/StatusCount'}
+        admission_denials: {$ref: '#/components/schemas/StatusCount'}
+        client_cancellations: {$ref: '#/components/schemas/StatusCount'}
+        attempts: {$ref: '#/components/schemas/StatusCount'}
+        first_byte_timeouts: {$ref: '#/components/schemas/StatusCount'}
+        stream_samples: {$ref: '#/components/schemas/StatusCount'}
+        stream_succeeded: {$ref: '#/components/schemas/StatusCount'}
+    StatusDaily:
+      type: object
+      additionalProperties: false
+      required: [date, state, reason, sample_count, success_rate]
+      properties:
+        date: {type: string, format: date}
+        state: {$ref: '#/components/schemas/StatusState'}
+        reason: {$ref: '#/components/schemas/StatusReason'}
+        sample_count: {$ref: '#/components/schemas/StatusCount'}
+        success_rate: {$ref: '#/components/schemas/StatusPercent'}
+    StatusComponent:
+      type: object
+      additionalProperties: false
+      required: [id, name, state, observed_state, reason, source, freshness, sample_count, minimum_sample_count,
+                 last_success, stale_after, success_rate, ttft_sample_count, ttft_p50_ms, ttft_p95_ms,
+                 stream_completion_rate, counts, history]
+      properties:
+        id: {$ref: '#/components/schemas/StatusComponentID'}
+        name: {type: string}
+        state: {$ref: '#/components/schemas/StatusState'}
+        observed_state: {$ref: '#/components/schemas/StatusState'}
+        reason: {$ref: '#/components/schemas/StatusReason'}
+        source: {type: string, enum: [gateway_observations, unavailable]}
+        freshness: {type: string, enum: [fresh, stale, unknown]}
+        stale_after: {type: [string, 'null'], format: date-time}
+        last_success: {type: [string, 'null'], format: date-time}
+        sample_count: {$ref: '#/components/schemas/StatusCount'}
+        minimum_sample_count: {$ref: '#/components/schemas/StatusCount'}
+        success_rate: {$ref: '#/components/schemas/StatusPercent'}
+        ttft_sample_count: {$ref: '#/components/schemas/StatusCount'}
+        ttft_p50_ms: {type: [integer, 'null'], minimum: 0}
+        ttft_p95_ms: {type: [integer, 'null'], minimum: 0}
+        stream_completion_rate: {$ref: '#/components/schemas/StatusPercent'}
+        counts: {$ref: '#/components/schemas/StatusCounts'}
+        history: {type: array, minItems: 90, maxItems: 90, items: {$ref: '#/components/schemas/StatusDaily'}}
+    StatusSummary:
+      type: object
+      additionalProperties: false
+      required: [as_of, window_start, window_end, data_lag_seconds, overall, components, incidents, active_incident_count, definitions]
+      properties:
+        as_of: {type: string, format: date-time}
+        window_start: {type: string, format: date-time}
+        window_end: {type: string, format: date-time}
+        data_lag_seconds: {type: [integer, 'null'], minimum: 0}
+        overall: {$ref: '#/components/schemas/StatusState'}
+        components: {type: array, items: {$ref: '#/components/schemas/StatusComponent'}}
+        incidents: {type: array, maxItems: 25, items: {$ref: '#/components/schemas/StatusIncidentSummary'}}
+        active_incident_count: {$ref: '#/components/schemas/StatusCount'}
+        definitions: {$ref: '#/components/schemas/StatusDefinitions'}
+    StatusDefinitions:
+      type: object
+      additionalProperties: false
+      required: [success_rate, stream_completion_rate, ttft, excluded_categories, reported_categories,
+                 attempts_counted_separately, aggregation_interval_seconds, publication_delay_seconds]
+      properties:
+        success_rate: {type: string}
+        stream_completion_rate: {type: string}
+        ttft: {type: string}
+        excluded_categories: {type: array, items: {type: string}}
+        reported_categories: {type: array, items: {type: string}}
+        attempts_counted_separately: {const: true}
+        aggregation_interval_seconds: {type: integer}
+        publication_delay_seconds: {type: integer}
+    StatusSeverity:
+      type: string
+      enum: [degraded, outage, maintenance]
+    StatusIncidentState:
+      type: string
+      enum: [investigating, identified, monitoring, resolved]
+    StatusAffectedComponents:
+      type: array
+      minItems: 1
+      maxItems: 6
+      uniqueItems: true
+      items: {$ref: '#/components/schemas/StatusComponentID'}
+    StatusMessage:
+      type: string
+      minLength: 1
+      maxLength: 2000
+    StatusIncidentSummary:
+      type: object
+      required: [id, title, state, severity, component_ids, started_at, resolved_at]
+      properties:
+        id: {type: string, format: uuid}
+        title: {type: string}
+        state: {$ref: '#/components/schemas/StatusIncidentState'}
+        severity: {$ref: '#/components/schemas/StatusSeverity'}
+        component_ids: {$ref: '#/components/schemas/StatusAffectedComponents'}
+        started_at: {type: string, format: date-time}
+        resolved_at: {type: [string, 'null'], format: date-time}
+    StatusIncident:
+      allOf:
+        - $ref: '#/components/schemas/StatusIncidentSummary'
+        - type: object
+          required: [updates]
+          properties:
+            updates:
+              type: array
+              minItems: 1
+              items:
+                type: object
+                additionalProperties: false
+                required: [at, state, message]
+                properties:
+                  at: {type: string, format: date-time}
+                  state: {$ref: '#/components/schemas/StatusIncidentState'}
+                  message: {$ref: '#/components/schemas/StatusMessage'}

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 func (r *opsRepository) ListRequestDetails(ctx context.Context, filter *service.OpsRequestDetailFilter) ([]*service.OpsRequestDetail, int64, error) {
@@ -59,7 +59,7 @@ func (r *opsRepository) ListRequestDetails(ctx context.Context, filter *service.
 			addCondition(fmt.Sprintf("model = $%d", len(args)+1), model)
 		}
 		if requestID := strings.TrimSpace(filter.RequestID); requestID != "" {
-			addCondition(fmt.Sprintf("request_id = $%d", len(args)+1), requestID)
+			addCondition(fmt.Sprintf("(request_id = $%[1]d OR legacy_request_id = $%[1]d)", len(args)+1), requestID)
 		}
 		if q := strings.TrimSpace(filter.Query); q != "" {
 			like := "%" + strings.ToLower(q) + "%"
@@ -91,12 +91,15 @@ WITH combined AS (
     'success'::TEXT AS kind,
     ul.created_at AS created_at,
     ul.request_id AS request_id,
+    NULL::TEXT AS legacy_request_id,
     COALESCE(` + usageLogEffectivePlatformExpr + `, '') AS platform,
     ul.model AS model,
     ul.duration_ms AS duration_ms,
     ul.first_token_ms AS first_token_ms,
     NULL::INT AS status_code,
     NULL::BIGINT AS error_id,
+    NULL::BIGINT AS workspace_id,
+    NULL::BIGINT AS project_id,
     NULL::TEXT AS phase,
     NULL::TEXT AS severity,
     NULL::TEXT AS message,
@@ -115,13 +118,16 @@ WITH combined AS (
   SELECT
     'error'::TEXT AS kind,
     o.created_at AS created_at,
-    COALESCE(NULLIF(o.request_id,''), NULLIF(o.client_request_id,''), '') AS request_id,
+    COALESCE(execution.canonical_request_id, NULLIF(o.request_id,''), NULLIF(o.client_request_id,''), '') AS request_id,
+    o.request_id AS legacy_request_id,
     ` + canonicalPlatformSQL("COALESCE(NULLIF(o.platform, ''), ("+usageLogSourcePlatformExpr+"), '')") + ` AS platform,
     o.model AS model,
     o.duration_ms AS duration_ms,
     o.time_to_first_token_ms AS first_token_ms,
     o.status_code AS status_code,
     o.id AS error_id,
+    scope.workspace_id AS workspace_id,
+    scope.project_id AS project_id,
     o.error_phase AS phase,
     o.severity AS severity,
     o.error_message AS message,
@@ -131,6 +137,17 @@ WITH combined AS (
     o.group_id AS group_id,
     o.stream AS stream
   FROM ops_error_logs o
+  LEFT JOIN LATERAL (
+    SELECT e.request_id::text AS canonical_request_id
+    FROM gateway_executions e
+    WHERE e.legacy_id=o.request_id AND e.api_key_id=o.api_key_id AND e.owner_id=o.user_id
+      AND e.admitted_at<=o.created_at AND o.created_at<=COALESCE(e.finished_at,e.admitted_at)+interval '1 minute'
+    ORDER BY e.admitted_at DESC LIMIT 1
+  ) execution ON true
+  LEFT JOIN LATERAL (
+    SELECT e.workspace_id,e.project_id FROM gateway_executions e
+    WHERE e.request_id::text=COALESCE(execution.canonical_request_id,NULLIF(o.request_id,'')) LIMIT 1
+  ) scope ON true
   LEFT JOIN groups g ON g.id = o.group_id
   LEFT JOIN accounts a ON a.id = o.account_id
   WHERE o.created_at >= $1 AND o.created_at < $2
@@ -174,6 +191,8 @@ SELECT
   first_token_ms,
   status_code,
   error_id,
+  workspace_id,
+  project_id,
   phase,
   severity,
   message,
@@ -223,6 +242,8 @@ LIMIT $%d OFFSET $%d
 			firstTokenMs sql.NullInt64
 			statusCode   sql.NullInt64
 			errorID      sql.NullInt64
+			workspaceID  sql.NullInt64
+			projectID    sql.NullInt64
 
 			phase    sql.NullString
 			severity sql.NullString
@@ -246,6 +267,8 @@ LIMIT $%d OFFSET $%d
 			&firstTokenMs,
 			&statusCode,
 			&errorID,
+			&workspaceID,
+			&projectID,
 			&phase,
 			&severity,
 			&message,
@@ -283,6 +306,9 @@ LIMIT $%d OFFSET $%d
 
 		if item.Platform == "" {
 			item.Platform = "unknown"
+		}
+		if item.RequestID != "" && workspaceID.Valid && projectID.Valid {
+			item.DetailURL = fmt.Sprintf("/api/v2/workspaces/%d/projects/%d/requests/%s", workspaceID.Int64, projectID.Int64, item.RequestID)
 		}
 
 		out = append(out, item)

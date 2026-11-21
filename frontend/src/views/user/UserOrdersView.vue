@@ -1,6 +1,31 @@
 <template>
   <AppLayout>
+    <BillingNav />
     <div class="space-y-4">
+      <div
+        v-if="isPaymentDisabled"
+        data-testid="payment-disabled-notice"
+        class="card border-amber-200/80 bg-amber-50/60 p-4 dark:border-amber-800/50 dark:bg-amber-950/20 sm:p-5"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="space-y-1">
+            <h2 class="text-sm font-semibold text-amber-950 dark:text-amber-200">
+              {{ t('publicPortal.paymentDisabled.title') }}
+            </h2>
+            <p class="text-xs text-amber-900/90 dark:text-amber-100/80">
+              {{ t('publicPortal.paymentDisabled.description') }}
+            </p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <router-link to="/redeem" class="btn btn-secondary text-xs">
+              {{ t('publicPortal.paymentDisabled.redeemAction') }}
+            </router-link>
+            <router-link to="/dashboard" class="btn btn-secondary text-xs">
+              {{ t('publicPortal.paymentDisabled.dashboardAction') }}
+            </router-link>
+          </div>
+        </div>
+      </div>
       <!-- 界面风格高质感紧凑筛选工具条 + 订单状态概览微标 -->
       <div class="card oh-orders-toolbar p-4 sm:px-5 sm:py-3.5">
         <div class="flex flex-wrap items-center justify-between gap-3">
@@ -86,6 +111,31 @@
         @update:page="handlePageChange"
         @update:pageSize="handlePageSizeChange"
       />
+
+      <div
+        data-testid="order-invoice-support"
+        class="card p-4 sm:p-5"
+      >
+        <div class="flex flex-wrap items-start justify-between gap-4">
+          <div class="space-y-1">
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+              {{ t('publicPortal.accountService.invoiceTitle') }}
+            </h3>
+            <p class="text-xs text-gray-600 dark:text-dark-300">
+              {{ t('publicPortal.accountService.invoiceSummary') }}
+            </p>
+            <p class="text-xs text-gray-500 dark:text-dark-400">
+              {{ t('publicPortal.accountService.invoiceDesc') }}
+            </p>
+          </div>
+          <router-link
+            to="/docs#support"
+            class="btn btn-secondary shrink-0 text-xs"
+          >
+            {{ t('publicPortal.accountService.invoiceSupportLink') }}
+          </router-link>
+        </div>
+      </div>
     </div>
 
     <!-- Cancel Confirm Dialog -->
@@ -136,6 +186,7 @@ import { paymentAPI } from '@/api/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
 import type { PaymentOrder } from '@/types/payment'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import BillingNav from '@/features/billing/components/BillingNav.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
@@ -145,6 +196,7 @@ import OrderTable from '@/components/payment/OrderTable.vue'
 const { t } = useI18n()
 const router = useRouter()
 const appStore = useAppStore()
+const isPaymentDisabled = computed(() => appStore.cachedPublicSettings?.payment_enabled === false)
 
 const loading = ref(false)
 const actionLoading = ref(false)

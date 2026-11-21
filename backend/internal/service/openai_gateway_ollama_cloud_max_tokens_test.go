@@ -8,8 +8,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/openai_compat"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
@@ -346,7 +346,7 @@ func TestForwardAsRawChatCompletions_DeepseekOllamaCloudClampsMaxTokens(t *testi
 
 // TestForwardResponsesViaRawChatCompletions_DeepseekOllamaCloudClampsMaxTokens 验证
 // /v1/responses 降级到 raw CC 的路径确实经过同一个独立 token 钩子（Responses 请求的
-// max_output_tokens 经 apicompat 转成 CC 的 max_completion_tokens）。
+// max_output_tokens 经 apicompat 转成 CC 的 max_tokens）。
 func TestForwardResponsesViaRawChatCompletions_DeepseekOllamaCloudClampsMaxTokens(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -361,7 +361,8 @@ func TestForwardResponsesViaRawChatCompletions_DeepseekOllamaCloudClampsMaxToken
 	require.Error(t, err)
 	require.Equal(t, "https://ollama.com/v1/chat/completions", upstream.lastReq.URL.String())
 	require.Equal(t, "deepseek-v4-flash", gjson.GetBytes(upstream.lastBody, "model").String())
-	require.Equal(t, int64(65535), gjson.GetBytes(upstream.lastBody, "max_completion_tokens").Int())
+	require.Equal(t, int64(65535), gjson.GetBytes(upstream.lastBody, "max_tokens").Int())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "max_completion_tokens").Exists())
 }
 
 // TestForwardResponsesClampsOllamaCloudMaxOutputTokens 覆盖原生 /v1/responses 路径

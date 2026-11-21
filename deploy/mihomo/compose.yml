@@ -17,4 +17,4 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks:
-      - sub2api-network
+      - omnihive-network

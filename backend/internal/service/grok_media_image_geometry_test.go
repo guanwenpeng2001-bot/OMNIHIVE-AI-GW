@@ -20,7 +20,7 @@ func TestApplyGrokImagineImageGeometryMapsOpenAISize(t *testing.T) {
 func TestApplyGrokImagineImageGeometryKeepsClientGeometry(t *testing.T) {
 	t.Parallel()
 
-	out, err := applyGrokImagineImageGeometry([]byte(`{"size":"1024x1024","resolution":"2K","aspect_ratio":"16:9"}`))
+	out, err := applyGrokImagineImageGeometry([]byte(`{"size":"2048x2048","resolution":"2K","aspect_ratio":"16:9"}`))
 	require.NoError(t, err)
 	require.False(t, gjson.GetBytes(out, "size").Exists())
 	require.Equal(t, "2k", gjson.GetBytes(out, "resolution").String())
@@ -57,4 +57,18 @@ func TestGrokImagineAspectRatioFromSize(t *testing.T) {
 	require.Equal(t, "3:4", grokImagineAspectRatioFromSize("1152x1536"))
 	require.Equal(t, "4:3", grokImagineAspectRatioFromSize("1536x1152"))
 	require.Equal(t, "16:9", grokImagineAspectRatioFromSize("1792x1024"))
+}
+
+func TestGrokMediaSharedProtocolUnitsRejectContradictoryAliases(t *testing.T) {
+	_, err := GrokTTSCharacters([]byte(`{"input":"short","text":"different"}`))
+	require.Error(t, err)
+	_, err = GrokImagineImageResolutionBound([]byte(`{"size":"1024x1024","resolution":"2k"}`))
+	require.Error(t, err)
+
+	characters, err := GrokTTSCharacters([]byte(`{"input":"猫🐝ab","text":"猫🐝ab"}`))
+	require.NoError(t, err)
+	require.Equal(t, int64(4), characters)
+	resolution, err := GrokImagineImageResolutionBound([]byte(`{"size":"2048x2048","resolution":"2K"}`))
+	require.NoError(t, err)
+	require.Equal(t, "2k", resolution)
 }

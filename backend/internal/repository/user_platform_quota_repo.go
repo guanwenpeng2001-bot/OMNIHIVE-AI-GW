@@ -9,9 +9,9 @@ import (
 	"time"
 
 	entsql "entgo.io/ent/dialect/sql"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/userplatformquota"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/userplatformquota"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/timezone"
 )
 
 // UserPlatformQuotaRecord 是 repository 层的传输结构体，

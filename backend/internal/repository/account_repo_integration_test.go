@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/accountgroup"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/accountgroup"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
@@ -140,7 +140,13 @@ func (s *AccountRepoSuite) SetupTest() {
 	s.ctx = context.Background()
 	tx := testEntTx(s.T())
 	s.client = tx.Client()
-	s.repo = newAccountRepositoryWithSQL(s.client, tx, nil)
+	s.repo = fixtureAccountRepository(s.T(), s.client, tx, nil)
+}
+
+// Referenced OAuth mutations own a transaction and publish after commit.
+func (s *AccountRepoSuite) useCommittedAccounts() {
+	s.client = testEntClient(s.T())
+	s.repo = fixtureAccountRepository(s.T(), s.client, integrationDB, nil)
 }
 
 func TestAccountRepoSuite(t *testing.T) {
@@ -243,7 +249,9 @@ func (s *AccountRepoSuite) TestUpdateCredentials_SyncsSnapshotAndDurableOutbox()
 	_, err := s.repo.sql.ExecContext(s.ctx, "TRUNCATE scheduler_outbox")
 	s.Require().NoError(err)
 
-	s.Require().NoError(s.repo.UpdateCredentials(s.ctx, account.ID, map[string]any{"access_token": "new-token"}))
+	observed, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().NoError(s.repo.UpdateCredentialsCAS(s.ctx, observed, map[string]any{"access_token": "new-token"}))
 
 	s.Require().Len(cacheRecorder.setAccounts, 1)
 	s.Require().Equal("new-token", cacheRecorder.setAccounts[0].GetCredential("access_token"))
@@ -398,13 +406,21 @@ func (s *AccountRepoSuite) TestListOAuthRefreshCandidatePage_GrokCursorAndExclus
 	s.Require().Len(first, 2)
 	s.Require().Equal([]int64{valid1.ID, paused.ID}, []int64{first[0].ID, first[1].ID})
 
-	options.AfterID = first[len(first)-1].ID
+	options.AfterID = firstPage.NextAfterID
 	secondPage, err := s.repo.ListOAuthRefreshCandidatePage(s.ctx, options)
 	s.Require().NoError(err)
 	second := secondPage.Accounts
-	s.Require().Len(second, 2)
-	s.Require().Equal([]int64{valid2.ID, valid3.ID}, []int64{second[0].ID, second[1].ID})
-	s.Require().NotContains([]int64{first[0].ID, first[1].ID}, second[0].ID)
+	// The encrypted blank token consumes a scan slot before hydration filters it.
+	s.Require().Len(second, 1)
+	s.Require().Equal(valid2.ID, second[0].ID)
+	s.Require().True(secondPage.HasMore)
+	s.Require().Greater(secondPage.NextAfterID, valid2.ID)
+	options.AfterID = secondPage.NextAfterID
+	third, err := s.repo.ListOAuthRefreshCandidatePage(s.ctx, options)
+	s.Require().NoError(err)
+	s.Require().Len(third.Accounts, 1)
+	s.Require().Equal(valid3.ID, third.Accounts[0].ID)
+	s.Require().False(third.HasMore)
 }
 
 func (s *AccountRepoSuite) TestListWithFilters() {
@@ -611,7 +627,7 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 			// 每个 case 重新获取隔离资源
 			tx := testEntTx(s.T())
 			client := tx.Client()
-			repo := newAccountRepositoryWithSQL(client, tx, nil)
+			repo := fixtureAccountRepository(s.T(), client, tx, nil)
 			ctx := context.Background()
 
 			tt.setup(client)
@@ -1146,6 +1162,7 @@ func (s *AccountRepoSuite) TestSetError() {
 }
 
 func (s *AccountRepoSuite) TestSetGrokOAuthErrorIfCredentialsUnchanged_AppliesAndSyncsSchedulerState() {
+	s.useCommittedAccounts()
 	account := mustCreateAccount(s.T(), s.client, &service.Account{
 		Name:        "grok-conditional-error-applied",
 		Platform:    service.PlatformGrok,
@@ -1191,6 +1208,7 @@ func (s *AccountRepoSuite) TestSetGrokOAuthErrorIfCredentialsUnchanged_AppliesAn
 }
 
 func (s *AccountRepoSuite) TestSetGrokOAuthErrorIfCredentialsUnchanged_SkipsConcurrentReauthorization() {
+	s.useCommittedAccounts()
 	account := mustCreateAccount(s.T(), s.client, &service.Account{
 		Name:        "grok-conditional-error-reauthorized",
 		Platform:    service.PlatformGrok,
@@ -1201,7 +1219,7 @@ func (s *AccountRepoSuite) TestSetGrokOAuthErrorIfCredentialsUnchanged_SkipsConc
 	})
 	observed, err := s.repo.GetByID(s.ctx, account.ID)
 	s.Require().NoError(err)
-	s.Require().NoError(s.repo.UpdateCredentials(s.ctx, account.ID, map[string]any{
+	s.Require().NoError(s.repo.UpdateCredentialsCAS(s.ctx, observed, map[string]any{
 		"access_token":   "fresh-access",
 		"refresh_token":  "fresh-refresh",
 		"expires_at":     time.Now().UTC().Add(4 * time.Hour).Format(time.RFC3339),
@@ -1241,6 +1259,7 @@ func (s *AccountRepoSuite) TestSetGrokOAuthErrorIfCredentialsUnchanged_SkipsConc
 }
 
 func (s *AccountRepoSuite) TestUpdateGrokOAuthCredentialsIfUnchanged_AppliesAndPublishesSchedulerState() {
+	s.useCommittedAccounts()
 	account := mustCreateAccount(s.T(), s.client, &service.Account{
 		Name:        "grok-refresh-success-cas-applied",
 		Platform:    service.PlatformGrok,
@@ -1294,6 +1313,7 @@ func (s *AccountRepoSuite) TestUpdateGrokOAuthCredentialsIfUnchanged_AppliesAndP
 }
 
 func (s *AccountRepoSuite) TestUpdateGrokOAuthCredentialsIfUnchanged_SkipsConcurrentReauthorization() {
+	s.useCommittedAccounts()
 	account := mustCreateAccount(s.T(), s.client, &service.Account{
 		Name:        "grok-refresh-success-cas-reauthorized",
 		Platform:    service.PlatformGrok,
@@ -1308,7 +1328,7 @@ func (s *AccountRepoSuite) TestUpdateGrokOAuthCredentialsIfUnchanged_SkipsConcur
 	})
 	observed, err := s.repo.GetByID(s.ctx, account.ID)
 	s.Require().NoError(err)
-	s.Require().NoError(s.repo.UpdateCredentials(s.ctx, account.ID, map[string]any{
+	s.Require().NoError(s.repo.UpdateCredentialsCAS(s.ctx, observed, map[string]any{
 		"access_token":   "reauthorized-access",
 		"refresh_token":  "reauthorized-refresh",
 		"_token_version": int64(21),
@@ -1356,13 +1376,14 @@ func (s *AccountRepoSuite) TestGrokOAuthConditionalMutation_DetachesBoundedSnaps
 		Type:        service.AccountTypeOAuth,
 		Status:      service.StatusActive,
 		Schedulable: true,
-		Credentials: map[string]any{"access_token": "observed"},
+		// Exercise the single-statement CAS for an account without a secret reference.
+		Credentials: map[string]any{"_token_version": 7},
 	})
 	observed, err := s.repo.GetByID(s.ctx, account.ID)
 	s.Require().NoError(err)
 	ctx, cancel := context.WithCancel(context.Background())
 	cacheRecorder := &schedulerCacheRecorder{}
-	repo := newAccountRepositoryWithSQL(s.client, &cancelAfterAtomicMutationSQLExecutor{
+	repo := fixtureAccountRepository(s.T(), s.client, &cancelAfterAtomicMutationSQLExecutor{
 		sqlExecutor: s.repo.sql,
 		cancel:      cancel,
 	}, cacheRecorder)
@@ -1389,13 +1410,14 @@ func TestGrokOAuthConditionalMutationRollsBackWhenOutboxInsertFails(t *testing.T
 		Type:        service.AccountTypeOAuth,
 		Status:      service.StatusActive,
 		Schedulable: true,
-		Credentials: map[string]any{"access_token": "observed"},
+		// Exercise the single-statement CAS for an account without a secret reference.
+		Credentials: map[string]any{"_token_version": 7},
 	})
 	t.Cleanup(func() {
 		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM scheduler_outbox WHERE account_id = $1", account.ID)
 		_ = client.Account.DeleteOneID(account.ID).Exec(context.Background())
 	})
-	repo := newAccountRepositoryWithSQL(client, &failAtomicSchedulerOutboxSQLExecutor{sqlExecutor: integrationDB}, nil)
+	repo := fixtureAccountRepository(t, client, &failAtomicSchedulerOutboxSQLExecutor{sqlExecutor: integrationDB}, nil)
 
 	applied, err := repo.SetGrokOAuthErrorIfCredentialsUnchanged(
 		context.Background(),

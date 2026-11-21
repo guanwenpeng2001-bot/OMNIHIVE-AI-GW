@@ -1,0 +1,248 @@
+paths:
+  /api/v2/workspaces/{workspace_id}/observability/destinations:
+    parameters:
+      - {$ref: '#/components/parameters/IdentityWorkspaceID'}
+    get:
+      operationId: listTelemetryExportDestinations
+      summary: List safe collector metadata under ops.export.configure
+      responses:
+        '200': {$ref: '#/components/responses/TelemetryDestinationListResponse'}
+        default: {$ref: '#/components/responses/TelemetryExportError'}
+    post:
+      operationId: registerTelemetryExportDestination
+      summary: Register an immutable HTTPS collector under ops.export.configure
+      parameters:
+        - {$ref: '#/components/parameters/TelemetryExportIdempotency'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TelemetryDestinationInput'}
+      responses:
+        '201': {$ref: '#/components/responses/TelemetryDestinationResponse'}
+        default: {$ref: '#/components/responses/TelemetryExportError'}
+  /api/v2/workspaces/{workspace_id}/observability/destinations/{id}:
+    parameters: &telemetryScopedID
+      - {$ref: '#/components/parameters/IdentityWorkspaceID'}
+      - {$ref: '#/components/parameters/TelemetryExportID'}
+    delete:
+      operationId: revokeTelemetryExportDestination
+      summary: Revoke a collector and purge the queued samples for its active exports
+      parameters:
+        - {$ref: '#/components/parameters/IdentityVersion'}
+      responses:
+        '200': {$ref: '#/components/responses/TelemetryDestinationResponse'}
+        default: {$ref: '#/components/responses/TelemetryExportError'}
+  /api/v2/workspaces/{workspace_id}/observability/exports:
+    parameters:
+      - {$ref: '#/components/parameters/IdentityWorkspaceID'}
+    get:
+      operationId: listTelemetryExports
+      summary: List safe export configurations under ops.export.configure
+      responses:
+        '200': {$ref: '#/components/responses/TelemetryExportListResponse'}
+        default: {$ref: '#/components/responses/TelemetryExportError'}
+    post:
+      operationId: createTelemetryExport
+      summary: Approve a scoped export and queue destination validation
+      parameters:
+        - {$ref: '#/components/parameters/TelemetryExportIdempotency'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TelemetryExportInput'}
+      responses:
+        '201': {$ref: '#/components/responses/TelemetryExportResponse'}
+        default: {$ref: '#/components/responses/TelemetryExportError'}
+  /api/v2/workspaces/{workspace_id}/observability/exports/{id}:
+    parameters: *telemetryScopedID
+    get:
+      operationId: getTelemetryExport
+      summary: Read the configured policy and safe delivery status
+      responses:
+        '200':
+          description: Scoped configuration and delivery status under ops.export.configure
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data: {$ref: '#/components/schemas/TelemetryExportDetail'}
+        default: {$ref: '#/components/responses/TelemetryExportError'}
+    patch:
+      operationId: changeTelemetryExport
+      summary: Disable, reconfigure, or enable a current export version under ops.export.configure
+      description: Reconfiguration purges the previous version and enabled versions validate their collector again.
+      parameters:
+        - {$ref: '#/components/parameters/IdentityVersion'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TelemetryExportPatch'}
+      responses:
+        '200': {$ref: '#/components/responses/TelemetryExportResponse'}
+        default: {$ref: '#/components/responses/TelemetryExportError'}
+components:
+  parameters:
+    TelemetryExportID:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    TelemetryExportIdempotency:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: {type: string, minLength: 1, maxLength: 256}
+  schemas:
+    TelemetryDestinationInput:
+      type: object
+      additionalProperties: false
+      required: [endpoint]
+      properties:
+        endpoint:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: Public HTTPS endpoint without URL credentials, query, or fragment.
+    TelemetryDestination:
+      type: object
+      additionalProperties: false
+      required: [id, state, version]
+      properties:
+        id: {type: string, format: uuid}
+        state: {type: string, enum: [registered, revoked]}
+        version: {$ref: '#/components/schemas/IdentityID'}
+    TelemetrySampleRate:
+      type: string
+      pattern: '^(0(\.[0-9]{1,6})?|1(\.0{1,6})?)$'
+      description: Fraction of eligible observations from zero to one.
+    TelemetryDataClasses:
+      type: array
+      minItems: 1
+      maxItems: 1
+      items: {const: timings}
+    TelemetryExportInput:
+      type: object
+      additionalProperties: false
+      required: [destination_id, data_classes, sample_rate, retention_days]
+      properties:
+        destination_id: {type: string, format: uuid}
+        data_classes: {$ref: '#/components/schemas/TelemetryDataClasses'}
+        sample_rate: {$ref: '#/components/schemas/TelemetrySampleRate'}
+        retention_days: {type: integer, minimum: 1, maximum: 30}
+    TelemetryExportPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        destination_id: {type: string, format: uuid}
+        data_classes: {$ref: '#/components/schemas/TelemetryDataClasses'}
+        sample_rate: {$ref: '#/components/schemas/TelemetrySampleRate'}
+        retention_days: {type: integer, minimum: 1, maximum: 30}
+        enabled:
+          type: boolean
+          description: Explicitly enable a failed or disabled version using a registered destination.
+    TelemetryExportConfig:
+      type: object
+      additionalProperties: false
+      required: [id, state, version, destination_id]
+      properties:
+        id: {type: string, format: uuid}
+        state: {type: string, enum: [validating, active, failed, disabled]}
+        version: {$ref: '#/components/schemas/IdentityID'}
+        destination_id: {type: string, format: uuid}
+    TelemetryExportDetail:
+      type: object
+      additionalProperties: false
+      required: [id, state, version, destination_id, data_classes, sample_rate, retention_days, last_success_at, last_error_reason, queue_depth]
+      properties:
+        id: {type: string, format: uuid}
+        state: {type: string, enum: [validating, active, failed, disabled]}
+        version: {$ref: '#/components/schemas/IdentityID'}
+        destination_id: {type: string, format: uuid}
+        data_classes: {$ref: '#/components/schemas/TelemetryDataClasses'}
+        sample_rate: {$ref: '#/components/schemas/TelemetrySampleRate'}
+        retention_days: {type: integer, minimum: 1, maximum: 30}
+        last_success_at: {type: [string, 'null'], format: date-time}
+        last_error_reason:
+          enum: [DESTINATION_UNAVAILABLE, DESTINATION_REJECTED, RETRY_EXHAUSTED, DESTINATION_REVOKED, APPROVAL_REVOKED, null]
+        queue_depth:
+          type: string
+          pattern: '^(0|[1-9][0-9]*)$'
+          description: Unexpired samples awaiting delivery, including leased and retrying samples.
+    TelemetryTimingSample:
+      type: object
+      additionalProperties: false
+      required: [operation, success, latency_ms]
+      properties:
+        operation: {type: string, enum: [scope.read, scope.write]}
+        success: {type: boolean}
+        latency_ms: {type: integer, minimum: 0, maximum: 3600000}
+  responses:
+    TelemetryDestinationResponse:
+      description: Scoped collector metadata
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message, data]
+            properties:
+              code: {const: 0}
+              message: {type: string}
+              data: {$ref: '#/components/schemas/TelemetryDestination'}
+    TelemetryDestinationListResponse:
+      description: Scoped collector metadata
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message, data]
+            properties:
+              code: {const: 0}
+              message: {type: string}
+              data:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/TelemetryDestination'}
+    TelemetryExportResponse:
+      description: Scoped export configuration
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message, data]
+            properties:
+              code: {const: 0}
+              message: {type: string}
+              data: {$ref: '#/components/schemas/TelemetryExportConfig'}
+    TelemetryExportListResponse:
+      description: Scoped export configurations
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message, data]
+            properties:
+              code: {const: 0}
+              message: {type: string}
+              data:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/TelemetryExportConfig'}
+    TelemetryExportError:
+      description: Redacted export error
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/IdentityError'}

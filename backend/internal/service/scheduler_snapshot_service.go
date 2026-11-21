@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 )
 
 var (
@@ -595,7 +595,10 @@ func (s *SchedulerSnapshotService) handleBulkAccountEvent(ctx context.Context, p
 	}
 
 	preloadGroupIDs := parseInt64Slice(payload["group_ids"])
-	accounts, err := s.accountRepo.GetByIDs(ctx, ids)
+	// An account whose stored credential is unusable cannot be scheduled. It is
+	// dropped from the snapshot like a missing account instead of blocking the
+	// outbox for every later event.
+	accounts, err := s.accountRepo.GetByIDs(WithUnusableCredentialRowsOmitted(ctx), ids)
 	if err != nil {
 		return err
 	}
@@ -725,7 +728,7 @@ func (s *SchedulerSnapshotService) handleAccountEvent(ctx context.Context, accou
 
 	account, err := s.accountRepo.GetByID(ctx, *accountID)
 	if err != nil {
-		if errors.Is(err, ErrAccountNotFound) {
+		if errors.Is(err, ErrAccountNotFound) || IsCredentialUnusable(err) {
 			if s.cache != nil {
 				if err := s.cache.DeleteAccount(ctx, *accountID); err != nil {
 					return err

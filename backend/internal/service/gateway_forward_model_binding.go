@@ -11,8 +11,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/requestmodel"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
 	"github.com/tidwall/gjson"
 )
 
@@ -102,6 +102,9 @@ func openAICompatiblePlanCatalogEndpoint(ctx context.Context, account *Account) 
 		// including chat-only platforms. Images and videos both execute here.
 		return CompositeRouteEndpointImages
 	case "audio", "rerank":
+		if plan.Snapshot().Protocol == "audio" && gatewayRequiredAction(ctx) == "audio.translate" {
+			return requestCatalogEndpoint(ctx)
+		}
 		if account != nil && IsChatOnlyPlatform(account.Platform) {
 			if plan.Snapshot().Protocol == "rerank" {
 				return "rerank"
@@ -338,6 +341,14 @@ func requestCatalogEndpoint(ctx context.Context) string {
 		return string(OpenAIEndpointCapabilityEmbeddings)
 	case "media":
 		return string(OpenAIEndpointCapabilityGrokMediaGeneration)
+	case "audio":
+		if action := gatewayRequiredAction(ctx); action != "" {
+			if action == "audio.translate" {
+				return "audio_translations"
+			}
+			return action
+		}
+		return "audio"
 	case "search":
 		return string(OpenAIEndpointCapabilityAlphaSearch)
 	case "live", "realtime":

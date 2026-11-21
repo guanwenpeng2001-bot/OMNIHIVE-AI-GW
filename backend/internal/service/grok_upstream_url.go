@@ -7,9 +7,9 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
-	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/xai"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/urlvalidator"
 )
 
 func grokBaseURLValidator(account *Account, cfg *config.Config) (xai.BaseURLValidator, error) {
@@ -46,15 +46,10 @@ func grokOperatorPolicyValidator(cfg *config.Config) xai.BaseURLValidator {
 	if cfg == nil {
 		return xai.ValidateBaseURL
 	}
-	if !cfg.Security.URLAllowlist.Enabled {
-		return func(raw string) (string, error) {
-			return urlvalidator.ValidateURLFormat(raw, cfg.Security.URLAllowlist.AllowInsecureHTTP)
-		}
-	}
 	return func(raw string) (string, error) {
-		return urlvalidator.ValidateHTTPSURL(raw, urlvalidator.ValidationOptions{
+		return urlvalidator.ValidateHTTPURL(raw, cfg.Security.URLAllowlist.AllowInsecureHTTP, urlvalidator.ValidationOptions{
 			AllowedHosts:     cfg.Security.URLAllowlist.UpstreamHosts,
-			RequireAllowlist: true,
+			RequireAllowlist: cfg.Security.URLAllowlist.Enabled,
 			AllowPrivate:     cfg.Security.URLAllowlist.AllowPrivateHosts,
 		})
 	}

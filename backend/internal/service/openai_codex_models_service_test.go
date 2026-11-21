@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/openai"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
 )
@@ -330,7 +330,7 @@ func TestNewConfiguredCodexModelDescriptorUsesProviderMetadataAndSafeFallback(t 
 
 	gpt56 := newConfiguredCodexModelDescriptor("gpt-5.6-sol")
 	require.Equal(t, "GPT-5.6 Sol", gpt56.DisplayName)
-	require.Equal(t, "OpenAI GPT coding model routed through Sub2API.", gpt56.Description)
+	require.Equal(t, "OpenAI GPT coding model routed through OmniHive.", gpt56.Description)
 	require.NotNil(t, gpt56.DefaultReasoningLevel)
 	require.Equal(t, "low", *gpt56.DefaultReasoningLevel)
 	require.Equal(t, configuredCodexGPTReasoningLevels("gpt-5.6-sol"), gpt56.SupportedReasoningLevels)
@@ -1011,7 +1011,7 @@ func TestBuildCodexModelsManifestForGroupUsesMappedTargetMetadataForCompositeAli
 	require.Len(t, models, 1)
 	require.Equal(t, "reasoning-alias", models[0]["slug"])
 	require.Equal(t, "reasoning-alias", models[0]["display_name"])
-	require.Equal(t, "Custom model routed through Sub2API.", models[0]["description"])
+	require.Equal(t, "Custom model routed through OmniHive.", models[0]["description"])
 	require.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, effortsFromManifestModel(t, models[0]))
 }
 
@@ -1053,7 +1053,7 @@ func TestBuildCodexModelsManifestForGroupUsesSafeFallbackForConflictingAliasTarg
 	require.Len(t, models, 1)
 	require.Equal(t, "shared-alias", models[0]["slug"])
 	require.Equal(t, "shared-alias", models[0]["display_name"])
-	require.Equal(t, "Custom model routed through Sub2API.", models[0]["description"])
+	require.Equal(t, "Custom model routed through OmniHive.", models[0]["description"])
 	require.Empty(t, effortsFromManifestModel(t, models[0]))
 }
 
@@ -1714,6 +1714,7 @@ func TestFetchCodexModelsManifestPassthrough(t *testing.T) {
 
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	defer func() { chatgptCodexModelsURL = original }()
 
 	s := &OpenAIGatewayService{}
@@ -1767,6 +1768,7 @@ func TestFetchCodexModelsManifestAgentIdentityUsesAssertionWithoutOAuthToken(t *
 
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	defer func() { chatgptCodexModelsURL = original }()
 
 	s := &OpenAIGatewayService{}
@@ -1823,9 +1825,11 @@ func TestFetchCodexModelsManifestAgentIdentityRecoversInvalidTaskOnce(t *testing
 
 	originalModelsURL := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	t.Cleanup(func() { chatgptCodexModelsURL = originalModelsURL })
 	originalAuthBase := openAIAgentIdentityAuthAPIBaseURL
 	openAIAgentIdentityAuthAPIBaseURL = server.URL
+	useLoopbackClient(t, &agentIdentityHTTPClient)
 	t.Cleanup(func() { openAIAgentIdentityAuthAPIBaseURL = originalAuthBase })
 
 	s := &OpenAIGatewayService{accountRepo: repo}
@@ -1860,6 +1864,7 @@ func TestFetchCodexModelsManifestAgentIdentityRedactsUpstreamErrors(t *testing.T
 	defer server.Close()
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	t.Cleanup(func() { chatgptCodexModelsURL = original })
 
 	s := &OpenAIGatewayService{}
@@ -1882,6 +1887,7 @@ func TestFetchCodexModelsManifestDefaultClientVersion(t *testing.T) {
 
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	defer func() { chatgptCodexModelsURL = original }()
 
 	s := &OpenAIGatewayService{}
@@ -1905,6 +1911,7 @@ func TestFetchCodexModelsManifestNotModified(t *testing.T) {
 
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	defer func() { chatgptCodexModelsURL = original }()
 
 	s := &OpenAIGatewayService{}
@@ -1945,6 +1952,7 @@ func TestFetchCodexModelsManifestUpstreamError(t *testing.T) {
 
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	defer func() { chatgptCodexModelsURL = original }()
 
 	s := &OpenAIGatewayService{}
@@ -2403,6 +2411,7 @@ func TestFetchCodexModelsManifestOAuthPreservesResponsesLite(t *testing.T) {
 	defer server.Close()
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	defer func() { chatgptCodexModelsURL = original }()
 
 	s := &OpenAIGatewayService{}
@@ -2509,6 +2518,7 @@ func TestFetchCodexModelsManifestAcceptsConfiguredLimitAboveLegacyBoundary(t *te
 
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	defer func() { chatgptCodexModelsURL = original }()
 
 	s := &OpenAIGatewayService{cfg: &config.Config{}}
@@ -3274,6 +3284,7 @@ func TestFetchCodexModelsManifestOAuth401MarksAccountUnschedulable(t *testing.T)
 
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	defer func() { chatgptCodexModelsURL = original }()
 
 	repo := &codexModelsAccountStateRepo{}
@@ -3298,6 +3309,7 @@ func TestFetchCodexModelsManifestOAuth401TokenRevokedDisablesAccount(t *testing.
 
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	defer func() { chatgptCodexModelsURL = original }()
 
 	repo := &codexModelsAccountStateRepo{}
@@ -3335,6 +3347,7 @@ func TestFetchCodexModelsManifestAgentIdentity401DoesNotDisableAccount(t *testin
 
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	defer func() { chatgptCodexModelsURL = original }()
 
 	repo := &codexModelsAccountStateRepo{}
@@ -3457,6 +3470,7 @@ func newCodexModelsOAuthCacheServer(t *testing.T, body string) (*httptest.Server
 	t.Cleanup(server.Close)
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	t.Cleanup(func() { chatgptCodexModelsURL = original })
 	return server, calls
 }
@@ -3501,6 +3515,7 @@ func TestFetchCodexModelsManifestOAuthStaleServesOldValueAndRefreshesInBackgroun
 	t.Cleanup(server.Close)
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	t.Cleanup(func() { chatgptCodexModelsURL = original })
 
 	s := &OpenAIGatewayService{}
@@ -3567,6 +3582,7 @@ func TestFetchCodexModelsManifestOAuthOverdueSynchronousRefreshAndFailure(t *tes
 		t.Cleanup(server.Close)
 		original := chatgptCodexModelsURL
 		chatgptCodexModelsURL = server.URL
+		useLoopbackClient(t, &codexModelsHTTPClient)
 		t.Cleanup(func() { chatgptCodexModelsURL = original })
 
 		s := &OpenAIGatewayService{}
@@ -3603,6 +3619,7 @@ func TestFetchCodexModelsManifestOAuthOverdueSynchronousRefreshAndFailure(t *tes
 		t.Cleanup(server.Close)
 		original := chatgptCodexModelsURL
 		chatgptCodexModelsURL = server.URL
+		useLoopbackClient(t, &codexModelsHTTPClient)
 		t.Cleanup(func() { chatgptCodexModelsURL = original })
 
 		s := &OpenAIGatewayService{}
@@ -3651,6 +3668,7 @@ func TestFetchCodexModelsManifestOAuthSharedAcrossGroupsWithIndependentFiltering
 	t.Cleanup(server.Close)
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	t.Cleanup(func() { chatgptCodexModelsURL = original })
 
 	s := &OpenAIGatewayService{

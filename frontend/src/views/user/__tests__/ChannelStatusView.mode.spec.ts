@@ -5,14 +5,14 @@ import { mount } from '@vue/test-utils'
 const isV1 = vi.fn(() => false)
 
 vi.mock('@/utils/featureFlags', () => ({
-  isChannelMonitorV1Mode: () => isV1(),
+  isChannelProbeMode: () => isV1(),
 }))
 
-vi.mock('../ChannelStatusV1View.vue', () => ({
-  default: defineComponent({ name: 'ChannelStatusV1View', setup: () => () => h('div', { 'data-testid': 'v1' }) }),
+vi.mock('../ChannelProbeStatusView.vue', () => ({
+  default: defineComponent({ name: 'ChannelProbeStatusView', setup: () => () => h('div', { 'data-testid': 'v1' }) }),
 }))
-vi.mock('../ChannelStatusV2View.vue', () => ({
-  default: defineComponent({ name: 'ChannelStatusV2View', setup: () => () => h('div', { 'data-testid': 'v2' }) }),
+vi.mock('../ChannelTelemetryStatusView.vue', () => ({
+  default: defineComponent({ name: 'ChannelTelemetryStatusView', setup: () => () => h('div', { 'data-testid': 'v2' }) }),
 }))
 
 import ChannelStatusView from '../ChannelStatusView.vue'

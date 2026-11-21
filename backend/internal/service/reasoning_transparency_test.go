@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/cursor"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
@@ -146,7 +146,7 @@ func TestReasoningTransparencyBudgetGroupPolicy(t *testing.T) {
 				if forceChat {
 					account = forceChatMessagesFallbackAccount()
 					field = "reasoning_effort"
-					capField = "max_completion_tokens"
+					capField = "max_tokens"
 					upstream.resp = &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"id":"chat","model":"gpt-5.2","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`))}
 				}
 				c := adaptiveProtocolTestContext("/v1/messages", body)

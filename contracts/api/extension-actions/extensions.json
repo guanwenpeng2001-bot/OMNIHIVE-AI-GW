@@ -1,0 +1,18 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "items": [{
+      "id": "org.example.adapters",
+      "sdk_version": 2,
+      "publisher_id": "example",
+      "capabilities": [
+        {"id": "provider.responses.v1", "platform": "openai", "account_type": "oauth"},
+        {"id": "task.image.generate.v1", "platform": "openai", "account_type": "oauth"}
+      ],
+      "authorized_actions": ["provider.responses.v1"],
+      "state": "enabled",
+      "digest": "1dcba35e54163f7703ec2a167c87583bed8cef181eb0183ebf3c6b568b5ee99d"
+    }]
+  }
+}

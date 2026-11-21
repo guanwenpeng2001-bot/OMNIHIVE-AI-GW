@@ -1,12 +1,20 @@
 version: 2
 
-project_name: omnihive-ai-gw
+project_name: omnihive
+
+# The global hooks run before GoReleaser checks that dist is empty.
+before:
+  hooks:
+    - >-
+      sh -c 'mkdir -p .cache/omnihive-release &&
+      printf "{\"product\":\"omnihive\",\"version\":\"%s\",\"minimum_rollback_version\":\"0.3.0\",\"commit\":\"%s\"}\n"
+      "{{ .Version }}" "{{ .Commit }}" > .cache/omnihive-release/omnihive-release-manifest.json'
 
 builds:
-  - id: sub2api
+  - id: omnihive
     dir: backend
     main: ./cmd/server
-    binary: sub2api
+    binary: omnihive
     flags:
       - -mod=readonly
       - -tags=embed
@@ -28,6 +36,46 @@ builds:
       - -X main.Commit={{.Commit}}
       - -X main.Date={{.Date}}
       - -X main.BuildType=release
+  - id: omnihivectl
+    dir: backend
+    main: ./cmd/omnihivectl/refactor/standalone
+    binary: omnihivectl
+    flags:
+      - -mod=readonly
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+  - id: omnihive-retire
+    dir: backend
+    main: ./cmd/omnihive-retire
+    binary: omnihive-retire
+    flags:
+      - -mod=readonly
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
 
 archives:
   - id: default
@@ -39,8 +87,25 @@ archives:
         formats: [zip]
     files:
       - LICENSE*
+      - NOTICE
       - README*
-      - deploy/*
+      - deploy/APPLE_CONTAINER.md
+      - deploy/Caddyfile
+      - deploy/DOCKER.md
+      - deploy/Dockerfile
+      - deploy/EDGE_SECURITY.md
+      - deploy/Makefile
+      - deploy/README.md
+      - deploy/apple-container.sh
+      - deploy/build_image.sh
+      - deploy/codex-instructions.md.tmpl
+      - deploy/omnihive*.service
+      - deploy/install.sh
+      - deploy/config.example.yaml
+      - deploy/docker-compose*.yml
+      - deploy/docker-deploy.sh
+      - deploy/docker-entrypoint.sh
+      - deploy/mihomo
       - src: backend/resources/model-pricing/*.json
         dst: resources/model-pricing
         strip_parent: true
@@ -48,6 +113,8 @@ archives:
 checksum:
   name_template: 'checksums.txt'
   algorithm: sha256
+  extra_files:
+    - glob: .cache/omnihive-release/omnihive-release-manifest.json
 
 changelog:
   # 禁用自动 changelog，完全使用 tag 消息
@@ -61,10 +128,12 @@ dockers:
     goarch: amd64
     skip_push: '{{ if eq .Env.DOCKERHUB_USERNAME "skip" }}true{{ else }}false{{ end }}'
     image_templates:
-      - "{{ .Env.DOCKERHUB_USERNAME }}/sub2api:{{ .Version }}-amd64"
+      - "{{ .Env.DOCKERHUB_USERNAME }}/omnihive:{{ .Version }}-amd64"
     dockerfile: Dockerfile.goreleaser
     use: buildx
     extra_files:
+      - LICENSE
+      - NOTICE
       - deploy/docker-entrypoint.sh
       - backend/resources
     build_flag_templates:
@@ -77,10 +146,12 @@ dockers:
     goarch: arm64
     skip_push: '{{ if eq .Env.DOCKERHUB_USERNAME "skip" }}true{{ else }}false{{ end }}'
     image_templates:
-      - "{{ .Env.DOCKERHUB_USERNAME }}/sub2api:{{ .Version }}-arm64"
+      - "{{ .Env.DOCKERHUB_USERNAME }}/omnihive:{{ .Version }}-arm64"
     dockerfile: Dockerfile.goreleaser
     use: buildx
     extra_files:
+      - LICENSE
+      - NOTICE
       - deploy/docker-entrypoint.sh
       - backend/resources
     build_flag_templates:
@@ -97,6 +168,8 @@ dockers:
     dockerfile: Dockerfile.goreleaser
     use: buildx
     extra_files:
+      - LICENSE
+      - NOTICE
       - deploy/docker-entrypoint.sh
       - backend/resources
     build_flag_templates:
@@ -113,6 +186,8 @@ dockers:
     dockerfile: Dockerfile.goreleaser
     use: buildx
     extra_files:
+      - LICENSE
+      - NOTICE
       - deploy/docker-entrypoint.sh
       - backend/resources
     build_flag_templates:
@@ -124,29 +199,29 @@ dockers:
 # Docker manifests for multi-arch support
 docker_manifests:
   # DockerHub manifests (skipped if DOCKERHUB_USERNAME is 'skip')
-  - name_template: "{{ .Env.DOCKERHUB_USERNAME }}/sub2api:{{ .Version }}"
+  - name_template: "{{ .Env.DOCKERHUB_USERNAME }}/omnihive:{{ .Version }}"
     skip_push: '{{ if eq .Env.DOCKERHUB_USERNAME "skip" }}true{{ else }}false{{ end }}'
     image_templates:
-      - "{{ .Env.DOCKERHUB_USERNAME }}/sub2api:{{ .Version }}-amd64"
-      - "{{ .Env.DOCKERHUB_USERNAME }}/sub2api:{{ .Version }}-arm64"
+      - "{{ .Env.DOCKERHUB_USERNAME }}/omnihive:{{ .Version }}-amd64"
+      - "{{ .Env.DOCKERHUB_USERNAME }}/omnihive:{{ .Version }}-arm64"
 
-  - name_template: "{{ .Env.DOCKERHUB_USERNAME }}/sub2api:latest"
-    skip_push: '{{ if eq .Env.DOCKERHUB_USERNAME "skip" }}true{{ else }}false{{ end }}'
+  - name_template: "{{ .Env.DOCKERHUB_USERNAME }}/omnihive:latest"
+    skip_push: '{{ if or (eq .Env.DOCKERHUB_USERNAME "skip") .Prerelease }}true{{ else }}false{{ end }}'
     image_templates:
-      - "{{ .Env.DOCKERHUB_USERNAME }}/sub2api:{{ .Version }}-amd64"
-      - "{{ .Env.DOCKERHUB_USERNAME }}/sub2api:{{ .Version }}-arm64"
+      - "{{ .Env.DOCKERHUB_USERNAME }}/omnihive:{{ .Version }}-amd64"
+      - "{{ .Env.DOCKERHUB_USERNAME }}/omnihive:{{ .Version }}-arm64"
 
-  - name_template: "{{ .Env.DOCKERHUB_USERNAME }}/sub2api:{{ .Major }}.{{ .Minor }}"
-    skip_push: '{{ if eq .Env.DOCKERHUB_USERNAME "skip" }}true{{ else }}false{{ end }}'
+  - name_template: "{{ .Env.DOCKERHUB_USERNAME }}/omnihive:{{ .Major }}.{{ .Minor }}"
+    skip_push: '{{ if or (eq .Env.DOCKERHUB_USERNAME "skip") .Prerelease }}true{{ else }}false{{ end }}'
     image_templates:
-      - "{{ .Env.DOCKERHUB_USERNAME }}/sub2api:{{ .Version }}-amd64"
-      - "{{ .Env.DOCKERHUB_USERNAME }}/sub2api:{{ .Version }}-arm64"
+      - "{{ .Env.DOCKERHUB_USERNAME }}/omnihive:{{ .Version }}-amd64"
+      - "{{ .Env.DOCKERHUB_USERNAME }}/omnihive:{{ .Version }}-arm64"
 
-  - name_template: "{{ .Env.DOCKERHUB_USERNAME }}/sub2api:{{ .Major }}"
-    skip_push: '{{ if eq .Env.DOCKERHUB_USERNAME "skip" }}true{{ else }}false{{ end }}'
+  - name_template: "{{ .Env.DOCKERHUB_USERNAME }}/omnihive:{{ .Major }}"
+    skip_push: '{{ if or (eq .Env.DOCKERHUB_USERNAME "skip") .Prerelease }}true{{ else }}false{{ end }}'
     image_templates:
-      - "{{ .Env.DOCKERHUB_USERNAME }}/sub2api:{{ .Version }}-amd64"
-      - "{{ .Env.DOCKERHUB_USERNAME }}/sub2api:{{ .Version }}-arm64"
+      - "{{ .Env.DOCKERHUB_USERNAME }}/omnihive:{{ .Version }}-amd64"
+      - "{{ .Env.DOCKERHUB_USERNAME }}/omnihive:{{ .Version }}-arm64"
 
   # GHCR manifests (owner must be lowercase)
   - name_template: "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}"
@@ -155,21 +230,26 @@ docker_manifests:
       - "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}-arm64"
 
   - name_template: "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:latest"
+    skip_push: auto
     image_templates:
       - "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}-amd64"
       - "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}-arm64"
 
   - name_template: "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Major }}.{{ .Minor }}"
+    skip_push: auto
     image_templates:
       - "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}-amd64"
       - "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}-arm64"
 
   - name_template: "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Major }}"
+    skip_push: auto
     image_templates:
       - "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}-amd64"
       - "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}-arm64"
 
 release:
+  extra_files:
+    - glob: .cache/omnihive-release/omnihive-release-manifest.json
   github:
     owner: "{{ .Env.GITHUB_REPO_OWNER }}"
     name: "{{ .Env.GITHUB_REPO_NAME }}"
@@ -179,7 +259,7 @@ release:
   name_template: "OmniHive AI Gateway v{{.Version}}"
   # 完全使用 tag 消息作为 release 内容（通过环境变量传入）
   header: |
-    > OmniHive AI Gateway — 智能算力中转蜂巢与多模态统一网关平台
+    > OmniHive AI Gateway — self-hosted multi-protocol AI API gateway. Upgrade from the admin console (version badge → Update) or pull the matching Docker image.
 
     {{ .Env.TAG_MESSAGE }}
 
@@ -193,7 +273,7 @@ release:
     ```bash
     {{ if ne .Env.DOCKERHUB_USERNAME "skip" -}}
     # Docker Hub
-    docker pull {{ .Env.DOCKERHUB_USERNAME }}/sub2api:{{ .Version }}
+    docker pull {{ .Env.DOCKERHUB_USERNAME }}/omnihive:{{ .Version }}
 
     {{ end -}}
     # GitHub Container Registry

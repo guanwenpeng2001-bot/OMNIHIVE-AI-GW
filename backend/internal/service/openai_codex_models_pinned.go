@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 )
 
 // ErrNoPinnedCodexModelsAccounts signals that an enabled pinned-accounts

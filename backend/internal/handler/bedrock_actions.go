@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
-	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	pkghttputil "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httputil"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ip"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
@@ -228,6 +228,9 @@ func (h *GatewayHandler) forwardBedrockAction(c *gin.Context, admission *bedrock
 		return nil, nil, false
 	}
 	defer beginGatewayRequestPlan(c, h.openAIGatewayService, admission.key, admission.model, protocol, h.maxAccountSwitches)()
+	if c.IsAborted() {
+		return nil, nil, false
+	}
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 	result, err := forward(account)
 	if writeGatewayTPMError(c, err) {

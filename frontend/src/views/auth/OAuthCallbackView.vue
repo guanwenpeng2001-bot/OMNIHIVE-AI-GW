@@ -1,17 +1,24 @@
 <template>
   <AuthLayout>
     <div class="space-y-4">
-      <div v-if="isProcessing" role="status">
-        <div class="mb-4 h-8 w-8 animate-spin rounded-full border-2 border-[var(--brand)] border-t-transparent"></div>
+      <div v-if="isProcessing" role="status" class="space-y-3">
+        <Badge tone="accent" dot mono>EXCHANGING SESSION</Badge>
         <h1 class="auth-title">
           {{ t('auth.oauth.callbackTitle') }}
         </h1>
         <p class="auth-intro">
           {{ t('auth.oauth.callbackHint') }}
         </p>
+        <div class="space-y-2 pt-2" aria-hidden="true">
+          <Skeleton width="100%" height="36px" />
+          <Skeleton width="72%" height="20px" />
+        </div>
       </div>
 
       <div v-else-if="needsRegistrationCompletion">
+        <div class="mb-2">
+          <Badge tone="accent" mono>{{ providerName.toUpperCase() }}</Badge>
+        </div>
         <h1 class="auth-title">
           {{ t('auth.oidc.callbackTitle', { providerName }) }}
         </h1>
@@ -65,24 +72,43 @@
               @keyup.enter="handleSubmitRegistration"
             />
           </div>
-          <p v-if="registrationError" class="text-sm text-red-600 dark:text-red-400">
-            {{ registrationError }}
-          </p>
+          <LoginAgreementPrompt
+            v-if="loginAgreementEnabled"
+            :enabled="loginAgreementEnabled"
+            :accepted="agreementAccepted"
+            :documents="loginAgreementDocuments"
+            :mode="loginAgreementMode"
+            :updated-at="loginAgreementUpdatedAt"
+            :visible="showAgreementModal"
+            @accept="acceptAgreement"
+            @reject="rejectAgreement"
+            @open="showAgreementModal = true"
+            @close="showAgreementModal = false"
+          />
+          <ErrorState
+            v-if="registrationError"
+            :title="registrationError"
+            compact
+            :retryable="false"
+          />
           <div class="auth-actions">
-          <button
+          <Button
+            variant="primary"
+            :loading="isSubmitting"
             class="btn btn-primary w-full"
             type="button"
             :disabled="isSubmitting || !canSubmitRegistration"
             @click="handleSubmitRegistration"
           >
             {{ isSubmitting ? t('common.processing') : t('auth.oidc.completeRegistration') }}
-          </button>
-          <button type="button" class="btn btn-outline" :disabled="isSubmitting" @click="router.replace('/login')">{{ t('auth.backToLogin') }}</button>
+          </Button>
+          <Button type="button" variant="secondary" class="btn btn-outline" :disabled="isSubmitting" @click="router.replace('/login')">{{ t('auth.backToLogin') }}</Button>
           </div>
         </div>
       </div>
 
-      <div v-else-if="invalidCallback">
+      <div v-else-if="invalidCallback" class="space-y-3">
+        <Badge tone="danger" dot mono>INVALID CALLBACK</Badge>
         <h1 class="auth-title">
           {{ t('auth.oauth.invalidCallbackTitle') }}
         </h1>
@@ -90,14 +116,15 @@
           {{ t('auth.oauth.invalidCallbackHint') }}
         </p>
         <div class="auth-actions">
-        <button class="btn btn-primary" type="button" @click="router.replace('/login')">
+        <Button variant="primary" class="btn btn-primary" type="button" @click="router.replace('/login')">
           {{ t('auth.backToLogin') }}
-        </button>
+        </Button>
         <router-link to="/home" class="btn btn-outline">← 首页</router-link>
         </div>
       </div>
 
-      <div v-else>
+      <div v-else class="space-y-3">
+        <Badge tone="neutral" mono>OAUTH CALLBACK</Badge>
         <h1 class="auth-title">
           {{ t('auth.oauth.callbackTitle') }}
         </h1>
@@ -153,8 +180,13 @@
 
 <script setup lang="ts">
 import AuthLayout from '@/components/layout/AuthLayout.vue'
-import { extractApiErrorMessage } from '@/utils/apiError'
+import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
+import { Badge, Button, ErrorState, Skeleton } from '@/components/ui'
+import { authStorage } from '@/api/tokenRefresh'
+import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
 import { useCallbackLifetime } from '@/composables/useCallbackLifetime'
+import { buildSignupAgreementPayload, resolveAgreementState } from '@/features/public/legal'
+import type { LoginAgreementDocument } from '@/types'
 
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -165,6 +197,7 @@ import { apiClient } from '@/api/client'
 import { buildApiUrl } from '@/api/url'
 import {
   exchangePendingOAuthCompletion,
+  getPublicSettings,
   persistOAuthTokenContext,
   type OAuthTokenResponse
 } from '@/api/auth'
@@ -193,7 +226,13 @@ const registrationError = ref('')
 const pendingProvider = ref<'github' | 'google'>('github')
 const redirectTo = ref('/dashboard')
 const invalidCallback = ref(false)
-const EMAIL_OAUTH_PENDING_PROVIDER_KEY = 'email_oauth_pending_provider'
+const loginAgreementEnabled = ref(false)
+const loginAgreementMode = ref<'modal' | 'checkbox' | string>('modal')
+const loginAgreementUpdatedAt = ref('')
+const loginAgreementRevision = ref('')
+const loginAgreementDocuments = ref<LoginAgreementDocument[]>([])
+const agreementAccepted = ref(false)
+const showAgreementModal = ref(false)
 
 type EmailOAuthPendingCompletion = Partial<OAuthTokenResponse> & {
   error?: string
@@ -224,6 +263,7 @@ const canSubmitRegistration = computed(() => {
   if (password.value.length < 6) return false
   if (password.value !== confirmPassword.value) return false
   if (invitationRequired.value && !invitationCode.value.trim()) return false
+  if (loginAgreementEnabled.value && !agreementAccepted.value) return false
   return true
 })
 
@@ -246,7 +286,7 @@ function sanitizeRedirectPath(path: string | null | undefined): string {
 
 function readPendingEmailOAuthProvider(): 'github' | 'google' | null {
   if (typeof window === 'undefined') return null
-  const provider = window.sessionStorage.getItem(EMAIL_OAUTH_PENDING_PROVIDER_KEY)
+  const provider = authStorage.oauthPendingProvider.get()
   if (provider === 'github' || provider === 'google') return provider
   return null
 }
@@ -271,7 +311,7 @@ async function finalizeTokenResponse(tokenResponse: OAuthTokenResponse, redirect
   persistOAuthTokenContext(tokenResponse)
   await waitForCallback(authStore.setToken(tokenResponse.access_token))
   if (typeof window !== 'undefined') {
-    window.sessionStorage.removeItem(EMAIL_OAUTH_PENDING_PROVIDER_KEY)
+    authStorage.oauthPendingProvider.remove()
   }
   clearAllAffiliateReferralCodes()
   appStore.showSuccess(t('auth.loginSuccess'))
@@ -301,6 +341,7 @@ async function resumePendingEmailOAuth(code?: string) {
     if (completion.error === 'invitation_required' || completion.error === 'registration_completion_required') {
       invitationRequired.value = completion.error === 'invitation_required' || completion.invitation_required === true
       registrationEmail.value = String(completion.resolved_email || completion.email || '').trim()
+      await loadAgreementSettings()
       needsRegistrationCompletion.value = true
       isProcessing.value = false
       return
@@ -340,9 +381,21 @@ async function handleSubmitRegistration() {
 
   isSubmitting.value = true
   try {
-    const payload: { password: string; invitation_code?: string; aff_code?: string } = {
+    const agreementPayload = buildSignupAgreementPayload(
+      loginAgreementEnabled.value,
+      agreementAccepted.value,
+      loginAgreementRevision.value
+    )
+    const payload: {
+      password: string
+      invitation_code?: string
+      aff_code?: string
+      login_agreement_accepted?: boolean
+      login_agreement_revision?: string
+    } = {
       password: password.value,
-      ...oauthAffiliatePayload(loadOAuthAffiliateCode())
+      ...oauthAffiliatePayload(loadOAuthAffiliateCode()),
+      ...agreementPayload
     }
     if (invitationRequired.value) {
       payload.invitation_code = code
@@ -355,12 +408,45 @@ async function handleSubmitRegistration() {
     await finalizeTokenResponse(data, redirectTo.value)
   } catch (e: unknown) {
     if (!isActive()) return
+    if (extractApiErrorCode(e) === 'LOGIN_AGREEMENT_REQUIRED') {
+      agreementAccepted.value = false
+      await loadAgreementSettings()
+      registrationError.value = t('publicPortal.legal.agreementRequiredRefresh')
+      return
+    }
     const err = e as { message?: string; response?: { data?: { message?: string } } }
     registrationError.value =
       extractApiErrorMessage(err, '') || t('auth.oidc.completeRegistrationFailed')
   } finally {
     if (isActive()) isSubmitting.value = false
   }
+}
+
+async function loadAgreementSettings(): Promise<void> {
+  try {
+    const settings = await getPublicSettings()
+    if (!isActive()) return
+    const agreement = resolveAgreementState(settings)
+    loginAgreementDocuments.value = agreement.documents
+    loginAgreementEnabled.value = agreement.enabled
+    loginAgreementMode.value = agreement.mode
+    loginAgreementUpdatedAt.value = agreement.updatedAt
+    loginAgreementRevision.value = agreement.revision
+    agreementAccepted.value = !agreement.enabled
+    showAgreementModal.value = agreement.enabled && agreement.mode !== 'checkbox'
+  } catch {
+    // Keep existing agreement state; backend still enforces if enabled.
+  }
+}
+
+function acceptAgreement(): void {
+  agreementAccepted.value = true
+  showAgreementModal.value = false
+}
+
+function rejectAgreement(): void {
+  agreementAccepted.value = false
+  showAgreementModal.value = false
 }
 
 onMounted(async () => {
@@ -393,66 +479,3 @@ const copy = (value: string) => {
   copyToClipboard(value)
 }
 </script>
-
-<style scoped>
-:is(input, select, textarea).input {
-  min-height: 40px;
-  min-width: 0;
-  border-radius: 8px;
-  border-color: var(--field-border, var(--input));
-  background: var(--card);
-  color: var(--foreground);
-  box-shadow: none;
-  transition: border-color 150ms ease, background-color 150ms ease;
-}
-
-:is(input, select, textarea).input::placeholder { color: var(--muted-foreground); }
-:is(input, select, textarea).input:disabled { background: var(--surface-2); }
-:is(input, select, textarea).input:focus {
-  border-color: var(--field-border, var(--brand));
-  outline: 2px solid color-mix(in srgb, var(--field-border, var(--brand)) 22%, transparent);
-  outline-offset: 2px;
-  box-shadow: none;
-}
-
-.input-error { --field-border: var(--bad); }
-label.input-label { color: var(--foreground); }
-p.input-hint { color: var(--muted-foreground); }
-
-:is(button, a).btn {
-  min-height: 40px;
-  border-radius: 8px;
-  background-image: none;
-  box-shadow: none;
-  transform: none;
-  transition: background-color 150ms ease, border-color 150ms ease;
-}
-
-.btn.btn-primary { background: var(--primary); color: var(--primary-foreground); }
-.btn.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 90%, var(--card)); }
-.btn.btn-outline { border-color: var(--border); background: var(--card); color: var(--foreground); }
-.btn.btn-outline:hover:not(:disabled) { background: var(--surface-2); }
-
-div.card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card);
-  color: var(--foreground);
-  box-shadow: none;
-}
-
-button:focus-visible, a:focus-visible, summary:focus-visible {
-  outline: 2px solid var(--brand);
-  outline-offset: 3px;
-}
-
-input[type='checkbox'] { accent-color: var(--brand); }
-
-@media (prefers-reduced-motion: reduce) {
-  :is(button, a).btn, :is(input, select, textarea).input, .fade-enter-active, .fade-leave-active,
-  .agreement-fade-enter-active, .agreement-fade-leave-active,
-  .agreement-fade-enter-active > div, .agreement-fade-leave-active > div {
-    transition: none;
-  }
-}
-</style>

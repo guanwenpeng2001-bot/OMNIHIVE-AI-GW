@@ -52,6 +52,8 @@ func adaptiveCNChatTestResponse() *http.Response {
 		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
 		Body: io.NopCloser(strings.NewReader(`data: {"choices":[{"delta":{"content":"chat ok"},"finish_reason":"stop"}]}
 
+data: {"choices":[],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}
+
 data: [DONE]
 
 `)),

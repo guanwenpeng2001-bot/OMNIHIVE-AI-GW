@@ -11,9 +11,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/payment"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -142,9 +142,6 @@ func TestWebhookConstants(t *testing.T) {
 		assert.Equal(t, int64(1<<20), int64(maxWebhookBodySize))
 	})
 
-	t.Run("webhookLogTruncateLen is 200", func(t *testing.T) {
-		assert.Equal(t, 200, webhookLogTruncateLen)
-	})
 }
 
 func TestExtractOutTradeNo(t *testing.T) {

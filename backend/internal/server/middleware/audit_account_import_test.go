@@ -11,10 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -156,10 +156,13 @@ func TestAccountImportAuditFlagCannotHideOtherRoutes(t *testing.T) {
 				diff, ok := entry.Extra["submitted_diff"].([]service.ConfigurationFieldDiff)
 				require.True(t, ok)
 				fields := make([]string, 0, len(diff))
+				expected := map[string]any{flag: true, "name": "auditable-change", "ordinary_field": "keep-this-evidence", "credentials": "changed", "custom_key": "changed", "proxy_key": "changed"}
+				require.Len(t, diff, len(expected))
 				for _, change := range diff {
 					fields = append(fields, change.Field)
 					require.Equal(t, "submitted", change.Operation)
-					require.Equal(t, "[redacted]", change.After)
+					require.Contains(t, expected, change.Field)
+					require.Equal(t, expected[change.Field], change.After)
 				}
 				require.Contains(t, fields, flag)
 				require.Contains(t, fields, "name")

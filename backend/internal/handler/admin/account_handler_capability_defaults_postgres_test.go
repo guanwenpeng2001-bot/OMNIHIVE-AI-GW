@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
-	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/Wei-Shaw/sub2api/internal/testutil"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,15 +40,16 @@ func (u *capabilityPoolUpstream) DoWithTLS(req *http.Request, proxy string, id i
 }
 
 func TestAccountModelCatalogApplyPostgresPoolBudget(t *testing.T) {
-	db, client, repo := testutil.NewCapabilityPostgres(t)
+	db, _, repo := testutil.NewCapabilityPostgres(t)
 	for _, size := range []int{2, 4} {
 		t.Run(fmt.Sprintf("pool_%d", size), func(t *testing.T) {
 			db.SetMaxOpenConns(size)
 			db.SetMaxIdleConns(size)
 			accounts := make([]*service.Account, 2)
 			for i := range accounts {
-				row, err := client.Account.Create().SetName("catalog-pool").SetPlatform(service.PlatformDeepseek).SetType(service.AccountTypeAPIKey).SetCredentials(map[string]any{"api_key": "test", "base_url": "https://api.deepseek.com"}).Save(context.Background())
-				require.NoError(t, err)
+				row := &service.Account{Name: "catalog-pool", Platform: service.PlatformDeepseek, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Concurrency: 1, Credentials: map[string]any{"api_key": "test", "base_url": "https://api.deepseek.com"}}
+				require.NoError(t, repo.Create(context.Background(), row))
+				var err error
 				accounts[i], err = repo.GetByID(context.Background(), row.ID)
 				require.NoError(t, err)
 			}
@@ -112,15 +113,24 @@ func TestAccountModelCatalogApplyPostgresPoolBudget(t *testing.T) {
 }
 
 func TestCapabilityDefaultsPostgresManualTokenReconfirmation(t *testing.T) {
-	_, client, repo := testutil.NewCapabilityPostgres(t)
+	db, _, repo := testutil.NewCapabilityPostgres(t)
 	ctx := context.Background()
-	row, err := client.Account.Create().SetName("catalog-oauth").SetPlatform(service.PlatformOpenAI).SetType(service.AccountTypeOAuth).SetCredentials(map[string]any{"access_token": "old", "chatgpt_account_id": "stable"}).SetExtra(map[string]any{service.UpstreamModelCatalogStateExtraKey: service.AccountModelCatalogState{IdentityRevision: 3, RulesRevision: 7}}).Save(ctx)
+	row := &service.Account{Name: "catalog-oauth", Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Status: service.StatusActive, Schedulable: true, Concurrency: 1, Credentials: map[string]any{"access_token": "old", "chatgpt_account_id": "stable"}}
+	require.NoError(t, repo.Create(ctx, row))
+	catalogState, err := json.Marshal(map[string]any{service.UpstreamModelCatalogStateExtraKey: service.AccountModelCatalogState{IdentityRevision: 3, RulesRevision: 7}})
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `UPDATE accounts SET extra=$2::jsonb WHERE id=$1`, row.ID, catalogState)
 	require.NoError(t, err)
 	existing, err := repo.GetByID(ctx, row.ID)
 	require.NoError(t, err)
 	declaration, err := decodeModelCapabilityDefaults(json.RawMessage(`{"schema_version":1,"reason":"owner reconfirmed","models":{"private-id":{"input_modalities":[],"output_modalities":[],"reasoning":true,"reasoning_control":{"kind":"unknown","effort_values":[]}}}}`))
 	require.NoError(t, err)
 	credentials := map[string]any{"access_token": "new", "chatgpt_account_id": "stable"}
+	for _, key := range []string{service.CredentialSecretReferenceKey, service.CredentialSecretVersionKey} {
+		if value, ok := existing.Credentials[key]; ok {
+			credentials[key] = value
+		}
+	}
 	extra := map[string]any{modelCapabilityDefaultsKey: declaration}
 	require.NoError(t, prepareUpdatedModelCapabilityDefaults(existing, "", credentials, extra, "admin:42"))
 	edit := *existing

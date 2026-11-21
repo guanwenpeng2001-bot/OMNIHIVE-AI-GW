@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Wei-Shaw/sub2api/internal/payment"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
 	stripe "github.com/stripe/stripe-go/v85"
 	"github.com/stripe/stripe-go/v85/webhook"
 )
@@ -159,10 +159,17 @@ func (s *Stripe) QueryOrder(ctx context.Context, tradeNo string) (*payment.Query
 	}
 
 	currency := stripeIntentCurrency(pi.Currency, s.currency())
+	amount := pi.Amount
+	if status == payment.ProviderStatusPaid {
+		if pi.Currency == "" || currency != s.currency() {
+			return nil, fmt.Errorf("stripe payment currency mismatch")
+		}
+		amount = pi.AmountReceived
+	}
 	return &payment.QueryOrderResponse{
 		TradeNo: pi.ID,
 		Status:  status,
-		Amount:  payment.MinorUnitToAmount(pi.Amount, currency),
+		Amount:  payment.LegacyCallbackAmount(amount, currency),
 		Metadata: map[string]string{
 			"currency": currency,
 		},
@@ -190,24 +197,37 @@ func (s *Stripe) VerifyNotification(_ context.Context, rawBody string, headers m
 
 	switch event.Type {
 	case stripeEventPaymentSuccess:
-		return parseStripePaymentIntent(&event, payment.ProviderStatusSuccess, rawBody)
+		return s.parseIntent(&event, payment.ProviderStatusSuccess, rawBody)
 	case stripeEventPaymentFailed:
-		return parseStripePaymentIntent(&event, payment.ProviderStatusFailed, rawBody)
+		return s.parseIntent(&event, payment.ProviderStatusFailed, rawBody)
+	case "refund.created", "refund.updated", "charge.dispute.closed":
+		return s.parseReversal(&event, rawBody)
 	}
 
 	return nil, nil
 }
 
-func parseStripePaymentIntent(event *stripe.Event, status string, rawBody string) (*payment.PaymentNotification, error) {
+func (s *Stripe) parseIntent(event *stripe.Event, status string, rawBody string) (*payment.PaymentNotification, error) {
 	var pi stripe.PaymentIntent
 	if err := json.Unmarshal(event.Data.Raw, &pi); err != nil {
 		return nil, fmt.Errorf("stripe parse payment_intent: %w", err)
 	}
-	currency := stripeIntentCurrency(pi.Currency, payment.DefaultPaymentCurrency)
+	currency, err := payment.NormalizePaymentCurrency(string(pi.Currency))
+	if err != nil || pi.Currency == "" || currency != s.currency() {
+		return nil, fmt.Errorf("stripe notification currency mismatch")
+	}
+	minor := pi.Amount
+	if status == payment.ProviderStatusSuccess {
+		minor = pi.AmountReceived
+	}
+	if minor <= 0 || event.ID == "" || pi.ID == "" || pi.Metadata["orderId"] == "" {
+		return nil, fmt.Errorf("incomplete stripe payment notification")
+	}
 	return &payment.PaymentNotification{
+		EventID: event.ID, EffectID: pi.ID, InstanceID: s.instanceID, Currency: currency, Minor: minor,
 		TradeNo: pi.ID,
 		OrderID: pi.Metadata["orderId"],
-		Amount:  payment.MinorUnitToAmount(pi.Amount, currency),
+		Amount:  payment.LegacyCallbackAmount(minor, currency),
 		Status:  status,
 		RawData: rawBody,
 		Metadata: map[string]string{
@@ -230,6 +250,7 @@ func (s *Stripe) Refund(ctx context.Context, req payment.RefundRequest) (*paymen
 		Amount:        stripe.Int64(amountInMinorUnit),
 		Reason:        stripe.String(string(stripe.RefundReasonRequestedByCustomer)),
 	}
+	params.AddMetadata("omnihive_refund_order", req.OrderID)
 	params.SetIdempotencyKey(fmt.Sprintf("re-%s-%d", req.OrderID, amountInMinorUnit))
 	params.Context = ctx
 
@@ -243,43 +264,43 @@ func (s *Stripe) Refund(ctx context.Context, req payment.RefundRequest) (*paymen
 		refundStatus = payment.ProviderStatusSuccess
 	}
 
-	return &payment.RefundResponse{
-		RefundID: r.ID,
-		Status:   refundStatus,
-	}, nil
+	proof, err := s.refundResponse(r, req.TradeNo, amountInMinorUnit, refundStatus)
+	if err != nil {
+		// Stripe accepted the request. Preserve its ID for reconciliation
+		// without treating incomplete response evidence as a final failure.
+		return &payment.RefundResponse{RefundID: r.ID, Status: payment.ProviderStatusPending}, err
+	}
+	return proof, nil
 }
 
-// QueryRefund retrieves a Stripe refund by refund ID when available, otherwise
-// falls back to the latest refund for the PaymentIntent.
+// QueryRefund retrieves the exact refund accepted by the original admin request.
 func (s *Stripe) QueryRefund(ctx context.Context, req payment.RefundQueryRequest) (*payment.RefundResponse, error) {
 	s.ensureInit()
-
-	var r *stripe.Refund
-	var err error
-	if refundID := strings.TrimSpace(req.RefundID); refundID != "" {
-		r, err = s.sc.V1Refunds.Retrieve(ctx, refundID, nil)
-		if err != nil {
-			return nil, fmt.Errorf("stripe query refund: %w", err)
-		}
-	} else {
-		tradeNo := strings.TrimSpace(req.TradeNo)
-		if tradeNo == "" {
-			return nil, fmt.Errorf("stripe query refund: missing payment intent id")
-		}
-		params := &stripe.RefundListParams{PaymentIntent: stripe.String(tradeNo)}
-		params.Limit = stripe.Int64(1)
-		list := s.sc.V1Refunds.List(ctx, params)
-		if list.Err() != nil {
-			return nil, fmt.Errorf("stripe query refund: %w", list.Err())
-		}
-		refunds := list.Data()
-		if len(refunds) == 0 {
-			return nil, fmt.Errorf("stripe query refund: no refund found")
-		}
-		r = refunds[0]
+	id := strings.TrimSpace(req.RefundID)
+	if id == "" {
+		return nil, fmt.Errorf("stripe refund ID is missing; reconcile against the provider statement")
 	}
+	minor, err := payment.AmountToMinorUnit(req.Amount, s.currency())
+	if err != nil {
+		return nil, err
+	}
+	r, err := s.sc.V1Refunds.Retrieve(ctx, id, nil)
+	if err != nil {
+		return nil, fmt.Errorf("stripe query refund: %w", err)
+	}
+	if r.ID != id {
+		return nil, fmt.Errorf("stripe query refund ID mismatch")
+	}
+	return s.refundResponse(r, req.TradeNo, minor, stripeRefundProviderStatus(r.Status))
+}
 
-	return &payment.RefundResponse{RefundID: r.ID, Status: stripeRefundProviderStatus(r.Status)}, nil
+func (s *Stripe) refundResponse(r *stripe.Refund, intent string, minor int64, status string) (*payment.RefundResponse, error) {
+	currency, err := payment.NormalizePaymentCurrency(string(r.Currency))
+	if err != nil || r.Currency == "" || currency != s.currency() ||
+		r.ID == "" || r.PaymentIntent == nil || r.PaymentIntent.ID != intent || r.Amount != minor {
+		return nil, fmt.Errorf("stripe refund evidence mismatch")
+	}
+	return &payment.RefundResponse{RefundID: r.ID, Status: status, Minor: minor, Currency: currency}, nil
 }
 
 func stripeRefundProviderStatus(status stripe.RefundStatus) string {
@@ -351,3 +372,38 @@ var (
 	_ payment.CancelableProvider       = (*Stripe)(nil)
 	_ payment.MerchantIdentityProvider = (*Stripe)(nil)
 )
+
+// Only terminal succeeded refunds and lost disputes change local funding.
+func (s *Stripe) parseReversal(event *stripe.Event, raw string) (*payment.PaymentNotification, error) {
+	var obj struct {
+		ID       string
+		Status   string
+		Amount   int64
+		Currency string
+		Intent   *stripe.PaymentIntent `json:"payment_intent"`
+		Metadata map[string]string     `json:"metadata"`
+	}
+	if err := json.Unmarshal(event.Data.Raw, &obj); err != nil {
+		return nil, err
+	}
+	kind := "refund"
+	if event.Type == "charge.dispute.closed" {
+		if obj.Status != "lost" {
+			return nil, nil
+		}
+		kind = "chargeback"
+	} else if obj.Status != "succeeded" {
+		return nil, nil
+	}
+	cur, err := payment.NormalizePaymentCurrency(obj.Currency)
+	if err != nil || obj.Currency == "" || cur != s.currency() || obj.Amount <= 0 || obj.Intent == nil || obj.Intent.ID == "" || obj.ID == "" || event.ID == "" {
+		return nil, fmt.Errorf("incomplete stripe reversal evidence")
+	}
+	orderID := ""
+	if kind == "refund" && obj.Metadata["omnihive_refund_order"] != "" {
+		kind = "refund_confirmation"
+		orderID = obj.Metadata["omnihive_refund_order"]
+	}
+	return &payment.PaymentNotification{EventID: event.ID, EffectID: obj.ID, InstanceID: s.instanceID, OrderID: orderID,
+		TradeNo: obj.Intent.ID, Status: kind, Minor: obj.Amount, Currency: cur, RawData: raw}, nil
+}

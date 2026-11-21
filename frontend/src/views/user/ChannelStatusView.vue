@@ -1,15 +1,15 @@
 <template>
-  <ChannelStatusV1View v-if="isV1" class="channel-status-surface" />
-  <ChannelStatusV2View v-else class="channel-status-surface" />
+  <ChannelProbeStatusView v-if="isV1" class="channel-status-surface" />
+  <ChannelTelemetryStatusView v-else class="channel-status-surface" />
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { isChannelMonitorV1Mode } from '@/utils/featureFlags'
-import ChannelStatusV1View from './ChannelStatusV1View.vue'
-import ChannelStatusV2View from './ChannelStatusV2View.vue'
+import { isChannelProbeMode } from '@/utils/featureFlags'
+import ChannelProbeStatusView from './ChannelProbeStatusView.vue'
+import ChannelTelemetryStatusView from './ChannelTelemetryStatusView.vue'
 
-const isV1 = computed(() => isChannelMonitorV1Mode())
+const isV1 = computed(() => isChannelProbeMode())
 </script>
 
 <style scoped>

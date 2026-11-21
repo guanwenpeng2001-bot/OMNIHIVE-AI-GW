@@ -87,9 +87,22 @@
                 @keyup.enter="handleSubmitInvitation"
               />
             </div>
+            <LoginAgreementPrompt
+              v-if="loginAgreementEnabled"
+              :enabled="loginAgreementEnabled"
+              :accepted="agreementAccepted"
+              :documents="loginAgreementDocuments"
+              :mode="loginAgreementMode"
+              :updated-at="loginAgreementUpdatedAt"
+              :visible="showAgreementModal"
+              @accept="acceptAgreement"
+              @reject="rejectAgreement"
+              @open="openAgreementModal"
+              @close="closeAgreementModal"
+            />
             <button
               class="btn btn-primary w-full"
-              :disabled="isSubmitting || !invitationCode.trim()"
+              :disabled="isSubmitting || !invitationCode.trim() || (loginAgreementEnabled && !agreementAccepted)"
               @click="handleSubmitInvitation"
             >
               {{ isSubmitting ? t('auth.dingtalk.completing') : t('auth.dingtalk.completeRegistration') }}
@@ -246,6 +259,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
+import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
 import PendingOAuthCreateAccountForm from '@/components/auth/PendingOAuthCreateAccountForm.vue'
 import { useOAuthCallback } from '@/composables/useOAuthCallback'
 import { apiClient } from '@/api/client'
@@ -272,6 +286,16 @@ const {
   needsTotpChallenge,
   totpCode,
   totpUserEmailMasked,
+  loginAgreementEnabled,
+  loginAgreementMode,
+  loginAgreementUpdatedAt,
+  loginAgreementDocuments,
+  agreementAccepted,
+  showAgreementModal,
+  acceptAgreement,
+  rejectAgreement,
+  openAgreementModal,
+  closeAgreementModal,
   needsCreateAccount,
   needsChooser,
   needsBindLogin,
@@ -285,89 +309,16 @@ const {
 } = useOAuthCallback({
   provider: 'dingtalk',
   errorPrefix: 'auth.dingtalk',
-  completeRegistration: async (code, decision, affiliateCode) => {
+  completeRegistration: async (code, decision, affiliateCode, agreement) => {
     const { data } = await apiClient.post<PendingOAuthExchangeResponse>('/auth/oauth/dingtalk/complete-registration', {
       invitation_code: code,
       ...oauthAffiliatePayload(affiliateCode),
       adopt_display_name: decision.adoptDisplayName,
       adopt_avatar: decision.adoptAvatar,
+      ...(agreement?.login_agreement_accepted !== undefined ? agreement : {}),
     })
     return data
   },
   resolveError: (code, description) => te(`auth.dingtalk.error.${code}`) ? t(`auth.dingtalk.error.${code}`) : description || code,
 })
 </script>
-
-<style scoped>
-:is(input, select, textarea).input {
-  min-height: 40px;
-  min-width: 0;
-  border-radius: 8px;
-  border-color: var(--field-border, var(--input));
-  background: var(--card);
-  color: var(--foreground);
-  box-shadow: none;
-  transition: border-color 150ms ease, background-color 150ms ease;
-}
-
-:is(input, select, textarea).input::placeholder { color: var(--muted-foreground); }
-:is(input, select, textarea).input:disabled { background: var(--surface-2); }
-:is(input, select, textarea).input:focus {
-  border-color: var(--field-border, var(--brand));
-  outline: 2px solid color-mix(in srgb, var(--field-border, var(--brand)) 22%, transparent);
-  outline-offset: 2px;
-  box-shadow: none;
-}
-
-.input-error { --field-border: var(--bad); }
-label.input-label { color: var(--foreground); }
-p.input-hint { color: var(--muted-foreground); }
-
-:is(button, a).btn {
-  min-height: 40px;
-  border-radius: 8px;
-  background-image: none;
-  box-shadow: none;
-  transform: none;
-  transition: background-color 150ms ease, border-color 150ms ease;
-}
-
-.btn.btn-primary { background: var(--primary); color: var(--primary-foreground); }
-.btn.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 90%, var(--card)); }
-.btn.btn-outline { border-color: var(--border); background: var(--card); color: var(--foreground); }
-.btn.btn-outline:hover:not(:disabled) { background: var(--surface-2); }
-
-div.card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card);
-  color: var(--foreground);
-  box-shadow: none;
-}
-
-button:focus-visible, a:focus-visible, summary:focus-visible {
-  outline: 2px solid var(--brand);
-  outline-offset: 3px;
-}
-
-input[type='checkbox'] { accent-color: var(--brand); }
-
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: all 0.3s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-  transform: translateY(-8px);
-}
-@media (prefers-reduced-motion: reduce) {
-  :is(button, a).btn, :is(input, select, textarea).input, .fade-enter-active, .fade-leave-active,
-  .agreement-fade-enter-active, .agreement-fade-leave-active,
-  .agreement-fade-enter-active > div, .agreement-fade-leave-active > div {
-    transition: none;
-  }
-}
-</style>

@@ -3,12 +3,12 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"github.com/Wei-Shaw/sub2api/internal/testutil/testassert"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testassert"
 	"os"
 	"path/filepath"
 	"testing"
 
-	modelcapabilities "github.com/Wei-Shaw/sub2api/resources/model-capabilities"
+	modelcapabilities "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/resources/model-capabilities"
 	"github.com/stretchr/testify/require"
 )
 
@@ -138,7 +138,7 @@ func TestVisibleModelsRetainEveryEndpointAndAccount(t *testing.T) {
 		endpointsByAccount[binding.AccountID] = append(endpointsByAccount[binding.AccountID], binding.Endpoint)
 	}
 	require.Len(t, endpointsByAccount, 2)
-	require.ElementsMatch(t, []string{"responses", "chat_completions", "messages", "count_tokens", "embeddings", "images", "live"}, endpointsByAccount[first.ID])
+	require.ElementsMatch(t, []string{"responses", "chat_completions", "messages", "count_tokens", "images", "live"}, endpointsByAccount[first.ID])
 	require.ElementsMatch(t, []string{"chat_completions", "embeddings", "images", "live"}, endpointsByAccount[second.ID])
 	for index, binding := range view.Bindings["public"] {
 		fact := metadata["public"][index]

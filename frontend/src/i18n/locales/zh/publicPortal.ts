@@ -1,0 +1,199 @@
+export default {
+  publicPortal: {
+    support: {
+      footerLink: '人工支持',
+      sectionTitle: '人工支持入口',
+      sectionSummary: '如需处理付款争议、账户服务申请或技术故障，可通过以下方式联系支持团队。',
+      badge: '人工支持',
+      contactLabel: '联系方式',
+      contactPlaceholder: '运营方暂未配置联系方式，请联系您的工作空间管理员。',
+      scopeLabel: '受理范围',
+      scopeValue: '付款与账单争议、账户注销与数据导出、订单票据开具，以及 API 额度或网关异常排查。',
+      slaLabel: '响应时限',
+      slaValue: '工作日 09:00–18:00（UTC+8），1–2 个工作日内首次响应。'
+    },
+    accountService: {
+      lifecycleTitle: '账户注销与个人数据导出',
+      lifecycleSummary: '当前未开放自助导出或自助注销接口，相关请求需通过人工支持核验身份与账务结算后办理。',
+      exportTitle: '个人数据导出',
+      exportDesc: '如需导出账户资料、账单摘要或使用记录，请联系人工支持并提供注册邮箱与账户 ID。',
+      deletionTitle: '账户注销',
+      deletionDesc: '如需永久注销账户，请在确认余额与待结算账单结清后，联系人工支持并提供注册邮箱与账户 ID 核验办理。',
+      supportLinkLabel: '前往人工支持入口',
+      invoiceTitle: '订单票据与收据办理',
+      invoiceSummary: '当前未开放自助开票下载接口，已完成订单的票据或收据请通过人工支持申请办理。',
+      invoiceDesc: '联系支持时请附上订单编号（Order ID）、开票抬头及所需票据/税务信息。',
+      invoiceSupportLink: '通过人工支持申请票据'
+    },
+    paymentDisabled: {
+      title: '当前未开启在线支付',
+      description: '站点管理员暂未启用在线充值或订阅支付功能。您仍可使用兑换码充值、返回控制台或联系人工支持。',
+      redeemAction: '前往兑换码',
+      dashboardAction: '返回控制台',
+      supportAction: '人工支持'
+    },
+    totpSummary: {
+      enabled: '已开启',
+      configurable: '可配置',
+      disabled: '管理员未开放',
+      checking: '检测中'
+    },
+    docs: {
+      loginRequired: '需登录'
+    },
+    keyUsage: {
+      showKey: '显示 API Key',
+      hideKey: '隐藏 API Key'
+    },
+    mcpAuthorize: {
+      titleApprovedLocal: '授权请求已缓存',
+      titleApproved: '授权完成',
+      titleDenied: '已拒绝授权',
+      titleConsent: '授权应用访问',
+      subtitle: '核对应用、回调地址与所需权限后决定。',
+      invalidRequestTitle: '无效的授权请求',
+      appName: '应用名称',
+      clientId: '客户端 ID',
+      redirectUri: '回调地址',
+      resourceScope: '范围资源',
+      notProvided: '未提供',
+      statusApprovedLocal: '等待授权服务确认',
+      statusApproved: '授权记录已保存',
+      statusDenied: '此请求未获得任何权限',
+      scopeAdmin: '平台管理',
+      scopeUser: '个人账户',
+      permissionWrite: '允许修改',
+      permissionRead: '只读',
+      viewGrants: '查看授权记录 →',
+      stepupTitle: '平台管理权限确认',
+      stepupNotice: '允许修改平台管理数据需要二次确认，请输入身份验证器中的 6 位验证码。',
+      totpLabel: '6 位验证码',
+      submitting: '正在提交…',
+      verifyAndAuthorize: '验证并授权',
+      cancelVerification: '取消验证',
+      scopeLabel: '访问范围',
+      scopeOptionUser: '个人账户',
+      scopeOptionAdmin: '平台管理（需两步验证）',
+      permissionLabel: '权限',
+      permissionHintWrite: '允许应用进行所选范围内的修改操作。',
+      permissionHintRead: '应用仅可读取所选范围的数据。',
+      adminScopeWarning: '平台管理范围可能影响所有用户，允许修改时需要额外两步确认。',
+      authorizing: '正在授权…',
+      confirmAuthorize: '确认授权',
+      denyAuthorize: '拒绝授权',
+      backToMcpSettings: '返回 MCP 授权管理',
+      errGeneric: '操作失败，请稍后重试。',
+      errMissingParams: '缺少必要参数：client_id、redirect_uri 和 resource 均为必填。请从客户端重新发起请求。',
+      errInvalidRedirect: '回调地址无效。仅允许完整的 http:// 或 https:// 地址，且不能包含用户名或密码。',
+      errResourceMismatch: '范围资源不属于本站 MCP 服务。预期地址：{endpoint}',
+      errAdminRequired: '平台管理范围需要管理员身份。',
+      errInvalidTotp: '请输入 6 位数字验证码。',
+      errLoginRequired: '请先登录后再授权。',
+      errApproveUnconfirmed: '授权服务未确认授权结果。',
+      errLocalSaveFailed: '本地授权保存失败，请检查浏览器存储权限后重试。',
+      noticeSavedRemoteNoCache: '服务端已保存授权记录；本地缓存不可用，可前往授权管理刷新查看。',
+      noticeSavedLocalOnly: '授权服务暂不可用，请求已保存在本机。请在服务恢复后重新确认授权。',
+      errDenyUnconfirmed: '授权服务未确认拒绝结果。',
+      noticeDenySyncFailed: '已取消本次授权，拒绝记录暂时无法同步。',
+      noticeDenyListSyncFailed: '已拒绝本次请求，授权列表暂时无法同步。',
+      noticeDenyLocalSaveFailed: '已拒绝本次请求，本地记录暂时无法保存。'
+    },
+    compatibilityChangelog: {
+      eyebrow: '版本变更记录',
+      title: '协议兼容与迁移更新日志',
+      v210: {
+          version: 'v2.1.0',
+          date: '2026-11-20',
+          summary: '上线公开模型广场、精确十进制场景对比，以及 /v1/images/generations 与 /v1/images/edits 图像端点。',
+          migration: '公开入口请使用 /model-plaza 与 /v1/images/generations；/models 已统一跳转至 /model-plaza。'
+      },
+      v200: {
+          version: 'v2.0.0',
+          date: '2026-10-15',
+          summary: 'v2 连接向导强制校验 /models 探针证据（缺失返回 409 EVIDENCE_UNAVAILABLE）；管理端当前仍通过旧版 v1 宿主消息协议兼容加载 .s2plugin。',
+          migration: '请在兼容窗口期内将扩展迁移至 .ohplugin v2；无探针上游可保存为草稿或通过受控白名单接入。'
+      }
+    },
+    legal: {
+      retry: '重试',
+      settingsLoadFailedHint: '无法加载站点条款与注册配置，请重试后再继续操作。',
+      templateNoticeTitle: '当前展示默认合规模板',
+      templateNoticeBody: '站点运营方尚未发布该条目的定制正文。有关运营主体信息、日志保存期限、部署地区及权利行使渠道，请联系站点支持。',
+      contactOperator: '联系站点支持',
+      documentsNavAria: '法律与政策文档',
+      backToHome: '返回首页',
+      viewTermsButton: '查看服务条款',
+      viewPrivacyButton: '查看隐私政策',
+      openFullDocument: '新窗口打开完整文档',
+      agreementRequiredRefresh: '站点法律条款已更新，请重新阅读并同意最新版本后再继续。',
+      slotTitles: {
+        terms: 'OmniHive 服务条款',
+        privacy: 'OmniHive 隐私政策',
+        usagePolicy: 'OmniHive 可接受使用政策',
+        refundPolicy: 'OmniHive 退款与账单政策',
+        supportedRegions: '支持的国家和地区',
+        serviceSpecificTerms: '服务特定条款'
+      },
+      promptSummary: {
+        terms: '## 服务与账户\nOmniHive 提供模型接口访问及账户、用量管理。请保护密码与 API 密钥，遵守适用法律及所选提供方的使用要求。\n\n## 费用与支持\n使用付费功能前，请核对站点展示的价格、额度与有效期。服务、账单及账户问题请联系站点管理员。\n\n完整条款还包括第三方服务、可用性及更新说明，请通过下方链接阅读。',
+        privacy: '## 信息与用途\n账户信息、请求及用量记录用于验证身份、提供服务、计费和保障安全。模型请求可能由所选上游提供方处理，请避免提交无关的个人信息或敏感凭证。\n\n## 存储与联系\n浏览器存储用于登录状态、偏好及注册流程。具体保存期限、部署地区及查询、更正和删除请求请联系站点运营方。\n\n完整政策请通过下方链接阅读。'
+      },
+      templates: {
+        terms: `## 服务范围
+OmniHive 提供账户管理、模型接口访问、用量查询及相关网关功能。具体可用功能、模型与额度以当前站点展示和账户权限为准。
+
+## 账户与凭证
+请提供准确的注册信息，妥善保管密码与 API 密钥，并对账户下的操作负责。发现凭证泄露或未经授权的使用时，请及时更新凭证并联系站点管理员。
+
+## 使用要求
+请遵守适用法律及所选模型提供方的使用要求。不得利用服务实施未经授权的访问、滥用接口或侵害他人权益。请仅提交您有权处理的内容，并核验模型输出后再使用。
+
+## 费用与额度
+使用付费功能前，请核对站点展示的价格、计费规则、额度与有效期。订单、退款及账单疑问请通过站点提供的支持渠道联系管理员处理。
+
+## 第三方服务与可用性
+模型请求可能交由您所选的上游服务处理，其可用性和输出受该服务影响。维护、容量限制或上游故障可能导致请求失败；请根据实际返回结果决定是否重试。
+
+## 条款更新与联系
+请在使用前阅读站点公布的条款及更新说明。对服务范围、账户处理或条款有疑问时，请联系当前站点的运营方。`,
+        privacy: `## 涉及的信息
+注册、登录及使用 OmniHive 时，站点会处理您提供的账户信息（如邮箱与用户名）、验证记录、API 请求、用量记录以及订单账单信息（以实际启用功能为准）。
+
+## 处理目的
+上述信息用于身份验证、模型请求转发、用量计量、计费结算、故障排查及服务安全保障。请避免提交与任务无关的个人敏感信息或凭证。
+
+## 服务提供方与上游处理
+模型请求可能转发至您所选的上游模型服务方；启用第三方登录、人机验证或支付功能时，对应服务方也会处理其业务所需的信息。
+
+## 浏览器存储
+本地与会话存储用于维护登录态、界面偏好、条款同意状态及注册流程状态。清理浏览器存储后可能需要重新登录。
+
+## 保存期限、部署地区与用户权利
+具体日志范围、保存期限、部署地区及访问控制以运营方配置为准。您可通过站点支持渠道提出数据查询、更正、导出或账户注销请求。
+
+## 联系与更新
+如对隐私保护或账户安全有疑问，请联系站点运营方并提供处理问题所需的必要信息。`,
+        usagePolicy: `## 禁止行为
+不得将本网关用于违法用途、未经授权的安全扫描、撞库、恶意刷量或规避速率与额度控制。
+
+## 内容合规责任
+请确保提交的提示词与数据载荷符合适用法律法规及上游模型提供方的使用规范。
+
+## 违规处置
+如发现违规使用，运营方有权依据站点规则采取限流、吊销密钥或停用账户等措施。`,
+        refundPolicy: `## 余额、套餐与账单争议
+已产生的调用费用依据站点公开价格与额度规则结算；未消费余额或异常扣费的处理方式以运营方政策为准。
+
+## 提交账单或退款申请
+联系站点支持时，请提供订单号、支付渠道、发生时间及关联请求 ID，以便人工核对。`,
+        supportedRegions: `## 服务覆盖说明
+支持的国家和地区及可用支付方式受站点部署环境与上游模型提供方规则约束。
+
+## 合规责任
+用户应自行确认其访问与调用行为符合所在地区法律法规及相关服务条款。`,
+        serviceSpecificTerms: `## 特定服务规则
+特定模型、实验性接口、异步批量任务或插件能力可能适用额外的速率限制、配额或计费说明，具体以价格页及兼容性页面公示为准。`
+      }
+    }
+  }
+}

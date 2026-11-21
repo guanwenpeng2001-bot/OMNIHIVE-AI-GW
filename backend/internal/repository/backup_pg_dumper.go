@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/shirou/gopsutil/v4/disk"
 )
 
@@ -50,7 +50,7 @@ func (d *PgDumper) Dump(ctx context.Context) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("acquire backup migration lock: %w", err)
 	}
 	releaseLock := func() error {
-		return releaseBackupMigrationLock(lockConn)
+		return releaseBackupMigrationLock(ctx, lockConn)
 	}
 
 	args := []string{
@@ -69,12 +69,7 @@ func (d *PgDumper) Dump(ctx context.Context) (io.ReadCloser, error) {
 		commandContext = exec.CommandContext
 	}
 	cmd := commandContext(ctx, "pg_dump", args...)
-	if d.cfg.Password != "" {
-		cmd.Env = append(cmd.Environ(), "PGPASSWORD="+d.cfg.Password)
-	}
-	if d.cfg.SSLMode != "" {
-		cmd.Env = append(cmd.Environ(), "PGSSLMODE="+d.cfg.SSLMode)
-	}
+	d.setCommandEnv(cmd)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -89,8 +84,18 @@ func (d *PgDumper) Dump(ctx context.Context) (io.ReadCloser, error) {
 	return &cmdReadCloser{ReadCloser: stdout, cmd: cmd, release: releaseLock}, nil
 }
 
-func releaseBackupMigrationLock(conn *sql.Conn) error {
-	unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func (d *PgDumper) setCommandEnv(cmd *exec.Cmd) {
+	cmd.Env = append(cmd.Environ(), "PGTZ=UTC", "PGDATESTYLE=ISO, YMD")
+	if d.cfg.Password != "" {
+		cmd.Env = append(cmd.Environ(), "PGPASSWORD="+d.cfg.Password)
+	}
+	if d.cfg.SSLMode != "" {
+		cmd.Env = append(cmd.Environ(), "PGSSLMODE="+d.cfg.SSLMode)
+	}
+}
+
+func releaseBackupMigrationLock(ctx context.Context, conn *sql.Conn) error {
+	unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	if err := pgAdvisoryUnlock(unlockCtx, conn); err != nil {
 		// A failed unlock must not return a possibly lock-owning session to the pool.
@@ -116,7 +121,7 @@ func (d *PgDumper) Restore(ctx context.Context, data io.Reader) error {
 	// A gzip/S3 reader can fail after yielding valid SQL. Piping it directly to
 	// psql turns that failure into EOF, which may commit an incomplete restore.
 	// Stage the complete SQL privately (CreateTemp uses 0600) before execution.
-	script, err := os.CreateTemp("", "sub2api-restore-*.sql")
+	script, err := os.CreateTemp("", "omnihive-restore-*.sql")
 	if err != nil {
 		return fmt.Errorf("create restore script: %w", err)
 	}
@@ -163,12 +168,7 @@ func (d *PgDumper) Restore(ctx context.Context, data io.Reader) error {
 		commandContext = exec.CommandContext
 	}
 	cmd := commandContext(ctx, "psql", args...)
-	if d.cfg.Password != "" {
-		cmd.Env = append(cmd.Environ(), "PGPASSWORD="+d.cfg.Password)
-	}
-	if d.cfg.SSLMode != "" {
-		cmd.Env = append(cmd.Environ(), "PGSSLMODE="+d.cfg.SSLMode)
-	}
+	d.setCommandEnv(cmd)
 
 	cmd.Stdin = script
 

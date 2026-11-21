@@ -19,7 +19,7 @@ ARG GOSUMDB=sum.golang.google.cn
 FROM ${NODE_IMAGE} AS frontend-builder
 
 WORKDIR /app/frontend
-ENV NODE_OPTIONS=--max-old-space-size=1536
+ENV NODE_OPTIONS=--max-old-space-size=4096
 
 # Install pnpm. Keep this pinned to the lockfile-compatible major version so
 # Docker builds remain reproducible when pnpm changes config validation rules.
@@ -39,6 +39,7 @@ RUN pnpm install --frozen-lockfile
 # Copy only that subtree to keep the build dependency minimal.
 COPY frontend/ ./
 COPY docs/legal/ /app/docs/legal/
+COPY backend/internal/domain/data/compatible_providers/ /app/backend/internal/domain/data/compatible_providers/
 RUN pnpm run build
 
 # -----------------------------------------------------------------------------
@@ -79,8 +80,12 @@ RUN VERSION_VALUE="${VERSION}" && \
     CGO_ENABLED=0 GOOS=linux go build \
     -tags embed \
     -ldflags="-s -w -X main.Version=${VERSION_VALUE} -X main.Commit=${COMMIT} -X main.Date=${DATE_VALUE} -X main.BuildType=release" \
-    -o /app/sub2api \
-    ./cmd/server
+    -o /app/omnihive \
+    ./cmd/server && \
+    CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w" -trimpath -o /app/omnihivectl ./cmd/omnihivectl/refactor/standalone && \
+    CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w" -trimpath -o /app/omnihive-retire ./cmd/omnihive-retire
 
 # -----------------------------------------------------------------------------
 # Stage 3: PostgreSQL Client (version-matched with docker-compose)
@@ -119,20 +124,23 @@ COPY --from=pg-client /usr/local/lib/libpq.so.5* /usr/local/lib/
 RUN pg_dump --version && psql --version
 
 # Create non-root user
-RUN addgroup -g 1000 sub2api && \
-    adduser -u 1000 -G sub2api -s /bin/sh -D sub2api
+RUN addgroup -g 1000 omnihive && \
+    adduser -u 1000 -G omnihive -s /bin/sh -D omnihive
 
 # Set working directory
 WORKDIR /app
 
 # Copy binary/resources with ownership to avoid extra full-layer chown copy
-COPY --from=backend-builder --chown=sub2api:sub2api /app/sub2api /app/sub2api
-COPY --from=backend-builder --chown=sub2api:sub2api /app/backend/resources /app/resources
+COPY --from=backend-builder --chown=omnihive:omnihive /app/omnihive /app/omnihive
+COPY --from=backend-builder --chown=omnihive:omnihive /app/omnihivectl /app/omnihivectl
+COPY --from=backend-builder --chown=omnihive:omnihive /app/omnihive-retire /app/omnihive-retire
+COPY --from=backend-builder --chown=omnihive:omnihive /app/backend/resources /app/resources
 
 # Create data directory
-RUN mkdir -p /app/data && chown sub2api:sub2api /app/data
+RUN mkdir -p /app/data && chown omnihive:omnihive /app/data
 
-# Copy entrypoint script (fixes volume permissions then drops to sub2api)
+# Copy entrypoint script (fixes volume permissions then drops to omnihive)
+COPY LICENSE NOTICE /app/
 COPY deploy/docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 
@@ -143,6 +151,6 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD wget -q -T 5 -O /dev/null http://localhost:${SERVER_PORT:-8080}/health || exit 1
 
-# Run the application (entrypoint fixes /app/data ownership then execs as sub2api)
+# Run the application (entrypoint fixes /app/data ownership then execs as omnihive)
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
-CMD ["/app/sub2api"]
+CMD ["/app/omnihive"]

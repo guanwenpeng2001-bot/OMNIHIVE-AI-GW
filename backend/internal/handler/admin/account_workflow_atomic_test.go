@@ -13,17 +13,20 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/enttest"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/account"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
 type atomicWorkflowAdmin struct {
 	*stubAdminService
-	client  *dbent.Client
-	failure error
+	accounts service.AdminAccountRepository
+	failure  error
 }
 
 func (admin *atomicWorkflowAdmin) CreateAccount(ctx context.Context, input *service.CreateAccountInput) (*service.Account, error) {
@@ -56,7 +59,7 @@ func (admin *atomicWorkflowAdmin) CreateProxy(ctx context.Context, input *servic
 func TestAccountWorkflowImportFailureRollsBackAccountsAndProxies(t *testing.T) {
 	pending, client := credentialDraftTestClient(t)
 	failure := errors.New("invalid second account")
-	admin := &atomicWorkflowAdmin{stubAdminService: newStubAdminService(), client: client, failure: failure}
+	admin := &atomicWorkflowAdmin{stubAdminService: newStubAdminService(), failure: failure}
 	handler := &AccountHandler{adminService: admin}
 	handler.SetCredentialDraftService(pending)
 	payload := DataImportRequest{Data: DataPayload{
@@ -84,11 +87,7 @@ func TestAccountWorkflowImportFailureRollsBackAccountsAndProxies(t *testing.T) {
 }
 
 func (admin *atomicWorkflowAdmin) GetAccount(ctx context.Context, accountID int64) (*service.Account, error) {
-	account, err := admin.client.Account.Get(ctx, accountID)
-	if err != nil {
-		return nil, err
-	}
-	return &service.Account{ID: account.ID, Name: account.Name, Platform: account.Platform, Type: account.Type, Credentials: account.Credentials, Extra: account.Extra, ProxyID: account.ProxyID, ParentAccountID: account.ParentAccountID, QuotaDimension: string(account.QuotaDimension)}, nil
+	return admin.accounts.GetByID(ctx, accountID)
 }
 
 func (admin *atomicWorkflowAdmin) UpdateAccount(ctx context.Context, accountID int64, input *service.UpdateAccountInput) (*service.Account, error) {
@@ -96,11 +95,15 @@ func (admin *atomicWorkflowAdmin) UpdateAccount(ctx context.Context, accountID i
 	if transaction == nil {
 		return nil, errors.New("update escaped confirmation transaction")
 	}
-	account, err := transaction.Account.UpdateOneID(accountID).SetCredentials(input.Credentials).Save(ctx)
+	account, err := admin.accounts.GetByID(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
-	return &service.Account{ID: account.ID, Name: account.Name, Platform: account.Platform, Type: account.Type, Credentials: account.Credentials}, nil
+	account.Credentials = service.MergeCredentials(account.Credentials, input.Credentials)
+	if err := admin.accounts.Update(ctx, account); err != nil {
+		return nil, err
+	}
+	return admin.accounts.GetByID(ctx, accountID)
 }
 
 func TestCredentialDraftExistingAccountConfirmationIsBoundAndDoesNotCreate(t *testing.T) {
@@ -112,32 +115,45 @@ func TestCredentialDraftExistingAccountConfirmationIsBoundAndDoesNotCreate(t *te
 	}
 	database, err := sql.Open("postgres", dsn)
 	require.NoError(t, err)
-	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(entsql.OpenDB(dialect.Postgres, database))))
-	t.Cleanup(func() { _ = client.Close() })
-	pending := service.NewAuthPendingIdentityService(client)
+	t.Cleanup(func() { _ = database.Close() })
 	ctx := context.Background()
-	existing, err := client.Account.Create().SetName("existing").SetPlatform(service.PlatformOpenAI).SetType(service.AccountTypeOAuth).SetCredentials(map[string]any{"access_token": "old"}).Save(ctx)
+	require.NoError(t, repository.ApplyMigrations(ctx, database))
+	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, database)))
+	pending := service.NewAuthPendingIdentityService(client)
+	fixture := "credential-draft-" + uuid.NewString()
+	t.Cleanup(func() {
+		_, err := database.ExecContext(ctx, "DELETE FROM pending_auth_sessions WHERE browser_session_key=$1", fixture)
+		require.NoError(t, err)
+		_, err = database.ExecContext(ctx, "DELETE FROM credential_secrets WHERE account_id IN (SELECT id FROM accounts WHERE name IN ($1,$2))", fixture, fixture+"-changed")
+		require.NoError(t, err)
+		_, err = database.ExecContext(ctx, "DELETE FROM accounts WHERE name IN ($1,$2)", fixture, fixture+"-changed")
+		require.NoError(t, err)
+	})
+	accounts := repository.ProvideAdminAccountRepositoryWithSecrets(client, database, nil, testutil.CredentialEncryptor(t), nil)
+	existing := &service.Account{Name: fixture, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Status: service.StatusActive, Credentials: map[string]any{"access_token": "old"}}
+	require.NoError(t, accounts.Create(ctx, existing))
+	admin := &atomicWorkflowAdmin{stubAdminService: newStubAdminService(), accounts: accounts}
+	draft, err := pending.IssueAccountCredentialDraft(ctx, fixture, service.PlatformOpenAI, service.AccountTypeOAuth, map[string]any{"access_token": "new"})
 	require.NoError(t, err)
-	admin := &atomicWorkflowAdmin{stubAdminService: newStubAdminService(), client: client}
-	draft, err := pending.IssueAccountCredentialDraft(ctx, "browser", service.PlatformOpenAI, service.AccountTypeOAuth, map[string]any{"access_token": "new"})
-	require.NoError(t, err)
-	request := CreateAccountRequest{ExistingAccountID: existing.ID, Name: "existing", Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, CredentialDraft: draft.Reference, CredentialDraftRevision: draft.Revision, Credentials: map[string]any{"model_mapping": map[string]any{"public": "native"}}}
+	request := CreateAccountRequest{ExistingAccountID: existing.ID, Name: fixture, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, CredentialDraft: draft.Reference, CredentialDraftRevision: draft.Revision, Credentials: map[string]any{"model_mapping": map[string]any{"public": "native"}}}
 	digest, err := credentialDraftSubmission(request)
 	require.NoError(t, err)
-	review, err := pending.ReviewAccountCredentialDraft(ctx, draft.Reference, "browser", draft.Revision, digest)
+	review, err := pending.ReviewAccountCredentialDraft(ctx, draft.Reference, fixture, draft.Revision, digest)
 	require.NoError(t, err)
 	request.CredentialDraftRevision = review.Revision
 	for range 2 {
-		account, err := confirmCredentialDraftWithBinding(ctx, pending, admin, "browser", request, nil, false, false, "admin", false)
+		account, err := confirmCredentialDraftWithBinding(ctx, pending, admin, fixture, request, nil, false, false, "admin", false)
 		require.NoError(t, err)
 		require.Equal(t, existing.ID, account.ID)
 	}
-	require.Equal(t, 1, client.Account.Query().CountX(ctx))
-	require.Equal(t, "new", client.Account.GetX(ctx, existing.ID).Credentials["access_token"])
-	request.Name = "changed-payload"
-	_, err = confirmCredentialDraftWithBinding(ctx, pending, admin, "browser", request, nil, false, false, "admin", false)
+	require.Equal(t, 1, client.Account.Query().Where(account.NameEQ(fixture)).CountX(ctx))
+	updated, err := accounts.GetByID(ctx, existing.ID)
+	require.NoError(t, err)
+	require.Equal(t, "new", updated.GetCredential("access_token"))
+	request.Name = fixture + "-changed"
+	_, err = confirmCredentialDraftWithBinding(ctx, pending, admin, fixture, request, nil, false, false, "admin", false)
 	require.ErrorIs(t, err, service.ErrAccountCredentialDraftConflict)
-	require.Equal(t, 1, client.Account.Query().CountX(ctx))
+	require.Equal(t, 1, client.Account.Query().Where(account.NameIn(fixture, request.Name)).CountX(ctx))
 }
 
 func TestAccountWorkflowBatchFailureLeavesNoAccounts(t *testing.T) {
@@ -150,7 +166,7 @@ func TestAccountWorkflowBatchFailureLeavesNoAccounts(t *testing.T) {
 				failure = &service.MixedChannelError{GroupID: 7, GroupName: "mixed", CurrentPlatform: service.PlatformAnthropic, OtherPlatform: service.PlatformAntigravity}
 				status = http.StatusConflict
 			}
-			admin := &atomicWorkflowAdmin{stubAdminService: newStubAdminService(), client: client, failure: failure}
+			admin := &atomicWorkflowAdmin{stubAdminService: newStubAdminService(), failure: failure}
 			handler := &AccountHandler{adminService: admin}
 			handler.SetCredentialDraftService(pending)
 			router := gin.New()

@@ -1,5 +1,6 @@
 <template>
   <AppLayout>
+    <BillingNav />
     <div class="w-full space-y-6">
       <!--  Hive Aura 账户余额与并发水位概览卡 -->
       <div class="card oh-redeem-hero relative overflow-hidden p-6">
@@ -264,12 +265,12 @@
             <div
               v-for="item in history"
               :key="item.id"
-              class="flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4 transition-colors hover:bg-[var(--surface-2)]"
+              class="flex items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4 transition-colors hover:bg-[var(--surface-2)]"
             >
-              <div class="flex items-center gap-4">
+              <div class="flex min-w-0 flex-1 items-center gap-3">
                 <div
                   :class="[
-                    'flex h-10 w-10 items-center justify-center rounded-xl',
+                    'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
                     isBalanceType(item.type)
                       ? item.value >= 0
                         ? 'bg-emerald-100 dark:bg-emerald-900/30'
@@ -311,16 +312,16 @@
                     "
                   />
                 </div>
-                <div>
-                  <p class="text-sm font-medium text-[var(--foreground)]">
+                <div class="min-w-0">
+                  <p class="truncate text-sm font-medium text-[var(--foreground)]">
                     {{ getHistoryItemTitle(item) }}
                   </p>
-                  <p class="font-mono text-xs tabular-nums text-[var(--muted-foreground)]">
+                  <p class="truncate font-mono text-xs tabular-nums text-[var(--muted-foreground)]">
                     {{ formatDateTime(item.used_at) }}
                   </p>
                 </div>
               </div>
-              <div class="text-right">
+              <div class="shrink-0 text-right">
                 <p
                   :class="[
                     'stat-num font-mono text-sm font-semibold tabular-nums',
@@ -409,6 +410,7 @@ import { useAppStore } from '@/stores/app'
 import { useSubscriptionStore } from '@/stores/subscriptions'
 import { redeemAPI, authAPI, type RedeemHistoryItem } from '@/api'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import BillingNav from '@/features/billing/components/BillingNav.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { formatDateTime } from '@/utils/format'
 

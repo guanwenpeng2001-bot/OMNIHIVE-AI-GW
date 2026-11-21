@@ -8,9 +8,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,11 +47,11 @@ func TestCopilotNousReferencedBulkBoundaryPostgres(t *testing.T) {
 				require.Equal(t, oldJWT, loaded.GetCredential("api_key"))
 			}
 			count, err = fixture.accounts.BulkUpdate(fixture.ctx, []int64{inline.ID}, service.AccountBulkUpdate{Credentials: patch})
-			require.NoError(t, err)
-			require.EqualValues(t, 1, count)
+			require.ErrorContains(t, err, "single-account")
+			require.Zero(t, count)
 			loaded, err := fixture.accounts.GetByID(fixture.ctx, inline.ID)
 			require.NoError(t, err)
-			require.Equal(t, replacement, loaded.GetCredential("api_key"))
+			require.Equal(t, oldJWT, loaded.GetCredential("api_key"))
 		})
 	}
 	account := create(true)
@@ -117,6 +117,7 @@ func TestCopilotNousReferencedBulkBoundaryPostgres(t *testing.T) {
 			cfg := &config.Config{}
 			cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 			cfg.Security.URLAllowlist.AllowPrivateHosts = true
+			cfg.Security.URLAllowlist.UpstreamHosts = []string{"127.0.0.1"}
 			probe := service.NewAccountTestService(fixture.accounts, nil, nil, nil, nil, NewHTTPUpstream(cfg), cfg, nil)
 			result := probe.ProbeAccount(fixture.ctx, service.AccountProbeInput{AccountID: account.ID, ModelID: "fixture-model"}, func(service.TestEvent) {})
 			require.True(t, result.Success, result.Error)

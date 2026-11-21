@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/xai"
 )
 
 const accountBindingMemoCapacity = 256

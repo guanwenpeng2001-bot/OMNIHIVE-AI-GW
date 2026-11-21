@@ -13,11 +13,11 @@ import (
 
 	"entgo.io/ent/dialect"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
-	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
-	"github.com/Wei-Shaw/sub2api/internal/payment"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/paymentauditlog"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/paymentorder"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 )
 
 // ErrOrderNotFound is returned by HandlePaymentNotification when the webhook
@@ -46,14 +46,14 @@ func (s *PaymentService) HandlePaymentNotification(ctx context.Context, n *payme
 		// Fallback only for true legacy "sub2_N" DB-ID payloads when the
 		// current out_trade_no lookup genuinely did not find an order.
 		if oid, ok := parseLegacyPaymentOrderID(n.OrderID, err); ok {
-			return s.confirmPayment(ctx, oid, n.TradeNo, n.Amount, pk, n.Metadata)
+			return s.confirmPayment(ctx, oid, n.TradeNo, n.Amount, pk, n.InstanceID, n.Metadata)
 		}
 		if dbent.IsNotFound(err) {
 			return fmt.Errorf("%w: out_trade_no=%s", ErrOrderNotFound, n.OrderID)
 		}
 		return fmt.Errorf("lookup order failed for out_trade_no %s: %w", n.OrderID, err)
 	}
-	return s.confirmPayment(ctx, order.ID, n.TradeNo, n.Amount, pk, n.Metadata)
+	return s.confirmPayment(ctx, order.ID, n.TradeNo, n.Amount, pk, n.InstanceID, n.Metadata)
 }
 
 func parseLegacyPaymentOrderID(orderID string, lookupErr error) (int64, bool) {
@@ -75,7 +75,7 @@ func parseLegacyPaymentOrderID(orderID string, lookupErr error) (int64, bool) {
 	return oid, true
 }
 
-func (s *PaymentService) confirmPayment(ctx context.Context, oid int64, tradeNo string, paid float64, pk string, metadata map[string]string) error {
+func (s *PaymentService) confirmPayment(ctx context.Context, oid int64, tradeNo string, paid float64, pk, verifiedInstance string, metadata map[string]string) error {
 	o, err := s.entClient.PaymentOrder.Get(ctx, oid)
 	if err != nil {
 		if dbent.IsNotFound(err) {
@@ -87,6 +87,9 @@ func (s *PaymentService) confirmPayment(ctx context.Context, oid int64, tradeNo 
 	inst, instErr := s.getOrderProviderInstance(ctx, o)
 	if instErr != nil {
 		return fmt.Errorf("lookup payment provider for order %d: %w", oid, instErr)
+	}
+	if verifiedInstance != "" && (inst == nil || strconv.FormatInt(inst.ID, 10) != verifiedInstance) {
+		return fmt.Errorf("verified payment instance does not match order %d", oid)
 	}
 	if inst != nil {
 		instanceProviderKey = inst.ProviderKey

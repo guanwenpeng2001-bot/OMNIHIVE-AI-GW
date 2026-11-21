@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,8 +71,7 @@ func TestAnthropicMessageBatchHTTPRoundTrip(t *testing.T) {
 		_, _ = io.WriteString(writer, `{"id":"msgbatch_fixture","type":"message_batch","processing_status":"in_progress","request_counts":{"processing":1}}`)
 	}))
 	defer server.Close()
-	configuration := &config.Config{}
-	configuration.Security.URLAllowlist.AllowInsecureHTTP = true
+	configuration := loopbackHTTPTestConfig()
 	service := &GatewayService{cfg: configuration}
 	account := newAnthropicAPIKeyAccountForTest()
 	account.Credentials["base_url"] = server.URL + "/v1/"

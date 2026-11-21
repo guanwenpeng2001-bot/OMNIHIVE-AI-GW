@@ -6,13 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strconv"
 	"testing"
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/Wei-Shaw/sub2api/internal/testutil/testresources"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testresources"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,21 +30,23 @@ func TestLegacyCatalogResiliencePostgres(test *testing.T) {
 	CREATE TABLE scheduler_outbox (LIKE public.scheduler_outbox INCLUDING ALL);
 	CREATE TABLE account_groups (LIKE public.account_groups INCLUDING ALL);
 	CREATE TABLE groups (LIKE public.groups INCLUDING ALL);
+	CREATE TABLE credential_secrets (LIKE public.credential_secrets INCLUDING ALL);
+	CREATE TABLE audit_logs (LIKE public.audit_logs INCLUDING ALL);
 	CREATE TABLE proxies (LIKE public.proxies INCLUDING ALL);`)
 	require.NoError(test, err)
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, database)))
 	repository := newAccountRepositoryWithSQL(client, database, nil)
+	repository.credentialEncryptor = persistentTestAES(test, true)
 	create := func(test *testing.T) *service.Account {
-		row, err := client.Account.Create().SetName("legacy-resilience").SetPlatform(service.PlatformAntigravity).SetType(service.AccountTypeOAuth).
-			SetStatus(service.StatusActive).SetSchedulable(true).
-			SetCredentials(map[string]any{"access_token": "original-token", "model_mapping": map[string]string{"alias": "target"}}).Save(ctx)
-		require.NoError(test, err)
+		row := createEncryptedCatalogFixture(test, ctx, client, database, repository, &service.Account{Name: "legacy-resilience", Platform: service.PlatformAntigravity, Type: service.AccountTypeOAuth, Status: service.StatusActive, Schedulable: true, Credentials: map[string]any{"access_token": "original-token", "model_mapping": map[string]string{"alias": "target"}}})
 		snapshot := service.AccountModelCatalogSnapshot{LegacyAccountID: row.ID, Revision: 1, Complete: true,
 			SourceKind: "legacy-mapping-upgrade", DiscoveryScope: "legacy-mapping-upgrade", ObservedAt: "2026-09-20T00:00:00Z",
 			DiscoveredModels: []string{}, EligibleModels: []service.AccountCatalogModel{{ID: "target", EvidenceKind: "legacy-mapping-upgrade", EvidenceObservedAt: "2026-09-20T00:00:00Z"}}}
 		encoded, err := json.Marshal(snapshot)
 		require.NoError(test, err)
 		_, err = database.ExecContext(ctx, `UPDATE accounts SET extra=jsonb_build_object('upstream_model_catalog',$2::jsonb) WHERE id=$1`, row.ID, string(encoded))
+		require.NoError(test, err)
+		_, err = database.ExecContext(ctx, `DELETE FROM audit_logs WHERE extra->>'account_id'=$1`, strconv.FormatInt(row.ID, 10))
 		require.NoError(test, err)
 		account, err := repository.GetByID(ctx, row.ID)
 		require.NoError(test, err)
@@ -66,12 +69,14 @@ func TestLegacyCatalogResiliencePostgres(test *testing.T) {
 				}
 			}
 			for _, token := range []string{"renewed-token", "renewed-again"} {
+				require.NoError(test, repository.UpdateAccountRuntimeSnapshot(ctx, account, map[string]any{"legacy_renewal_marker": token}, nil))
+				account = get(test, account.ID)
 				account.Credentials["access_token"] = token
 				write(account)
 				account = get(test, account.ID)
 				require.NotNil(test, account.EffectiveUpstreamModelCatalog())
 				require.NotEmpty(test, account.GetUpstreamModelCatalog().LegacyMappingFingerprint)
-				require.Zero(test, account.ModelCatalogState().LegacyPolicyRevision)
+				require.Zero(test, account.ModelCatalogState().LegacyPolicyRevision, "token rotation keeps legacy policy unchanged")
 				require.EqualValues(test, 2, account.GetUpstreamModelCatalog().Revision, "upgrade runs once")
 			}
 			require.EqualValues(test, 2, account.ModelCatalogState().IdentityRevision)
@@ -132,7 +137,8 @@ func TestLegacyCatalogResiliencePostgres(test *testing.T) {
 		account = get(test, account.ID)
 		require.Empty(test, account.GetUpstreamModelCatalog().EligibleModels)
 		require.Empty(test, account.GetUpstreamModelCatalog().LegacyMappingFingerprint)
-		require.Equal(test, service.ModelEvidenceConfiguredSelection, account.EffectiveUpstreamModelCatalog().EligibleModels[0].EvidenceKind, "stale discovery is withheld while the selected model survives")
+		require.Equal(test, "target", account.GetMappedModel("alias"), "renewal preserves the configured selection")
+		require.Nil(test, account.EffectiveUpstreamModelCatalog(), "a stale native publication cannot be replaced by configured evidence")
 	})
 	test.Run("protocol release and bulk mapping changes revoke", func(test *testing.T) {
 		for _, change := range []string{"protocol", "capability release", "bulk mapping", "bulk proxy"} {
