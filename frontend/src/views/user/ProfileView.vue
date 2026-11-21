@@ -198,7 +198,6 @@
 import HumanSupportCard from '@/components/intro/HumanSupportCard.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Icon } from '@/components/icons'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import ProfileBalanceNotifyCard from '@/components/user/profile/ProfileBalanceNotifyCard.vue'
 import ProfileBillingTimelineCard from '@/components/user/profile/ProfileBillingTimelineCard.vue'
