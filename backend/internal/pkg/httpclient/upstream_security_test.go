@@ -41,3 +41,22 @@ func TestUpstreamTransportPrivateDomainException(t *testing.T) {
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "not allowed")
 }
+
+func TestSharedClientRejectsRedirectToPrivateAddress(t *testing.T) {
+	var targetCalls int
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { targetCalls++ }))
+	defer target.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Redirect(writer, request, "http://private.invalid/", http.StatusFound)
+	}))
+	defer origin.Close()
+	client, err := buildClient(Options{AllowPrivateHosts: true, PrivateHosts: []string{"127.0.0.1"}})
+	require.NoError(t, err)
+	defer client.CloseIdleConnections()
+	response, err := client.Get(origin.URL)
+	if response != nil {
+		_ = response.Body.Close()
+	}
+	require.ErrorContains(t, err, "not allowed")
+	require.Zero(t, targetCalls)
+}
