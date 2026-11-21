@@ -2703,3 +2703,14 @@ func TestReleaseRejectsExampleJWT(t *testing.T) {
 		require.ErrorContains(t, err, "jwt.secret")
 	}
 }
+
+func TestOpenAIInstructionsCacheHoistConfig(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.True(t, cfg.Gateway.OpenAIInstructionsCacheHoist)
+	t.Setenv("GATEWAY_OPENAI_INSTRUCTIONS_CACHE_HOIST", "false")
+	cfg, err = Load()
+	require.NoError(t, err)
+	require.False(t, cfg.Gateway.OpenAIInstructionsCacheHoist)
+}
