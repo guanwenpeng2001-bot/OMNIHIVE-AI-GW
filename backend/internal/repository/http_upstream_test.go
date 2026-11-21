@@ -586,7 +586,9 @@ func (s *HTTPUpstreamSuite) newService() *httpUpstreamService {
 func (s *HTTPUpstreamSuite) TestDefaultResponseHeaderTimeout() {
 	svc := s.newService()
 	entry := mustGetOrCreateClient(s.T(), svc, "", 0, 0)
-	transport := entry.client.Transport.(*httpclient.PublicTransport).Base
+	public, ok := entry.client.Transport.(*httpclient.PublicTransport)
+	require.True(s.T(), ok, "expected PublicTransport")
+	transport := public.Base
 	require.Equal(s.T(), defaultResponseHeaderTimeout, transport.ResponseHeaderTimeout, "ResponseHeaderTimeout mismatch")
 }
 

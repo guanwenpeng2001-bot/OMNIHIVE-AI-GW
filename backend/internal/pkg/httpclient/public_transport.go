@@ -99,7 +99,7 @@ func (t *PublicTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	private := slices.Contains(t.privateHosts, strings.ToLower(host))
 	literal := net.ParseIP(host)
 	localName := strings.EqualFold(strings.TrimSuffix(host, "."), "localhost")
-	if urlvalidator.IsBlockedHost(host) && !(private && (literal.IsPrivate() || literal.IsLoopback() || localName)) {
+	if urlvalidator.IsBlockedHost(host) && (!private || (!literal.IsPrivate() && !literal.IsLoopback() && !localName)) {
 		return nil, fmt.Errorf("host is not allowed: %s", host)
 	}
 	ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
@@ -121,7 +121,7 @@ func (t *PublicTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("dns resolution returned no addresses for %s", host)
 	}
 	for _, ip := range ips {
-		if !urlvalidator.IsPublicIP(ip) && !(private && isPrivateUpstreamIP(ip)) {
+		if !urlvalidator.IsPublicIP(ip) && (!private || !isPrivateUpstreamIP(ip)) {
 			return nil, fmt.Errorf("resolved ip %s is not allowed", ip)
 		}
 	}

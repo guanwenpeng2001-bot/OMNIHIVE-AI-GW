@@ -79,7 +79,7 @@ func (s *Service) Maintenance(next http.Handler) http.Handler {
 			w.Header().Set("Cache-Control", "no-store")
 			w.Header().Set("Retry-After", "5")
 			w.WriteHeader(http.StatusServiceUnavailable)
-			io.WriteString(w, `{"code":503,"reason":"RESTORE_MAINTENANCE","message":"Production restore maintenance. Retry after recovery."}`)
+			_, _ = io.WriteString(w, `{"code":503,"reason":"RESTORE_MAINTENANCE","message":"Production restore maintenance. Retry after recovery."}`)
 			return
 		}
 		defer gate.leave()

@@ -76,8 +76,9 @@ type openAIWSTransportMetricsDialer interface {
 
 func newDefaultOpenAIWSClientDialer(cfg *config.Config) openAIWSClientDialer {
 	hosts := privateUpstreamHosts(cfg)
+	baseTransport, _ := http.DefaultTransport.(*http.Transport)
 	return &coderOpenAIWSClientDialer{
-		privateHosts: hosts, direct: &http.Client{Transport: httpclient.NewUpstreamTransport(http.DefaultTransport.(*http.Transport), hosts)},
+		privateHosts: hosts, direct: &http.Client{Transport: httpclient.NewUpstreamTransport(baseTransport, hosts)},
 		proxyClients: make(map[string]*openAIWSProxyClientEntry),
 	}
 }

@@ -536,7 +536,8 @@ func batchImageDefaultHTTPClient() *http.Client {
 		ResponseHeaderTimeout: 60 * time.Second,
 	})
 	if err != nil {
-		transport := http.DefaultTransport.(*http.Transport).Clone()
+		baseTransport, _ := http.DefaultTransport.(*http.Transport)
+		transport := baseTransport.Clone()
 		transport.ResponseHeaderTimeout = 60 * time.Second
 		return &http.Client{Transport: httpclient.NewPublicTransport(transport)}
 	}

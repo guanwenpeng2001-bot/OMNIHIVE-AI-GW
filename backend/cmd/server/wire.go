@@ -774,7 +774,7 @@ var runtimeServiceProviders = wire.NewSet(
 	wire.Bind(new(service.ChannelCacheInvalidator), new(*service.ChannelService)),
 	service.NewModelPricingResolver,
 	service.NewModelPlazaService,
-	service.NewContentModerationService,
+	service.ProvideContentModerationService,
 	service.NewAffiliateService,
 	service.ProvidePaymentConfigService,
 	service.ProvidePaymentService,

@@ -10,11 +10,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"log"
-	"net/http"
-	"sync"
-	"time"
-
 	"github.com/gin-gonic/gin"
 	"github.com/google/wire"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
@@ -58,6 +53,10 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/routes"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/redis/go-redis/v9"
+	"log"
+	"net/http"
+	"sync"
+	"time"
 )
 
 import (
@@ -1008,5 +1007,5 @@ var runtimeServiceProviders = wire.NewSet(service.NewStagedAccountImportService,
 	provideOpenAICodexVersionSyncService,
 	provideProxyExpiryService,
 	provideSubscriptionExpiryService, service.ProvideTimingWheelService, provideDashboardAggregationService,
-	provideUsageCleanupService, service.ProvideDeferredService, service.NewAntigravityQuotaFetcher, service.NewGrokQuotaFetcher, service.NewUserAttributeService, service.NewUsageCache, service.NewTotpService, service.NewErrorPassthroughService, service.NewTLSFingerprintProfileService, service.NewPluginManager, service.NewDigestSessionStore, service.ProvideIdempotencyCoordinator, service.ProvideSystemOperationLockService, provideIdempotencyCleanupService, service.ProvideScheduledTestService, provideScheduledTestRunnerService, service.NewGroupCapacityService, service.NewChannelService, wire.Bind(new(service.ChannelCacheInvalidator), new(*service.ChannelService)), service.NewModelPricingResolver, service.NewModelPlazaService, service.NewContentModerationService, service.NewAffiliateService, service.ProvidePaymentConfigService, service.ProvidePaymentService, providePaymentOrderExpiryService, service.ProvideBalanceNotifyService, service.ProvideChannelMonitorService, provideChannelMonitorRunner, service.NewChannelMonitorQuotaFetcher, service.ProvideChannelTelemetryService, provideChannelTelemetryAggregator, service.NewChannelMonitorRequestTemplateService, provideUserPlatformQuotaUsageFlusher,
+	provideUsageCleanupService, service.ProvideDeferredService, service.NewAntigravityQuotaFetcher, service.NewGrokQuotaFetcher, service.NewUserAttributeService, service.NewUsageCache, service.NewTotpService, service.NewErrorPassthroughService, service.NewTLSFingerprintProfileService, service.NewPluginManager, service.NewDigestSessionStore, service.ProvideIdempotencyCoordinator, service.ProvideSystemOperationLockService, provideIdempotencyCleanupService, service.ProvideScheduledTestService, provideScheduledTestRunnerService, service.NewGroupCapacityService, service.NewChannelService, wire.Bind(new(service.ChannelCacheInvalidator), new(*service.ChannelService)), service.NewModelPricingResolver, service.NewModelPlazaService, service.ProvideContentModerationService, service.NewAffiliateService, service.ProvidePaymentConfigService, service.ProvidePaymentService, providePaymentOrderExpiryService, service.ProvideBalanceNotifyService, service.ProvideChannelMonitorService, provideChannelMonitorRunner, service.NewChannelMonitorQuotaFetcher, service.ProvideChannelTelemetryService, provideChannelTelemetryAggregator, service.NewChannelMonitorRequestTemplateService, provideUserPlatformQuotaUsageFlusher,
 )

@@ -1315,20 +1315,6 @@ func mapCRSStatus(isActive bool, status string) string {
 	return "active"
 }
 
-func normalizeBaseURL(raw string, allowlist []string, allowPrivate bool) (string, error) {
-	// 当 allowlist 为空时，不强制要求白名单（只进行基本的 URL 和 SSRF 验证）
-	requireAllowlist := len(allowlist) > 0
-	normalized, err := urlvalidator.ValidateHTTPSURL(raw, urlvalidator.ValidationOptions{
-		AllowedHosts:     allowlist,
-		RequireAllowlist: requireAllowlist,
-		AllowPrivate:     allowPrivate,
-	})
-	if err != nil {
-		return "", fmt.Errorf("invalid base_url: %w", err)
-	}
-	return normalized, nil
-}
-
 // cleanBaseURL removes trailing suffix from base_url in credentials
 // Used for both Claude and OpenAI accounts to remove /v1
 func cleanBaseURL(credentials map[string]any, suffixToRemove string) {

@@ -28,7 +28,7 @@ func writeVerification(sql io.Reader, out io.Writer) error {
 			break
 		}
 		if table != "" && err == nil && bytes.Equal(line, []byte("\\.\n")) {
-			w.Write(line)
+			_, _ = w.Write(line)
 			projection := "SELECT ROW(" + columns + `)::text COLLATE "C" FROM `
 			actual, expected := projection+"ONLY "+table, projection+"pg_temp.omnihive_expected"
 			fmt.Fprintf(w, "INSERT INTO pg_temp.omnihive_verified SELECT '%s'::regclass, NOT EXISTS ((%s EXCEPT ALL %s) UNION ALL (%s EXCEPT ALL %s));\n", strings.ReplaceAll(table, "'", "''"), actual, expected, expected, actual)

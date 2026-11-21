@@ -43,7 +43,7 @@ func (d *PgDumper) RestoreChecked(ctx context.Context, source, checks string, lo
 		cancel()
 		input.Close()
 		if cmd.ProcessState == nil {
-			cmd.Wait()
+			_ = cmd.Wait()
 		}
 	}()
 	reader := bufio.NewReader(output)
