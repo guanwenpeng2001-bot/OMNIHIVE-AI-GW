@@ -24,6 +24,8 @@ services:
         soft: 100000
         hard: 100000
     ports:
+      # No reverse proxy is bundled. If this port is exposed beyond a trusted
+      # local network, the operator must provide TLS in front of the application.
       - "${BIND_HOST:-0.0.0.0}:${SERVER_PORT:-8080}:8080"
     volumes:
       - omnihive_data:/app/data

@@ -88,6 +88,15 @@ docker compose logs omnihive | grep "admin password"
 # http://localhost:8080
 ```
 
+Production, local and development Compose publish the application only on
+`127.0.0.1` by default. Access it locally at `http://localhost:8080`, or install
+the bundled Caddy configuration on the same host and use `https://your-domain`.
+Do not set `BIND_HOST=0.0.0.0` to bypass the proxy's TLS. The standalone template
+has no bundled reverse proxy and retains its direct binding; if that port is
+reachable by other hosts, you must provide your own TLS reverse proxy or load
+balancer. Existing `.env` files override Compose defaults, so review `BIND_HOST`
+during upgrades rather than assuming an updated template changes a live deployment.
+
 ### Method 2: Manual Deployment
 
 If you prefer manual control:
@@ -285,6 +294,7 @@ before draining so in-flight usage receipts can be persisted.
 | `POSTGRES_PASSWORD` | **Yes** | - | PostgreSQL password |
 | `JWT_SECRET` | **Recommended** | *(auto-generated)* | JWT secret (fixed for persistent sessions) |
 | `TOTP_ENCRYPTION_KEY` | **Recommended** | *(auto-generated)* | TOTP encryption key (fixed for persistent 2FA) |
+| `BIND_HOST` | No | `127.0.0.1` | Host address for the Compose port; keep loopback behind Caddy. Standalone defaults to `0.0.0.0` and needs operator-provided TLS if exposed. |
 | `SERVER_PORT` | No | `8080` | Published host port in Compose; application always listens on container port 8080 |
 | `ADMIN_EMAIL` | No | `admin@omnihive.local` | Admin email |
 | `ADMIN_PASSWORD` | No | *(auto-generated)* | Admin password |

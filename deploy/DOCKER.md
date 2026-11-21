@@ -78,6 +78,10 @@ The one-click `docker-deploy.sh` script downloads the local-directory configurat
 The application service reads `.env` via `env_file`; explicit `environment` entries
 control internal topology and interpolate the listed tunables. `SERVER_PORT` in the
 Compose `.env` is the published host port, while the container always listens on 8080.
+Production, local and development Compose default `BIND_HOST` to `127.0.0.1` so
+same-host Caddy terminates TLS. Standalone retains `0.0.0.0`, but direct exposure
+requires an operator-provided TLS reverse proxy or load balancer. An existing
+`.env` value takes precedence over a new template default and must be reviewed on upgrade.
 The bundled services always use internal PostgreSQL/Redis ports 5432/6379. Arbitrary
 application settings such as `LOG_LEVEL` now reach the container from `.env` as well.
 A CLI `--env-file` controls interpolation; if using an alternate application env file,
