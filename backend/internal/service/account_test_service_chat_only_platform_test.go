@@ -90,7 +90,7 @@ func runChatOnlyPlatformProbe(t *testing.T, platform, model string) ([]*http.Req
 			},
 		},
 		httpUpstream: chatOnlyProbeStubTransport{client: server.Client()},
-		cfg:          rawChatCompletionsTestConfig(),
+		cfg:          loopbackHTTPTestConfig(),
 	}
 	c, recorder := newTestContext()
 

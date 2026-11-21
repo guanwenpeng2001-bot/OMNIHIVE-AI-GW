@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
+
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/openai"
 	"github.com/stretchr/testify/require"
 )
@@ -31,6 +33,7 @@ func TestOpenAIOAuthService_ValidateCodexPersonalAccessToken(t *testing.T) {
 
 	originalURL := openAICodexPATWhoamiURL
 	openAICodexPATWhoamiURL = server.URL
+	useLoopbackClient(t, &codexPATHTTPClient)
 	defer func() { openAICodexPATWhoamiURL = originalURL }()
 
 	svc := NewOpenAIOAuthService(nil, nil)
@@ -120,4 +123,15 @@ func TestNormalizeOpenAIPersonalAccessTokenCredentialsRemovesOAuthFields(t *test
 	require.Equal(t, true, got["chatgpt_account_is_fedramp"])
 	require.Equal(t, "2026-12-31T00:00:00Z", got["subscription_expires_at"])
 	require.Equal(t, []any{"custom"}, got["openai_usage_channel_fields"])
+}
+
+func useLoopbackClient(t *testing.T, factory *func(httpclient.Options) (*http.Client, error)) {
+	t.Helper()
+	original := *factory
+	*factory = func(options httpclient.Options) (*http.Client, error) {
+		options.PrivateHosts = []string{"127.0.0.1"}
+		options.AllowPrivateHosts = true
+		return original(options)
+	}
+	t.Cleanup(func() { *factory = original })
 }

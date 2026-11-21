@@ -140,6 +140,7 @@ func TestCursorRelayForwardsMediaContentPartsUnchanged(t *testing.T) {
 	}))
 	defer server.Close()
 	gateway, account, _ := cursorTestGateway()
+	gateway.relayClient = server.Client()
 	account.Type = AccountTypeUpstream
 	account.Credentials = map[string]any{"api_key": "relay-key", "base_url": server.URL}
 	body := []byte(`{"model":"default","messages":[{"role":"user","content":[{"type":"text","text":"describe"},{"type":"image_url","image_url":{"url":"https://example.test/a.png"}}]}]}`)

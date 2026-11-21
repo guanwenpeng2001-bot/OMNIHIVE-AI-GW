@@ -233,7 +233,7 @@ func TestCursorMCPRelayPreservesTools(t *testing.T) {
 				_, _ = fmt.Fprint(w, `{"id":"chatcmpl-test","model":"default","choices":[{"index":0,"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"weather","arguments":"{}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":12,"completion_tokens":5}}`)
 			}))
 			defer server.Close()
-			gateway := NewCursorGatewayService(nil, nil)
+			gateway := cursorRelayTestGateway(server)
 			account := &Account{Type: AccountTypeUpstream, Platform: PlatformCursor, Credentials: map[string]any{"base_url": server.URL, "api_key": "synthetic", "api_protocol": APIProtocolChatCompletions}}
 			writer := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(writer)

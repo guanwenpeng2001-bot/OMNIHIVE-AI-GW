@@ -260,6 +260,7 @@ func TestResetCreditAgentIdentityUsesAssertionAndRecoversInvalidTaskOnce(t *test
 	defer srv.Close()
 	oldBase := openAIAgentIdentityAuthAPIBaseURL
 	openAIAgentIdentityAuthAPIBaseURL = srv.URL
+	useLoopbackClient(t, &agentIdentityHTTPClient)
 	t.Cleanup(func() { openAIAgentIdentityAuthAPIBaseURL = oldBase })
 
 	invalidator := &agentIdentityWSInvalidationRecorder{}
@@ -323,6 +324,7 @@ func TestResetCreditAgentIdentityReusesConcurrentlyRecoveredTask(t *testing.T) {
 	defer srv.Close()
 	oldBase := openAIAgentIdentityAuthAPIBaseURL
 	openAIAgentIdentityAuthAPIBaseURL = srv.URL
+	useLoopbackClient(t, &agentIdentityHTTPClient)
 	t.Cleanup(func() { openAIAgentIdentityAuthAPIBaseURL = oldBase })
 
 	svc := NewOpenAIQuotaService(repo, nil, nil, newQuotaRedirectingFactory(srv))
@@ -467,6 +469,7 @@ func TestQueryUsageAgentIdentityRecoversInvalidTaskOnce(t *testing.T) {
 	defer srv.Close()
 	oldBase := openAIAgentIdentityAuthAPIBaseURL
 	openAIAgentIdentityAuthAPIBaseURL = srv.URL
+	useLoopbackClient(t, &agentIdentityHTTPClient)
 	t.Cleanup(func() { openAIAgentIdentityAuthAPIBaseURL = oldBase })
 
 	invalidator := &agentIdentityWSInvalidationRecorder{}

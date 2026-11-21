@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+var batchImageProxyClient = httpclient.GetClient
+
 type batchImageAccountEgressKey struct{}
 
 func withBatchImageAccountEgress(ctx context.Context, job *BatchImageJob, account *Account) (context.Context, error) {
@@ -38,7 +40,7 @@ func batchImageDo(req *http.Request, original *http.Client) (*http.Response, err
 			return nil, err
 		}
 		if proxyURL != "" {
-			pooled, err := httpclient.GetClient(httpclient.Options{ProxyURL: proxyURL, ResponseHeaderTimeout: 60 * time.Second})
+			pooled, err := batchImageProxyClient(httpclient.Options{ProxyURL: proxyURL, ResponseHeaderTimeout: 60 * time.Second})
 			if err != nil {
 				return nil, err
 			}

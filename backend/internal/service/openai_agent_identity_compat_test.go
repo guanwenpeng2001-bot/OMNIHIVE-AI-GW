@@ -325,6 +325,7 @@ func TestOpenAIAgentIdentityTaskInvalidRetriesExactlyOnce(t *testing.T) {
 	defer registerServer.Close()
 	oldBase := openAIAgentIdentityAuthAPIBaseURL
 	openAIAgentIdentityAuthAPIBaseURL = registerServer.URL
+	useLoopbackClient(t, &agentIdentityHTTPClient)
 	t.Cleanup(func() { openAIAgentIdentityAuthAPIBaseURL = oldBase })
 
 	successBody := `{"id":"resp-agent-retry","object":"response","model":"gpt-5.4","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`
@@ -429,6 +430,7 @@ func TestOpenAIAgentIdentityCompatRoutesRecoverInvalidTaskOnce(t *testing.T) {
 			defer registerServer.Close()
 			oldBase := openAIAgentIdentityAuthAPIBaseURL
 			openAIAgentIdentityAuthAPIBaseURL = registerServer.URL
+			useLoopbackClient(t, &agentIdentityHTTPClient)
 			t.Cleanup(func() { openAIAgentIdentityAuthAPIBaseURL = oldBase })
 
 			upstream := &httpUpstreamRecorder{responses: []*http.Response{
@@ -470,6 +472,7 @@ func TestOpenAIAgentIdentityChatRecoveryKeepsAutoDerivedSessionIsolationStable(t
 	defer registerServer.Close()
 	oldBase := openAIAgentIdentityAuthAPIBaseURL
 	openAIAgentIdentityAuthAPIBaseURL = registerServer.URL
+	useLoopbackClient(t, &agentIdentityHTTPClient)
 	t.Cleanup(func() { openAIAgentIdentityAuthAPIBaseURL = oldBase })
 
 	invalidTask := func() *http.Response {

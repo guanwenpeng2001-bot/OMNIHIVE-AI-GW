@@ -793,6 +793,12 @@ func TestOpenAIWSConnPool_AcquireSkipsDirtyIdleConn(t *testing.T) {
 	requireConnClosed(t, first.conn)
 }
 
+func loopbackHTTPTestConfig() *config.Config {
+	cfg := wsLoopbackTestConfig()
+	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	return cfg
+}
+
 func wsLoopbackTestConfig() *config.Config {
 	return &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{AllowPrivateHosts: true, UpstreamHosts: []string{"127.0.0.1"}}}}
 }

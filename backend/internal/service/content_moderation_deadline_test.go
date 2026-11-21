@@ -25,7 +25,7 @@ func TestModerationDeadlineIncludesDirectRequestAndProxyResolution(t *testing.T)
 	}))
 	defer server.Close()
 	for _, proxy := range []bool{false, true} {
-		moderation := &ContentModerationService{}
+		moderation := &ContentModerationService{privateHosts: []string{"127.0.0.1"}}
 		cfg := &ContentModerationConfig{BaseURL: server.URL, Model: "moderation", TimeoutMS: 25}
 		if proxy {
 			proxyID := int64(1)

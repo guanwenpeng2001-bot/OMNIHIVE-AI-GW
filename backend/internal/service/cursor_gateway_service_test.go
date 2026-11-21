@@ -137,6 +137,7 @@ func TestCursorRelayChatFakeServer(t *testing.T) {
 	}))
 	defer server.Close()
 	gateway, account, exchanges := cursorTestGateway()
+	gateway.relayClient = server.Client()
 	account.Type = AccountTypeUpstream
 	account.Credentials = map[string]any{"base_url": server.URL, "api_key": "relay-key"}
 	writer := httptest.NewRecorder()
@@ -194,6 +195,7 @@ func TestCursorRelayStreamUsage(t *testing.T) {
 	}))
 	defer server.Close()
 	gateway, account, exchanges := cursorTestGateway()
+	gateway.relayClient = server.Client()
 	account.Type = AccountTypeUpstream
 	account.Credentials = map[string]any{"api_key": "relay-key", "base_url": server.URL}
 	writer := httptest.NewRecorder()

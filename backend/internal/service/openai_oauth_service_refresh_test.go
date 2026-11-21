@@ -80,6 +80,7 @@ func TestOpenAIOAuthService_RefreshAccountToken_PATIgnoresStaleRefreshToken(t *t
 
 	originalURL := openAICodexPATWhoamiURL
 	openAICodexPATWhoamiURL = server.URL
+	useLoopbackClient(t, &codexPATHTTPClient)
 	defer func() { openAICodexPATWhoamiURL = originalURL }()
 
 	svc := NewOpenAIOAuthService(nil, client)
@@ -159,6 +160,7 @@ func TestOpenAITokenRefresher_Refresh_PATRemovesStaleOAuthFields(t *testing.T) {
 
 	originalURL := openAICodexPATWhoamiURL
 	openAICodexPATWhoamiURL = server.URL
+	useLoopbackClient(t, &codexPATHTTPClient)
 	defer func() { openAICodexPATWhoamiURL = originalURL }()
 
 	svc := NewOpenAIOAuthService(nil, nil)
