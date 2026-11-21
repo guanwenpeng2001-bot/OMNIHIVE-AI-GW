@@ -83,7 +83,7 @@ func AnthropicToChatCompletionsRequest(req *AnthropicRequest) (*ChatCompletionsR
 
 	if req.MaxTokens > 0 {
 		v := req.MaxTokens
-		out.MaxCompletionTokens = &v
+		out.MaxTokens = &v
 	}
 
 	declared := make(map[string]bool, len(req.Tools))
