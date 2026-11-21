@@ -872,9 +872,9 @@ function formatSettlementState(state: string | null | undefined): string {
         data-testid="console-state-skeleton"
         class="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)_340px]"
       >
-        <Skeleton height="420px" />
-        <Skeleton height="420px" />
-        <Skeleton height="420px" />
+        <Skeleton variant="rect" height="420px" />
+        <Skeleton variant="rect" height="420px" />
+        <Skeleton variant="rect" height="420px" />
       </div>
 
       <!-- 3-Pane Desktop Workbench -->
