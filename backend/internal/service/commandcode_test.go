@@ -83,17 +83,25 @@ func TestCommandCodeGatewayAllIngresses(t *testing.T) {
 					upstream := &httpUpstreamRecorder{resp: response}
 					svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
 					c := adaptiveProtocolTestContext("/v1/"+ingress, body)
+					var result *OpenAIForwardResult
 					var err error
 					switch ingress {
 					case "chat":
-						_, err = svc.ForwardAsChatCompletions(context.Background(), c, a, body, "", "")
+						result, err = svc.ForwardAsChatCompletions(context.Background(), c, a, body, "", "")
 					case "messages":
-						_, err = svc.ForwardAsAnthropic(context.Background(), c, a, body, "", "")
+						result, err = svc.ForwardAsAnthropic(context.Background(), c, a, body, "", "")
 					case "responses":
 						SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
-						_, err = svc.Forward(context.Background(), c, a, body)
+						result, err = svc.Forward(context.Background(), c, a, body)
+					}
+					if native == "chat" && stream {
+						require.Equal(t, gjson.True, gjson.GetBytes(upstream.lastBody, "stream_options.include_usage").Type)
 					}
 					require.NoError(t, err)
+					if native == "chat" && stream {
+						require.Equal(t, 2, result.Usage.InputTokens)
+						require.Equal(t, 1, result.Usage.OutputTokens)
+					}
 					require.Equal(t, DefaultCommandCodeBaseURL+endpoint, upstream.lastReq.URL.String())
 					require.Equal(t, "cc-test", upstream.lastReq.Header.Get("x-api-key"))
 					require.Equal(t, target, gjson.GetBytes(upstream.lastBody, "model").String())
