@@ -58,28 +58,28 @@
         </div>
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div>
-            <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.s3.endpoint') }}</label>
-            <input v-model="s3Form.endpoint" class="input w-full font-mono tabular-nums text-xs" placeholder="https://<account_id>.r2.cloudflarestorage.com" />
+            <label for="backup-s3-endpoint" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.s3.endpoint') }}</label>
+            <input id="backup-s3-endpoint" v-model="s3Form.endpoint" class="input w-full font-mono tabular-nums text-xs" placeholder="https://<account_id>.r2.cloudflarestorage.com" />
           </div>
           <div>
-            <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.s3.region') }}</label>
-            <input v-model="s3Form.region" class="input w-full font-mono tabular-nums text-xs" placeholder="auto" />
+            <label for="backup-s3-region" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.s3.region') }}</label>
+            <input id="backup-s3-region" v-model="s3Form.region" class="input w-full font-mono tabular-nums text-xs" placeholder="auto" />
           </div>
           <div>
-            <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.s3.bucket') }}</label>
-            <input v-model="s3Form.bucket" class="input w-full font-mono tabular-nums text-xs" />
+            <label for="backup-s3-bucket" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.s3.bucket') }}</label>
+            <input id="backup-s3-bucket" v-model="s3Form.bucket" class="input w-full font-mono tabular-nums text-xs" />
           </div>
           <div>
-            <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.s3.prefix') }}</label>
-            <input v-model="s3Form.prefix" class="input w-full font-mono tabular-nums text-xs" placeholder="backups/" />
+            <label for="backup-s3-prefix" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.s3.prefix') }}</label>
+            <input id="backup-s3-prefix" v-model="s3Form.prefix" class="input w-full font-mono tabular-nums text-xs" placeholder="backups/" />
           </div>
           <div>
-            <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.s3.accessKeyId') }}</label>
-            <input v-model="s3Form.access_key_id" class="input w-full font-mono tabular-nums text-xs" />
+            <label for="backup-s3-access-key-id" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.s3.accessKeyId') }}</label>
+            <input id="backup-s3-access-key-id" v-model="s3Form.access_key_id" class="input w-full font-mono tabular-nums text-xs" />
           </div>
           <div>
-            <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.s3.secretAccessKey') }}</label>
-            <input v-model="s3Form.secret_access_key" type="password" class="input w-full font-mono tabular-nums text-xs" :placeholder="s3SecretConfigured ? t('admin.backup.s3.secretConfigured') : ''" />
+            <label for="backup-s3-secret-access-key" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.s3.secretAccessKey') }}</label>
+            <input id="backup-s3-secret-access-key" v-model="s3Form.secret_access_key" type="password" class="input w-full font-mono tabular-nums text-xs" :placeholder="s3SecretConfigured ? t('admin.backup.s3.secretConfigured') : ''" />
           </div>
           <label class="inline-flex items-center gap-2 text-sm text-[var(--foreground)] md:col-span-2">
             <input v-model="s3Form.force_path_style" type="checkbox" />
@@ -123,30 +123,30 @@
 
         <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
           <div>
-            <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.imageStorage.bucket') }}</label>
-            <input v-model="imageStorageForm.bucket" class="input w-full font-mono tabular-nums text-xs" :placeholder="imageStorageForm.reuse_backup_s3 ? t('admin.backup.imageStorage.bucketInherited') : ''" />
+            <label for="backup-image-bucket" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.imageStorage.bucket') }}</label>
+            <input id="backup-image-bucket" v-model="imageStorageForm.bucket" class="input w-full font-mono tabular-nums text-xs" :placeholder="imageStorageForm.reuse_backup_s3 ? t('admin.backup.imageStorage.bucketInherited') : ''" />
           </div>
           <div>
-            <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.imageStorage.prefix') }}</label>
-            <input v-model="imageStorageForm.prefix" class="input w-full font-mono tabular-nums text-xs" placeholder="images/" />
+            <label for="backup-image-prefix" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.imageStorage.prefix') }}</label>
+            <input id="backup-image-prefix" v-model="imageStorageForm.prefix" class="input w-full font-mono tabular-nums text-xs" placeholder="images/" />
           </div>
 
           <template v-if="!imageStorageForm.reuse_backup_s3">
             <div>
-              <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.s3.endpoint') }}</label>
-              <input v-model="imageStorageForm.endpoint" class="input w-full font-mono tabular-nums text-xs" placeholder="https://<account_id>.r2.cloudflarestorage.com" />
+              <label for="backup-image-endpoint" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.s3.endpoint') }}</label>
+              <input id="backup-image-endpoint" v-model="imageStorageForm.endpoint" class="input w-full font-mono tabular-nums text-xs" placeholder="https://<account_id>.r2.cloudflarestorage.com" />
             </div>
             <div>
-              <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.s3.region') }}</label>
-              <input v-model="imageStorageForm.region" class="input w-full font-mono tabular-nums text-xs" placeholder="auto" />
+              <label for="backup-image-region" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.s3.region') }}</label>
+              <input id="backup-image-region" v-model="imageStorageForm.region" class="input w-full font-mono tabular-nums text-xs" placeholder="auto" />
             </div>
             <div>
-              <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.s3.accessKeyId') }}</label>
-              <input v-model="imageStorageForm.access_key_id" class="input w-full font-mono tabular-nums text-xs" />
+              <label for="backup-image-access-key-id" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.s3.accessKeyId') }}</label>
+              <input id="backup-image-access-key-id" v-model="imageStorageForm.access_key_id" class="input w-full font-mono tabular-nums text-xs" />
             </div>
             <div>
-              <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.s3.secretAccessKey') }}</label>
-              <input v-model="imageStorageForm.secret_access_key" type="password" class="input w-full font-mono tabular-nums text-xs" :placeholder="imageStorageSecretConfigured ? t('admin.backup.s3.secretConfigured') : ''" />
+              <label for="backup-image-secret-access-key" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.s3.secretAccessKey') }}</label>
+              <input id="backup-image-secret-access-key" v-model="imageStorageForm.secret_access_key" type="password" class="input w-full font-mono tabular-nums text-xs" :placeholder="imageStorageSecretConfigured ? t('admin.backup.s3.secretConfigured') : ''" />
             </div>
             <label class="inline-flex items-center gap-2 text-sm text-[var(--foreground)] md:col-span-2">
               <input v-model="imageStorageForm.force_path_style" type="checkbox" />
@@ -155,12 +155,12 @@
           </template>
 
           <div>
-            <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.imageStorage.publicBaseUrl') }}</label>
-            <input v-model="imageStorageForm.public_base_url" class="input w-full font-mono tabular-nums text-xs" :placeholder="t('admin.backup.imageStorage.publicBaseUrlPlaceholder')" />
+            <label for="backup-image-public-base-url" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.imageStorage.publicBaseUrl') }}</label>
+            <input id="backup-image-public-base-url" v-model="imageStorageForm.public_base_url" class="input w-full font-mono tabular-nums text-xs" :placeholder="t('admin.backup.imageStorage.publicBaseUrlPlaceholder')" />
           </div>
           <div>
-            <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.imageStorage.presignExpiryHours') }}</label>
-            <input v-model.number="imageStorageForm.presign_expiry_hours" type="number" min="1" class="input w-full font-mono text-xs tabular-nums" />
+            <label for="backup-image-presign-expiry-hours" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.imageStorage.presignExpiryHours') }}</label>
+            <input id="backup-image-presign-expiry-hours" v-model.number="imageStorageForm.presign_expiry_hours" type="number" min="1" class="input w-full font-mono text-xs tabular-nums" />
           </div>
         </div>
 
@@ -195,18 +195,18 @@
         </div>
         <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
           <div>
-            <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.schedule.cronExpr') }}</label>
-            <input v-model="scheduleForm.cron_expr" class="input w-full font-mono tabular-nums text-xs" placeholder="0 2 * * *" />
+            <label for="backup-schedule-cron-expr" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.schedule.cronExpr') }}</label>
+            <input id="backup-schedule-cron-expr" v-model="scheduleForm.cron_expr" class="input w-full font-mono tabular-nums text-xs" placeholder="0 2 * * *" />
             <p class="mt-1 text-xs text-[var(--muted-foreground)]">{{ t('admin.backup.schedule.cronHint') }}</p>
           </div>
           <div>
-            <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.schedule.retainDays') }}</label>
-            <input v-model.number="scheduleForm.retain_days" type="number" min="0" class="input w-full font-mono text-xs tabular-nums" />
+            <label for="backup-schedule-retain-days" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.schedule.retainDays') }}</label>
+            <input id="backup-schedule-retain-days" v-model.number="scheduleForm.retain_days" type="number" min="0" class="input w-full font-mono text-xs tabular-nums" />
             <p class="mt-1 text-xs text-[var(--muted-foreground)]">{{ t('admin.backup.schedule.retainDaysHint') }}</p>
           </div>
           <div>
-            <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.schedule.retainCount') }}</label>
-            <input v-model.number="scheduleForm.retain_count" type="number" min="0" class="input w-full font-mono text-xs tabular-nums" />
+            <label for="backup-schedule-retain-count" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{{ t('admin.backup.schedule.retainCount') }}</label>
+            <input id="backup-schedule-retain-count" v-model.number="scheduleForm.retain_count" type="number" min="0" class="input w-full font-mono text-xs tabular-nums" />
             <p class="mt-1 text-xs text-[var(--muted-foreground)]">{{ t('admin.backup.schedule.retainCountHint') }}</p>
           </div>
         </div>
@@ -235,8 +235,8 @@
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <div class="flex items-center gap-1.5">
-              <label class="font-mono tabular-nums text-xs text-[var(--muted-foreground)]">{{ t('admin.backup.operations.expireDays') }}</label>
-              <input v-model.number="manualExpireDays" type="number" min="0" class="input w-20 py-1.5 font-mono text-xs tabular-nums" />
+              <label for="backup-manual-expire-days" class="font-mono tabular-nums text-xs text-[var(--muted-foreground)]">{{ t('admin.backup.operations.expireDays') }}</label>
+              <input id="backup-manual-expire-days" v-model.number="manualExpireDays" type="number" min="0" class="input w-20 py-1.5 font-mono text-xs tabular-nums" />
             </div>
             <button type="button" class="btn btn-primary btn-sm" :disabled="creatingBackup" @click="createBackup">
               {{ creatingBackup ? t('admin.backup.operations.backing') : t('admin.backup.operations.createBackup') }}

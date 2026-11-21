@@ -431,12 +431,13 @@
               type="checkbox"
               class="h-4 w-4 cursor-pointer rounded border-gray-300 text-primary-600 focus:ring-primary-500"
               :checked="allVisibleSelected"
+              :aria-label="t('common.selectAll')"
               @click.stop
               @change="toggleSelectAllVisible($event)"
             />
           </template>
           <template #cell-select="{ row }">
-            <input type="checkbox" :checked="isSelected(row.id)" @change="toggleSel(row.id)" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+            <input type="checkbox" :checked="isSelected(row.id)" :aria-label="row.name || `#${row.id}`" @change="toggleSel(row.id)" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
           </template>
           <template #cell-id="{ value }">
             <span class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ value }}</span>

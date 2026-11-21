@@ -23,17 +23,22 @@
               {{ t("admin.settings.site.backendModeDescription") }}
             </p>
           </div>
-          <Toggle v-model="form.backend_mode_enabled" />
+          <Toggle
+            v-model="form.backend_mode_enabled"
+            :aria-label="t('admin.settings.site.backendMode')"
+          />
         </div>
 
         <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
           <div>
             <label
+              for="site-name"
               class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.site.siteName") }}
             </label>
             <input
+              id="site-name"
               v-model="form.site_name"
               type="text"
               class="input"
@@ -45,11 +50,13 @@
           </div>
           <div>
             <label
+              for="site-subtitle"
               class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.site.siteSubtitle") }}
             </label>
             <input
+              id="site-subtitle"
               v-model="form.site_subtitle"
               type="text"
               class="input"
@@ -71,11 +78,13 @@
         <!-- API Base URL -->
         <div>
           <label
+            for="site-api-base-url"
             class="mb-2 block text-sm font-medium text-[var(--foreground)]"
           >
             {{ t("admin.settings.site.apiBaseUrl") }}
           </label>
           <input
+            id="site-api-base-url"
             v-model="form.api_base_url"
             type="text"
             class="input font-mono text-sm"
@@ -97,11 +106,13 @@
           <div class="mt-4 grid grid-cols-1 gap-6 md:grid-cols-2">
             <div>
               <label
+                for="table-default-page-size"
                 class="mb-2 block text-sm font-medium text-[var(--foreground)]"
               >
                 {{ t("admin.settings.site.tableDefaultPageSize") }}
               </label>
               <input
+                id="table-default-page-size"
                 v-model.number="form.table_default_page_size"
                 type="number"
                 min="5"
@@ -115,11 +126,13 @@
             </div>
             <div>
               <label
+                for="table-page-size-options"
                 class="mb-2 block text-sm font-medium text-[var(--foreground)]"
               >
                 {{ t("admin.settings.site.tablePageSizeOptions") }}
               </label>
               <input
+                id="table-page-size-options"
                 v-model="tablePageSizeOptionsInput"
                 type="text"
                 class="input font-mono text-sm"
@@ -262,11 +275,13 @@
         <!-- Contact Info -->
         <div>
           <label
+            for="site-contact-info"
             class="mb-2 block text-sm font-medium text-[var(--foreground)]"
           >
             {{ t("admin.settings.site.contactInfo") }}
           </label>
           <input
+            id="site-contact-info"
             v-model="form.contact_info"
             type="text"
             class="input"
@@ -280,11 +295,13 @@
         <!-- Doc URL -->
         <div>
           <label
+            for="site-doc-url"
             class="mb-2 block text-sm font-medium text-[var(--foreground)]"
           >
             {{ t("admin.settings.site.docUrl") }}
           </label>
           <input
+            id="site-doc-url"
             v-model="form.doc_url"
             type="url"
             class="input font-mono text-sm"
@@ -349,6 +366,7 @@
           <Toggle
             v-model="form.compact_home_enabled"
             data-testid="compact-home-toggle"
+            :aria-label="t('admin.settings.site.compactHome')"
           />
         </div>
 
@@ -364,7 +382,10 @@
               {{ t("admin.settings.site.hideCcsImportButtonHint") }}
             </p>
           </div>
-          <Toggle v-model="form.hide_ccs_import_button" />
+          <Toggle
+            v-model="form.hide_ccs_import_button"
+            :aria-label="t('admin.settings.site.hideCcsImportButton')"
+          />
         </div>
       </div>
     </div>

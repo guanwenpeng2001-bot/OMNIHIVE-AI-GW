@@ -49,6 +49,7 @@
                   v-model.trim="filters.q"
                   type="text"
                   class="input py-2 pl-9 font-mono tabular-nums text-xs"
+                  :aria-label="t('admin.audit.filters.qPlaceholder')"
                   :placeholder="t('admin.audit.filters.qPlaceholder')"
                   @keyup.enter="search"
                 />
@@ -56,10 +57,11 @@
             </div>
 
             <div>
-              <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+              <label for="audit-filter-actor-email" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
                 {{ t('admin.audit.filters.actorEmail') }}
               </label>
               <input
+                id="audit-filter-actor-email"
                 v-model.trim="filters.actor_email"
                 type="text"
                 class="input py-2 font-mono tabular-nums text-xs"
@@ -68,10 +70,11 @@
             </div>
 
             <div>
-              <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+              <label for="audit-filter-action" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
                 {{ t('admin.audit.filters.action') }}
               </label>
               <input
+                id="audit-filter-action"
                 v-model.trim="filters.action"
                 type="text"
                 class="input py-2 font-mono tabular-nums text-xs"
@@ -80,10 +83,11 @@
             </div>
 
             <div>
-              <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+              <label for="audit-filter-client-ip" class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
                 {{ t('admin.audit.filters.clientIp') }}
               </label>
               <input
+                id="audit-filter-client-ip"
                 v-model.trim="filters.client_ip"
                 type="text"
                 class="input py-2 font-mono tabular-nums text-xs"

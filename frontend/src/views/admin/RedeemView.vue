@@ -79,6 +79,7 @@
               type="checkbox"
               class="h-4 w-4 cursor-pointer rounded border-[var(--border)] text-[var(--brand-text)] focus:ring-[var(--brand)]"
               :checked="allVisibleSelected"
+              :aria-label="t('common.selectAll')"
               @click.stop
               @change="toggleSelectAllVisible($event)"
             />
@@ -90,6 +91,7 @@
               type="checkbox"
               class="h-4 w-4 cursor-pointer rounded border-[var(--border)] text-[var(--brand-text)] focus:ring-[var(--brand)]"
               :checked="selectedCodeIds.has(row.id)"
+              :aria-label="row.code"
               @click.stop
               @change="toggleSelectRow(row.id, $event)"
             />
