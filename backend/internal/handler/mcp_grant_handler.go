@@ -24,7 +24,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/gatewayerror"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/response"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
@@ -577,99 +576,6 @@ func (h *MCPGrantHandler) UpdateRoutingPolicies(c *gin.Context) {
 	h.mu.Unlock()
 	c.Header("Cache-Control", "no-store")
 	response.Success(c, req)
-}
-
-// PlaygroundChat uses an operator-configured OpenAI-compatible gateway. It never
-// invents completions or token usage when the gateway is unavailable.
-func (h *MCPGrantHandler) PlaygroundChat(c *gin.Context) {
-	h.executeExtensions(c, func() { h.playgroundChat(c) })
-}
-func (h *MCPGrantHandler) playgroundChat(c *gin.Context) {
-	var req struct {
-		Model    string `json:"model"`
-		Message  string `json:"message"`
-		Strategy string `json:"strategy"`
-	}
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 65536)
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, 400, "Invalid request")
-		return
-	}
-	req.Model = strings.TrimSpace(req.Model)
-	req.Message = strings.TrimSpace(req.Message)
-	if req.Strategy == "" {
-		req.Strategy = "smart"
-	}
-	if req.Model == "" || len(req.Model) > 200 || req.Message == "" || len(req.Message) > 32000 || !validRoutingStrategy(req.Strategy) {
-		response.Error(c, 400, "Invalid model, message or strategy")
-		return
-	}
-	base, key := strings.TrimRight(os.Getenv("OMNIHIVE_PLAYGROUND_BASE_URL"), "/"), os.Getenv("OMNIHIVE_PLAYGROUND_API_KEY")
-	if base == "" || key == "" {
-		response.Error(c, 503, "Playground upstream is not configured")
-		return
-	}
-	parsedBase, err := url.Parse(base)
-	if err != nil || (parsedBase.Scheme != "https" && parsedBase.Scheme != "http") || parsedBase.Hostname() == "" {
-		response.Error(c, 503, "Playground upstream configuration is invalid")
-		return
-	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-	defer cancel()
-	body, _ := json.Marshal(gin.H{"model": req.Model, "messages": []gin.H{{"role": "user", "content": req.Message}}, "stream": false, "max_tokens": 1024})
-	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/chat/completions", bytes.NewReader(body)) //nolint:gosec // G704: operator-configured OMNIHIVE_PLAYGROUND_BASE_URL
-	if err != nil {
-		response.Error(c, 503, "Playground upstream configuration is invalid")
-		return
-	}
-	upstream.Header.Set("Authorization", "Bearer "+key)
-	upstream.Header.Set("Content-Type", "application/json")
-	upstream.Header.Set("X-Routing-Strategy", req.Strategy)
-	started := time.Now()
-	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	res, err := client.Do(upstream) //nolint:gosec // G704: operator-configured OMNIHIVE_PLAYGROUND_BASE_URL
-	if err != nil {
-		response.Error(c, 502, "Playground upstream is unavailable")
-		return
-	}
-	defer func() { _ = res.Body.Close() }()
-	if res.StatusCode != 200 {
-		response.Error(c, 502, "Playground upstream rejected the request")
-		return
-	}
-	var completion struct {
-		ID          string `json:"id"`
-		Model       string `json:"model"`
-		Provider    string `json:"provider"`
-		RoutedGroup string `json:"routed_group"`
-		Choices     []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-		Usage *struct {
-			PromptTokens     int `json:"prompt_tokens"`
-			CompletionTokens int `json:"completion_tokens"`
-		} `json:"usage"`
-	}
-	if err := json.NewDecoder(io.LimitReader(res.Body, 2<<20)).Decode(&completion); err != nil || len(completion.Choices) == 0 || completion.Choices[0].Message.Content == "" || completion.Usage == nil {
-		response.Error(c, 502, "Invalid playground upstream response")
-		return
-	}
-	if completion.ID == "" {
-		completion.ID = "chatcmpl-omnihive-" + uuid.NewString()
-	}
-	if completion.Model == "" {
-		completion.Model = req.Model
-	}
-	if completion.Provider == "" {
-		completion.Provider = res.Header.Get("X-Provider")
-	}
-	if completion.RoutedGroup == "" {
-		completion.RoutedGroup = res.Header.Get("X-Routed-Group")
-	}
-	c.Header("Cache-Control", "no-store")
-	response.Success(c, gin.H{"id": completion.ID, "model": completion.Model, "provider": completion.Provider, "routed_group": completion.RoutedGroup, "latency_ms": time.Since(started).Milliseconds(), "prompt_tokens": completion.Usage.PromptTokens, "completion_tokens": completion.Usage.CompletionTokens, "reply": completion.Choices[0].Message.Content})
 }
 
 type PluginExtensionDTO struct {
@@ -1356,18 +1262,10 @@ func (w *extensionWriter) Write(b []byte) (int, error) {
 func (w *extensionWriter) WriteString(s string) (int, error) { return w.Write([]byte(s)) }
 func (h *MCPGrantHandler) GatewayExtensionMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		ctx, err := service.WithGatewayRoutingHeaders(c.Request.Context(), c.Request.Header)
-		if err != nil {
-			gatewayerror.Write(c, http.StatusBadRequest, "INVALID_ROUTING_CONSTRAINT", err.Error())
-			c.Abort()
-			return
-		}
-		c.Request = c.Request.WithContext(ctx)
 		h.executeExtensions(c, func() { c.Next() })
 	}
 }
 func (h *MCPGrantHandler) executeExtensions(c *gin.Context, next func()) {
-	// A route may invoke PlaygroundChat behind the middleware; execute only once.
 	if _, ok := c.Get("omnihive_extensions"); ok {
 		next()
 		return

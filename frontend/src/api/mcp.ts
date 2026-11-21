@@ -119,17 +119,6 @@ export interface RoutingPolicyConfig {
   updated_at?: string
 }
 
-export interface PlaygroundChatResponse {
-  id: string
-  model: string
-  provider: string
-  reply: string
-  routed_group: string
-  latency_ms: number
-  prompt_tokens: number
-  completion_tokens: number
-}
-
 const fail = (status: number, message: string): never => { throw Object.assign(new Error(message), { status }) }
 
 function identity() {
@@ -191,12 +180,6 @@ export const mcpAPI = {
     return requestHonest(
       () => apiClient.put<RoutingPolicyConfig>('/user/routing-policies', { ...current, ...payload }),
       'Routing policy endpoint'
-    )
-  },
-  async sendPlaygroundChat(payload: { model: string; message: string; strategy?: string }): Promise<PlaygroundChatResponse> {
-    return requestHonest(
-      () => apiClient.post<PlaygroundChatResponse>('/public/playground/chat', payload),
-      'Playground chat endpoint'
     )
   },
   authorizeGrant(payload: AuthorizeMCPGrantPayload): Promise<AuthorizeMCPGrantResponse> {
