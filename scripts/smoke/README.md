@@ -1,6 +1,6 @@
 # QA real smoke
 
-`qa_real_smoke.py` drives the live `omnihive-refactor-qa` deployment through
+`qa_real_smoke.py` drives a running test deployment through
 the developer and admin journeys using only the Python 3 standard library.
 It is repeatable, exits non-zero when any executed check fails, and writes
 redacted JSON/text evidence under `QA_EVIDENCE_DIR`
@@ -9,12 +9,11 @@ redacted JSON/text evidence under `QA_EVIDENCE_DIR`
 ## Run
 
 ```bash
-python3 scripts/smoke/qa_real_smoke.py
+QA_ENV_FILE=/path/to/test/.env python3 scripts/smoke/qa_real_smoke.py
 ```
 
 Configuration is read from environment variables and, for admin credentials,
-from `QA_ENV_FILE` (default
-`/home/administrator/omnihive-refactor-qa-deploy/.env`):
+from `QA_ENV_FILE`:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -22,7 +21,7 @@ from `QA_ENV_FILE` (default
 | `QA_ADMIN_EMAIL` | `ADMIN_EMAIL` in `QA_ENV_FILE` | Admin login email |
 | `QA_ADMIN_PASSWORD` | `ADMIN_PASSWORD` in `QA_ENV_FILE` | Admin login password |
 | `QA_MAGPIE_KEY` | empty | Optional Magpie gateway key for the create/credential path |
-| `QA_ENV_FILE` | `/home/administrator/omnihive-refactor-qa-deploy/.env` | Deploy env file to source credentials |
+| `QA_ENV_FILE` | Set for your deployment | Deploy env file to source credentials |
 | `QA_WORKSPACE_ID` / `QA_PROJECT_ID` | auto from `/me/scopes` | Scope pins |
 | `QA_GROUP_ID` / `QA_CONNECTION_ID` | auto-detected | Resource pins |
 

@@ -32,4 +32,4 @@ The signed release manifest, plugin v2 and coordinated database, browser and pro
 
 New wizard and automatic setup installations write `database.dbname: omnihive` by default. If an existing config, install lock, or `SKIP_SETUP` deployment omits the name, the backend preserves the previous implicit `sub2api` database name. Pin the actual database explicitly in `database.dbname` or `DATABASE_DBNAME` before moving configuration or applying new templates. An explicit database name continues to work, including the old name.
 
-The [BE-30 inventory](../../contracts/migrations/BE-30/README.md) tracks caller counts, retirement gates and the BE-20 plugin handoff.
+The [retirement inventory](../../contracts/migrations/retirement/README.md) tracks caller counts, retirement gates and the plugin migration.

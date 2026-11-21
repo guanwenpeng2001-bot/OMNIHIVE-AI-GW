@@ -45,7 +45,7 @@ The [protobuf contract](../../backend/pkg/pluginapi/v2/extension.proto) uses pac
 
 `provider` is scoped to OpenAI OAuth, `task` authorizes the coarse task handshake, and `ui` authorizes signed UI resources. A plugin with no UI omits the UI entrypoint. Each capability requires a publisher/ID-specific administrator grant and an enabled installation binding. The module gets no socket, preopened directory, environment variables, wallet fields, request headers, account secrets or redirect controls. The host selects destinations, executes outbound requests and settles observed usage. A rejected provider request fails closed. Each invocation has a 5-second deadline, a 64 MiB linear-memory limit and a 256 KiB message limit. Each host permits eight concurrent invocations. A trap terminates that invocation. Hot disable stops guest admission, lets active calls finish for up to ten seconds, then closes the runtime. An already authorized host operation finishes under its original gateway context.
 
-Reviewed provider and task adapters use distinct versioned capability IDs. Each requires its own project, account, model, credential-version and artifact approval. The v2 dispatch contract is documented in the [typed action reference](../api/BE-26/README.md).
+Reviewed provider and task adapters use distinct versioned capability IDs. Each requires its own project, account, model, credential-version and artifact approval. The v2 dispatch contract is documented in the [typed action reference](../api/extension-actions/README.md).
 
 ## Bootstrap and rotate keys
 
@@ -88,4 +88,4 @@ For rotation, add the next key under a new publisher ID with the reviewed grants
 
 5. Store both archives with the migration record. Compare the signed `origin.archive_sha256`, `origin.manifest_sha256`, previous plugin/key IDs and v2 publisher. Untrusted signatures, ambiguous ownership, corrupt files and incompatible host mappings stop the rebuild before publication. The command verifies the final archive and refuses to overwrite its destination.
 6. Disable the old binding, upload the verified v2 artifact, test configuration and inspect compatibility. Enable a small rollout. Verify denied capabilities, egress routing, receipts, UI behavior and in-flight shutdown. Record installation ID, grants and v2 digest from the inventory. The administrator must explicitly accept untested versions.
-7. To roll back, disable the v2 installation, reimport the saved original with its v1 signer still trusted, restore the correct configuration and rollout, then re-enable. Keep old signatures, archives and ownership mappings through the BE-30 observation window.
+7. To roll back, disable the v2 installation, reimport the saved original with its v1 signer still trusted, restore the correct configuration and rollout, then re-enable. Keep old signatures, archives and ownership mappings through the retirement observation window.

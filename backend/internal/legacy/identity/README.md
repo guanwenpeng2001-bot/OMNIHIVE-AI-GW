@@ -4,4 +4,4 @@ The regular and Google API-key middleware both call the identity access and fund
 
 Ingress continues using the existing credential digest resolver, Redis/L1 auth cache, key touch, model access snapshots, IP rules, protocol errors and abuse limiter. Current project membership and credential revocation are read in PostgreSQL. Console requests use the existing JWT/session entry point, which also serves passkey and TOTP sign-ins.
 
-BE-22 moves residual service callers. BE-30 retires the compatibility layer after old authentication and billing projections leave service. Rotation and existing custom credentials retain their original digest namespace throughout rollout.
+runtime moves residual service callers. retirement retires the compatibility layer after old authentication and billing projections leave service. Rotation and existing custom credentials retain their original digest namespace throughout rollout.

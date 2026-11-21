@@ -1,4 +1,4 @@
-# BE-15 image task center
+# Image task center
 
 ## Composition
 
@@ -13,18 +13,18 @@ taskhttp.Register(r.Group("/api/v2"), imageTaskCenter,
     gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
 ```
 
-Add the task creation and retry paths to the existing body-omission table in the audit middleware. Preserve safe actor, scope, resource, transition and outcome. Strip the artifact ticket, provider URL, object locator, request body and decrypted retry input from logs and traces. Compose the BE-15 fragment, regenerate frontend types and regenerate Wire in the aggregate integration branch.
+Add the task creation and retry paths to the existing body-omission table in the audit middleware. Preserve safe actor, scope, resource, transition and outcome. Strip the artifact ticket, provider URL, object locator, request body and decrypted retry input from logs and traces. Compose the tasks fragment, regenerate frontend types and regenerate Wire in the aggregate integration branch.
 
 ## Authority and rollout
 
 | Source | Task ID | Current authority | Adoption |
 | --- | --- | --- | --- |
-| OpenAI-compatible image generation from v2 | `task_<uuid>` | PostgreSQL generation and worker identity, BE-06 single-use send permit, independent BE-11 receipts | The native image handler performs moderation, quota admission, connection selection and settlement. Task center captures a private object copy. Each dispatch rechecks the original grant and the selected endpoint's verified image capability. |
+| OpenAI-compatible image generation from v2 | `task_<uuid>` | PostgreSQL generation and worker identity, settlement single-use send permit, independent wallet receipts | The native image handler performs moderation, quota admission, connection selection and settlement. Task center captures a private object copy. Each dispatch rechecks the original grant and the selected endpoint's verified image capability. |
 | Existing Gemini/Vertex image batches | `batch_<numeric job id>` | Existing batch worker, queue, provider job and legacy hold/capture/release | Same-transaction identity capture. Stage, items, parent, costs, deletion and output expiry read the original rows. Each indexed image is a separate downloadable artifact. |
 | Existing upstream image jobs | `up_<numeric job id>` | Upstream repository and poller | The existing public request is the source identity. Successful indexed Qianwen result URLs stay server-side. |
 | Redis OpenAI-compatible v1 image tasks | `redis_<imgtask id>` | Original Redis worker and terminal receipt | Import scans surviving records and stores their original key, owner, scope, version, pending deadline and result expiry. |
 
-The SQL expansion captures currently provable legacy identities and listens for new SQL jobs. Missing owner/key/account relationships remain outside the tenant reader. Inspect unmatched jobs with the query below. After resolving a BE-01 quarantine, invoke `image_task_map_legacy('batch_image', id)` or `image_task_map_legacy('upstream_job', id)` on that source row. Existing identities remain frozen. A BE-06 execution join requires matching scope, key, owner, funding and legacy job identity. A historical batch capture has its own settlement identifier. Missing BE-06 requests, size observations and receipt amounts remain null.
+The SQL expansion captures currently provable legacy identities and listens for new SQL jobs. Missing owner/key/account relationships remain outside the tenant reader. Inspect unmatched jobs with the query below. After resolving a identity quarantine, invoke `image_task_map_legacy('batch_image', id)` or `image_task_map_legacy('upstream_job', id)` on that source row. Existing identities remain frozen. A settlement execution join requires matching scope, key, owner, funding and legacy job identity. A historical batch capture has its own settlement identifier. Missing settlement requests, size observations and receipt amounts remain null.
 
 ```sql
 SELECT b.id FROM batch_image_jobs b
@@ -44,15 +44,15 @@ Call `imageTaskCenter.Store.Recover(ctx)` at startup and periodically from the w
 
 Use route registration as the v2 cutover switch. Rolling back registration leaves accepted requests, settlement and old recovery paths available. Before retiring old writers, stop their submissions, wait for their Redis locks/active sets and nonterminal SQL jobs to drain or reconcile them, and compare scoped state, settled amount, item IDs and expiry across both readers. Imported legacy leases remain observational. They grant no new send permit.
 
-## BE-21
+## audit
 
 Reauthorize the session and `tasks.artifacts.read` at ticket issue and content delivery. The one-minute ticket binds actor, grant epoch, workspace, project, task, artifact and expiry. The content handler rechecks authorization and retention after opening a potentially slow object. All outward results use the controller's scoped path and a fixed attachment filename. A revoke immediately disables outstanding tickets. The original v1 provider or public-storage links keep their previous expiry and access semantics.
 
 Adapt `tasks.ObjectReader` to the controlled egress/object platform. Native objects use private keys, batch downloads reuse the pinned credential and provider route, and historical HTTPS delivery URLs use DNS-pinned public transport, bounded redirects, time and response size. Keep provider-signed URLs inside the adapter. Track orphaned uploads through the private bucket lifecycle. Use scope and stable task/receipt identities for audit and emit coarse outcome labels for metrics.
 
-## BE-25
+## media
 
-Add audio/video only with verified action, adapter and funding evidence. The image runner uses the original actor's project key and a BE-06 UUID allocated before dispatch. A worker must hold the live generation both to obtain a send permit and to atomically publish artifacts. Keep execution, provider acceptance, artifact availability, cancellation and settlement independent. A provider-reported percent can populate `progress`; an unmeasured job returns null. Extend item/replay input storage for families with reconstructible child inputs. Add capability-specific cancel and status reconciliation before offering those operations. Continue using the same scope-bound ticket and receipt association.
+Add audio/video only with verified action, adapter and funding evidence. The image runner uses the original actor's project key and a settlement UUID allocated before dispatch. A worker must hold the live generation both to obtain a send permit and to atomically publish artifacts. Keep execution, provider acceptance, artifact availability, cancellation and settlement independent. A provider-reported percent can populate `progress`; an unmeasured job returns null. Extend item/replay input storage for families with reconstructible child inputs. Add capability-specific cancel and status reconciliation before offering those operations. Continue using the same scope-bound ticket and receipt association.
 
 ## Verification
 

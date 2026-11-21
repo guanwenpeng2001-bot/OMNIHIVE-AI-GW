@@ -1,10 +1,6 @@
 # 账号、分组与 Key 模型访问合同
 
-## 适用范围与裁决来源
-
-本合同规定账号、路由分组、Composite、Key 和具名模型集合的访问语义，供 `visible-model-policy`、`model-access-groups`、Key 生命周期/预算及各协议入口共同实施。它与 [模型注册表合同](model-registry-contract.md) 一起构成阶段一基线，不表示后续实现已完成。
-
-依据为 [整合执行方案](C:/Users/Administrator/orca/workspaces/sub2api/main-work/.pi/plans/main-next-3-account-management/plans/plan-integrated-execution.md) 的冲突裁决、固定合同、治理任务及迁移表。U2a 明确 **Key ⊆ 分组，默认继承分组**；U2c 明确 **具名集合，账号/Key 可引用并作少量覆盖**。本合同不新增规则 DSL、平行权限体系或产品开关。编号引用遵循 [定稿登记册](C:/Users/Administrator/orca/workspaces/sub2api/main-work/.pi/plans/main-next-3-account-management/final-problem-register.md) 与 [审计合并稿](C:/Users/Administrator/orca/workspaces/sub2api/main-work/.pi/plans/main-next-3-account-management/audit-merge.md)。
+本文说明账号、分组、Key 与具名集合的访问规则。相关模型元数据约束见[模型注册表合同](model-registry-contract.md)。
 
 ## 身份、路由分组与具名集合
 
@@ -109,8 +105,4 @@ Composite 必须使用显式有序目标集合，并共同调用现有 Claude/Op
 | 月末、DST、改策略与延迟结算 | period 可复算，已冻结结算仍入原周期；旧窗口不变，已消费不清，轮换不重置 |
 | 并发、取消、崩溃和重复结算 | 原子预留/修正，receipt 幂等恢复；保留实际消耗，不重复扣款、不把未知当免费 |
 
-访问组迁移必须加法引入集合、引用、revision 并保留 null/显式空；有规则数据存在后不得回滚到忽略规则的版本。workspace 有新域数据后不得回滚到不执行 scope 的版本；预算错账使用补偿记录，不回滚覆盖新账本。具体 schema/DI 由任务所有者生成，迁移前缀由协调者分配，本合同不提前写 schema 或配置。
-
-## 基线门禁状态
-
-[baseline-gates.md](C:/Users/Administrator/orca/workspaces/sub2api/main-work/.pi/plans/main-next-3-account-management/baseline-gates.md) 记录 2026-09-20 10:20、基线 SHA `52bbd9182f186caac1e87ba1893330952e05555a` 的全门禁 **当前全绿、无已知失败项**，包含后端 build/test、前端五项与真实隔离 PG/Redis required 三项。后续实现必须补相邻行为用例并跑共通规格门禁，不能把该基线通过当作新增访问/预算能力已通过。夹具独占、共享文件顺序写锁和本地服务归属见 [注册表合同附录](model-registry-contract.md#附录共享文件锁与夹具归属)。
+访问组迁移必须加法引入集合、引用、revision 并保留 null/显式空；有规则数据存在后不得回滚到忽略规则的版本。workspace 有新域数据后不得回滚到不执行 scope 的版本；预算错账使用补偿记录，不回滚覆盖新账本。

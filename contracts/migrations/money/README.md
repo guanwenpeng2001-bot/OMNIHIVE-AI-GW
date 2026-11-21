@@ -1,4 +1,4 @@
-# Exact value migration handoff
+# Exact value migration
 
 The fixtures were captured from the finite billing paths at commit
 `0bd0cd5cba7fd02e81ff86e87092db4dcb05d542`. Each case in
@@ -18,7 +18,7 @@ multiplier of 5.
 
 ## Read-only comparison
 
-BE-07 can replay frozen rates, typed usage and their multipliers with
+Pricing can replay frozen rates, typed usage and their multipliers with
 `Rate.Cost`, `Exact.Add` and `Exact.Multiply`. `Quantity.InTier` implements
 the existing open-lower, closed-upper interval. Pass a nil lower bound to
 include zero in the first native Qianwen tier. Accumulate elapsed time across
@@ -33,7 +33,7 @@ the signed raw difference and the signed eight-place charge difference. A
 versioned pricing change needs a separately approved effective date. Use the
 fixture's v1 charge and original fingerprint for historical receipt recovery.
 
-BE-11 should bind each exact effect to its actual destination. For a legacy
+Wallet should bind each exact effect to its actual destination. For a legacy
 wallet, pass `Wallet20_8.Bind(posted.Amount())` to the SQL parameter and use
 `Wallet20_8.Scanner(&amount)` for numeric text on read. `Usage20_10`,
 `Payment20_2`, `Ledger28_8` and `RateNumeric` cover the other column shapes.
@@ -45,22 +45,22 @@ in its containing record.
 
 ## Caller inventory
 
-Paths below are relative to `backend/internal`. BE-07 owns pricing comparisons.
-BE-11 owns the receipt/effect writer transition and coordination with the BE-19
+Paths below are relative to `backend/internal`. Pricing owns pricing comparisons.
+Wallet owns the receipt/effect writer transition and coordination with the payments
 financial writers.
 
 | Owner | Existing caller or boundary | Migration action |
 | --- | --- | --- |
-| BE-07 | `service/pricing_service.go`, `service/model_pricing_facts.go`, `service/channel.go`, `service/group.go`, `service/model_pricing_resolver.go` | Read raw price and multiplier text, freeze currency, dimension and per-unit denominator with the effective card. Preserve explicit free, missing rates, tier endpoints and native first-tier behavior. |
-| BE-07 | `service/billing_service.go` (`CalculateCostUnified`, token/cache breakdowns and per-request, search, audio, video and image costs) | Compute each rate × quantity as an exact ratio, sum components, apply frozen multipliers, then call `RoundCharge` once. Track price changes through shadow deltas. |
-| BE-07 | `service/gateway_usage_billing.go`, `service/openai_gateway_usage.go` | Move channel/group precedence, time bands, media and usage dimensions to the shared pricing resolver. Pass frozen prices into receipt preparation. |
-| BE-07 | `service/billing_pricing_snapshot.go` (`freezePricing`, `RecalculatePricingSnapshot`, `FreezeUsagePricing`), `service/qianwen_file_batch_pricing.go`, `service/qianwen_realtime_billing.go`, `service/openai_realtime_billing.go`, `service/{qianwen_async,qianwen_video,openai_video}_jobs.go` | Retain v1 early rounding, customer/addition and account multiplier order for replay. Preserve rational evidence for new unit/FX conversions. |
-| BE-11 | `service/gateway_request_plan.go` (`estimateBudgetHold`), `service/api_key_budget_service.go`, `repository/api_key_budget_repo.go` | V1 quantizes holds with the charge rule. Ceil new positive bounds at eight places and use the recorded hold when releasing or capturing it. |
-| BE-11 | `service/usage_billing.go` (`Normalize`, `buildUsageBillingFingerprint`, `QuantizeUsageBillingAmount`) | V1 derives a missing SHA-256 fingerprint over five original float64 amounts formatted with ten decimals and the optional payload hash. It then rounds each command field. Preserve persisted fingerprints verbatim and dispatch by receipt version. |
-| BE-11 | `service/usage_settlement_service.go`, `service/usage_settlement_receipt.go`, `repository/usage_settlement_receipt_repo.go` | Decode stored v1 commands and snapshots through their v1 paths. Use exact validation for new commands. Compare identity, frozen evidence and charged amount before applying effects or recovering. |
-| BE-11 | `repository/usage_billing_repo.go`, `repository/user_platform_quota_events.go`, `service/usage_log.go`, `repository/api_key_budget_repo.go` | Bind the same approved eight-place charge for wallet, key and other effects with the same basis. Bind independently frozen account costs and ten-place historical usage at the destination scale. Preserve dedup and transaction ordering. |
-| BE-11 | `service/billing_cache_service.go`, `repository/billing_cache.go`, financial fields in `handler/dto` and `pkg/usagestats` | Version string-valued cache/DTO payloads, retaining v1 readers and database authority for hard budgets. |
-| BE-19 handoff | `payment/currency.go`, `payment/fee.go`, `service/payment_order.go`, `service/{payment,affiliate,subscription}_service.go` | Bind legacy two-place payment columns after the owning currency/provider rule. Preserve original minor units, fee policy and refund basis. |
+| pricing | `service/pricing_service.go`, `service/model_pricing_facts.go`, `service/channel.go`, `service/group.go`, `service/model_pricing_resolver.go` | Read raw price and multiplier text, freeze currency, dimension and per-unit denominator with the effective card. Preserve explicit free, missing rates, tier endpoints and native first-tier behavior. |
+| pricing | `service/billing_service.go` (`CalculateCostUnified`, token/cache breakdowns and per-request, search, audio, video and image costs) | Compute each rate × quantity as an exact ratio, sum components, apply frozen multipliers, then call `RoundCharge` once. Track price changes through shadow deltas. |
+| pricing | `service/gateway_usage_billing.go`, `service/openai_gateway_usage.go` | Move channel/group precedence, time bands, media and usage dimensions to the shared pricing resolver. Pass frozen prices into receipt preparation. |
+| pricing | `service/billing_pricing_snapshot.go` (`freezePricing`, `RecalculatePricingSnapshot`, `FreezeUsagePricing`), `service/qianwen_file_batch_pricing.go`, `service/qianwen_realtime_billing.go`, `service/openai_realtime_billing.go`, `service/{qianwen_async,qianwen_video,openai_video}_jobs.go` | Retain v1 early rounding, customer/addition and account multiplier order for replay. Preserve rational evidence for new unit/FX conversions. |
+| wallet | `service/gateway_request_plan.go` (`estimateBudgetHold`), `service/api_key_budget_service.go`, `repository/api_key_budget_repo.go` | V1 quantizes holds with the charge rule. Ceil new positive bounds at eight places and use the recorded hold when releasing or capturing it. |
+| wallet | `service/usage_billing.go` (`Normalize`, `buildUsageBillingFingerprint`, `QuantizeUsageBillingAmount`) | V1 derives a missing SHA-256 fingerprint over five original float64 amounts formatted with ten decimals and the optional payload hash. It then rounds each command field. Preserve persisted fingerprints verbatim and dispatch by receipt version. |
+| wallet | `service/usage_settlement_service.go`, `service/usage_settlement_receipt.go`, `repository/usage_settlement_receipt_repo.go` | Decode stored v1 commands and snapshots through their v1 paths. Use exact validation for new commands. Compare identity, frozen evidence and charged amount before applying effects or recovering. |
+| wallet | `repository/usage_billing_repo.go`, `repository/user_platform_quota_events.go`, `service/usage_log.go`, `repository/api_key_budget_repo.go` | Bind the same approved eight-place charge for wallet, key and other effects with the same basis. Bind independently frozen account costs and ten-place historical usage at the destination scale. Preserve dedup and transaction ordering. |
+| wallet | `service/billing_cache_service.go`, `repository/billing_cache.go`, financial fields in `handler/dto` and `pkg/usagestats` | Version string-valued cache/DTO payloads, retaining v1 readers and database authority for hard budgets. |
+| payments handoff | `payment/currency.go`, `payment/fee.go`, `service/payment_order.go`, `service/{payment,affiliate,subscription}_service.go` | Bind legacy two-place payment columns after the owning currency/provider rule. Preserve original minor units, fee policy and refund basis. |
 
-BE-02 adds value types and fixtures only. The existing billing, gateway, cache,
+money adds value types and fixtures only. The existing billing, gateway, cache,
 database and payment callers continue through their current entry points.

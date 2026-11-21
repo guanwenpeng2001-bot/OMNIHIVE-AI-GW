@@ -3,8 +3,7 @@
 The native authenticated `GET /api-ws/v1/realtime?model=...` route now supports
 Qwen3-TTS-Flash-Realtime in explicit commit mode. Apply migration
 `253_qianwen_realtime.sql` with the normal deployment process before serving
-the new binary. An existing process does not acquire this functionality merely
-because its worktree changed.
+the new binary.
 
 ## Supported protocol
 

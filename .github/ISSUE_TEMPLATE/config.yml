@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability privately
+    url: https://github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/security/advisories/new
+    about: Share sensitive findings directly with the maintainers.

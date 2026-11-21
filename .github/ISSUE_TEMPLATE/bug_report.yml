@@ -1,0 +1,27 @@
+name: Bug report
+description: Report an unexpected result in OmniHive.
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Release tag or commit
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the deployment method, OS and relevant provider or protocol.
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Remove keys, tokens and customer data from examples.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and observed behavior
+    validations:
+      required: true
