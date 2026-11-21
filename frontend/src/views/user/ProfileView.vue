@@ -117,33 +117,7 @@
         />
       </div>
 
-      <!-- 界面琥珀金微光联系客服卡片 -->
-      <div
-        v-if="contactInfo"
-        class="card oh-amber-support-card relative overflow-hidden p-5 sm:p-6"
-      >
-        <div class="flex flex-wrap items-center justify-between gap-4">
-          <div class="flex items-center gap-4">
-            <div class="oh-amber-icon-box flex h-11 w-11 shrink-0 items-center justify-center rounded-xl">
-              <Icon name="chat" size="lg" />
-            </div>
-            <div>
-              <div class="flex items-center gap-2">
-                <h3 class="font-semibold text-amber-950 dark:text-amber-200">
-                  {{ t('common.contactSupport') }}
-                </h3>
-                <span class="pill pill-ghost font-mono text-[11px]">
-                  <span class="pulse-dot pulse-warn" aria-hidden="true" />
-                  <span>SUPPORT</span>
-                </span>
-              </div>
-              <p class="mt-1 font-mono text-sm font-medium text-amber-900 dark:text-amber-100">
-                {{ contactInfo }}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
+      <HumanSupportCard :contact-info="contactInfo" />
 
       <div id="profile-section-billing" class="scroll-mt-20">
         <ProfileBillingTimelineCard />
@@ -181,6 +155,7 @@
 </template>
 
 <script setup lang="ts">
+import HumanSupportCard from '@/components/intro/HumanSupportCard.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Icon } from '@/components/icons'

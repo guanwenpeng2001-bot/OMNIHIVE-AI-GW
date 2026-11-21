@@ -1,5 +1,17 @@
 export default {
   publicPortal: {
+    support: {
+      footerLink: 'Support',
+      sectionTitle: 'Human Support',
+      sectionSummary: 'Reach our support team for billing disputes, account requests, or technical issues.',
+      badge: 'SUPPORT',
+      contactLabel: 'Contact',
+      contactPlaceholder: 'Not configured by the site operator yet. Please contact your workspace administrator.',
+      scopeLabel: 'Scope',
+      scopeValue: 'Billing & payment disputes, account deletion/export requests, invoice/receipt inquiries, and API quota or gateway troubleshooting.',
+      slaLabel: 'Response Time',
+      slaValue: 'Within 1–2 business days (Mon–Fri 09:00–18:00 UTC+8).'
+    },
     legal: {
       retry: 'Retry',
       settingsLoadFailedHint: 'Unable to load site legal and registration settings. Please retry before continuing.',

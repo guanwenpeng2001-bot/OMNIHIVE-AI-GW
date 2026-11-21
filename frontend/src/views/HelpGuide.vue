@@ -144,6 +144,9 @@
               <RouterLink v-for="link in links[section.id]" :key="link.path" :to="link.path" class="font-medium text-oh-accent-text underline underline-offset-4">{{ t(link.key) }} →</RouterLink>
             </nav>
           </DocSection>
+          <section id="support" class="scroll-mt-24 pt-2">
+            <HumanSupportCard />
+          </section>
         </article>
         <aside
           class="hidden self-start xl:sticky xl:top-20 xl:block"
@@ -215,6 +218,7 @@ import DocSidebar from '@/components/intro/DocSidebar.vue'
 import DocSection from '@/components/intro/DocSection.vue'
 import CodeBlock from '@/components/intro/CodeBlock.vue'
 import QuickstartGuide from '@/components/intro/QuickstartGuide.vue'
+import HumanSupportCard from '@/components/intro/HumanSupportCard.vue'
 
 const GUIDE_LOCAL_MESSAGES = {
   en: {

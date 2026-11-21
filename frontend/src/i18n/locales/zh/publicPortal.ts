@@ -1,5 +1,17 @@
 export default {
   publicPortal: {
+    support: {
+      footerLink: '人工支持',
+      sectionTitle: '人工支持入口',
+      sectionSummary: '如需处理付款争议、账户服务申请或技术故障，可通过以下方式联系支持团队。',
+      badge: '人工支持',
+      contactLabel: '联系方式',
+      contactPlaceholder: '运营方暂未配置联系方式，请联系您的工作空间管理员。',
+      scopeLabel: '受理范围',
+      scopeValue: '付款与账单争议、账户注销与数据导出、订单票据开具，以及 API 额度或网关异常排查。',
+      slaLabel: '响应时限',
+      slaValue: '工作日 09:00–18:00（UTC+8），1–2 个工作日内首次响应。'
+    },
     legal: {
       retry: '重试',
       settingsLoadFailedHint: '无法加载站点条款与注册配置，请重试后再继续操作。',

@@ -21,7 +21,8 @@ const SHELL_MESSAGES = {
     docs: 'Docs',
     compatibility: 'Updates & Compatibility',
     terms: 'Terms of Service',
-    privacy: 'Privacy Policy'
+    privacy: 'Privacy Policy',
+    support: 'Support'
   },
   zh: {
     brandSubtitle: '统一 AI 推理网关',
@@ -34,7 +35,8 @@ const SHELL_MESSAGES = {
     docs: '接入文档',
     compatibility: '更新与兼容性',
     terms: '服务条款',
-    privacy: '隐私政策'
+    privacy: '隐私政策',
+    support: '人工支持'
   }
 } as const
 
@@ -218,6 +220,12 @@ onBeforeUnmount(() => {
                 class="oh-focus-ring rounded-oh-xs transition-colors hover:text-oh-primary"
               >
                 {{ tr('privacy') }}
+              </router-link>
+              <router-link
+                to="/docs#support"
+                class="oh-focus-ring rounded-oh-xs transition-colors hover:text-oh-primary"
+              >
+                {{ tr('support') }}
               </router-link>
             </nav>
           </div>

@@ -106,14 +106,16 @@ const compiledMessages = {
     nav: en.nav,
     common: en.common,
     keyUsage: en.keyUsage,
-    home: en.home
+    home: en.home,
+    publicPortal: en.publicPortal
   }),
   zh: prepareMessages({
     helpGuide: zh.helpGuide,
     nav: zh.nav,
     common: zh.common,
     keyUsage: zh.keyUsage,
-    home: zh.home
+    home: zh.home,
+    publicPortal: zh.publicPortal
   })
 }
 
@@ -303,5 +305,47 @@ describe('Public documentation, compatibility page & /models redirect (FE-10-15,
     i18n.global.locale.value = 'zh'
     await flushPromises()
     expect(wrapper.text()).toContain('协议兼容矩阵')
+  })
+
+  it('exposes human support entry from public footer and renders contact, scope, and SLA in HelpGuide #support [E1-3]', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/docs', component: HelpGuide },
+        { path: '/compatibility', component: PublicCompatibilityView }
+      ]
+    })
+    await router.push('/compatibility')
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: compiledMessages })
+
+    const compatWrapper = mount(PublicCompatibilityView, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { SiteICPFooter: true, LocaleSwitcher: true }
+      }
+    })
+    wrappers.push(compatWrapper)
+    await flushPromises()
+
+    const footerLinks = compatWrapper
+      .get('[data-testid="public-shell-footer"]')
+      .findAll('a')
+      .map((a) => a.attributes('href'))
+    expect(footerLinks).toContain('/docs#support')
+
+    await router.push('/docs#support')
+    const docsWrapper = mount(HelpGuide, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { SiteICPFooter: true, LocaleSwitcher: true }
+      }
+    })
+    wrappers.push(docsWrapper)
+    await flushPromises()
+
+    const supportSection = docsWrapper.find('#support')
+    expect(supportSection.exists()).toBe(true)
+    expect(supportSection.text()).toContain('Not configured')
+    expect(supportSection.text()).toContain('1–2 business days')
   })
 })
