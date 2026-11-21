@@ -513,8 +513,15 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		AccountRateMultiplier: accountRateMultiplier,
 		APIKeyService:         input.APIKeyService,
 		Platform:              quotaPlatform,
-	}, s.billingDeps(), result.ClientDisconnect || !result.SucceededForScheduling() || input.CyberBlocked || result.Stream && result.Usage.InputTokens == 0 && result.Usage.OutputTokens == 0)
+	}, s.billingDeps(), result.ClientDisconnect || !result.SucceededForScheduling() || input.CyberBlocked || streamWithoutUsageEvidence(result))
 
+}
+
+// streamWithoutUsageEvidence reports a stream whose adapter cannot tell missing
+// counters from zero. An empty meter there is review evidence, not a free
+// completion; adapters that observe counter presence settle explicit zeros.
+func streamWithoutUsageEvidence(result *OpenAIForwardResult) bool {
+	return result.Stream && result.TokenUsageObservation == nil && result.Usage.InputTokens == 0 && result.Usage.OutputTokens == 0
 }
 
 // hasIdentifiedOpenAIResponsePricing 判断上游自报的响应模型是否可以作为计费基准，
