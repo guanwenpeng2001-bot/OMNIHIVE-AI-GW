@@ -210,7 +210,8 @@ export function isHeaderOverrideCapable(platform: string, type: string): boolean
     platform === 'qianwen' ||
     platform === 'commandcode' ||
     platform === 'opencode_go' ||
-    platform === 'workbuddy'
+    platform === 'workbuddy' ||
+    platform === 'kilo'
   ) {
     return type === 'apikey'
   }
@@ -423,7 +424,9 @@ export const GROK_BASE_URL_PRESETS: GrokBaseUrlPreset[] = [
 // 两者正交。同协议请求零转换直通，跨协议组合才走转换链。
 
 export type CnAccountMode = 'payg' | 'coding'
-export type OpenCodeAccountMode = 'zen' | 'go'
+export type OpenCodeAccountMode = 'zen' | 'zen_free' | 'go'
+export type KiloAccountMode = 'free' | 'apikey'
+export const DEFAULT_KILO_BASE_URL = 'https://api.kilo.ai/api/gateway'
 export type CnProviderPlatform = 'kimi' | 'zhipu' | 'deepseek' | 'minimax' | 'qianwen'
 
 /** deepseek / kimi / minimax 支持原生 responses；adaptive 会按入站协议选择原生端点。 */
@@ -555,11 +558,51 @@ export const DEFAULT_OPENCODE_ZEN_PROTOCOL_RULES: OpenCodeGoProtocolRule[] = [
   { pattern: 'qwen*', protocol: 'anthropic' }
 ]
 
+export const DEFAULT_OPENCODE_ZEN_FREE_PROTOCOL_RULES: OpenCodeGoProtocolRule[] = [
+  { pattern: 'grok-*', protocol: 'responses' },
+  { pattern: 'gpt-*', protocol: 'responses' },
+  { pattern: 'muse-spark-*', protocol: 'responses' },
+  { pattern: 'union-alpha', protocol: 'anthropic' },
+  { pattern: 'claude-*', protocol: 'anthropic' },
+  { pattern: 'qwen*', protocol: 'anthropic' }
+]
+
 export function resolveOpenCodeAccountMode(value: unknown): OpenCodeAccountMode {
+  if (value === 'zen_free') return 'zen_free'
   return value === 'zen' ? 'zen' : 'go'
 }
 
+export function resolveKiloAccountMode(value: unknown): KiloAccountMode {
+  return value === 'apikey' ? 'apikey' : 'free'
+}
+
+export function buildKiloCredentials(input: {
+  mode: KiloAccountMode
+  apiKey?: string
+  baseUrl?: string
+  existing?: Record<string, unknown>
+}): Record<string, unknown> {
+  const credentials: Record<string, unknown> = {
+    ...(input.existing ? { ...input.existing } : {}),
+    account_mode: input.mode
+  }
+  const trimmedKey = input.apiKey?.trim() || ''
+  if (input.mode === 'free') {
+    delete credentials.api_key
+  } else if (trimmedKey) {
+    credentials.api_key = trimmedKey
+  }
+  const trimmedBaseUrl = input.baseUrl?.trim() || ''
+  if (trimmedBaseUrl) {
+    credentials.base_url = trimmedBaseUrl
+  } else {
+    credentials.base_url = DEFAULT_KILO_BASE_URL
+  }
+  return credentials
+}
+
 export function defaultOpenCodeProtocolRules(mode: OpenCodeAccountMode = 'go'): OpenCodeGoProtocolRule[] {
+  if (mode === 'zen_free') return DEFAULT_OPENCODE_ZEN_FREE_PROTOCOL_RULES
   return mode === 'zen' ? DEFAULT_OPENCODE_ZEN_PROTOCOL_RULES : DEFAULT_OPENCODE_GO_PROTOCOL_RULES
 }
 
@@ -847,7 +890,7 @@ export function defaultCNBaseUrl(
       case 'minimax':
         return 'https://api.minimaxi.com/anthropic'
       case 'opencode_go':
-        return mode === 'zen' ? OPENCODE_ZEN_ANTHROPIC_BASE_URL : OPENCODE_GO_ANTHROPIC_BASE_URL
+        return mode === 'zen' || mode === 'zen_free' ? OPENCODE_ZEN_ANTHROPIC_BASE_URL : OPENCODE_GO_ANTHROPIC_BASE_URL
       case 'hunyuan':
         // TokenHub 的 Anthropic Messages 路径与 OpenAI 路径共用同一站点根
         // （backend/internal/service/openai_gateway_messages_anthropic_native.go 按版本段
@@ -881,7 +924,9 @@ export function defaultCNBaseUrl(
     case 'minimax':
       return 'https://api.minimaxi.com/v1'
     case 'opencode_go':
-      return mode === 'zen' ? OPENCODE_ZEN_BASE_URL : OPENCODE_GO_BASE_URL
+      return mode === 'zen' || mode === 'zen_free' ? OPENCODE_ZEN_BASE_URL : OPENCODE_GO_BASE_URL
+    case 'kilo':
+      return DEFAULT_KILO_BASE_URL
     // 后加平台：按量付费只有一条 OpenAI 形态的站点（TokenHub / Ark /api/v3 / 千帆 /v2），
     // Chat 与 Responses 同址；套餐（coding）档换成厂商的套餐专属站点。
     case 'hunyuan':
@@ -987,7 +1032,7 @@ export function cnQuotaCellVisible(platform: string, accountMode: string, creden
     return profile === 'coding' || (profile === 'agent' && credentials?.volcengine_plan_edition === 'team')
   }
   if (platform === 'commandcode') return true
-  if (platform === 'opencode_go') return accountMode !== 'zen'
+  if (platform === 'opencode_go') return accountMode !== 'zen' && accountMode !== 'zen_free'
   return (platform === 'kimi' || platform === 'zhipu' || platform === 'minimax') && accountMode === 'coding'
 }
 

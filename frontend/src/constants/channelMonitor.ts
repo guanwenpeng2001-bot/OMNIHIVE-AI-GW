@@ -22,6 +22,7 @@ export const PROVIDER_COMMANDCODE: Provider = 'commandcode'
 export const PROVIDER_MINIMAX: Provider = 'minimax'
 export const PROVIDER_OPENCODE_GO: Provider = 'opencode_go'
 export const PROVIDER_WORKBUDDY: Provider = 'workbuddy'
+export const PROVIDER_KILO: Provider = 'kilo'
 
 export const DEFAULT_GROK_ENDPOINT = 'https://api.x.ai'
 export const DEFAULT_GROK_MODEL = 'grok-4.5'
@@ -33,10 +34,11 @@ export const DEFAULT_DEEPSEEK_ENDPOINT = 'https://api.deepseek.com'
 export const DEFAULT_MINIMAX_ENDPOINT = 'https://api.minimaxi.com'
 export const DEFAULT_OPENCODE_GO_ENDPOINT = 'https://opencode.ai/zen/go/v1'
 
-export const PROBE_ONLY_PROVIDERS: readonly Provider[] = [PROVIDER_QIANWEN, PROVIDER_COMMANDCODE, PROVIDER_MINIMAX, PROVIDER_OPENCODE_GO]
+export const PROBE_ONLY_PROVIDERS: readonly Provider[] = [PROVIDER_QIANWEN, PROVIDER_COMMANDCODE, PROVIDER_MINIMAX, PROVIDER_OPENCODE_GO, PROVIDER_KILO]
 export const DEFAULT_QIANWEN_ENDPOINT = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
 export const DEFAULT_COMMANDCODE_ENDPOINT = 'https://api.commandcode.ai/provider/v1'
-export const PROVIDER_DEFAULT_MODELS: Partial<Record<Provider, string>> = { qianwen: 'qwen-flash', commandcode: 'gpt-5.6-luna' }
+export const DEFAULT_KILO_ENDPOINT = 'https://api.kilo.ai/api/gateway'
+export const PROVIDER_DEFAULT_MODELS: Partial<Record<Provider, string>> = { qianwen: 'qwen-flash', commandcode: 'gpt-5.6-luna', kilo: 'kilo-auto/free' }
 
 export const CHECK_MODE_PROBE: CheckMode = 'probe'
 export const CHECK_MODE_QUOTA: CheckMode = 'quota'
@@ -59,6 +61,7 @@ export const PROVIDERS: readonly Provider[] = [
   PROVIDER_MINIMAX,
   PROVIDER_OPENCODE_GO,
   PROVIDER_WORKBUDDY,
+  PROVIDER_KILO,
 ]
 
 /** 仅支持配额模式（无探活 adapter）的 provider。 */

@@ -282,6 +282,7 @@ import {
   PROVIDER_MINIMAX,
   PROVIDER_OPENCODE_GO,
   PROVIDER_WORKBUDDY,
+  PROVIDER_KILO,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_RESPONSES,
   CHECK_MODE_PROBE,
@@ -495,6 +496,7 @@ const providerOptions = computed<ProviderOption[]>(() => [
   { value: PROVIDER_MINIMAX, label: t('monitorCommon.providers.minimax') },
   { value: PROVIDER_OPENCODE_GO, label: t('monitorCommon.providers.opencode_go') },
   { value: PROVIDER_WORKBUDDY, label: t('monitorCommon.providers.workbuddy') },
+  { value: PROVIDER_KILO, label: t('monitorCommon.providers.kilo') },
 ])
 
 // 国产 provider 预填的官方 endpoint（仅探活侧；配额模式 endpoint 可留空）。

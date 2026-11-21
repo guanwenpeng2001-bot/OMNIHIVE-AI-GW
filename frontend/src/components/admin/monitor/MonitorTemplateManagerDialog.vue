@@ -264,6 +264,7 @@ import {
   PROVIDER_MINIMAX,
   PROVIDER_OPENCODE_GO,
   PROVIDER_WORKBUDDY,
+  PROVIDER_KILO,
   PROVIDERS,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_RESPONSES,
@@ -294,6 +295,7 @@ const providerTabs = computed<{ value: Provider; label: string }[]>(() => [
   { value: PROVIDER_MINIMAX, label: t('monitorCommon.providers.minimax') },
   { value: PROVIDER_OPENCODE_GO, label: t('monitorCommon.providers.opencode_go') },
   { value: PROVIDER_WORKBUDDY, label: t('monitorCommon.providers.workbuddy') },
+  { value: PROVIDER_KILO, label: t('monitorCommon.providers.kilo') },
 ])
 
 const activeProvider = ref<Provider>(PROVIDER_ANTHROPIC)

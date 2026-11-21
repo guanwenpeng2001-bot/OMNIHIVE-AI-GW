@@ -476,6 +476,13 @@
         :account="account"
         @updated="handleOllamaCloudUsageUpdated"
       />
+      <div
+        v-else-if="isOpenCodeZenFreeAccount"
+        data-testid="opencode-zen-free-usage-badge"
+        class="inline-flex items-center rounded border border-lime-500/30 bg-lime-500/10 px-1.5 py-0.5 text-[10px] font-medium text-lime-700 dark:text-lime-300"
+      >
+        {{ t('admin.accounts.opencodeGo.accountMode.zenFreeBadge') }}
+      </div>
       <div v-else class="space-y-1">
         <!-- 子单元格各自按 模式×平台 判定可见；两者都不可见时（智谱 payg 无公开
              余额端点、coding 探测也不适用）才回落到占位符。 -->
@@ -486,6 +493,15 @@
         >-</div>
         <CNProviderQuotaCell :account="account" />
         <CNProviderBalanceCell :account="account" />
+      </div>
+    </template>
+
+    <template v-else-if="account.platform === 'kilo'">
+      <div
+        data-testid="kilo-usage-badge"
+        class="inline-flex items-center rounded border border-slate-500/30 bg-slate-500/10 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 dark:text-slate-300"
+      >
+        {{ isKiloFreeAccount ? t('admin.accounts.kilo.accountMode.freeBadge') : t('admin.accounts.kilo.accountMode.apikeyBadge') }}
       </div>
     </template>
 
@@ -794,10 +810,18 @@ let visibilityObserver: IntersectionObserver | null = null
 // Providers without a verified query for the selected account configuration.
 const PLATFORMS_WITHOUT_UPSTREAM_USAGE_ENDPOINT = ['qianwen', 'qianfan', 'hunyuan', 'mistral', 'volcengine']
 
+const isOpenCodeZenFreeAccount = computed(
+  () => props.account.platform === 'opencode_go' && props.account.credentials?.account_mode === 'zen_free'
+)
+const isKiloFreeAccount = computed(
+  () => props.account.platform === 'kilo' && props.account.credentials?.account_mode !== 'apikey'
+)
+
 const compatibleCapability = computed(() => compatibleUsageCapability(props.account))
 const hasNoUpstreamUsageApi = computed(() => {
   if (compatibleProvider(props.account.platform)) return compatibleCapability.value.kind === 'unsupported'
   if (props.account.ollama_cloud_usage?.eligible) return false
+  if (isOpenCodeZenFreeAccount.value || props.account.platform === 'kilo') return false
   if (['volcengine', 'hunyuan'].includes(props.account.platform) && cnQuotaCellVisible.value) return false
   if (PLATFORMS_WITHOUT_UPSTREAM_USAGE_ENDPOINT.includes(props.account.platform)) return true
   return ['zhipu', 'minimax', 'opencode_go'].includes(props.account.platform)
@@ -810,6 +834,7 @@ const keyUsageMoney = (value: number | null | undefined) => value == null ? '—
 const showUsageWindows = computed(() => {
   if (compatibleProvider(props.account.platform)) return true
   if (props.account.platform === 'openrouter') return props.account.type === 'apikey'
+  if (props.account.platform === 'kilo') return true
   if (hasNoUpstreamUsageApi.value) return false
   if (props.account.platform === 'cursor') return props.account.type !== 'upstream'
   if (props.account.platform === 'workbuddy') return Boolean(workbuddyUsageSnapshot.value)

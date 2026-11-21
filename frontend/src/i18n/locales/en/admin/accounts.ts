@@ -405,6 +405,7 @@ export default {
         volcengine: 'Volcengine Ark',
         cursor: 'Cursor',
         workbuddy: 'WorkBuddy',
+        kilo: 'Kilo',
         composite: 'Composite',
         claude: 'Claude',
       },
@@ -544,6 +545,10 @@ export default {
         accountMode: {
           zen: 'Zen',
           zenDesc: 'Pay-as-you-go gateway. Consumes account credits, billed per token.',
+          zenFree: 'Zen Free (No Key)',
+          zenFreeDesc: 'OpenCode Zen public free model pool. No paid API key required; automatically attaches client headers and tool compatibility.',
+          zenFreeBadge: 'Zen Free Pool',
+          zenFreeApiKeyHint: 'Keyless public pool: leave blank (or enter public) to use OpenCode Zen Free.',
           go: 'GO',
           goDesc: 'OpenCode Go subscription gateway, rate-limited by 5-hour / weekly / monthly usage windows; use the credentials from the matching Go subscription.',
         },
@@ -557,6 +562,20 @@ export default {
           fallback: 'Unmatched models → Chat Completions (/v1/chat/completions)',
         },
       },
+      kilo: {
+        accountMode: {
+          label: 'Kilo Access Mode',
+          free: 'Free Pool (No Key)',
+          freeDesc: 'Kilo public anonymous free pool (kilo-auto/free, Nemotron, ERNIE, etc.). No API key required.',
+          freeBadge: 'Kilo Free Pool',
+          freeApiKeyHint: 'Keyless public pool: leave blank to access Kilo free models without an Authorization header.',
+          apikey: 'API Key (Full Gateway)',
+          apikeyDesc: 'Connect with your Kilo API key to unlock the full Kilo model gateway.',
+          apikeyBadge: 'Kilo API Key',
+          baseUrlHint: 'Defaults to https://api.kilo.ai/api/gateway (no /v1 suffix).'
+        },
+      },
+      apiKeyOptional: 'API Key (optional)',
       types: {
         oauth: 'OAuth',
         chatgptOauth: 'ChatGPT OAuth',

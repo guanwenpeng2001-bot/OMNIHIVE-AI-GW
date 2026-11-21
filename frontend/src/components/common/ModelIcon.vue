@@ -158,6 +158,10 @@ const iconData: Record<string, IconData> = {
   workbuddy: {
     color: '#00C48C',
     paths: ['M4.2 3h15.6A2.2 2.2 0 0 1 22 5.2v13.6a2.2 2.2 0 0 1-2.2 2.2H4.2A2.2 2.2 0 0 1 2 18.8V5.2A2.2 2.2 0 0 1 4.2 3Zm2.35 4.8L9.2 16.5h1.95l1.65-5.35 1.65 5.35h1.95l2.65-8.7h-2.1l-1.55 5.55L13.75 7.8h-1.9l-1.65 5.55L8.65 7.8h-2.1Z']
+  },
+  kilo: {
+    color: '#475569',
+    paths: ['M4.5 3h15A1.5 1.5 0 0 1 21 4.5v15a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 19.5v-15A1.5 1.5 0 0 1 4.5 3ZM8 7v10h2.2v-3.8l1.2-1.2L14.4 17H17l-4.1-6.5L16.7 7H14l-3.8 3.9V7H8Z']
   }
 }
 
@@ -261,6 +265,9 @@ const iconKey = computed(() => {
 
   // WorkBuddy
   if (modelLower.includes('workbuddy')) return 'workbuddy'
+
+  // Kilo
+  if (modelLower.includes('kilo')) return 'kilo'
 
   return null
 })

@@ -307,10 +307,11 @@
         <!-- OpenCode Zen vs GO -->
         <div v-if="isProtocolApiKeyAccount && account.platform === 'opencode_go'">
           <label class="input-label">{{ t('admin.accounts.supplier.planType') }}</label>
-          <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.supplier.planType')" @keydown="navigateAccountChoices">
+          <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" role="radiogroup" :aria-label="t('admin.accounts.supplier.planType')" @keydown="navigateAccountChoices">
             <button
               type="button"
               @click="editOpenCodeAccountMode = 'zen'"
+              data-testid="edit-opencode-mode-zen"
               :class="[
                 'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
                 editOpenCodeAccountMode === 'zen'
@@ -333,7 +334,32 @@
             </button>
             <button
               type="button"
+              @click="editOpenCodeAccountMode = 'zen_free'"
+              data-testid="edit-opencode-mode-zen-free"
+              :class="[
+                'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+                editOpenCodeAccountMode === 'zen_free'
+                  ? 'border-lime-500 bg-lime-50 dark:bg-lime-900/20'
+                  : 'hover:border-gray-400 border-[var(--border)] dark:hover:border-gray-600'
+              ]" role="radio" :aria-checked="editOpenCodeAccountMode === 'zen_free'" :tabindex="editOpenCodeAccountMode === 'zen_free' ? 0 : -1"
+            >
+              <div
+                :class="[
+                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                  editOpenCodeAccountMode === 'zen_free' ? 'bg-lime-500 text-white' : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
+                ]"
+              >
+                <Icon name="sparkles" size="sm" />
+              </div>
+              <div>
+                <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.opencodeGo.accountMode.zenFree') }}</span>
+                <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.opencodeGo.accountMode.zenFreeDesc') }}</span>
+              </div>
+            </button>
+            <button
+              type="button"
               @click="editOpenCodeAccountMode = 'go'"
+              data-testid="edit-opencode-mode-go"
               :class="[
                 'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
                 editOpenCodeAccountMode === 'go'
@@ -352,6 +378,60 @@
               <div>
                 <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.opencodeGo.accountMode.go') }}</span>
                 <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.opencodeGo.accountMode.goDesc') }}</span>
+              </div>
+            </button>
+          </div>
+        </div>
+        <!-- Kilo Free Pool vs API Key -->
+        <div v-if="account.platform === 'kilo'">
+          <label class="input-label">{{ t('admin.accounts.kilo.accountMode.label') }}</label>
+          <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.kilo.accountMode.label')" @keydown="navigateAccountChoices">
+            <button
+              type="button"
+              @click="editKiloAccountMode = 'free'"
+              data-testid="edit-kilo-mode-free"
+              :class="[
+                'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+                editKiloAccountMode === 'free'
+                  ? 'border-slate-500 bg-slate-50 dark:bg-slate-900/30'
+                  : 'hover:border-gray-400 border-[var(--border)] dark:hover:border-gray-600'
+              ]" role="radio" :aria-checked="editKiloAccountMode === 'free'" :tabindex="editKiloAccountMode === 'free' ? 0 : -1"
+            >
+              <div
+                :class="[
+                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                  editKiloAccountMode === 'free' ? 'bg-slate-600 text-white' : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
+                ]"
+              >
+                <Icon name="sparkles" size="sm" />
+              </div>
+              <div>
+                <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.kilo.accountMode.free') }}</span>
+                <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.kilo.accountMode.freeDesc') }}</span>
+              </div>
+            </button>
+            <button
+              type="button"
+              @click="editKiloAccountMode = 'apikey'"
+              data-testid="edit-kilo-mode-apikey"
+              :class="[
+                'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+                editKiloAccountMode === 'apikey'
+                  ? 'border-slate-500 bg-slate-50 dark:bg-slate-900/30'
+                  : 'hover:border-gray-400 border-[var(--border)] dark:hover:border-gray-600'
+              ]" role="radio" :aria-checked="editKiloAccountMode === 'apikey'" :tabindex="editKiloAccountMode === 'apikey' ? 0 : -1"
+            >
+              <div
+                :class="[
+                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                  editKiloAccountMode === 'apikey' ? 'bg-slate-600 text-white' : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
+                ]"
+              >
+                <Icon name="key" size="sm" />
+              </div>
+              <div>
+                <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.kilo.accountMode.apikey') }}</span>
+                <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.kilo.accountMode.apikeyDesc') }}</span>
               </div>
             </button>
           </div>
@@ -464,7 +544,7 @@
           <p class="input-hint mt-2">{{ t('admin.accounts.cnProviders.zhipuTeam.hint') }}</p>
         </div>
         <div v-if="account.platform !== 'workbuddy'">
-          <label class="input-label">{{ t('admin.accounts.apiKey') }}</label>
+          <label class="input-label">{{ isEditKeylessPublicLane ? t('admin.accounts.apiKeyOptional') : t('admin.accounts.apiKey') }}</label>
           <input
             v-model="editApiKey" data-account-field="editApiKey"
             type="password"
@@ -2570,7 +2650,7 @@ import TencentQuotaFields from './TencentQuotaFields.vue'
 import { byteplusQuotaDraft, byteplusQuotaProfile, applyByteplusQuotaCredentials, tencentQuotaDraft, tencentQuotaProfile, applyTencentQuotaCredentials } from './credentialsBuilder'
 import UsageQueryCredentialFields from './UsageQueryCredentialFields.vue'
 import { usageQueryDraft, supportsUsageQuery, applyUsageQueryCredentials } from './credentialsBuilder'
-import { volcengineQuotaDraft, volcengineQuotaProfile, applyVolcengineQuotaCredentials, buildCursorCredentials, resolveCursorRelayProtocol, buildWorkBuddyCredentials, extractWorkBuddyOAuthDraft, extractWorkBuddySite, type WorkBuddyOAuthDraft } from './credentialsBuilder'
+import { volcengineQuotaDraft, volcengineQuotaProfile, applyVolcengineQuotaCredentials, buildCursorCredentials, resolveCursorRelayProtocol, buildWorkBuddyCredentials, extractWorkBuddyOAuthDraft, extractWorkBuddySite, type WorkBuddyOAuthDraft, buildKiloCredentials, DEFAULT_KILO_BASE_URL, resolveKiloAccountMode, type KiloAccountMode } from './credentialsBuilder'
 import type { WorkBuddySite } from '@/api/admin/workbuddy'
 import { ref, reactive, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -2826,6 +2906,7 @@ const editBaseUrlPlaceholder = computed(() => {
   if (platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (platform === 'antigravity') return 'https://cloudcode-pa.googleapis.com'
   if (platform === 'grok') return 'https://api.x.ai/v1'
+  if (platform === 'kilo') return DEFAULT_KILO_BASE_URL
   return 'https://api.anthropic.com'
 })
 
@@ -2840,6 +2921,8 @@ const editApiKeyPlaceholder = computed(() => {
   if (platform === 'gemini') return 'AIza...'
   if (platform === 'antigravity') return 'sk-...'
   if (platform === 'grok') return 'xai-...'
+  if (platform === 'opencode_go' && editOpenCodeAccountMode.value === 'zen_free') return 'public'
+  if (platform === 'kilo') return editKiloAccountMode.value === 'free' ? 'public' : 'sk-...'
   if (platform === 'kimi' || platform === 'deepseek' || platform === 'minimax' || platform === 'opencode_go') return 'sk-...'
   if (platform === 'zhipu') return '<api-key>.<secret>'
   return 'sk-ant-...'
@@ -2863,6 +2946,12 @@ const proxySelectionValid = ref(true)
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
+const editKiloAccountMode = ref<KiloAccountMode>('free')
+const isEditKeylessPublicLane = computed(
+  () =>
+    (props.account?.platform === 'opencode_go' && editOpenCodeAccountMode.value === 'zen_free') ||
+    (props.account?.platform === 'kilo' && editKiloAccountMode.value === 'free')
+)
 const cursorKeyMode = ref<'official' | 'relay' | 'auto'>('official')
 // Cursor 一级账号类型在本页只读：回填自已有 account.type，卡片仅展示当前类型。
 // 顺序与图标沿用创建页/字段组件原有的三张卡（Auto、官方 Key、Relay）。
@@ -3997,6 +4086,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   // Initialize API Key fields for apikey type
   if (newAccount.type === 'apikey' && newAccount.credentials) {
     const credentials = newAccount.credentials as Record<string, unknown>
+    if (newAccount.platform === 'kilo') {
+      editKiloAccountMode.value = resolveKiloAccountMode(credentials.account_mode)
+    }
     // 国产供应商：读取 account_mode 与 api_protocol 作为可编辑初始值
     // （编辑弹窗允许修正两者，用于修复早期存错默认值的账号）。
     if (isMultiProtocolApiKeyPlatform(newAccount.platform) || isDeclaredProtocolPlatform(newAccount.platform)) {
@@ -4734,6 +4826,17 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
           delete newCredentials.base_url
         }
       }
+      if (props.account.platform === 'kilo') {
+        Object.assign(
+          newCredentials,
+          buildKiloCredentials({
+            mode: editKiloAccountMode.value,
+            apiKey: editApiKey.value,
+            baseUrl: editBaseUrl.value,
+            existing: currentCredentials
+          })
+        )
+      }
       if (selectedCompatibleProvider.value) {
         delete newCredentials.base_url
         Object.assign(newCredentials, compatibleDraft.value)
@@ -4792,10 +4895,17 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
       // 两者都无才报错。
       const hasExistingApiKey =
         (props.account.credentials_status?.has_api_key ?? Boolean(currentCredentials.api_key)) && !specialCompatibleModeChanged(props.account.platform, currentCredentials, compatibleDraft.value)
-      if (editApiKey.value.trim()) {
+      if (props.account.platform === 'opencode_go' && editOpenCodeAccountMode.value === 'zen_free') {
+        newCredentials.api_key = editApiKey.value.trim() || 'public'
+      } else if (props.account.platform === 'kilo' && editKiloAccountMode.value === 'free') {
+        delete newCredentials.api_key
+      } else if (editApiKey.value.trim()) {
         newCredentials.api_key = editApiKey.value.trim()
       } else if (specialCompatibleKeyOptional(props.account.platform, compatibleDraft.value)) {
         if (specialCompatibleModeChanged(props.account.platform, currentCredentials, compatibleDraft.value)) newCredentials.api_key = ''
+      } else if (props.account.platform === 'kilo' && editKiloAccountMode.value === 'apikey' && currentCredentials.account_mode !== 'apikey') {
+        revealSection('account-connection-settings'); appStore.showError(t('admin.accounts.apiKeyIsRequired'))
+        return
       } else if (!hasExistingApiKey) {
         revealSection('account-connection-settings'); appStore.showError(t('admin.accounts.apiKeyIsRequired'))
         return

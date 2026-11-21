@@ -58,7 +58,8 @@ export const NATIVE_PLATFORM_OPTIONS = [
   { value: 'bedrock', label: 'Amazon Bedrock' },
   { value: 'volcengine', label: 'Volcengine Ark' },
   { value: 'cursor', label: 'Cursor', supportsOAuth: true },
-  { value: 'workbuddy', label: 'WorkBuddy', supportsOAuth: true }
+  { value: 'workbuddy', label: 'WorkBuddy', supportsOAuth: true },
+  { value: 'kilo', label: 'Kilo' }
 ] as const satisfies readonly PlatformOption[]
 
 export const CONCRETE_PLATFORM_OPTIONS: readonly PlatformOption[] = [
@@ -95,7 +96,7 @@ export function platformSupportsOAuth(platform: string): boolean {
 /** No verified pricing provider mapping exists for these platforms. */
 export function platformSupportsPricingSync(platform: string): boolean {
   return !compatibleProvider(platform) && NATIVE_PLATFORM_OPTIONS.some(option => option.value === platform) &&
-    !['qianwen', 'commandcode', 'cursor', 'qianfan', 'hunyuan', 'mistral', 'openrouter', 'bedrock', 'volcengine', 'workbuddy'].includes(platform)
+    !['qianwen', 'commandcode', 'cursor', 'qianfan', 'hunyuan', 'mistral', 'openrouter', 'bedrock', 'volcengine', 'workbuddy', 'kilo'].includes(platform)
 }
 
 export type AccountPlatform = typeof CONCRETE_PLATFORM_OPTIONS[number]['value']

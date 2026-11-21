@@ -1,6 +1,10 @@
 import type { UiStepItem, UiStepStatus } from '@/components/ui'
 import { defaultWorkBuddyDomain, type WorkBuddySite } from '@/api/admin/workbuddy'
-import type { WorkBuddyOAuthDraft } from '@/components/account/credentialsBuilder'
+import type {
+  KiloAccountMode,
+  OpenCodeAccountMode,
+  WorkBuddyOAuthDraft
+} from '@/components/account/credentialsBuilder'
 import {
   buildHeaderOverridesMap,
   getPrimaryVerificationDiagnostic,
@@ -67,6 +71,8 @@ export interface ConnectionWizardState {
   credentialRefreshToken: string
   workbuddySite: WorkBuddySite
   workbuddyOAuth: WorkBuddyOAuthDraft
+  kiloMode: KiloAccountMode
+  openCodeMode: OpenCodeAccountMode
   verification: ConnectionVerification | null
   verificationStale: boolean
   modelIds: string[]
@@ -218,6 +224,8 @@ export function createInitialWizardState(mode: 'create' | 'edit' = 'create'): Co
       domain: defaultWorkBuddyDomain('cn'),
       expires_at: ''
     },
+    kiloMode: 'free',
+    openCodeMode: 'zen',
     verification: null,
     verificationStale: false,
     modelIds: [],
@@ -278,6 +286,8 @@ export function hydrateWizardFromResource(
       domain: defaultWorkBuddyDomain(inferredSite),
       expires_at: ''
     },
+    kiloMode: state.kiloMode ?? 'free',
+    openCodeMode: state.openCodeMode ?? 'zen',
     verification: resource.last_verification ?? null,
     verificationStale: resource.last_verification ? !isVerificationFresh(resource.last_verification) : false,
     modelIds: [...resource.model_ids],
@@ -349,12 +359,21 @@ export function validateConnectionName(name: string, isZh = false): string | nul
   return null
 }
 
+export function isWizardKeylessPublicLane(state: Pick<ConnectionWizardState, 'provider' | 'authType' | 'kiloMode' | 'openCodeMode'>): boolean {
+  const provider = state.provider.trim().toLowerCase()
+  const authType = state.authType.trim().toLowerCase()
+  if (authType !== 'api_key' && authType !== 'apikey') return false
+  if (provider === 'kilo') return state.kiloMode === 'free'
+  if (provider === 'opencode_go') return state.openCodeMode === 'zen_free'
+  return false
+}
+
 export function hasPendingCredentialMutation(state: ConnectionWizardState): boolean {
   if (state.credentialMode === 'clear') {
     return true
   }
   if (state.credentialMode === 'set') {
-    return state.credentialSecret.trim().length > 0
+    return state.credentialSecret.trim().length > 0 || isWizardKeylessPublicLane(state)
   }
   return false
 }
@@ -364,7 +383,17 @@ export function buildCredentialInputPayload(state: ConnectionWizardState): Conne
     return { operation: 'clear' }
   }
   const trimmedSecret = state.credentialSecret.trim()
-  if (state.credentialMode === 'keep' || trimmedSecret === '') {
+  if (state.credentialMode === 'keep') {
+    return { operation: 'keep' }
+  }
+  if (trimmedSecret === '') {
+    if (isWizardKeylessPublicLane(state)) {
+      return {
+        operation: 'set',
+        type: state.authType,
+        secret: 'public'
+      }
+    }
     return { operation: 'keep' }
   }
   const trimmedRefresh = state.credentialRefreshToken.trim()
@@ -435,7 +464,7 @@ export function canProceedFromStep(
     }
     const missingUnsetCredential =
       (state.credentialMode === 'keep' && state.credentialState === 'unset') ||
-      (state.credentialMode === 'set' && !state.credentialSecret.trim() && state.credentialState === 'unset')
+      (state.credentialMode === 'set' && !state.credentialSecret.trim() && !isWizardKeylessPublicLane(state) && state.credentialState === 'unset')
     if (missingUnsetCredential) {
       const oauthSupported = isOAuthWorkflowSupported(schema, state.authType)
       return {
@@ -449,7 +478,7 @@ export function canProceedFromStep(
             : 'No credential is configured yet. Enter a valid API key / secret before continuing.'
       }
     }
-    if (state.credentialMode === 'set' && !state.credentialSecret.trim()) {
+    if (state.credentialMode === 'set' && !state.credentialSecret.trim() && !isWizardKeylessPublicLane(state)) {
       return {
         valid: false,
         reason: isZh

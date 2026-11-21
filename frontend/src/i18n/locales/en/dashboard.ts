@@ -666,7 +666,8 @@ export default {
       minimax: 'MiniMax',
       cursor: 'Cursor',
       opencode_go: 'OpenCode',
-      workbuddy: 'WorkBuddy'
+      workbuddy: 'WorkBuddy',
+      kilo: 'Kilo'
     },
     // Check modes (how a monitor performs its checks)
     checkMode: {
