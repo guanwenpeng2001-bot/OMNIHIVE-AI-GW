@@ -385,7 +385,7 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
     )
   })
 
-  it('displays project key granted actions and models.read non-grantable scope before and after creation (E2-2)', async () => {
+  it('keeps models.read unchecked by default and allows opting in on project keys (E2-2)', async () => {
     mocks.getAvailableGroups.mockResolvedValue([
       {
         id: '12',
@@ -397,12 +397,19 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
         is_exclusive: false,
       },
     ])
-    mocks.createProjectKey.mockResolvedValue({
-      id: 'pk_12',
-      name: 'scoped-key',
-      credential: 'sk-proj-test',
-      actions: ['text.chat', 'text.embeddings', 'image.generate', 'usage.read', 'tasks.read'],
-    })
+    mocks.createProjectKey
+      .mockResolvedValueOnce({
+        id: 'pk_12',
+        name: 'default-scoped-key',
+        credential: 'sk-proj-default',
+        actions: ['text.chat', 'text.embeddings', 'image.generate', 'usage.read', 'tasks.read'],
+      })
+      .mockResolvedValueOnce({
+        id: 'pk_13',
+        name: 'models-read-key',
+        credential: 'sk-proj-models',
+        actions: ['text.chat', 'text.embeddings', 'image.generate', 'usage.read', 'tasks.read', 'models.read'],
+      })
 
     const wrapper = mount(KeysView, { global: { stubs } })
     await flushPromises()
@@ -413,19 +420,57 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
     await wrapper.get('#key-form input[type="checkbox"]').setValue(true)
     await flushPromises()
 
+    const modelsReadCheckbox = wrapper.get('[data-testid="project-key-models-read-checkbox"]')
+    expect((modelsReadCheckbox.element as HTMLInputElement).checked).toBe(false)
+
     const preview = wrapper.get('[data-testid="project-key-scope-preview"]')
     expect(preview.text()).toContain('text.chat')
-    expect(preview.text()).toContain('models.read')
-    expect(preview.text()).toContain('keys.projectScopeModelsReadNotice')
+    expect(preview.text()).toContain('keys.projectScopeModelsReadExcluded')
+    expect(preview.findAll('code').map((c) => c.text())).not.toContain('models.read')
 
-    await wrapper.get('[data-tour="key-form-name"]').setValue('scoped-key')
+    await wrapper.get('[data-tour="key-form-name"]').setValue('default-scoped-key')
     await wrapper.get('#key-form').trigger('submit.prevent')
     await flushPromises()
 
+    expect(mocks.createProjectKey).toHaveBeenNthCalledWith(
+      1,
+      '10',
+      '20',
+      expect.objectContaining({
+        actions: ['text.chat', 'text.embeddings', 'image.generate', 'usage.read', 'tasks.read'],
+      })
+    )
     const issuedBanner = wrapper.get('[data-testid="issued-project-key-scope-banner"]')
     expect(issuedBanner.text()).toContain('keys.issuedProjectKeyScopeTitle')
     expect(issuedBanner.text()).toContain('text.chat')
-    expect(issuedBanner.text()).toContain('models.read')
-    expect(issuedBanner.text()).toContain('keys.projectScopeModelsReadNotice')
+    expect(issuedBanner.text()).toContain('keys.projectScopeModelsReadExcluded')
+
+    // Open again and explicitly grant models.read
+    await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('#key-form input[type="checkbox"]').setValue(true)
+    await flushPromises()
+    await wrapper.get('[data-testid="project-key-models-read-checkbox"]').setValue(true)
+    await flushPromises()
+
+    const previewWithModels = wrapper.get('[data-testid="project-key-scope-preview"]')
+    expect(previewWithModels.findAll('code').map((c) => c.text())).toContain('models.read')
+    expect(previewWithModels.text()).toContain('keys.projectScopeModelsReadIncluded')
+
+    await wrapper.get('[data-tour="key-form-name"]').setValue('models-read-key')
+    await wrapper.get('#key-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(mocks.createProjectKey).toHaveBeenNthCalledWith(
+      2,
+      '10',
+      '20',
+      expect.objectContaining({
+        actions: ['text.chat', 'text.embeddings', 'image.generate', 'usage.read', 'tasks.read', 'models.read'],
+      })
+    )
+    const issuedWithModels = wrapper.get('[data-testid="issued-project-key-scope-banner"]')
+    expect(issuedWithModels.findAll('code').map((c) => c.text())).toContain('models.read')
+    expect(issuedWithModels.text()).toContain('keys.projectScopeModelsReadIncluded')
   })
 })

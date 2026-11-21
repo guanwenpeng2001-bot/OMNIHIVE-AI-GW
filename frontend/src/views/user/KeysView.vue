@@ -129,17 +129,20 @@
             {{ act }}
           </code>
         </div>
-        <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-300">
-          <span class="font-medium">{{ t('keys.projectScopeNotGrantedActions') }}:</span>
-          <code
-            v-for="act in lastIssuedProjectKeyScope.excludedActions"
-            :key="act"
-            class="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 font-mono text-[11px] dark:border-amber-800 dark:bg-amber-950/40"
-          >
-            {{ act }}
-          </code>
-          <span>{{ t('keys.projectScopeModelsReadNotice') }}</span>
-        </div>
+        <p
+          class="text-[11px]"
+          :class="
+            lastIssuedProjectKeyScope.actions.includes('models.read')
+              ? 'text-emerald-700 dark:text-emerald-300'
+              : 'text-[var(--muted-foreground)]'
+          "
+        >
+          {{
+            lastIssuedProjectKeyScope.actions.includes('models.read')
+              ? t('keys.projectScopeModelsReadIncluded')
+              : t('keys.projectScopeModelsReadExcluded')
+          }}
+        </p>
       </section>
 
       <section class="oh-gateway-banner card p-3 sm:px-4" aria-labelledby="pay-as-you-go-title">
@@ -872,27 +875,38 @@
             <p class="font-semibold text-[var(--foreground)]">
               {{ t('keys.projectScopePreviewTitle') }}
             </p>
+            <label class="flex cursor-pointer items-center gap-2 text-[var(--foreground)]">
+              <input
+                v-model="projectKeyAllowModelsRead"
+                type="checkbox"
+                data-testid="project-key-models-read-checkbox"
+                class="h-3.5 w-3.5 rounded border-[var(--border)]"
+              />
+              <span>{{ t('keys.projectScopeModelsReadLabel') }}</span>
+            </label>
             <div class="flex flex-wrap items-center gap-1.5">
               <span class="text-[var(--muted-foreground)]">{{ t('keys.projectScopeGrantedActions') }}:</span>
               <code
-                v-for="act in PROJECT_KEY_GRANTED_ACTIONS"
+                v-for="act in selectedProjectKeyActions"
                 :key="act"
                 class="rounded border border-[var(--border)] bg-[var(--surface-2,transparent)] px-1.5 py-0.5 font-mono text-[var(--foreground)]"
               >
                 {{ act }}
               </code>
             </div>
-            <div class="flex flex-wrap items-center gap-1.5 text-amber-700 dark:text-amber-300">
-              <span>{{ t('keys.projectScopeNotGrantedActions') }}:</span>
-              <code
-                v-for="act in PROJECT_KEY_EXCLUDED_ACTIONS"
-                :key="act"
-                class="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 font-mono dark:border-amber-800 dark:bg-amber-950/40"
-              >
-                {{ act }}
-              </code>
-              <span>{{ t('keys.projectScopeModelsReadNotice') }}</span>
-            </div>
+            <p
+              :class="
+                projectKeyAllowModelsRead
+                  ? 'text-emerald-700 dark:text-emerald-300'
+                  : 'text-[var(--muted-foreground)]'
+              "
+            >
+              {{
+                projectKeyAllowModelsRead
+                  ? t('keys.projectScopeModelsReadIncluded')
+                  : t('keys.projectScopeModelsReadExcluded')
+              }}
+            </p>
           </div>
         </div>
 
@@ -1792,6 +1806,7 @@ const instance = getCurrentInstance()
 const activeConsoleScope = ref<ConsoleScopeSelection>(readPersistedConsoleScope())
 const projectScopedKeys = ref<IdentityKey[]>([])
 const issueProjectPolicyCredential = ref(false)
+const projectKeyAllowModelsRead = ref(false)
 const PROJECT_KEY_GRANTED_ACTIONS = [
   'text.chat',
   'text.embeddings',
@@ -1799,11 +1814,14 @@ const PROJECT_KEY_GRANTED_ACTIONS = [
   'usage.read',
   'tasks.read'
 ] as const
-const PROJECT_KEY_EXCLUDED_ACTIONS = ['models.read'] as const
+const selectedProjectKeyActions = computed<string[]>(() =>
+  projectKeyAllowModelsRead.value
+    ? [...PROJECT_KEY_GRANTED_ACTIONS, 'models.read']
+    : [...PROJECT_KEY_GRANTED_ACTIONS]
+)
 const lastIssuedProjectKeyScope = ref<{
   name: string
   actions: string[]
-  excludedActions: string[]
 } | null>(null)
 
 const scopedBillingHref = computed(() => {
@@ -2940,7 +2958,9 @@ const handleSubmit = async () => {
           group_id: String(projectGroupId),
           name: formData.value.name.trim(),
           model_access: { mode: 'inherit', ids: [] },
-          actions: [...PROJECT_KEY_GRANTED_ACTIONS],
+          actions: [...selectedProjectKeyActions.value] as Parameters<
+            typeof identityApi.createProjectKey
+          >[2]['actions'],
           expires_at: expiresAt || null
         }
       )
@@ -2950,8 +2970,7 @@ const handleSubmit = async () => {
         actions:
           Array.isArray(createdActions) && createdActions.length > 0
             ? createdActions
-            : [...PROJECT_KEY_GRANTED_ACTIONS],
-        excludedActions: [...PROJECT_KEY_EXCLUDED_ACTIONS]
+            : [...selectedProjectKeyActions.value]
       }
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       if (created?.credential) {
@@ -3022,6 +3041,7 @@ const closeModals = () => {
   showEditModal.value = false
   selectedKey.value = null
   issueProjectPolicyCredential.value = false
+  projectKeyAllowModelsRead.value = false
   formData.value = {
     name: '',
     group_id: null,
