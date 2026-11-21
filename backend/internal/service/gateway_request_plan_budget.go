@@ -13,15 +13,24 @@ import (
 
 var ErrGatewayBudgetModelNotFound = errors.New("model_not_found")
 
+// GatewayBudgetModelUnknown reports a model that neither pricing nor the model
+// registry knows. Missing billing or registry wiring is an availability fault,
+// not evidence that the model is absent.
 func GatewayBudgetModelUnknown(plan *GatewayRequestPlan, estimate RequestBudgetEstimate) bool {
-	return estimate.Meter == nil && budgetModelOutputLimit(plan, estimate.Model) == 0
+	if estimate.Meter != nil || plan == nil || plan.billing == nil || plan.ModelRegistrySnapshot() == nil {
+		return false
+	}
+	capabilities := plan.ModelRegistrySnapshot().CapabilitySnapshot()
+	return capabilities != nil && !capabilities.KnowsModel(estimate.Model)
 }
+
+var budgetCapabilityProfiles = []string{"anthropic", "openai", "gemini", "vertex_ai"}
 
 func budgetModelOutputLimit(plan *GatewayRequestPlan, model string) int {
 	if plan == nil || plan.ModelRegistrySnapshot() == nil {
 		return 0
 	}
-	for _, profile := range []string{"anthropic", "openai", "gemini", "vertex_ai"} {
+	for _, profile := range budgetCapabilityProfiles {
 		if record, ok := plan.ModelRegistrySnapshot().CapabilitySnapshot().LookupExact(profile, model); ok && record.MaxOutputTokens != nil {
 			return int(*record.MaxOutputTokens)
 		}

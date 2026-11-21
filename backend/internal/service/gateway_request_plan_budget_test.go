@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -222,4 +223,25 @@ func TestBudgetUpperBoundIncludesCandidatesAndHighestCacheWriteRate(t *testing.T
 	amount := plan.estimateBudgetHold(t.Context(), RequestBudgetEstimate{Model: "bound-model", Group: group, InputTokens: 100, OutputTokens: 300, CacheCreationTokens: 100})
 	require.NotNil(t, amount)
 	require.Equal(t, "0.00170000", amount.String())
+}
+
+func TestGatewayBudgetModelUnknownRequiresBillingAndRegistryEvidence(t *testing.T) {
+	plan := NewGatewayRequestPlan(GatewayRequestSpec{})
+	require.False(t, GatewayBudgetModelUnknown(plan, RequestBudgetEstimate{Model: "unknown model"}), "unwired billing is an availability fault")
+
+	plan.billing = NewBillingService(nil, nil)
+	require.True(t, GatewayBudgetModelUnknown(plan, RequestBudgetEstimate{Model: "unknown model"}))
+	require.False(t, GatewayBudgetModelUnknown(plan, RequestBudgetEstimate{Model: "unknown model", Meter: &BudgetMeter{Unit: "image"}}))
+
+	known := ""
+	for key, record := range plan.ModelRegistrySnapshot().CapabilitySnapshot().records {
+		if _, model, ok := strings.Cut(key, "\x00"); ok && (known == "" || record.MaxOutputTokens == nil) {
+			known = model
+		}
+	}
+	require.NotEmpty(t, known)
+	require.False(t, GatewayBudgetModelUnknown(plan, RequestBudgetEstimate{Model: known}), "a registered model is never model_not_found")
+
+	plan.registrySnapshot = nil
+	require.False(t, GatewayBudgetModelUnknown(plan, RequestBudgetEstimate{Model: "unknown model"}), "a missing registry is an availability fault")
 }

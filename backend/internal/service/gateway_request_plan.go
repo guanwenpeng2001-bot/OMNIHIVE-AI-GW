@@ -385,12 +385,12 @@ func (p *GatewayRequestPlan) ReserveBudget(ctx context.Context, estimate Request
 		return ErrAPIKeyBudgetUnavailable
 	}
 	amount := p.estimateBudgetHold(ctx, estimate)
-	if amount == nil && GatewayBudgetModelUnknown(p, estimate) {
-		return ErrGatewayBudgetModelNotFound
-	}
 	// Acquire the key hold first. If project admission fails the request's
 	// finalizer refunds it, including after client cancellation.
 	if !estimate.SkipKeyBudget && p.budgetHold == nil {
+		if amount == nil && p.settlement != nil && GatewayBudgetModelUnknown(p, estimate) {
+			return ErrGatewayBudgetModelNotFound
+		}
 		if p.settlement == nil || amount == nil {
 			return ErrAPIKeyBudgetUnavailable
 		}
