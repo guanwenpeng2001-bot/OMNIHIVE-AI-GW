@@ -25,6 +25,6 @@ func (p *GatewayRequestPlan) AdmitRealtimeHandshake(ctx context.Context, account
 		if err != nil {
 			outcome = "unknown"
 		}
-		p.observeJournalAttempt(at, outcome)
+		p.observeJournalAttempt(at, outcome, 0)
 	}, nil
 }

@@ -653,19 +653,12 @@ func (p *GatewayRequestPlan) journalDispatch(ctx context.Context, accountID int6
 	return a, err
 }
 
-func (p *GatewayRequestPlan) observeJournalAttempt(a journal.Attempt, outcome string) {
+func (p *GatewayRequestPlan) observeJournalAttempt(a journal.Attempt, outcome string, status int) {
 	if a.ID == "" {
 		return
 	}
 	a.Outcome = outcome
-	switch outcome {
-	case "transport_response":
-		a.Acceptance = attempt.Accepted
-	case "not_sent", "rejected":
-		a.Acceptance = attempt.NotSent
-	default:
-		a.Acceptance = attempt.Unknown
-	}
+	a.Acceptance = generationAcceptance(outcome, status)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	p.logJournalError(p.store.Observe(ctx, a))

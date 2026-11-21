@@ -64,7 +64,7 @@ type AttemptBudget struct {
 	limit       int
 	response    *lifecycle.Response
 	pendingWS   *AttemptRecord
-	observeWS   func(string)
+	observeWS   func(string, int)
 	interrupted *AttemptRecord
 	// replayFrom identifies the sole abandoned attempt whose replacement is authorized.
 	replayFrom     *AttemptRecord
@@ -148,7 +148,7 @@ func rejectAttemptWS(ctx context.Context, accountID int64, status int) {
 		return
 	}
 	b.mu.Lock()
-	var observe func(string)
+	var observe func(string, int)
 	if r := b.pendingWS; r != nil && r.AccountID == accountID {
 		r.Outcome, r.Status = "rejected", status
 		observe = b.observeWS
@@ -156,7 +156,7 @@ func rejectAttemptWS(ctx context.Context, accountID int64, status int) {
 	}
 	b.mu.Unlock()
 	if observe != nil {
-		observe("rejected")
+		observe("rejected", status)
 	}
 }
 
@@ -168,14 +168,14 @@ func writeAttemptWS(ctx context.Context, payload []byte, send func() error) erro
 	event := gjson.GetBytes(payload, "type").String()
 	b.mu.Lock()
 	r := b.response
-	var observe func(string)
+	var observe func(string, int)
 	if b.pendingWS != nil && b.pendingWS.Outcome != "transport_response" && strings.HasPrefix(event, "response.") {
 		b.pendingWS.Outcome = "transport_response"
 		observe = b.observeWS
 	}
 	b.mu.Unlock()
 	if observe != nil {
-		observe("transport_response")
+		observe("transport_response", 0)
 	}
 	if isOpenAIWSTerminalEvent(event) {
 		if !r.BeginTerminal() {
@@ -365,6 +365,27 @@ func AttemptDecisionBudget(ctx context.Context) attempt.Budget {
 	return decisionBudgetLocked(ctx, b)
 }
 
+// A known rejection declines generation even though a physical send occurred.
+func generationAcceptance(outcome string, status int) attempt.Acceptance {
+	switch outcome {
+	case "not_sent":
+		return attempt.NotSent
+	case "rejected":
+		switch status {
+		case http.StatusBadRequest, http.StatusUnauthorized, http.StatusPaymentRequired,
+			http.StatusForbidden, http.StatusNotFound, http.StatusMethodNotAllowed,
+			http.StatusRequestEntityTooLarge, http.StatusUnsupportedMediaType,
+			http.StatusUnprocessableEntity, http.StatusTooManyRequests:
+			return attempt.NotSent
+		}
+		return attempt.Accepted
+	case "transport_response":
+		return attempt.Accepted
+	default:
+		return attempt.Unknown
+	}
+}
+
 func decisionBudgetLocked(ctx context.Context, b *AttemptBudget) attempt.Budget {
 	view := attempt.Budget{Acceptance: attempt.NotSent, Remaining: -1}
 	var err error
@@ -376,12 +397,7 @@ func decisionBudgetLocked(ctx context.Context, b *AttemptBudget) attempt.Budget 
 			r := b.attempts[view.Number-1]
 			view.AbandonedUncertain = r.AbandonedUncertain
 			view.ReplayAvailable = !r.preHeaderUnknown && b.replayFrom == nil && view.AbandonedUncertain && b.response.State() == lifecycle.PreOutput && !b.response.ReplayBlocked()
-			switch r.Outcome {
-			case "unknown":
-				view.Acceptance = attempt.Unknown
-			case "transport_response", "rejected":
-				view.Acceptance = attempt.Accepted
-			}
+			view.Acceptance = generationAcceptance(r.Outcome, r.Status)
 		}
 		err = b.checkLocked(ctx)
 	} else if ctx != nil {
@@ -508,7 +524,7 @@ func beginGenerationAttempt(ctx context.Context, accountID int64, ws bool) (func
 		if err := b.checkSendLocked(ctx, accountID); err != nil {
 			b.mu.Unlock()
 			plan.releaseUnsentTPM(tpmSequence)
-			plan.observeJournalAttempt(durable, "not_sent")
+			plan.observeJournalAttempt(durable, "not_sent", 0)
 			return nil, err
 		}
 		index := len(b.attempts)
@@ -534,7 +550,7 @@ func beginGenerationAttempt(ctx context.Context, accountID int64, ws bool) (func
 		if ws && b.streamTurns {
 			b.pendingWS = record
 			if durable.ID != "" {
-				b.observeWS = func(outcome string) { plan.observeJournalAttempt(durable, outcome) }
+				b.observeWS = func(outcome string, status int) { plan.observeJournalAttempt(durable, outcome, status) }
 			}
 		}
 		b.mu.Unlock()
@@ -577,9 +593,9 @@ func beginGenerationAttempt(ctx context.Context, accountID int64, ws bool) (func
 						}
 					}
 				}
-				outcome = record.Outcome
+				outcome, status = record.Outcome, record.Status
 				b.mu.Unlock()
-				plan.observeJournalAttempt(durable, outcome)
+				plan.observeJournalAttempt(durable, outcome, status)
 			}
 		})
 	}, nil

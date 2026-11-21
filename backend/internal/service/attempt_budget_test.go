@@ -35,6 +35,21 @@ func TestHTTPRejectionRemainsSentAfterRetryDecision(t *testing.T) {
 	require.Equal(t, "rejected", record.Outcome)
 }
 
+func TestRateLimitDeclinesGenerationAfterPhysicalSend(t *testing.T) {
+	ctx, cancel := WithAttemptBudget(t.Context(), 2, time.Minute)
+	defer cancel()
+	finish, err := BeginGenerationAttempt(ctx, 9)
+	require.NoError(t, err)
+	finish(http.StatusTooManyRequests, nil)
+	view := AttemptDecisionBudget(ctx)
+	require.Equal(t, attempt.NotSent, view.Acceptance)
+	require.Equal(t, 1, view.Number)
+	require.Equal(t, 1, view.Remaining)
+	record := AttemptBudgetFromContext(ctx).Snapshot()[0]
+	require.Equal(t, "rejected", record.Outcome)
+	require.Equal(t, http.StatusTooManyRequests, record.Status)
+}
+
 type attemptBudgetHTTPUpstream struct {
 	sends  int
 	unsent bool
@@ -325,7 +340,8 @@ func TestAttemptBudgetWebSocketReconcileAndTerminal(t *testing.T) {
 	require.ErrorIs(t, CheckAttemptBudget(ctx), ErrAttemptOutcomeUnknown)
 	rejectAttemptWS(ctx, 7, 429)
 	require.NoError(t, CheckAttemptBudget(ctx))
-	require.Equal(t, attempt.Accepted, AttemptDecisionBudget(ctx).Acceptance)
+	require.Equal(t, attempt.NotSent, AttemptDecisionBudget(ctx).Acceptance)
+	require.Equal(t, "rejected", AttemptBudgetFromContext(ctx).Snapshot()[0].Outcome)
 	require.NoError(t, generationWS(ctx, 8, msg, send))
 
 	calls := 0
@@ -335,6 +351,7 @@ func TestAttemptBudgetWebSocketReconcileAndTerminal(t *testing.T) {
 	require.Equal(t, lifecycle.HeartbeatOnly, r.State())
 	require.NoError(t, writeAttemptWS(ctx, []byte(`{"type":"response.output_text.delta","delta":"a"}`), frame))
 	require.Equal(t, lifecycle.SemanticOutput, r.State())
+	require.Equal(t, attempt.Accepted, AttemptDecisionBudget(ctx).Acceptance)
 	terminal := []byte(`{"type":"response.completed"}`)
 	require.ErrorIs(t, writeAttemptWS(ctx, terminal, func() error { calls++; return io.ErrClosedPipe }), io.ErrClosedPipe)
 	require.NoError(t, writeAttemptWS(ctx, terminal, frame))
