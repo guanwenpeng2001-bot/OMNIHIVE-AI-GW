@@ -14,7 +14,7 @@ func backfillAccountSecrets(ctx context.Context, db *sql.DB, enc service.SecretE
 	if err != nil {
 		return fmt.Errorf("account credential migration lock: %w", err)
 	}
-	defer connection.Close()
+	defer func() { _ = connection.Close() }()
 	if _, err = connection.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, migrationsAdvisoryLockID+1); err != nil {
 		return fmt.Errorf("account credential migration lock: %w", err)
 	}

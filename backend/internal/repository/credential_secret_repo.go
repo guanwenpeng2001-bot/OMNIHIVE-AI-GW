@@ -388,7 +388,7 @@ func (r *accountRepository) bulkUpdateCredentialSecrets(ctx context.Context, ids
 		}
 		if tx != nil {
 			owned = true
-			defer tx.Rollback()
+			defer func() { _ = tx.Rollback() }()
 			ctx = dbent.NewTxContext(ctx, tx)
 		}
 	}
