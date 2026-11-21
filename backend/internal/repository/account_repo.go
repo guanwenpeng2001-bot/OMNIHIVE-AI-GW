@@ -333,7 +333,7 @@ func (r *accountRepository) GetByID(ctx context.Context, id int64) (*service.Acc
 		return nil, translatePersistenceError(err, service.ErrAccountNotFound, nil)
 	}
 
-	accounts, err := r.accountsToService(ctx, []*dbent.Account{m})
+	accounts, err := r.accountToServiceStrict(ctx, m)
 	if err != nil {
 		return nil, err
 	}
@@ -473,7 +473,7 @@ func (r *accountRepository) GetByCRSAccountID(ctx context.Context, crsAccountID 
 		return nil, err
 	}
 
-	accounts, err := r.accountsToService(ctx, []*dbent.Account{m})
+	accounts, err := r.accountToServiceStrict(ctx, m)
 	if err != nil {
 		return nil, err
 	}
@@ -3807,7 +3807,19 @@ func (r *accountRepository) queryAccountsByGroup(ctx context.Context, groupID in
 	return r.accountsToService(ctx, accounts)
 }
 
+// accountsToService serves list reads: a row whose stored credential is
+// unusable is omitted (or shown redacted to operators) instead of failing the list.
 func (r *accountRepository) accountsToService(ctx context.Context, accounts []*dbent.Account) ([]service.Account, error) {
+	return r.accountsToServiceMode(ctx, accounts, false)
+}
+
+// accountToServiceStrict serves single-account reads, which report the
+// credential failure explicitly.
+func (r *accountRepository) accountToServiceStrict(ctx context.Context, account *dbent.Account) ([]service.Account, error) {
+	return r.accountsToServiceMode(ctx, []*dbent.Account{account}, true)
+}
+
+func (r *accountRepository) accountsToServiceMode(ctx context.Context, accounts []*dbent.Account, strict bool) ([]service.Account, error) {
 	if len(accounts) == 0 {
 		return []service.Account{}, nil
 	}
@@ -3847,7 +3859,7 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 			out.ProxyGroup = proxyGroups[*out.ProxyGroupID]
 		}
 		if unusable, err := r.resolveListedAccountCredentials(ctx, clientFromContext(ctx, r.client), out); err != nil {
-			if !unusable {
+			if strict || !unusable {
 				return nil, err
 			}
 			// One unusable stored credential must not hide every other account
