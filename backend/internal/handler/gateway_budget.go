@@ -2,8 +2,10 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"unicode/utf8"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 
@@ -62,7 +64,62 @@ func gatewayRequestBudgetEstimate(plan *service.GatewayRequestPlan, key *service
 	}
 	estimate.InputTokens = estimateGatewayRequestInputTokens(body)
 	estimate.OutputTokens = declaredGatewayMaxOutputTokens(body)
+	estimate.OutputTokens = gatewayCandidateCount(body) * (estimate.OutputTokens + declaredGatewayReasoningTokens(body))
+	if estimate.OutputTokens == 0 {
+		estimate.OutputTokens = modelBudgetOutputLimit(plan, model)
+	}
+	estimate.CacheCreationTokens = estimateGatewayCacheCreationTokens(body, estimate.InputTokens)
 	return estimate
+}
+
+func gatewayCandidateCount(body []byte) int {
+	for _, name := range []string{"n", "best_of", "generationConfig.candidateCount", "generation_config.candidate_count"} {
+		if count := gjson.GetBytes(body, name); count.Exists() && count.Type == gjson.Number && count.Int() > 1 {
+			return int(count.Int())
+		}
+	}
+	return 1
+}
+
+func declaredGatewayReasoningTokens(body []byte) int {
+	for _, name := range []string{"generationConfig.thinkingConfig.thinkingBudget", "generation_config.thinking_config.thinking_budget"} {
+		if value := gjson.GetBytes(body, name); value.Exists() && value.Type == gjson.Number && value.Int() > 0 {
+			return int(value.Int())
+		}
+	}
+	return 0
+}
+
+func estimateGatewayCacheCreationTokens(body []byte, input int) int {
+	var total int
+	var inspect func(gjson.Result)
+	inspect = func(value gjson.Result) {
+		if value.IsObject() && value.Get("cache_control.type").String() == "ephemeral" {
+			encoded, _ := json.Marshal(value.Value())
+			total += (utf8.RuneCount(encoded) + 3) / 4
+			return
+		}
+		if value.IsObject() || value.IsArray() {
+			value.ForEach(func(_, child gjson.Result) bool {
+				inspect(child)
+				return true
+			})
+		}
+	}
+	inspect(gjson.ParseBytes(body))
+	return min(total, input)
+}
+
+func modelBudgetOutputLimit(plan *service.GatewayRequestPlan, model string) int {
+	if plan == nil || plan.ModelRegistrySnapshot() == nil {
+		return 0
+	}
+	for _, profile := range []string{"anthropic", "openai", "gemini", "vertex_ai"} {
+		if record, ok := plan.ModelRegistrySnapshot().CapabilitySnapshot().LookupExact(profile, model); ok && record.MaxOutputTokens != nil {
+			return int(*record.MaxOutputTokens)
+		}
+	}
+	return 0
 }
 
 // budgetEstimateIgnoresBody 报告该协议是否"请求体不含 token 用量"。

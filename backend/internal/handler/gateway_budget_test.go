@@ -74,3 +74,20 @@ func TestGatewayRequestRateMultiplierDefaultsToOne(t *testing.T) {
 	require.InDelta(t, 1, gatewayRequestRateMultiplier(&service.APIKey{}), 1e-9)
 	require.InDelta(t, 0.8, gatewayRequestRateMultiplier(&service.APIKey{Group: &service.Group{RateMultiplier: 0.8}}), 1e-9)
 }
+
+func TestGatewayTextBudgetUsesCompleteOutputUpperBound(t *testing.T) {
+	plan := service.NewGatewayRequestPlan(service.GatewayRequestSpec{Route: "/v1/chat/completions", Model: "gpt-5.4"})
+	estimate := gatewayRequestBudgetEstimate(plan, &service.APIKey{}, "gpt-5.4", []byte(`{"max_completion_tokens":100,"n":3}`))
+	require.Equal(t, 300, estimate.OutputTokens)
+
+	plan = service.NewGatewayRequestPlan(service.GatewayRequestSpec{Route: "/v1beta/models/gemini:generateContent", Model: "gemini"})
+	estimate = gatewayRequestBudgetEstimate(plan, &service.APIKey{}, "gemini", []byte(`{"generationConfig":{"maxOutputTokens":100,"thinkingConfig":{"thinkingBudget":50},"candidateCount":2}}`))
+	require.Equal(t, 300, estimate.OutputTokens)
+}
+
+func TestGatewayTextBudgetCountsExplicitCacheWrites(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4","max_tokens":10,"messages":[{"role":"user","content":[{"type":"text","text":"cached context","cache_control":{"type":"ephemeral"}}]}]}`)
+	estimate := gatewayRequestBudgetEstimate(service.NewGatewayRequestPlan(service.GatewayRequestSpec{Model: "claude-sonnet-4"}), &service.APIKey{}, "claude-sonnet-4", body)
+	require.Positive(t, estimate.CacheCreationTokens)
+	require.LessOrEqual(t, estimate.CacheCreationTokens, estimate.InputTokens)
+}

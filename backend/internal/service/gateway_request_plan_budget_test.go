@@ -213,3 +213,13 @@ func TestKeyHardBudgetRejectsMissingPriceAndAdmitsExplicitFree(t *testing.T) {
 		})
 	}
 }
+
+func TestBudgetUpperBoundIncludesCandidatesAndHighestCacheWriteRate(t *testing.T) {
+	input, output, write, write1h := 0.000001, 0.000002, 0.000003, 0.00001
+	group := &Group{ID: 1, ModelPricing: []ChannelModelPricing{{Models: []string{"bound-model"}, InputPrice: &input, OutputPrice: &output, CacheWritePrice: &write, CacheWrite1hPrice: &write1h}}}
+	plan := NewGatewayRequestPlan(GatewayRequestSpec{})
+	plan.billing = NewBillingService(nil, nil)
+	amount := plan.estimateBudgetHold(t.Context(), RequestBudgetEstimate{Model: "bound-model", Group: group, InputTokens: 100, OutputTokens: 300, CacheCreationTokens: 100})
+	require.NotNil(t, amount)
+	require.Equal(t, "0.00170000", amount.String())
+}

@@ -275,6 +275,7 @@ type RequestBudgetEstimate struct {
 	ServiceTier, ReasoningEffort string
 	InputTokens                  int
 	OutputTokens                 int
+	CacheCreationTokens          int
 	RateMultiplier               float64
 	// SkipBalanceHold keeps the reservation on the period budget only.
 	SkipBalanceHold bool

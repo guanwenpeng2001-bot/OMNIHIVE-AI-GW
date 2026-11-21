@@ -71,7 +71,7 @@ func (p *GatewayRequestPlan) estimateBudgetHold(ctx context.Context, e RequestBu
 	}
 	multiplier, _ := computePeakAwareMultipliers(key, base, p.spec.PricingAt)
 	cost, err := p.billing.CalculateCostUnified(CostInput{Ctx: ctx, Model: e.Model, Group: e.Group, GroupID: key.GroupID, Resolver: resolver, Resolved: resolved, RateMultiplier: multiplier,
-		Tokens: UsageTokens{InputTokens: input, OutputTokens: output}, RequestCount: 1, PricingAt: p.spec.PricingAt, ServiceTier: e.ServiceTier, ReasoningEffort: e.ReasoningEffort})
+		Tokens: UsageTokens{InputTokens: input, OutputTokens: output, CacheCreationTokens: e.CacheCreationTokens}, RequestCount: 1, PricingAt: p.spec.PricingAt, ServiceTier: e.ServiceTier, ReasoningEffort: e.ReasoningEffort})
 	if err != nil || cost == nil || (cost.PricingState != PricingStatePriced && cost.PricingState != PricingStateFree) || !validBillingNumber(cost.ActualCost) {
 		return nil
 	}
@@ -86,6 +86,9 @@ func (p *GatewayRequestPlan) estimateBudgetHold(ctx context.Context, e RequestBu
 		inputRate := math.Max(rate.InputPricePerToken, rate.InputPricePerTokenPriority)
 		outputRate := math.Max(rate.OutputPricePerToken, rate.OutputPricePerTokenPriority)
 		exact := decimal.NewFromInt(int64(input)).Mul(decimal.NewFromFloat(inputRate)).Add(decimal.NewFromInt(int64(output)).Mul(decimal.NewFromFloat(outputRate)))
+		writeRate := math.Max(rate.CacheCreationPricePerToken, rate.CacheCreationPricePerTokenPriority)
+		writeRate = math.Max(writeRate, math.Max(rate.CacheCreation5mPrice, rate.CacheCreation1hPrice))
+		exact = exact.Add(decimal.NewFromInt(int64(e.CacheCreationTokens)).Mul(decimal.NewFromFloat(writeRate)))
 		for _, factor := range []float64{multiplier, math.Max(1, snap.TimeMultiplier), math.Max(1, snap.ReasoningMultiplier)} {
 			exact = exact.Mul(decimal.NewFromFloat(factor))
 		}
