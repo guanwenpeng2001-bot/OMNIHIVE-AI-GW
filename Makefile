@@ -87,6 +87,7 @@ test-shell:
 	@sh deploy/tests/docker-compose-gateway-env-test.sh
 	@sh deploy/tests/docker-runtime-resources-test.sh
 	@sh deploy/test-caddyfile-cache.sh
+	@bash deploy/tests/docker-deploy-test.sh
 	@bash deploy/tests/install-github-token-test.sh
 
 test-frontend-critical:

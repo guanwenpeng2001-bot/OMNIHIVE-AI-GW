@@ -53,10 +53,10 @@ Use the automated preparation script for the easiest setup:
 
 ```bash
 # Download and run the preparation script
-curl -sSL --globoff 'https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/main/deploy/docker-deploy.sh' | bash
+curl -fsSL --globoff 'https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/v0.2.4/deploy/docker-deploy.sh' | bash
 
 # Or download first, then run
-curl -sSL --globoff 'https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/main/deploy/docker-deploy.sh' -o docker-deploy.sh
+curl -fsSL --globoff 'https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/v0.2.4/deploy/docker-deploy.sh' -o docker-deploy.sh
 chmod +x docker-deploy.sh
 ./docker-deploy.sh
 ```
@@ -67,6 +67,11 @@ chmod +x docker-deploy.sh
 - Creates `.env` file with generated secrets
 - Creates necessary data directories (data/, postgres_data/, redis_data/)
 - **Displays generated credentials** (POSTGRES_PASSWORD, JWT_SECRET, etc.)
+
+The script defaults to release tag `v0.2.4`; set `OMNIHIVE_RELEASE_TAG` to explicitly
+select another release. Downloads fail on HTTP errors and are validated in a temporary
+directory before being moved into place. If either `docker-compose.yml` or `.env` already
+exists, the script exits without overwriting or changing the deployment.
 
 **After running the script:**
 ```bash
