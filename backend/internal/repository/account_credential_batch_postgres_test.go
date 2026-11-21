@@ -21,6 +21,7 @@ import (
 	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	adminhandler "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
@@ -195,6 +196,27 @@ func TestCredentialBatchPostgresScopeOwnershipCorruptionAndRace(t *testing.T) {
 			require.NotContains(t, err.Error(), ciphertext)
 			_, singleErr := f.accounts.GetByID(f.ctx, bad.ID)
 			require.Error(t, singleErr)
+			omitted, err := f.accounts.GetByIDs(service.WithUnusableCredentialRowsOmitted(f.ctx), []int64{good.ID, bad.ID})
+			require.NoError(t, err)
+			require.Len(t, omitted, 1)
+			require.Equal(t, good.ID, omitted[0].ID)
+			listed, _, err := f.accounts.ListWithFilters(f.ctx, pagination.PaginationParams{Page: 1, PageSize: 20}, "", "", "", "", 0, "")
+			require.NoError(t, err, "one unusable credential must not fail the whole list")
+			require.Equal(t, []int64{good.ID}, listedAccountIDs(listed))
+			listed, _, err = f.accounts.ListWithFilters(service.WithUnresolvedCredentialRows(f.ctx), pagination.PaginationParams{Page: 1, PageSize: 20}, "", "", "", "", 0, "")
+			require.NoError(t, err)
+			require.ElementsMatch(t, []int64{good.ID, bad.ID}, listedAccountIDs(listed))
+			for _, account := range listed {
+				if account.ID != bad.ID {
+					require.False(t, account.CredentialUnavailable)
+					continue
+				}
+				require.True(t, account.CredentialUnavailable)
+				for field, value := range account.Credentials {
+					require.False(t, service.IsSensitiveCredentialKey(field), "unresolved row exposes %s", field)
+					require.NotContains(t, fmt.Sprint(value), "bad-batch-refresh")
+				}
+			}
 			for _, activeOnly := range []bool{true, false} {
 				page, err := f.accounts.ListOAuthRefreshCandidatePage(f.ctx, service.OAuthRefreshPageOptions{Platforms: []string{service.PlatformOpenAI}, Limit: 10, ActiveOnly: activeOnly, RequireRefreshToken: true})
 				require.NoError(t, err)
@@ -436,4 +458,12 @@ func TestCredentialBatchPostgresStagedActivationAndConcurrentEligibility(t *test
 			require.Equal(t, account.ID, page.NextAfterID)
 		})
 	}
+}
+
+func listedAccountIDs(accounts []service.Account) []int64 {
+	ids := make([]int64, 0, len(accounts))
+	for _, account := range accounts {
+		ids = append(ids, account.ID)
+	}
+	return ids
 }

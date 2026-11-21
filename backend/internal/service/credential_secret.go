@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -225,4 +226,37 @@ func StoredCredentialDocument(credentials map[string]any) map[string]any {
 		}
 	}
 	return result
+}
+
+type unresolvedCredentialRowsKey struct{}
+
+// WithUnresolvedCredentialRows lets an operator list show accounts whose
+// stored credential cannot be resolved, with secret fields removed, so the
+// operator can find and repair them. Other reads omit such rows.
+func WithUnresolvedCredentialRows(ctx context.Context) context.Context {
+	return context.WithValue(ctx, unresolvedCredentialRowsKey{}, true)
+}
+
+func UnresolvedCredentialRowsVisible(ctx context.Context) bool {
+	visible, _ := ctx.Value(unresolvedCredentialRowsKey{}).(bool)
+	return visible
+}
+
+type unusableCredentialRowsOmittedKey struct{}
+
+// WithUnusableCredentialRowsOmitted lets a batch read treat accounts whose
+// stored credential cannot be resolved as absent instead of failing the batch.
+func WithUnusableCredentialRowsOmitted(ctx context.Context) context.Context {
+	return context.WithValue(ctx, unusableCredentialRowsOmittedKey{}, true)
+}
+
+func UnusableCredentialRowsOmitted(ctx context.Context) bool {
+	omitted, _ := ctx.Value(unusableCredentialRowsOmittedKey{}).(bool)
+	return omitted
+}
+
+// IsCredentialUnusable reports a stored credential that cannot be used until an
+// operator repairs it. Transient version races are not included.
+func IsCredentialUnusable(err error) bool {
+	return errors.Is(err, ErrCredentialSecretNotFound) || errors.Is(err, ErrCredentialSecretInvalid) || errors.Is(err, ErrCredentialSecretRevoked)
 }

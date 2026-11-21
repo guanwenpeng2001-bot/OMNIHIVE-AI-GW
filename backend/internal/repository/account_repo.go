@@ -344,7 +344,7 @@ func (r *accountRepository) GetByID(ctx context.Context, id int64) (*service.Acc
 }
 
 func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*service.Account, error) {
-	return r.getByIDs(ctx, ids, false)
+	return r.getByIDs(ctx, ids, service.UnusableCredentialRowsOmitted(ctx))
 }
 
 func (r *accountRepository) getByIDs(ctx context.Context, ids []int64, skipUnavailableCredentials bool) ([]*service.Account, error) {
@@ -3846,8 +3846,23 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		if out.ProxyGroupID != nil && proxyGroups[*out.ProxyGroupID] != nil && proxyGroups[*out.ProxyGroupID].WorkspaceID == out.WorkspaceID {
 			out.ProxyGroup = proxyGroups[*out.ProxyGroupID]
 		}
-		if err := r.resolveAccountCredentials(ctx, clientFromContext(ctx, r.client), out); err != nil {
-			return nil, err
+		if unusable, err := r.resolveListedAccountCredentials(ctx, clientFromContext(ctx, r.client), out); err != nil {
+			if !unusable {
+				return nil, err
+			}
+			// One unusable stored credential must not hide every other account
+			// or stall scheduler snapshots. The row is never returned with
+			// unresolved or inline secret material.
+			logger.LegacyPrintf("repository.account", "[Credentials] account=%d stored credential unavailable: %v", out.ID, err)
+			if !service.UnresolvedCredentialRowsVisible(ctx) {
+				continue
+			}
+			for field := range out.Credentials {
+				if service.IsSensitiveCredentialKey(field) {
+					delete(out.Credentials, field)
+				}
+			}
+			out.CredentialUnavailable = true
 		}
 		if acc.ProxyID != nil {
 			if proxy, ok := proxyMap[*acc.ProxyID]; ok {
