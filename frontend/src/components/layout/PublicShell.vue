@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import * as stores from '@/stores'
 import { sanitizeUrl } from '@/utils/url'
+import { applyRouteSeo, resolvePublicRouteSeo } from '@/features/public/seo'
 import BrandMark from './BrandMark.vue'
 import PublicHeader from './PublicHeader.vue'
 import { activePublicShellCount } from './shellState'
@@ -98,6 +100,25 @@ const docUrl = computed(() =>
 )
 
 const currentYear = new Date().getFullYear()
+
+const activeRoute = (() => {
+  try {
+    return useRoute()
+  } catch {
+    return null
+  }
+})()
+
+watch(
+  () => [activeRoute?.path, locale?.value, brand.value.siteName],
+  () => {
+    if (!activeRoute?.path) return
+    const isZh = String(locale?.value || '').toLowerCase().startsWith('zh')
+    const seo = resolvePublicRouteSeo(activeRoute.path, brand.value.siteName, isZh)
+    if (seo) applyRouteSeo(seo)
+  },
+  { immediate: true }
+)
 
 onMounted(() => {
   activePublicShellCount.value += 1

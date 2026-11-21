@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { computed, onMounted, ref, watch } from 'vue'
+import { applyRouteSeo } from '@/features/public/seo'
 import { useRoute, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import PublicShell from '@/components/layout/PublicShell.vue'
@@ -270,7 +271,22 @@ async function load(): Promise<void> {
   showUndeclaredDetails.value = false
   try {
     const response = await getPublicModel(modelId.value)
-    if (currentRequest === request) detail.value = response
+    if (currentRequest === request) {
+      detail.value = response
+      const loaded = response?.model
+      if (loaded) {
+        const modelTitle = loaded.display_name || loaded.model
+        const siteName = 'OmniHive'
+        applyRouteSeo({
+          title: `${modelTitle} - ${siteName}`,
+          description: isZh.value
+            ? `${modelTitle} 的上下文窗口、支持能力、定价与实时延迟指标。`
+            : `Context window, capabilities, pricing, and live latency telemetry for ${modelTitle}.`,
+          canonicalPath: `/model-plaza/${encodeURIComponent(loaded.model || loaded.id)}`,
+          siteName
+        })
+      }
+    }
   } catch (err) {
     if (currentRequest === request) error.value = err
   } finally {
