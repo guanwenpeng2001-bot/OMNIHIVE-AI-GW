@@ -674,7 +674,7 @@ func (h *AuthHandler) CompleteOIDCOAuthRegistration(c *gin.Context) {
 		return
 	}
 	tokenPair, user, err := h.authService.LoginOrRegisterOAuthWithTokenPairAndPromoCode(
-		req.SignupAgreement.Context(c.Request.Context()),
+		req.Context(c.Request.Context()),
 		email,
 		username,
 		req.InvitationCode,
