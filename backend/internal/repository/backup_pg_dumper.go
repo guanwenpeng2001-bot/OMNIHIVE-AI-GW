@@ -50,7 +50,7 @@ func (d *PgDumper) Dump(ctx context.Context) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("acquire backup migration lock: %w", err)
 	}
 	releaseLock := func() error {
-		return releaseBackupMigrationLock(lockConn)
+		return releaseBackupMigrationLock(ctx, lockConn)
 	}
 
 	args := []string{
@@ -94,8 +94,8 @@ func (d *PgDumper) setCommandEnv(cmd *exec.Cmd) {
 	}
 }
 
-func releaseBackupMigrationLock(conn *sql.Conn) error {
-	unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func releaseBackupMigrationLock(ctx context.Context, conn *sql.Conn) error {
+	unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	if err := pgAdvisoryUnlock(unlockCtx, conn); err != nil {
 		// A failed unlock must not return a possibly lock-owning session to the pool.

@@ -5,19 +5,21 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/timezone"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/migrations"
-
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/restoregate"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/timezone"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/migrations"
 	"github.com/lib/pq"
 )
 
@@ -114,20 +116,11 @@ func InitEnt(cfg *config.Config) (*ent.Client, *sql.DB, error) {
 
 	// 使用 Ent 的 SQL 驱动打开 PostgreSQL 连接。
 	// dialect.Postgres 指定使用 PostgreSQL 方言进行 SQL 生成。
-	var drv *entsql.Driver
-	if cfg.Server.EnableServerTiming {
-		connector, err := pq.NewConnector(dsn)
-		if err != nil {
-			return nil, nil, err
-		}
-		drv = entsql.OpenDB(dialect.Postgres, sql.OpenDB(newServerTimingConnector(connector)))
-	} else {
-		var err error
-		drv, err = entsql.Open(dialect.Postgres, dsn)
-		if err != nil {
-			return nil, nil, err
-		}
+	db, err := OpenApplicationDB(dsn, cfg.Server.EnableServerTiming)
+	if err != nil {
+		return nil, nil, err
 	}
+	drv := entsql.OpenDB(dialect.Postgres, db)
 	applyDBPoolSettings(drv.DB(), cfg)
 
 	// 确保数据库 schema 已准备就绪。
@@ -174,4 +167,25 @@ func InitEnt(cfg *config.Config) (*ent.Client, *sql.DB, error) {
 	}
 
 	return client, drv.DB(), nil
+}
+
+// OpenApplicationDB opens a business database pool shared by application jobs.
+func OpenApplicationDB(dsn string, timing bool) (*sql.DB, error) {
+	connector, err := pq.NewConnector(dsn)
+	if err != nil {
+		return nil, err
+	}
+	var base driver.Connector = connector
+	if timing {
+		base = newServerTimingConnector(base)
+	}
+	if journalDSN := os.Getenv("OMNIHIVE_RESTORE_JOURNAL_DSN"); journalDSN != "" {
+		journal, err := sql.Open("postgres", journalDSN)
+		if err != nil {
+			return nil, err
+		}
+		journal.SetMaxOpenConns(4)
+		base = restoreConnector{base, journal, restoregate.NewBusinessPool(journal)}
+	}
+	return sql.OpenDB(base), nil
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/restoregate"
 )
 
 const ttl = 45 * time.Second
@@ -176,6 +177,7 @@ func (s *Service) apply(ctx context.Context, l *lease) (map[string]string, strin
 	}
 	reason := "APPLY_FAILED"
 	locked := func() error {
+		ctx := restoregate.SnapshotContext(ctx)
 		dump, err := target.Database.Dump(ctx)
 		if err != nil {
 			reason = "SNAPSHOT_FAILED"
@@ -207,6 +209,10 @@ func (s *Service) apply(ctx context.Context, l *lease) (map[string]string, strin
 		return s.stage(ctx, l, "committing", nil)
 	}
 	if err = target.Database.RestoreChecked(ctx, script.Name(), checks.Name(), locked, applied, verified); err != nil {
+		var lockErr restoregate.LockError
+		if errors.As(err, &lockErr) {
+			return nil, lockErr.Error()
+		}
 		return nil, reason
 	}
 	return expected, ""

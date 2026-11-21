@@ -2,7 +2,6 @@ package observability
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,6 +16,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	identitydb "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/ops/export"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
@@ -26,7 +26,7 @@ type Handler struct{ store *export.Store }
 func New(store *export.Store) *Handler { return &Handler{store: store} }
 
 func ProvideStore(cfg *config.Config) (*export.Store, func(), error) {
-	db, err := sql.Open("postgres", cfg.Database.DSN())
+	db, err := repository.OpenApplicationDB(cfg.Database.DSN(), false)
 	if err != nil {
 		return nil, nil, errors.New("telemetry export database configuration is invalid")
 	}

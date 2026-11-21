@@ -7,17 +7,31 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/restoregate"
 )
 
-// Take a SHARE lock on existing tables before the snapshot. Ordinary readers
-// (including pg_dump) can proceed. Writers and competing DDL must wait.
-const lockRestoreTables = `DO $lock$ DECLARE rel record; BEGIN
+// The snapshot's separate pg_dump session needs ACCESS SHARE. Upgrade only
+// after it closes, before any archive DDL can request locks in dump order.
+const lockRestoreTables = `SET LOCAL lock_timeout='5s';
+
+ CREATE FUNCTION pg_temp.lock_restore_tables(exclusive boolean) RETURNS text LANGUAGE plpgsql AS $lock$
+ DECLARE rel record; mode text := CASE WHEN exclusive THEN 'ACCESS EXCLUSIVE' ELSE 'SHARE' END;
+ BEGIN
  FOR rel IN SELECT n.nspname,c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
  WHERE c.relkind IN ('r','p') AND n.nspname !~ '^pg_' AND n.nspname<>'information_schema' ORDER BY c.oid
- LOOP EXECUTE format('LOCK TABLE ONLY %I.%I IN SHARE MODE',rel.nspname,rel.relname); END LOOP;
- END $lock$;`
+ LOOP
+ BEGIN
+ EXECUTE format('LOCK TABLE ONLY %I.%I IN %s MODE',rel.nspname,rel.relname,mode);
+ EXCEPTION WHEN deadlock_detected OR lock_not_available THEN
+ RETURN format('%s %I.%I',CASE WHEN SQLSTATE='40P01' THEN 'deadlock' ELSE 'lock_timeout' END,rel.nspname,rel.relname);
+ END;
+ END LOOP;
+ RETURN '';
+ END $lock$;
+ SELECT pg_temp.lock_restore_tables(false);`
 
 // RestoreChecked keeps the table locks, replacement and content checks in one
 // backend transaction. An EOF, cancellation or failed check before the explicit
@@ -48,7 +62,7 @@ func (d *PgDumper) RestoreChecked(ctx context.Context, source, checks string, lo
 	}()
 	reader := bufio.NewReader(output)
 	marker := uuid.NewString()
-	step := func(commands string, callback func() error) error {
+	step := func(commands string, locking bool, callback func() error) error {
 		if _, err := fmt.Fprintf(input, "%s\n\\echo %s\n", commands, marker); err != nil {
 			return err
 		}
@@ -57,18 +71,24 @@ func (d *PgDumper) RestoreChecked(ctx context.Context, source, checks string, lo
 			if err != nil {
 				return fmt.Errorf("psql stopped before checkpoint: %w", err)
 			}
+			if locking && (strings.HasPrefix(line, "deadlock ") || strings.HasPrefix(line, "lock_timeout ")) {
+				return restoregate.LockError(strings.TrimSpace(line))
+			}
 			if line == marker+"\n" {
 				return callback()
 			}
 		}
 	}
-	if err = step("BEGIN;\n"+lockRestoreTables, locked); err != nil {
+	if err = step("BEGIN;\n"+lockRestoreTables, true, locked); err != nil {
 		return err
 	}
-	if err = step(`\i :archive`, applied); err != nil {
+	if err = step("SELECT pg_temp.lock_restore_tables(true);", true, func() error { return nil }); err != nil {
 		return err
 	}
-	if err = step(`\i :checks`, verified); err != nil {
+	if err = step(`\i :archive`, false, applied); err != nil {
+		return err
+	}
+	if err = step(`\i :checks`, false, verified); err != nil {
 		return err
 	}
 	if _, err = io.WriteString(input, "COMMIT;\n"); err != nil {

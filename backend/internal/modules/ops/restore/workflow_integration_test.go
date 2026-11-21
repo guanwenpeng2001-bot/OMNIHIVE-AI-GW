@@ -126,7 +126,11 @@ func TestFencedRestore(t *testing.T) {
 		_, e := prod.Exec("CREATE TABLE " + table + " (id bigint PRIMARY KEY, value text NOT NULL, stamp timestamptz DEFAULT now()); INSERT INTO " + table + " VALUES(1,'original')")
 		require.NoError(t, e)
 	}
-	source := repository.NewPgDumper(pcfg, prod)
+	t.Setenv("OMNIHIVE_RESTORE_JOURNAL_DSN", jcfg.Database.DSN())
+	appPool, e := repository.OpenApplicationDB(pcfg.Database.DSN(), false)
+	require.NoError(t, e)
+	defer appPool.Close()
+	source := repository.NewPgDumper(pcfg, appPool)
 	// Exercise an archive written by the previous release in a +08 session.
 	dumpCmd := exec.CommandContext(ctx, "pg_dump", "--clean", "--if-exists", "--no-owner", "--no-acl", "-h", pcfg.Database.Host, "-p", fmt.Sprint(pcfg.Database.Port), "-U", pcfg.Database.User, "-d", pcfg.Database.DBName)
 	dumpCmd.Env = append(dumpCmd.Environ(), "PGTZ=Asia/Shanghai", "PGPASSWORD="+pcfg.Database.Password)
@@ -145,6 +149,14 @@ func TestFencedRestore(t *testing.T) {
 	require.Error(t, bad.Initialize(ctx))
 	require.NoError(t, s.Initialize(ctx))
 	require.NoError(t, peer.Initialize(ctx))
+	// A worker may be between its read and write with no target table lock.
+	// Its entire transaction must count towards the cross-process drain.
+	writer, err := appPool.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	deadline, cancelDrain := context.WithTimeout(ctx, 100*time.Millisecond)
+	require.Error(t, peer.drainRequests(deadline))
+	cancelDrain()
+	require.NoError(t, writer.Rollback())
 	// The worker must wait for a peer's already admitted handler.
 	peer.Maintenance(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		deadline, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
