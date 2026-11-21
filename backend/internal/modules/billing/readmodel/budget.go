@@ -10,6 +10,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/gatewaybudget"
 )
 
 type Budget struct {
@@ -212,8 +213,7 @@ func reserve(ctx context.Context, tx *sql.Tx, sc Scope, request string, currency
 	return err == nil, err
 }
 
-const releaseProjectHoldSQL = `UPDATE billing_project_holds SET released_at=clock_timestamp()
- WHERE workspace_id=$1 AND project_id=$2 AND currency=$3 AND request_id=$4 AND released_at IS NULL`
+const releaseProjectHoldSQL = gatewaybudget.ReleaseProjectHold
 
 func Release(ctx context.Context, tx *sql.Tx, sc Scope, request string, currency money.Currency) error {
 	_, err := tx.ExecContext(ctx, releaseProjectHoldSQL, sc.Workspace, sc.Project, currency, request)

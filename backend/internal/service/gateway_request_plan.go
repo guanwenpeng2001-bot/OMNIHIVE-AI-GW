@@ -196,7 +196,7 @@ func (p *GatewayRequestPlan) finish(canceled, committed bool) {
 	release := p.state.ReceiptState == UsageSettlementNeedsReview || (!p.usage.Load() && p.state.ReceiptState == "")
 	// A context cancellation may race the adapter handing its observed usage
 	// to the worker. Only the final adapter unwind can prove there is no producer.
-	project := !canceled && release && p.projectHold != nil && !p.projectReleased
+	project := release && p.projectHold != nil && !p.projectReleased
 	if project {
 		p.projectReleased = true
 	}

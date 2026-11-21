@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/gatewaybudget"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/shopspring/decimal"
 )
@@ -482,6 +483,20 @@ func releaseKeyBudgetReservationTx(ctx context.Context, tx *sql.Tx, apiKeyID int
 	if status != keyBudgetReservationStatusReserved {
 		return false, nil
 	}
+	// Dispatch locks the execution before publishing its attempt. Take the same
+	// lock before deciding whether this hold still has an unsettled sender.
+	if _, err := tx.ExecContext(ctx, `SELECT e.request_id FROM gateway_executions e JOIN api_key_budget_reservations h
+   ON e.api_key_id=h.api_key_id AND e.funding_user_id=h.user_id AND e.reservation_ref=h.request_id
+   WHERE h.id=$1 ORDER BY e.request_id FOR UPDATE OF e`, id); err != nil {
+		return false, err
+	}
+	var unresolved bool
+	if err := tx.QueryRowContext(ctx, `SELECT `+gatewaybudget.UnresolvedDispatch+` FROM api_key_budget_reservations h WHERE h.id=$1`, id).Scan(&unresolved); err != nil {
+		return false, err
+	}
+	if unresolved {
+		return false, nil
+	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE api_key_budget_reservations
 		SET status = 'released', updated_at = NOW()
@@ -517,12 +532,7 @@ const unownedExpiredHold = `h.status='reserved' AND h.expires_at < $1
      AND (r.request_id=h.request_id OR r.billing_command->>'BudgetReservationID'=h.id::text))
  AND NOT EXISTS (SELECT 1 FROM gateway_executions e
    WHERE e.api_key_id=h.api_key_id AND e.funding_user_id=h.user_id AND e.reservation_ref=h.request_id
-     AND ((e.finished_at IS NULL AND e.deadline>clock_timestamp()) OR EXISTS (
-       SELECT 1 FROM gateway_execution_attempts a WHERE a.request_id=e.request_id
-         AND a.dispatched_at IS NOT NULL AND a.acceptance<>'not_sent' AND a.outcome<>'rejected'
-         AND NOT a.abandoned_uncertain AND NOT EXISTS (
-           SELECT 1 FROM gateway_execution_receipts l JOIN usage_settlement_receipts r ON r.id=l.receipt_id
-           WHERE l.attempt_id=a.attempt_id AND r.state IN ('settled','needs_review')))))`
+     AND ((e.finished_at IS NULL AND e.deadline>clock_timestamp()) OR ` + gatewaybudget.UnresolvedDispatch + `))`
 
 func (r *usageSettlementReceiptRepository) ReleaseExpiredKeyBudgetReservations(ctx context.Context, now time.Time, limit int) (int, error) {
 	if limit <= 0 || limit > 500 {

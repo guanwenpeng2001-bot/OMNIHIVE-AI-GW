@@ -365,6 +365,11 @@ WHERE request_id=$1 AND api_key_id=$2 AND user_id=$3 FOR UPDATE`, strings.TrimSp
 	if err != nil {
 		return nil, err
 	}
+	if receipt.Command.ProjectReservationRef != "" {
+		if err := releaseReviewHolds(ctx, tx, receipt); err != nil {
+			return nil, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}

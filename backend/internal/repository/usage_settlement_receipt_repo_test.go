@@ -19,6 +19,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/journal"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/billing/readmodel"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	_ "github.com/lib/pq"
@@ -145,6 +146,63 @@ func TestUsageSettlementReceiptPostgres(t *testing.T) {
 		var kept bool
 		require.NoError(t, db.QueryRow(`SELECT status='reserved' FROM api_key_budget_reservations WHERE id=$1`, h.ID).Scan(&kept))
 		require.True(t, kept)
+	})
+	t.Run("disconnect_after_dispatch_keeps_wallet_for_late_settlement", func(t *testing.T) {
+		r := fixture(t, 2)
+		_, err := db.Exec(`UPDATE users SET balance=3 WHERE id=$1`, r.Key.UserID)
+		require.NoError(t, err)
+		_, err = db.Exec(`UPDATE api_keys SET budget_period_mode='duration',budget_period_seconds=3600,budget_limit=10 WHERE id=$1`, r.Key.APIKeyID)
+		require.NoError(t, err)
+		owner := scope.Authorized{ActorID: r.Key.UserID, KeyOwnerID: r.Key.UserID, FundingUserID: r.Key.UserID, KeyID: r.Key.APIKeyID, Version: 1}
+		require.NoError(t, db.QueryRow(`SELECT workspace_id,identity_default_project(workspace_id) FROM api_keys WHERE id=$1`, r.Key.APIKeyID).Scan(&owner.WorkspaceID, &owner.ProjectID))
+		request, disconnect := context.WithCancel(scope.With(ctx, owner))
+		defer disconnect()
+		request, finishBudget := service.WithAttemptBudget(request, 1, time.Minute)
+		defer finishBudget()
+		request = journal.WithReauthorization(journal.WithStore(request, journal.New(db)), func(context.Context, scope.Authorized, string) error { return nil })
+		request = service.WithProjectBudgetCoordinator(request, readmodel.Store{DB: db})
+		_, err = db.Exec(`INSERT INTO billing_project_budgets VALUES($1,$2,'USD','hard',10,'calendar_month','UTC',false,1) ON CONFLICT DO NOTHING`, owner.WorkspaceID, owner.ProjectID)
+		require.NoError(t, err)
+		cfg := &config.Config{}
+		settlement := service.NewUsageSettlementService(repo, nil, nil)
+		gateway := service.ProvideOpenAIGatewayService(nil, nil, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, settlement)
+		request, plan := gateway.CaptureRequestPlan(request, service.GatewayRequestSpec{WorkspaceID: owner.WorkspaceID, UserID: r.Key.UserID, APIKeyID: r.Key.APIKeyID, Model: r.Command.Model, Route: "/v1/audio/translations", Protocol: "audio"})
+		execution, err := plan.AdmittedExecution()
+		require.NoError(t, err)
+		perHour := 10800.0
+		require.NoError(t, plan.ReserveBudget(request, service.RequestBudgetEstimate{Model: r.Command.Model, Group: &service.Group{AudioSTTPricePerHour: &perHour, RateMultiplier: 1}, RateMultiplier: 1, Meter: &service.BudgetMeter{Unit: "second", Count: 1, Numerator: 1, Denominator: 1}}))
+		hold := plan.BudgetHold()
+		require.NotNil(t, hold)
+		require.Equal(t, 3.0, hold.HoldAmount)
+		finishAttempt, err := service.BeginGenerationAttempt(request, r.Command.AccountID)
+		require.NoError(t, err)
+		ended := make(chan struct{})
+		context.AfterFunc(request, func() { plan.Cancel(); close(ended) })
+		disconnect()
+		<-ended
+		budgets := repo.(service.KeyBudgetReservationRepository)
+		competing := make(chan error, 1)
+		go func() {
+			_, err := budgets.ReserveKeyBudget(ctx, &service.KeyBudgetReservationCommand{UserID: r.Key.UserID, APIKeyID: r.Key.APIKeyID, RequestID: uuid.NewString(), HoldAmount: 3})
+			competing <- err
+		}()
+		finishAttempt(200, nil)
+		require.ErrorIs(t, <-competing, service.ErrAPIKeyBudgetInsufficientBalance)
+		plan.Finalize(false)
+		var correct bool
+		reclaimed, err := budgets.ReleaseExpiredKeyBudgetReservations(ctx, time.Now().Add(time.Hour), 100)
+		require.NoError(t, err)
+		var retained bool
+		require.NoError(t, db.QueryRow(`SELECT status='reserved' FROM api_key_budget_reservations WHERE id=$1`, hold.ID).Scan(&retained))
+		require.True(t, retained, "expiry sweep reclaimed the dispatched hold (other orphan holds reclaimed=%d)", reclaimed)
+		require.NoError(t, db.QueryRow(`SELECT h.status='reserved' AND u.balance=0 AND k.budget_reserved=3 AND e.canceled AND p.released_at IS NULL AND NOT EXISTS(SELECT 1 FROM usage_settlement_receipts WHERE request_id=h.request_id)
+FROM api_key_budget_reservations h JOIN users u ON u.id=h.user_id JOIN api_keys k ON k.id=h.api_key_id JOIN gateway_executions e ON e.reservation_ref=h.request_id JOIN billing_project_holds p ON p.request_id=e.request_id::text WHERE h.id=$1`, hold.ID).Scan(&correct))
+		require.True(t, correct)
+		r.Key.RequestID, r.Command.RequestID, r.Usage.RequestID = execution.RequestID, execution.RequestID, execution.RequestID
+		require.NoError(t, settlement.Submit(context.WithoutCancel(request), r, nil))
+		require.NoError(t, db.QueryRow(`SELECT h.status='settled' AND u.balance=1 AND k.budget_reserved=0 AND k.budget_used=2 AND k.budget_overrun=0 AND r.state='settled' AND p.released_at IS NOT NULL
+FROM api_key_budget_reservations h JOIN users u ON u.id=h.user_id JOIN api_keys k ON k.id=h.api_key_id JOIN usage_settlement_receipts r ON r.request_id=h.request_id JOIN billing_project_holds p ON p.request_id=h.request_id WHERE h.id=$1`, hold.ID).Scan(&correct))
+		require.True(t, correct)
 	})
 	t.Run("review_conflict_releases_key_and_project_exactly_once", func(t *testing.T) {
 		r := fixture(t, 2)
