@@ -42,6 +42,8 @@ export default {
     projectsPlaceholder: 'Filter projects…',
   },
   userPicker: {
+    roleFilterLabel: 'Filter members by role',
+    newMemberRoleLabel: 'Role for new member',
     searchPlaceholder: 'Search platform users (email / username / ID)…',
     searching: 'Searching platform users…',
     noMatches: 'No matching platform users found',

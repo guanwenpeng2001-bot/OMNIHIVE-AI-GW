@@ -42,6 +42,8 @@ export default {
     projectsPlaceholder: '筛选项目名称或 ID…',
   },
   userPicker: {
+    roleFilterLabel: '按角色筛选成员',
+    newMemberRoleLabel: '新成员角色',
     searchPlaceholder: '远程搜索已有用户（邮箱 / 用户名 / ID）…',
     searching: '正在检索平台用户…',
     noMatches: '未找到匹配的平台用户',

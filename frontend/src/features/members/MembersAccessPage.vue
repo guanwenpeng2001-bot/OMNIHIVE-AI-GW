@@ -908,7 +908,11 @@ onUnmounted(() => {
 
       <template #actions>
         <div class="w-56">
+          <label class="sr-only" for="members-workspace-select">
+            {{ t('membersAccess.selectWorkspace') }}
+          </label>
           <Select
+            id="members-workspace-select"
             v-model="selectedWorkspaceId"
             :options="workspaceOptions"
             :placeholder="t('membersAccess.selectWorkspace')"
@@ -1017,7 +1021,15 @@ onUnmounted(() => {
               />
             </div>
             <div class="w-40">
-              <Select v-model="roleFilter" :options="roleFilterOptions" size="sm" />
+              <label class="sr-only" for="members-role-filter-select">
+                {{ t('membersAccess.userPicker.roleFilterLabel') }}
+              </label>
+              <Select
+                id="members-role-filter-select"
+                v-model="roleFilter"
+                :options="roleFilterOptions"
+                size="sm"
+              />
             </div>
           </div>
           <form
@@ -1118,7 +1130,11 @@ onUnmounted(() => {
               />
             </div>
             <div class="w-32">
+              <label class="sr-only" for="members-new-role-select">
+                {{ t('membersAccess.userPicker.newMemberRoleLabel') }}
+              </label>
               <Select
+                id="members-new-role-select"
                 v-model="newMemberRole"
                 :options="[
                   { value: 'member', label: t('membersAccess.roles.member') },

@@ -316,4 +316,27 @@ describe('MembersAccessPage remote user search & i18n', () => {
     expect(modalText).not.toContain('ops.export.configure')
     expect(modalText).not.toContain('catalog.publish')
   })
+
+  it('provides accessible labels for all three select controls (E2-6)', async () => {
+    const wrapper = mount(MembersAccessPage, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          PageHeader: { template: '<div><slot /><slot name="actions" /></div>' },
+          DataTable: { template: '<div><slot name="empty" /></div>' },
+        },
+      },
+    })
+    await flushPromises()
+
+    const selects = wrapper.findAll('select')
+    expect(selects.length).toBeGreaterThanOrEqual(3)
+    for (const select of selects) {
+      const id = select.attributes('id')
+      expect(id).toBeTruthy()
+      const label = wrapper.find(`label[for="${id}"]`)
+      expect(label.exists()).toBe(true)
+      expect(label.text().trim().length).toBeGreaterThan(0)
+    }
+  })
 })
