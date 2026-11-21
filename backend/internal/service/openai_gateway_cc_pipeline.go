@@ -89,6 +89,12 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 	upstreamMsg string,
 	upstreamModel string,
 ) *UpstreamFailoverError {
+	if publicModelLane(account) && resp.StatusCode == http.StatusUnauthorized {
+		failure := s.newOpenAIAccountFailoverError(account, http.StatusTooManyRequests, resp.Header, respBody, upstreamMsg, false, true)
+		failure.RequestScopedTransient = true
+		failure.Scope = GatewayFailureScopeRequest
+		return failure
+	}
 	if account != nil && account.Platform == PlatformOpenRouter {
 		return s.openRouterFailover(ctx, account, resp, respBody, upstreamMsg)
 	}
@@ -166,6 +172,9 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 
 // openAIChatCompletionsTargetURL 解析账号的（非 Grok）Chat Completions 上游端点。
 func (s *OpenAIGatewayService) openAIChatCompletionsTargetURL(account *Account) (string, error) {
+	if account.Platform == PlatformKilo {
+		return kiloEndpoint(account, "/chat/completions", s.validateUpstreamBaseURL)
+	}
 	if account.Platform == PlatformWorkBuddy {
 		base, err := s.validateUpstreamBaseURL(workBuddyEndpoint(account))
 		if err != nil {
@@ -401,8 +410,8 @@ func (s *OpenAIGatewayService) scanCCStream(
 			st.Err = fmt.Errorf("WorkBuddy stream failed")
 			break
 		}
-		if account.Platform == PlatformOpenRouter && openRouterStreamError(payload) {
-			st.Err = fmt.Errorf("OpenRouter stream failed")
+		if (account.Platform == PlatformOpenRouter || account.Platform == PlatformKilo) && openRouterStreamError(payload) {
+			st.Err = fmt.Errorf("%s stream failed", account.Platform)
 			break
 		}
 		if err := captureOpenRouterGoogleDetails(c, []byte(payload), true); err != nil {
@@ -460,7 +469,7 @@ func (s *OpenAIGatewayService) readCCUpstreamJSONResponse(
 		return nil, OpenAIUsage{}, fmt.Errorf("read upstream body: %w", err)
 	}
 
-	if (account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter || account.Platform == PlatformWorkBuddy) && !mistralChatUsageKnown(respBody) {
+	if (account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter || (account.Platform == PlatformWorkBuddy || account.Platform == PlatformKilo)) && !mistralChatUsageKnown(respBody) {
 		writeError(c, http.StatusBadGateway, "upstream_error", "Upstream chat usage is unknown")
 		return nil, OpenAIUsage{}, fmt.Errorf("upstream chat usage is unknown")
 	}

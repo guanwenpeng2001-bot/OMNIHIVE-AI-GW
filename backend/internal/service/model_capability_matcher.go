@@ -16,6 +16,12 @@ type CapabilityMatch struct {
 // Resolve only established first-party/hosting scopes, never the account's
 // generic protocol label. OAuth hosted products have separate deployments.
 func resolveCapabilityProfile(account *Account) string {
+	if account.IsOpenCodeZenFree() {
+		return "opencode-zen-free"
+	}
+	if account != nil && account.Platform == PlatformKilo {
+		return "kilo"
+	}
 	if account != nil && account.Platform == PlatformWorkBuddy {
 		return "workbuddy-" + workBuddySiteFor(account).ID
 	}

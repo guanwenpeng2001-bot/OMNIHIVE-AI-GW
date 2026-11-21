@@ -1209,6 +1209,13 @@ func (s *OpenAIGatewayService) GetAccessToken(ctx context.Context, account *Acco
 		}
 		account = credAccount
 	}
+	if account.Platform == PlatformKilo {
+		normalized := *account
+		if err := NormalizeFreeModelCredentials(&normalized); err != nil {
+			return "", "", err
+		}
+		return normalized.GetCredential("api_key"), "apikey", nil
+	}
 	if account.Platform == PlatformWorkBuddy {
 		token := workBuddyToken(account)
 		if token == "" {

@@ -54,7 +54,7 @@ func supported(provider, auth string) bool {
 			domain.PlatformAnthropic, domain.PlatformGemini, domain.PlatformOpenAI, domain.PlatformGrok,
 			domain.PlatformKimi, domain.PlatformZhipu, domain.PlatformDeepseek, domain.PlatformMiniMax,
 			domain.PlatformOpenCodeGo, domain.PlatformQianwen, domain.PlatformCommandCode, domain.PlatformVolcengine,
-			domain.PlatformQianfan, domain.PlatformHunyuan, domain.PlatformMistral, domain.PlatformOpenRouter, domain.PlatformWorkBuddy,
+			domain.PlatformQianfan, domain.PlatformHunyuan, domain.PlatformMistral, domain.PlatformOpenRouter, domain.PlatformWorkBuddy, domain.PlatformKilo,
 		}, provider)
 	case "oauth":
 		return slices.Contains([]string{"anthropic", "gemini", "openai", "grok", "cursor", "antigravity", "workbuddy"}, provider)
@@ -69,9 +69,19 @@ func supported(provider, auth string) bool {
 }
 
 func Payload(provider, auth, secret string) (map[string]any, error) {
+	if auth == "api_key" && provider == domain.PlatformKilo && (strings.TrimSpace(secret) == "" || strings.TrimSpace(secret) == "public") {
+		return map[string]any{"account_mode": "free", "api_key": ""}, nil
+	}
+
 	fields, err := (credentials.Change{Operation: "set", Type: auth, Secret: secret}).Payload(auth)
 	if err != nil {
 		return nil, err
+	}
+	if auth == "api_key" && provider == domain.PlatformKilo {
+		fields["account_mode"] = "apikey"
+	}
+	if auth == "api_key" && provider == domain.PlatformOpenCodeGo && strings.TrimSpace(secret) == "public" {
+		fields["account_mode"] = "zen_free"
 	}
 	if provider == "nous_research" {
 		fields["auth_mode"] = "invocation_token"

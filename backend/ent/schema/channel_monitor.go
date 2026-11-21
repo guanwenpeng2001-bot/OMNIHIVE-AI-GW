@@ -51,7 +51,7 @@ func (ChannelMonitor) Fields() []ent.Field {
 				"runapi", "shengsuanyun", "siliconflow_cn", "siliconflow_global", "soleapi",
 				"soshow", "sssaicode", "stepfun_api", "stepfun_api_intl", "stepfun_plan",
 				"stepfun_plan_intl", "subrouter", "sudocode_chat", "sudocode_us", "teamorouter",
-				"teamorouter_com", "therouter", "together", "xycai", "zetaapi", "github_copilot", "nous_research", "astron_token", "mimo_token_sg", "mimo_token_eu", "kaggle", "workbuddy"),
+				"teamorouter_com", "therouter", "together", "xycai", "zetaapi", "github_copilot", "nous_research", "astron_token", "mimo_token_sg", "mimo_token_eu", "kaggle", "workbuddy", "kilo"),
 		// check_mode: 'probe' | 'quota' | 'quota_probe'
 		//   probe       - LLM 探活（默认，原有行为）
 		//   quota       - 仅查关联账号的用量/余额（零 LLM 成本；endpoint/api_key 可空）

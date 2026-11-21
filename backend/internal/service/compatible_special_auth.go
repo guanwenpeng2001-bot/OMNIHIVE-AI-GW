@@ -15,7 +15,7 @@ func isCopilotNous(account *Account) bool {
 }
 
 func compatibleSpecialKeyOptional(account *Account) bool {
-	return account.Platform == "nous_research" && account.GetCredential("auth_mode") == NousAuthOfficialProxy
+	return account.IsKiloFree() || account.Platform == "nous_research" && account.GetCredential("auth_mode") == NousAuthOfficialProxy
 }
 
 // Bulk JSONB merge cannot rotate encrypted secrets. Reject these edits before

@@ -13,7 +13,7 @@ func originalServicePlatforms() []string {
 	return []string{
 		"anthropic", "gemini", "openai", "antigravity", "grok", "kimi", "zhipu",
 		"deepseek", "minimax", "opencode_go", "cursor", "qianwen", "commandcode",
-		"volcengine", "qianfan", "hunyuan", "mistral", "openrouter", "bedrock", "workbuddy",
+		"volcengine", "qianfan", "hunyuan", "mistral", "openrouter", "bedrock", "workbuddy", "kilo",
 	}
 }
 

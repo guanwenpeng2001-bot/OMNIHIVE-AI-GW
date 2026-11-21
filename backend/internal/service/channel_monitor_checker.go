@@ -170,6 +170,7 @@ type providerAdapter struct {
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
 var providerAdapters = map[string]providerAdapter{
 	MonitorProviderOpenAI: providerOpenAIChatAdapter,
+	PlatformKilo:          newOpenAICompatibleChatAdapter("/chat/completions"),
 	PlatformWorkBuddy:     newOpenAICompatibleChatAdapter("/v2/chat/completions"),
 	MonitorProviderGrok:   providerGrokChatAdapter,
 	// 国产 3 家（配额模式引入）：均为 OpenAI 兼容 Chat Completions，
@@ -309,6 +310,28 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 	}
 	headers := mergeHeaders(adapter.buildHeaders(apiKey), opts)
 	full := joinURL(endpoint, adapter.buildPath(model))
+	if provider == PlatformKilo {
+		mode := KiloAccountModeFree
+		if strings.TrimSpace(apiKey) != "" && apiKey != "public" {
+			mode = KiloAccountModeAPIKey
+		}
+		a := &Account{Platform: PlatformKilo, Type: AccountTypeAPIKey, Credentials: map[string]any{"account_mode": mode, "api_key": apiKey, "base_url": endpoint}}
+		body, _, err = prepareKiloChat(a, body)
+		if err != nil {
+			return "", "", 0, err
+		}
+		full = kiloBaseURL(a) + "/chat/completions"
+		h := http.Header{}
+		for k, v := range headers {
+			h.Set(k, v)
+		}
+		applyKiloHeaders(h, a)
+		headers = map[string]string{}
+		for k, v := range h {
+			headers[k] = v[0]
+		}
+	}
+
 	if provider == PlatformWorkBuddy {
 		a := &Account{Platform: PlatformWorkBuddy, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": endpoint, "api_key": apiKey}}
 		body, err = prepareWorkBuddyChat(body)

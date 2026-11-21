@@ -22,7 +22,7 @@ func TestAllPlatformsIncludesEveryConcretePlatform(t *testing.T) {
 		"opencode_go",
 		"cursor",
 		"qianwen",
-		"commandcode", "volcengine", "qianfan", "hunyuan", "mistral", "openrouter", "bedrock",
+		"commandcode", "volcengine", "qianfan", "hunyuan", "mistral", "openrouter", "bedrock", "workbuddy", "kilo",
 	}
 	for _, provider := range domain.CompatibleProviders() {
 		expected = append(expected, provider.ID)
@@ -35,7 +35,7 @@ func TestAllPlatformsIncludesEveryConcretePlatform(t *testing.T) {
 		require.NotContains(t, actual, strings.ToUpper(platform))
 		require.False(t, domain.IsConcretePlatform(strings.ToUpper(platform)))
 	}
-	for _, excluded := range []string{"", "unknown-provider", "composite", "workbuddy"} {
+	for _, excluded := range []string{"", "unknown-provider", "composite"} {
 		require.NotContains(t, actual, excluded)
 		require.False(t, domain.IsConcretePlatform(excluded))
 	}

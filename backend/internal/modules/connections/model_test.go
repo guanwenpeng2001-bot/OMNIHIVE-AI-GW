@@ -102,3 +102,17 @@ func TestCreateReportsSchemaFields(t *testing.T) {
 	}
 	require.NoError(t, (Create{Provider: "a6api", AuthType: "api_key", SchemaVersion: SchemaVersion}).validateSchema())
 }
+
+func TestFreeModelConnectionSchemas(t *testing.T) {
+	for _, tc := range []struct{ provider, mode string }{{"kilo", ""}, {"kilo", "free"}, {"kilo", "apikey"}, {"opencode_go", "zen_free"}} {
+		require.NoError(t, (Create{Provider: tc.provider, AccountMode: tc.mode, AuthType: "api_key", SchemaVersion: SchemaVersion}).validateSchema())
+		schemas := Schemas(tc.provider, "api_key")
+		require.Len(t, schemas, 1)
+		for _, field := range schemas[0].Fields {
+			if field.Path == "credential" {
+				require.False(t, field.Required)
+			}
+		}
+	}
+	require.Error(t, (Create{Provider: "kilo", AccountMode: "zen", AuthType: "api_key", SchemaVersion: SchemaVersion}).validateSchema())
+}

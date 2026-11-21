@@ -88,12 +88,15 @@ func isGrokOAuthAccount(account *Account) bool {
 }
 
 func isOpenAIAccount(account *Account) bool {
-	return account != nil && (account.Platform == PlatformOpenAI || account.Platform == PlatformGrok || account.Platform == PlatformWorkBuddy)
+	return account != nil && (account.Platform == PlatformOpenAI || account.Platform == PlatformGrok || account.Platform == PlatformWorkBuddy || account.Platform == PlatformKilo)
 }
 
 // handleOpenAIAccountUpstreamError expects canonicalModel to be the model used
 // for scheduling after applying account mapping exactly once.
 func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, canonicalModel ...string) bool {
+	if publicModelLane(account) && statusCode == http.StatusUnauthorized {
+		return false
+	}
 	if account != nil && account.Platform == PlatformOpenRouter {
 		return s.handleOpenRouterError(ctx, account, statusCode, headers, responseBody)
 	}

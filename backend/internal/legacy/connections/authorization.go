@@ -16,7 +16,7 @@ import (
 	"github.com/lib/pq"
 )
 
-var identityFields = []string{"expires_at", "token_type", "scope", "org_uuid", "account_uuid", "email_address", "email", "chatgpt_account_id", "chatgpt_user_id", "organization_id", "plan_type", "subscription_expires_at", "client_id", "chatgpt_account_is_fedramp", "project_id", "tier_id", "oauth_type", "sub", "team_id", "subscription_tier", "entitlement_status", "machine_id", "mac_machine_id", "client_version"}
+var identityFields = []string{"account_mode", "expires_at", "token_type", "scope", "org_uuid", "account_uuid", "email_address", "email", "chatgpt_account_id", "chatgpt_user_id", "organization_id", "plan_type", "subscription_expires_at", "client_id", "chatgpt_account_is_fedramp", "project_id", "tier_id", "oauth_type", "sub", "team_id", "subscription_tier", "entitlement_status", "machine_id", "mac_machine_id", "client_version"}
 
 func AttachAuthorization(ctx context.Context, tx *sql.Tx, enc service.SecretEncryptor, w, id, version int64, provider, auth, binding, ref, revision string) error {
 	sum := sha256.Sum256([]byte(ref))
