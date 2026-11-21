@@ -157,3 +157,39 @@ func TestDeliveredStreamWithCanceledUpstreamProducesReview(t *testing.T) {
 		})
 	}
 }
+
+func TestEmptyUpstreamSSEIsInterruptedAndNeedsReview(t *testing.T) {
+	for _, endpoint := range []string{"/v1/chat/completions", "/v1/responses", "/v1/messages"} {
+		t.Run(endpoint, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			body := []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+			if endpoint == "/v1/responses" {
+				body = []byte(`{"model":"gpt-5.4","input":"hi","stream":true}`)
+			}
+			c.Request = httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(string(body)))
+			upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(""))}}
+			svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+			account := forceChatMessagesFallbackAccount()
+			var result *OpenAIForwardResult
+			switch endpoint {
+			case "/v1/chat/completions":
+				result, _ = svc.ForwardAsChatCompletions(t.Context(), c, account, body, "", "")
+			case "/v1/responses":
+				result, _ = svc.Forward(t.Context(), c, account, body)
+			default:
+				result, _ = svc.ForwardAsAnthropic(t.Context(), c, account, body, "", "")
+			}
+			require.NotNil(t, result)
+			logs := &openAIRecordUsageLogRepoStub{inserted: true}
+			billing := newOpenAIRecordUsageServiceForTest(logs, nil, nil, nil)
+			_, key := newGatewayRecordUsageServiceWithResolverForTest(logs)
+			err := billing.RecordUsage(t.Context(), &OpenAIRecordUsageInput{APIKey: key, User: &User{ID: 2}, Account: account, InboundEndpoint: endpoint, Result: result})
+			require.ErrorIs(t, err, ErrUsageSettlementNeedsReview)
+			receipt := receiptFixture(t, billing).receipt
+			require.Equal(t, "interrupted", receipt.CompletionState)
+			require.Equal(t, UsageSettlementNeedsReview, receipt.State)
+			require.Zero(t, receipt.Command.BalanceCost)
+		})
+	}
+}

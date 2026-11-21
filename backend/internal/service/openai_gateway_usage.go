@@ -513,7 +513,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		AccountRateMultiplier: accountRateMultiplier,
 		APIKeyService:         input.APIKeyService,
 		Platform:              quotaPlatform,
-	}, s.billingDeps(), result.ClientDisconnect || !result.SucceededForScheduling() || input.CyberBlocked)
+	}, s.billingDeps(), result.ClientDisconnect || !result.SucceededForScheduling() || input.CyberBlocked || result.Stream && result.Usage.InputTokens == 0 && result.Usage.OutputTokens == 0)
 
 }
 
