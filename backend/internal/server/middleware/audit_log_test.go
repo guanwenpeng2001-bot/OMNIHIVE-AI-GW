@@ -327,7 +327,8 @@ func TestV2MutationAuditRetainsScopeAndRedactedSubmittedDiff(t *testing.T) {
 	require.Equal(t, "req-v2-7", entry.RequestID)
 	require.Equal(t, "/api/v2/workspaces/:workspace_id/projects/:project_id/connections/:id", entry.Path)
 	require.NotContains(t, entry.RequestBody, "audit-secret")
-	changes := entry.Extra["submitted_diff"].([]service.ConfigurationFieldDiff)
+	changes, ok := entry.Extra["submitted_diff"].([]service.ConfigurationFieldDiff)
+	require.True(t, ok)
 	require.Equal(t, "changed", changes[0].After)
 	require.Equal(t, "renamed", changes[1].After)
 }
