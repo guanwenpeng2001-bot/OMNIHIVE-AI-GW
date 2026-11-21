@@ -51,7 +51,7 @@ export interface GlobalDrawerState {
 
 const drawerState = ref<GlobalDrawerState>({
   open: false,
-  title: '详情',
+  title: '',
   html: '',
   footerHtml: ''
 })

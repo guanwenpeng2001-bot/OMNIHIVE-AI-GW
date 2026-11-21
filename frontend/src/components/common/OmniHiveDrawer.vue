@@ -20,7 +20,7 @@
       <div
         class="flex items-center justify-between border-b border-oh-default p-4"
       >
-        <b id="drawerTitle" class="text-sm font-semibold">{{ drawerState.title }}</b>
+        <b id="drawerTitle" class="text-sm font-semibold">{{ drawerState.title || (isZh ? '详情' : 'Details') }}</b>
         <button
           type="button"
           class="btn btn-ghost btn-icon btn-sm rounded-md"
