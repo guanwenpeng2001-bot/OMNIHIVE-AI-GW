@@ -1031,3 +1031,27 @@ func TestForceOpenAIPrivacy_SkipsShadow(t *testing.T) {
 	shadow := &Account{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeOAuth, ParentAccountID: &pid}
 	require.Equal(t, "", svc.ForceOpenAIPrivacy(context.Background(), shadow), "影子隐私设置应跳过")
 }
+
+type unusableCredentialRepoStub struct {
+	*sparkShadowRepoStub
+	unusable int64
+}
+
+func (r unusableCredentialRepoStub) GetByID(ctx context.Context, id int64) (*Account, error) {
+	if id == r.unusable {
+		return nil, ErrCredentialSecretNotFound
+	}
+	return r.sparkShadowRepoStub.GetByID(ctx, id)
+}
+
+func TestDeleteAccount_RemovesAccountWithUnusableCredential(t *testing.T) {
+	ctx := context.Background()
+	base := newSparkShadowRepoStub()
+	broken := &Account{Name: "broken", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive}
+	require.NoError(t, base.Create(ctx, broken))
+	svc := &adminServiceImpl{accountRepo: unusableCredentialRepoStub{base, broken.ID}, runtimeInvalidator: &AccountRuntimeInvalidator{}}
+
+	require.NoError(t, svc.DeleteAccount(ctx, broken.ID), "operators must be able to remove an account whose credential is unusable")
+	_, ok := base.accounts[broken.ID]
+	require.False(t, ok)
+}
