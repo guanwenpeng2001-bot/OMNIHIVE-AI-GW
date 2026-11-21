@@ -44,6 +44,7 @@ func (b *attemptResponseBody) Close() error {
 // AttemptRecord contains no credentials, request bodies or caller-controlled labels.
 // A transport error cannot prove that the upstream did not execute the request.
 type AttemptRecord struct {
+	preHeaderUnknown   bool
 	AbandonedUncertain bool
 	Turn               int
 	Number             int
@@ -286,7 +287,7 @@ func interruptGeneration(ctx context.Context, accountID int64, silentFirstOutput
 		return
 	}
 	r.Outcome = "unknown"
-	r.AbandonedUncertain = silentFirstOutputTimeout && b.response.State() == lifecycle.PreOutput && !b.response.ReplayBlocked()
+	r.AbandonedUncertain = r.preHeaderUnknown || silentFirstOutputTimeout && b.response.State() == lifecycle.PreOutput && !b.response.ReplayBlocked()
 	b.interrupted = r
 }
 
@@ -325,7 +326,7 @@ func (b *AttemptBudget) checkLocked(ctx context.Context) error {
 	if !time.Now().Before(b.deadline) {
 		return context.DeadlineExceeded
 	}
-	if b.interrupted != nil && (b.interrupted != b.replayFrom || b.response.State() != lifecycle.PreOutput || b.response.ReplayBlocked()) {
+	if b.interrupted != nil && (b.interrupted != b.replayFrom || !b.interrupted.AbandonedUncertain || b.response.State() != lifecycle.PreOutput || b.response.ReplayBlocked()) {
 		return ErrAttemptOutcomeUnknown
 	}
 	if b.replayFrom != nil && b.attempts[len(b.attempts)-1] != b.replayFrom {
@@ -374,7 +375,7 @@ func decisionBudgetLocked(ctx context.Context, b *AttemptBudget) attempt.Budget 
 		if view.Number > 0 {
 			r := b.attempts[view.Number-1]
 			view.AbandonedUncertain = r.AbandonedUncertain
-			view.ReplayAvailable = b.replayFrom == nil && view.AbandonedUncertain && b.response.State() == lifecycle.PreOutput && !b.response.ReplayBlocked()
+			view.ReplayAvailable = !r.preHeaderUnknown && b.replayFrom == nil && view.AbandonedUncertain && b.response.State() == lifecycle.PreOutput && !b.response.ReplayBlocked()
 			switch r.Outcome {
 			case "unknown":
 				view.Acceptance = attempt.Unknown
@@ -569,6 +570,11 @@ func beginGenerationAttempt(ctx context.Context, accountID int64, ws bool) (func
 						record.Outcome = "not_sent"
 					} else if record.Turn == b.turn {
 						b.uncertain = true
+						// A timeout before HTTP headers cannot prove the POST was not accepted.
+						if !ws && status == 0 && (errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)) {
+							record.preHeaderUnknown, record.AbandonedUncertain = true, true
+							b.interrupted = record
+						}
 					}
 				}
 				outcome = record.Outcome

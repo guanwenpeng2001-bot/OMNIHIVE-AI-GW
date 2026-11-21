@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -88,6 +89,33 @@ func TestOpenAIForwardFirstOutputTimeoutIncludesResponseHeaderWait(t *testing.T)
 	default:
 		t.Fatal("response-header timeout did not cancel the upstream request context")
 	}
+}
+
+func TestOpenAIForwardResponseHeaderTimeoutRetainsReviewEvidence(t *testing.T) {
+	ctx, cancel := WithAttemptBudget(context.Background(), 2, time.Minute)
+	defer cancel()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { time.Sleep(2 * time.Second) }))
+	defer server.Close()
+	client := server.Client()
+	client.Timeout = 10 * time.Millisecond
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL, nil)
+	require.NoError(t, err)
+	_, err = generationHTTP(request, 1, client.Do)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	controller := attempt.New(1)
+	decision := DecideAttempt(ctx, &controller, attempt.Failure{AccountID: 1})
+	require.Equal(t, attempt.Stop, decision.Action)
+	require.True(t, decision.AbandonedUncertain)
+
+	ctx, cancel = WithAttemptBudget(context.Background(), 1, time.Minute)
+	defer cancel()
+	request, err = http.NewRequestWithContext(ctx, http.MethodPost, server.URL, nil)
+	require.NoError(t, err)
+	_, err = generationHTTP(request, 1, client.Do)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	decision = DecideAttempt(context.WithoutCancel(ctx), &attempt.Controller{}, attempt.Failure{AccountID: 1})
+	require.Equal(t, attempt.Stop, decision.Action)
+	require.True(t, decision.AbandonedUncertain)
 }
 
 func TestOpenAINativeFirstOutputTimeoutDisabledPreservesSynchronousStream(t *testing.T) {
@@ -730,4 +758,26 @@ func TestAttemptResponsesSSEFirstOutputEvidence(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHeaderTimeoutWithoutAttemptBudget(t *testing.T) {
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://upstream.invalid/chat", nil)
+	require.NoError(t, err)
+	_, err = generationHTTP(req, 1, func(*http.Request) (*http.Response, error) { return nil, context.DeadlineExceeded })
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+func TestPreHeaderDialTimeoutSwitchesUnsentAttempt(t *testing.T) {
+	ctx, cancel := WithAttemptBudget(t.Context(), 2, time.Minute)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://upstream.invalid/chat", nil)
+	require.NoError(t, err)
+	_, err = generationHTTP(req, 1, func(*http.Request) (*http.Response, error) {
+		return nil, &net.OpError{Op: "dial", Err: context.DeadlineExceeded}
+	})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	controller := attempt.New(1)
+	decision := DecideAttempt(ctx, &controller, attempt.Failure{AccountID: 1})
+	require.Equal(t, attempt.Switch, decision.Action)
+	require.False(t, decision.AbandonedUncertain)
 }
