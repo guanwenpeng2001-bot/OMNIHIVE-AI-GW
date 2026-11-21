@@ -23,6 +23,8 @@ const (
 	Unknown  Acceptance = "unknown"
 )
 
+const PreHeaderTimeout = "pre_header_timeout"
+
 const FirstOutputTimeoutAbandoned = "first_output_timeout_abandoned"
 
 type AttemptDecision struct {
@@ -90,6 +92,8 @@ func (c *Controller) Decide(b Budget, f Failure) AttemptDecision {
 	d := AttemptDecision{AbandonedUncertain: b.AbandonedUncertain, AttemptNumber: b.Number, Remaining: b.Remaining, Deadline: b.Deadline, Acceptance: b.Acceptance, Action: Stop}
 	now := time.Now()
 	switch {
+	case b.StopReason == PreHeaderTimeout:
+		d.Reason = PreHeaderTimeout
 	case b.StopReason == "canceled":
 		d.Action, d.Reason = Cancel, b.StopReason
 	case !b.Deadline.IsZero() && !now.Before(b.Deadline):

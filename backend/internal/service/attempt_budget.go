@@ -7,9 +7,11 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/attempt"
@@ -26,6 +28,8 @@ const DefaultGenerationDeadline = 5 * time.Minute
 var ErrAttemptBudgetExhausted = errors.New("generation attempt budget exhausted")
 var ErrResponseCommitted = errors.New("downstream response committed; generation replay forbidden")
 var ErrAttemptOutcomeUnknown = errors.New("upstream submission outcome unknown; generation replay forbidden")
+
+var errWrittenRequestTimeout = errors.New("written generation timed out before response headers")
 
 type attemptBudgetKey struct{}
 
@@ -44,14 +48,15 @@ func (b *attemptResponseBody) Close() error {
 // AttemptRecord contains no credentials, request bodies or caller-controlled labels.
 // A transport error cannot prove that the upstream did not execute the request.
 type AttemptRecord struct {
-	preHeaderUnknown   bool
-	AbandonedUncertain bool
-	Turn               int
-	Number             int
-	AccountID          int64
-	Reason             string
-	Outcome            string
-	Status             int
+	preHeaderUnknown      bool
+	writtenRequestTimeout bool
+	AbandonedUncertain    bool
+	Turn                  int
+	Number                int
+	AccountID             int64
+	Reason                string
+	Outcome               string
+	Status                int
 }
 
 type AttemptBudget struct {
@@ -398,6 +403,10 @@ func decisionBudgetLocked(ctx context.Context, b *AttemptBudget) attempt.Budget 
 			view.AbandonedUncertain = r.AbandonedUncertain
 			view.ReplayAvailable = !r.preHeaderUnknown && b.replayFrom == nil && view.AbandonedUncertain && b.response.State() == lifecycle.PreOutput && !b.response.ReplayBlocked()
 			view.Acceptance = generationAcceptance(r.Outcome, r.Status)
+			if r.writtenRequestTimeout {
+				view.StopReason = attempt.PreHeaderTimeout
+				return view
+			}
 		}
 		err = b.checkLocked(ctx)
 	} else if ctx != nil {
@@ -593,6 +602,10 @@ func beginGenerationAttempt(ctx context.Context, accountID int64, ws bool) (func
 						}
 					}
 				}
+				if errors.Is(err, errWrittenRequestTimeout) {
+					record.writtenRequestTimeout = true
+					record.AbandonedUncertain = false
+				}
 				outcome, status = record.Outcome, record.Status
 				b.mu.Unlock()
 				plan.observeJournalAttempt(durable, outcome, status)
@@ -618,6 +631,15 @@ func generationHTTP(request *http.Request, accountID int64, send func(*http.Requ
 	ctx, cancelGeneration := context.WithCancel(request.Context())
 	ctx, cancelDeadline := AttemptExecutionContext(ctx)
 	cancel := func() { cancelGeneration(); cancelDeadline() }
+	var written atomic.Bool
+	plan := GatewayRequestPlanFromContext(ctx)
+	if plan != nil && plan.spec.NonStreamingText {
+		ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{WroteRequest: func(info httptrace.WroteRequestInfo) {
+			if info.Err == nil {
+				written.Store(true)
+			}
+		}})
+	}
 	request = request.WithContext(ctx)
 	response, sendErr := send(request)
 	status := 0
@@ -631,7 +653,18 @@ func generationHTTP(request *http.Request, accountID int64, send func(*http.Requ
 			}
 		}
 	}
-	finish(status, sendErr)
+	var timeout net.Error
+	if response == nil && written.Load() && errors.As(sendErr, &timeout) && timeout.Timeout() {
+		finish(status, errors.Join(sendErr, errWrittenRequestTimeout))
+		controller := attempt.New(0)
+		reviewCtx := context.WithoutCancel(ctx)
+		attempt.Record(reviewCtx, DecideAttempt(reviewCtx, &controller, attempt.Failure{AccountID: accountID}))
+		if plan.settlement != nil && plan.Record() {
+			plan.persistUnresolvedUsage(reviewCtx, false)
+		}
+	} else {
+		finish(status, sendErr)
+	}
 	if sendErr != nil || response == nil || response.Body == nil {
 		cancel()
 	} else {
