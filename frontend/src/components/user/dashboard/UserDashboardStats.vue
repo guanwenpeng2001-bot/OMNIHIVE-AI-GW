@@ -14,7 +14,7 @@
       </div>
       <div class="mt-2 flex items-end justify-between gap-2">
         <div class="min-w-0">
-          <p class="font-mono text-xl font-bold tabular-nums tracking-tight text-[var(--oh-accent-ink,var(--brand-text,#d97706))]" :title="`USD ${formatLedgerAmount(balance)}`">${{ formatBalance(balance) }}</p>
+          <p class="font-mono text-xl font-bold tabular-nums tracking-tight text-oh-accent-text" :title="`USD ${formatLedgerAmount(balance)}`">${{ formatBalance(balance) }}</p>
           <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">{{ t('common.available') }}</p>
         </div>
       </div>
@@ -60,8 +60,8 @@
       <div class="mt-2 flex items-end justify-between gap-2">
         <div class="min-w-0 flex-1">
           <p class="oh-cost-pair text-xl font-bold tabular-nums tracking-tight text-[var(--foreground)]">
-            <span class="text-[var(--brand-text)]" :title="t('dashboard.actual')"><span class="inline-block">{{ t('dashboard.actual') }}</span> <span class="inline-block whitespace-nowrap">USD {{ formatCost(stats?.today_actual_cost) }}</span></span>
-            <span class="text-sm font-normal text-[var(--muted-foreground)]" :title="t('dashboard.standard')"><span class="inline-block whitespace-nowrap"> / {{ t('dashboard.standard') }}</span> <span class="inline-block whitespace-nowrap">USD {{ formatCost(stats?.today_cost) }}</span></span>
+            <span class="text-[var(--brand-text)]" :title="`${t('dashboard.actual')} USD ${formatCost(stats?.today_actual_cost)}`"><span class="inline-block">{{ t('dashboard.actual') }}</span> <span class="inline-block whitespace-nowrap">USD {{ formatBalance(stats?.today_actual_cost) }}</span></span>
+            <span class="text-sm font-normal text-[var(--muted-foreground)]" :title="`${t('dashboard.standard')} USD ${formatCost(stats?.today_cost)}`"><span class="inline-block whitespace-nowrap"> / {{ t('dashboard.standard') }}</span> <span class="inline-block whitespace-nowrap">USD {{ formatBalance(stats?.today_cost) }}</span></span>
           </p>
           <p class="oh-cost-pair mt-0.5 text-xs tabular-nums">
             <span class="text-[var(--muted-foreground)]">{{ summaryLabel }}: </span>

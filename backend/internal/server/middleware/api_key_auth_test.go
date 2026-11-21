@@ -630,12 +630,12 @@ func TestAPIKeyAuthMarksOnlyExpectedIngressRejections(t *testing.T) {
 			wantReason: IngressRejectInvalidAPIKey,
 		},
 		{
-			name:       "repository failure remains operational error",
+			name:       "repository failure is retryable service unavailability",
 			path:       "/t",
 			key:        "valid-shape",
 			repoErr:    errors.New("database unavailable"),
-			wantStatus: http.StatusInternalServerError,
-			wantCode:   "INTERNAL_ERROR",
+			wantStatus: http.StatusServiceUnavailable,
+			wantCode:   "API_KEY_AUTH_UNAVAILABLE",
 		},
 		{
 			name:       "auth lookup bulkhead rejection is an admission rejection",

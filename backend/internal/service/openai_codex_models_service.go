@@ -29,6 +29,7 @@ import (
 // chatgptCodexModelsURL is the ChatGPT Codex models manifest endpoint.
 // Package-level variable so tests can point it at a stub server.
 var chatgptCodexModelsURL = "https://chatgpt.com/backend-api/codex/models"
+var codexModelsHTTPClient = httpclient.GetClient
 
 const (
 	openAIModelsCacheBodyLimit = 1 << 20
@@ -1927,7 +1928,7 @@ func (s *OpenAIGatewayService) fetchOpenAIModelsUpstream(ctx context.Context, re
 			})
 		}
 		if !handled {
-			client, clientErr := httpclient.GetClient(httpclient.Options{
+			client, clientErr := codexModelsHTTPClient(httpclient.Options{
 				ProxyURL:              request.proxyURL,
 				Timeout:               codexModelsManifestRequestTimeout,
 				ResponseHeaderTimeout: 10 * time.Second,

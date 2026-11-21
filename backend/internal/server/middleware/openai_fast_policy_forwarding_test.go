@@ -54,6 +54,8 @@ func TestAPIKeyAuthForwardsUserScopedOpenAIFastPolicyToUpstream(t *testing.T) {
 
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	cfg.Security.URLAllowlist.Enabled = false
+	cfg.Security.URLAllowlist.AllowPrivateHosts = true
+	cfg.Security.URLAllowlist.UpstreamHosts = []string{"127.0.0.1"}
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 
 	settingService := service.NewSettingService(&openAIFastPolicyForwardingSettingRepo{

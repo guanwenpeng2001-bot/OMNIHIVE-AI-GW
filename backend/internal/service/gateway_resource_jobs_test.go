@@ -32,12 +32,6 @@ func (u gatewayResourceHTTPUpstream) DoWithTLS(request *http.Request, proxyURL s
 	return u.Do(request, proxyURL, accountID, concurrency)
 }
 
-func gatewayResourceTestConfig() *config.Config {
-	configuration := &config.Config{}
-	configuration.Security.URLAllowlist.AllowInsecureHTTP = true
-	return configuration
-}
-
 func gatewayResourceMultipartFixture(t *testing.T, filename string, content []byte) ([]byte, string) {
 	t.Helper()
 	var body bytes.Buffer
@@ -106,7 +100,7 @@ func TestGatewayResourceOpenAIBatchLifecycleSettlesOnlyValidatedOutput(t *testin
 	account := openAIActionAccount()
 	account.Status = StatusActive
 	account.Credentials["base_url"] = server.URL
-	service := &OpenAIGatewayService{cfg: gatewayResourceTestConfig(), httpUpstream: gatewayResourceHTTPUpstream{client: server.Client()}, accountRepo: openAIVideoAccountRepository{account: account}}
+	service := &OpenAIGatewayService{cfg: loopbackHTTPTestConfig(), httpUpstream: gatewayResourceHTTPUpstream{client: server.Client()}, accountRepo: openAIVideoAccountRepository{account: account}}
 	ctx := context.Background()
 
 	fileBody, contentType := gatewayResourceMultipartFixture(t, "input.jsonl", []byte(gatewayResourceValidJSONLLine+"\n"))
@@ -183,7 +177,7 @@ func TestGatewayResourceAnthropicMessageBatchLifecycleSettlesEndedResults(t *tes
 
 	account := newAnthropicAPIKeyAccountForTest()
 	account.Credentials["base_url"] = server.URL + "/v1"
-	service := &OpenAIGatewayService{cfg: gatewayResourceTestConfig(), httpUpstream: gatewayResourceHTTPUpstream{client: server.Client()}, accountRepo: openAIVideoAccountRepository{account: account}}
+	service := &OpenAIGatewayService{cfg: loopbackHTTPTestConfig(), httpUpstream: gatewayResourceHTTPUpstream{client: server.Client()}, accountRepo: openAIVideoAccountRepository{account: account}}
 	ctx := context.Background()
 
 	created, err := service.SubmitAnthropicMessageBatch(ctx, account, anthropicBatchJobFixture(), []byte(anthropicBatchFixture))
@@ -277,7 +271,7 @@ func TestGatewayResourceModerationForwardsNativeShape(t *testing.T) {
 	account := openAIActionAccount()
 	account.Status = StatusActive
 	account.Credentials["base_url"] = server.URL
-	service := &OpenAIGatewayService{cfg: gatewayResourceTestConfig(), httpUpstream: gatewayResourceHTTPUpstream{client: server.Client()}, accountRepo: openAIVideoAccountRepository{account: account}}
+	service := &OpenAIGatewayService{cfg: loopbackHTTPTestConfig(), httpUpstream: gatewayResourceHTTPUpstream{client: server.Client()}, accountRepo: openAIVideoAccountRepository{account: account}}
 
 	response, err := service.ForwardOpenAIModeration(context.Background(), account, []byte(`{"input":"check this","model":"omni-moderation-latest"}`))
 	require.NoError(t, err)
@@ -384,7 +378,7 @@ func (f *gatewayResourceCancelledBatchFixture) serve() (*OpenAIGatewayService, f
 	account := openAIActionAccount()
 	account.Status = StatusActive
 	account.Credentials["base_url"] = server.URL
-	service := &OpenAIGatewayService{cfg: gatewayResourceTestConfig(), httpUpstream: gatewayResourceHTTPUpstream{client: server.Client()}, accountRepo: openAIVideoAccountRepository{account: account}}
+	service := &OpenAIGatewayService{cfg: loopbackHTTPTestConfig(), httpUpstream: gatewayResourceHTTPUpstream{client: server.Client()}, accountRepo: openAIVideoAccountRepository{account: account}}
 	return service, server.Close
 }
 

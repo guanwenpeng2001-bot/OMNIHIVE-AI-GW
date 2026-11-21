@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/journal"
 	process "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/runtime"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/redis/go-redis/v9"
@@ -370,9 +371,13 @@ func provideUserMessageQueueService(s *process.Supervisor, cache service.UserMsg
 	return svc
 }
 
-func provideUsageSettlementService(s *process.Supervisor, repo service.UsageSettlementReceiptRepository, pool *service.UsageRecordWorkerPool, cache *service.BillingCacheService, keys *service.APIKeyService) *service.UsageSettlementService {
+func provideUsageSettlementService(s *process.Supervisor, repo service.UsageSettlementReceiptRepository, pool *service.UsageRecordWorkerPool, cache *service.BillingCacheService, keys *service.APIKeyService, db *sql.DB) *service.UsageSettlementService {
 	// Live submissions keep their request-scoped quota invalidation callback.
 	// Recovery carries its own API-key invalidator for replay without a caller.
+	if s.Mode == process.Gateway || s.Mode.Workers() {
+		recovery := &journal.Recovery{Store: journal.New(db), Interval: time.Minute}
+		s.Add(recovery.Start)
+	}
 	if s.Mode.Workers() {
 		s.Add(func(ctx context.Context) {
 			recovery := service.ProvideUsageSettlementService(repo, pool, cache, keys)

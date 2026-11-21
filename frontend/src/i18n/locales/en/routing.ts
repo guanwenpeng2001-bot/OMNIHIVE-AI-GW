@@ -206,9 +206,52 @@ export default {
     "scheduling": "Scheduling and fallback",
     "models": "Models and privacy"
   },
+  "defaultPolicyName": "Default Routing Policy",
+  "outboundPools": {
+    "pageTitle": "Outbound Connection Pools",
+    "pageDescription": "Manage shared concurrency pools for upstream connections, bind them in Connection Wizard Step 4, and filter them in Routing Policies.",
+    "title": "Outbound Connection Pools",
+    "description": "Define shared concurrency pools for upstream connections; bind them in Connection Wizard Step 4 and filter in Routing Policies.",
+    "refresh": "Refresh",
+    "openWizard": "Connection Wizard",
+    "newPool": "+ New Pool",
+    "cancelForm": "Cancel",
+    "nameLabel": "Pool Name",
+    "namePlaceholder": "e.g. Primary Low-Latency Pool",
+    "concurrencyLabel": "Max Concurrency (1–10000)",
+    "createSubmit": "Create Pool",
+    "empty": "No outbound connection pools defined yet. Click \"+ New Pool\" to create a concurrency pool for connections and routing policies.",
+    "maxConcurrencyBadge": "Max {count}",
+    "connectionsBadge": "{count} connections",
+    "edit": "Edit",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "globalWorkspace": "Global",
+    "deleteConfirmTitle": "Confirm Pool Deletion",
+    "deleteConfirmMessage": "Delete outbound pool \"{name}\" in workspace {workspace}? Active routing policies referencing this pool may fail.",
+    "confirmDelete": "Confirm Delete",
+    "validationError": "Enter a valid pool name and max concurrency between 1 and 10000.",
+    "loadFailed": "Failed to load resource pools",
+    "createFailed": "Failed to create pool",
+    "updateFailed": "Failed to update pool",
+    "deleteFailed": "Failed to delete pool (detach active connections first)"
+  },
   "selectKey": "Select a project key",
   "browseKeys": "Browse project keys",
   "keysUnavailable": "Keys are unavailable. Enter a known numeric key ID if you have routing access.",
   "simulating": "Evaluating frozen candidates…",
-  "origins": "Constraint origins"
+  "origins": "Constraint origins",
+  "telemetry": {
+    "title": "GATEWAY TELEMETRY",
+    "status": {
+      "unknown": "Unknown",
+      "healthy": "Healthy",
+      "degraded": "Degraded",
+      "failed": "Read failed",
+      "disconnected": "Disconnected"
+    },
+    "lastObservedLabel": "Last observed: {time}",
+    "lastObservedUnknown": "Last observed: —"
+  }
 }

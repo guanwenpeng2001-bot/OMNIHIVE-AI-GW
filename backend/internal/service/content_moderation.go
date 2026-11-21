@@ -24,7 +24,6 @@ import (
 	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/servertiming"
 )
 
 const (
@@ -508,6 +507,7 @@ type ContentModerationService struct {
 	proxyRepo                ProxyRepository
 	authCacheInvalidator     APIKeyAuthCacheInvalidator
 	emailService             *EmailService
+	privateHosts             []string
 	httpClient               *http.Client
 	moderationProxyCache     atomic.Pointer[moderationProxyURLCacheEntry]
 	asyncQueue               chan contentModerationTask
@@ -591,7 +591,6 @@ func NewContentModerationService(
 		proxyRepo:            proxyRepo,
 		authCacheInvalidator: authCacheInvalidator,
 		emailService:         emailService,
-		httpClient:           servertiming.InstrumentClient(nil),
 		workerCount:          maxContentModerationWorkerCount,
 		asyncQueue:           make(chan contentModerationTask, maxContentModerationQueueSize),
 		keyHealth:            make(map[string]*contentModerationKeyHealth),
@@ -1819,17 +1818,17 @@ const contentModerationProxyURLCacheTTL = time.Minute
 // 未配置代理时沿用默认客户端；配置了代理时通过共享客户端池构建，
 // 代理解析/构建失败直接返回错误，绝不回退直连（避免 IP 关联风险）。
 func (s *ContentModerationService) moderationHTTPClient(ctx context.Context, cfg *ContentModerationConfig) (*http.Client, error) {
-	if cfg == nil || cfg.ProxyID == nil {
-		if s.httpClient == nil {
-			return http.DefaultClient, nil
+	var proxyURL string
+	if cfg != nil && cfg.ProxyID != nil {
+		var err error
+		proxyURL, err = s.resolveModerationProxyURL(ctx, *cfg.ProxyID)
+		if err != nil {
+			return nil, err
 		}
+	} else if s.httpClient != nil {
 		return s.httpClient, nil
 	}
-	proxyURL, err := s.resolveModerationProxyURL(ctx, *cfg.ProxyID)
-	if err != nil {
-		return nil, err
-	}
-	client, err := httpclient.GetClient(httpclient.Options{ProxyURL: proxyURL})
+	client, err := httpclient.GetClient(httpclient.Options{ProxyURL: proxyURL, PrivateHosts: s.privateHosts, AllowPrivateHosts: len(s.privateHosts) > 0})
 	if err != nil {
 		return nil, fmt.Errorf("build moderation proxy client: %w", err)
 	}

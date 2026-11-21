@@ -1,13 +1,54 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import * as stores from '@/stores'
-import { useIsZhLocale } from '@/utils/activeLocale'
 import { sanitizeUrl } from '@/utils/url'
+import { applyRouteSeo, resolvePublicRouteSeo } from '@/features/public/seo'
 import BrandMark from './BrandMark.vue'
 import PublicHeader from './PublicHeader.vue'
 import { activePublicShellCount } from './shellState'
 
 const SiteICPFooter = defineAsyncComponent(() => import('./SiteICPFooter.vue'))
+
+const SHELL_MESSAGES = {
+  en: {
+    brandSubtitle: 'Unified AI Inference Gateway',
+    rightsReserved: 'All rights reserved.',
+    footerNavAria: 'Footer navigation',
+    models: 'Models',
+    pricing: 'Pricing',
+    status: 'Service Status',
+    docsExternal: 'Docs ↗',
+    docs: 'Docs',
+    compatibility: 'Updates & Compatibility',
+    terms: 'Terms of Service',
+    privacy: 'Privacy Policy',
+    support: 'Support'
+  },
+  zh: {
+    brandSubtitle: '统一 AI 推理网关',
+    rightsReserved: '保留所有权利。',
+    footerNavAria: '页脚快捷链接',
+    models: '模型广场',
+    pricing: '定价方案',
+    status: '服务状态',
+    docsExternal: '开放文档 ↗',
+    docs: '接入文档',
+    compatibility: '更新与兼容性',
+    terms: '服务条款',
+    privacy: '隐私政策',
+    support: '人工支持'
+  }
+} as const
+
+type ShellMessageKey = keyof typeof SHELL_MESSAGES.en
+
+function toMessageFunctions<T extends Record<string, string>>(dict: T) {
+  return Object.fromEntries(
+    Object.entries(dict).map(([k, v]) => [k, () => v])
+  ) as Record<keyof T, () => string>
+}
 
 withDefaults(
   defineProps<{
@@ -28,14 +69,29 @@ const appStore = (() => {
   }
 })()
 
-const isZh = useIsZhLocale('zh')
+const { t, locale } = useI18n({
+  useScope: 'local',
+  messages: {
+    en: toMessageFunctions(SHELL_MESSAGES.en),
+    zh: toMessageFunctions(SHELL_MESSAGES.zh),
+    'zh-CN': toMessageFunctions(SHELL_MESSAGES.zh)
+  }
+})
+
+function tr(key: ShellMessageKey): string {
+  const translated = t(key)
+  if (translated && translated !== key) return translated
+  const active = String(locale?.value || 'en').toLowerCase()
+  const dict = active.startsWith('zh') ? SHELL_MESSAGES.zh : SHELL_MESSAGES.en
+  return dict[key]
+}
 
 const brand = computed(
   () =>
     appStore?.brandConfig ?? {
       siteName: appStore?.siteName || 'OmniHive',
       siteLogo: appStore?.siteLogo || '',
-      subtitle: isZh.value ? '统一 AI 推理网关' : 'Unified AI Inference Gateway'
+      subtitle: tr('brandSubtitle')
     }
 )
 
@@ -44,6 +100,25 @@ const docUrl = computed(() =>
 )
 
 const currentYear = new Date().getFullYear()
+
+const activeRoute = (() => {
+  try {
+    return useRoute()
+  } catch {
+    return null
+  }
+})()
+
+watch(
+  () => [activeRoute?.path, locale?.value, brand.value.siteName],
+  () => {
+    if (!activeRoute?.path) return
+    const isZh = String(locale?.value || '').toLowerCase().startsWith('zh')
+    const seo = resolvePublicRouteSeo(activeRoute.path, brand.value.siteName, isZh)
+    if (seo) applyRouteSeo(seo)
+  },
+  { immediate: true }
+)
 
 onMounted(() => {
   activePublicShellCount.value += 1
@@ -107,32 +182,32 @@ onBeforeUnmount(() => {
               <span class="hidden text-oh-subtle sm:inline" aria-hidden="true">|</span>
               <span class="font-mono text-[11px] text-oh-muted">
                 © {{ currentYear }} {{ brand.siteName }}.
-                {{ isZh ? '保留所有权利。' : 'All rights reserved.' }}
+                {{ tr('rightsReserved') }}
               </span>
               <SiteICPFooter inline />
             </div>
 
             <nav
-              :aria-label="isZh ? '页脚快捷链接' : 'Footer navigation'"
+              :aria-label="tr('footerNavAria')"
               class="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-medium text-oh-secondary"
             >
               <router-link
                 to="/model-plaza"
                 class="oh-focus-ring rounded-oh-xs transition-colors hover:text-oh-primary"
               >
-                {{ isZh ? '模型广场' : 'Models' }}
+                {{ tr('models') }}
               </router-link>
               <router-link
                 to="/pricing"
                 class="oh-focus-ring rounded-oh-xs transition-colors hover:text-oh-primary"
               >
-                {{ isZh ? '定价方案' : 'Pricing' }}
+                {{ tr('pricing') }}
               </router-link>
               <router-link
                 to="/status"
                 class="oh-focus-ring rounded-oh-xs transition-colors hover:text-oh-primary"
               >
-                {{ isZh ? '服务状态' : 'Service Status' }}
+                {{ tr('status') }}
               </router-link>
               <a
                 v-if="docUrl"
@@ -141,14 +216,37 @@ onBeforeUnmount(() => {
                 rel="noopener noreferrer"
                 class="oh-focus-ring rounded-oh-xs transition-colors hover:text-oh-primary"
               >
-                {{ isZh ? '开放文档 ↗' : 'Docs ↗' }}
+                {{ tr('docsExternal') }}
               </a>
               <router-link
-                v-else
-                to="/help"
+                to="/docs"
                 class="oh-focus-ring rounded-oh-xs transition-colors hover:text-oh-primary"
               >
-                {{ isZh ? '开放文档' : 'Docs' }}
+                {{ tr('docs') }}
+              </router-link>
+              <router-link
+                to="/compatibility"
+                class="oh-focus-ring rounded-oh-xs transition-colors hover:text-oh-primary"
+              >
+                {{ tr('compatibility') }}
+              </router-link>
+              <router-link
+                to="/legal/terms"
+                class="oh-focus-ring rounded-oh-xs transition-colors hover:text-oh-primary"
+              >
+                {{ tr('terms') }}
+              </router-link>
+              <router-link
+                to="/legal/privacy"
+                class="oh-focus-ring rounded-oh-xs transition-colors hover:text-oh-primary"
+              >
+                {{ tr('privacy') }}
+              </router-link>
+              <router-link
+                to="/docs#support"
+                class="oh-focus-ring rounded-oh-xs transition-colors hover:text-oh-primary"
+              >
+                {{ tr('support') }}
               </router-link>
             </nav>
           </div>

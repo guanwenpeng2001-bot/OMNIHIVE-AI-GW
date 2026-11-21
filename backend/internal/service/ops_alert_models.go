@@ -57,6 +57,9 @@ type OpsAlertEvent struct {
 
 	EmailSent bool      `json:"email_sent"`
 	CreatedAt time.Time `json:"created_at"`
+	// Alerts are aggregate observations; drill into the matching error list
+	// rather than assigning an unproven individual request to the alert.
+	ErrorsURL string `json:"errors_url"`
 }
 
 type OpsAlertSilence struct {

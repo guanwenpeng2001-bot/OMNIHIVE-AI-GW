@@ -1,0 +1,51 @@
+export default {
+  consoleScopeBar: {
+    scopeLabel: '当前作用域',
+    noVisibleProject: '无可见项目 (—)',
+    syncingScope: '同步作用域…',
+    defaultPersonalScope: '默认个人作用域',
+    refreshing: '刷新中',
+    sync: '刷新',
+  },
+  playgroundKeys: {
+    emptyTitle: '当前项目暂无可用密钥',
+    emptyDescription:
+      '作用域调试台仅允许使用当前项目下的可用密钥，不可回退使用个人账户密钥。',
+    scopeRequiredTitle: '需要先选择项目作用域',
+    scopeRequiredDescription:
+      '请先选择工作空间与项目，再使用该项目的可用密钥发起调试运行。',
+    loadErrorTitle: '无法加载项目密钥',
+    loadErrorDescription:
+      '当前项目密钥列表加载失败，请重试或检查当前项目的访问权限。',
+    createProjectKeyAction: '创建项目密钥',
+    selectScopeAction: '切换工作空间',
+    retryAction: '重试加载',
+    sideBUnavailable: 'B 侧暂无当前项目的可用密钥。',
+    runBlockedHint: '当前项目缺少可用密钥，无法预估确认付费执行；请先创建项目密钥。',
+    ownedGroupLabel: '我的项目密钥',
+    actAsGroupLabel: '代他人运行，需要指定付费人',
+  },
+  playgroundErrors: {
+    noEligibleEndpointHint: '请检查模型是否已发布到目录、连接是否已验证，或切换协议/模型。',
+    gotoByokAction: '前往 BYOK 验证连接 (/byok)',
+    gotoAdminCatalogAction: '前往运营目录验证与发布',
+  },
+  playgroundDiagnostics: {
+    title: '诊断检查器',
+    expandDrawer: '展开诊断抽屉',
+    collapseDrawer: '收起诊断抽屉',
+    togglePane: '原始请求 / SSE 帧',
+    tabsAriaLabel: '原始请求与响应事件标签页',
+    tabRawRequest: '原始请求 JSON',
+    tabSseFrames: '原始 SSE 帧',
+    rawRequestLabel: '已提交请求载荷 (JSON)',
+    rawRequestEmpty: '尚未提交请求，运行后可在此查看标准请求 JSON 载荷。',
+    sseFramesLabel: '流式 SSE 事件帧',
+    sseFramesEmpty: '暂无流式 SSE 事件帧记录。',
+    rawEventsLabel: '上游原始事件 (rawEvents)',
+    rawEventsEmpty: '未开启或暂无上游原始事件帧。',
+    framePayloadLabel: '事件载荷',
+    copyPayload: '复制 JSON',
+    copyFrames: '复制全部帧',
+  },
+}

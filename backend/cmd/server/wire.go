@@ -184,7 +184,8 @@ func auditStoreProvider(db *sql.DB, access *identitypostgres.Store) *auditstore.
 
 func auditObserverProvider() *auditstore.Observer { return auditstore.NewObserver() }
 
-func auditHandlerProvider(store *auditstore.Store, observer *auditstore.Observer, cfg *config.Config) *audithttp.Handler {
+func auditHandlerProvider(store *auditstore.Store, observer *auditstore.Observer, cfg *config.Config, auditLogs *service.AuditLogService) *audithttp.Handler {
+	auditLogs.SetScopedStore(store)
 	return audithttp.New(store, observer, cfg)
 }
 
@@ -774,7 +775,7 @@ var runtimeServiceProviders = wire.NewSet(
 	wire.Bind(new(service.ChannelCacheInvalidator), new(*service.ChannelService)),
 	service.NewModelPricingResolver,
 	service.NewModelPlazaService,
-	service.NewContentModerationService,
+	service.ProvideContentModerationService,
 	service.NewAffiliateService,
 	service.ProvidePaymentConfigService,
 	service.ProvidePaymentService,

@@ -113,7 +113,7 @@ func configureLifecycle(app *Application) {
 	})
 	app.Server.ConnContext = app.Admission.ConnContext
 	app.Server.ConnState = app.Admission.ConnState
-	app.Server.Handler = app.Admission.Wrap(roleHandler(s.Mode, ready, app.Server.Handler))
+	app.Server.Handler = app.Admission.Wrap(app.Restores.Maintenance(roleHandler(s.Mode, ready, app.Server.Handler)))
 }
 
 func roleHandler(mode process.Mode, ready, next http.Handler) http.Handler {

@@ -204,8 +204,7 @@ func (s *EmailService) SendEmailWithConfig(config *SMTPConfig, to, subject, body
 	}
 	defer func() { _ = client.Close() }()
 
-	auth := smtp.PlainAuth("", config.Username, config.Password, config.Host)
-	if err = client.Auth(auth); err != nil {
+	if err = authenticateSMTP(client, config); err != nil {
 		return fmt.Errorf("smtp auth: %w", err)
 	}
 	if err = client.Mail(message.envelopeFrom); err != nil {
@@ -228,6 +227,13 @@ func (s *EmailService) SendEmailWithConfig(config *SMTPConfig, to, subject, body
 	// Some SMTP servers return non-standard responses on QUIT
 	_ = client.Quit()
 	return nil
+}
+
+func authenticateSMTP(client *smtp.Client, config *SMTPConfig) error {
+	if strings.TrimSpace(config.Username) == "" {
+		return nil
+	}
+	return client.Auth(smtp.PlainAuth("", config.Username, config.Password, config.Host))
 }
 
 // smtpTestRootCAs 仅供单元测试注入自签 CA，生产环境始终为 nil（走系统信任链）。
@@ -434,8 +440,7 @@ func (s *EmailService) TestSMTPConnectionWithConfig(config *SMTPConfig) error {
 	}
 	defer func() { _ = client.Close() }()
 
-	auth := smtp.PlainAuth("", config.Username, config.Password, config.Host)
-	if err := client.Auth(auth); err != nil {
+	if err := authenticateSMTP(client, config); err != nil {
 		return fmt.Errorf("smtp authentication failed: %w", err)
 	}
 

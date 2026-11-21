@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -29,18 +30,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
-type MCPGrantDTO struct {
-	ID          string     `json:"id"`
-	ClientID    string     `json:"client_id"`
-	Name        string     `json:"name"`
-	RedirectURI string     `json:"redirect_uri"`
-	Scope       string     `json:"scope"`
-	Permission  string     `json:"permission"`
-	Status      string     `json:"status"`
-	CreatedAt   time.Time  `json:"created_at"`
-	ExpiresAt   time.Time  `json:"expires_at"`
-	LastUsedAt  *time.Time `json:"last_used_at"`
-}
+type MCPGrantDTO = service.MCPGrantDTO
 
 type UserAuditEventDTO struct {
 	ID        string    `json:"id"`
@@ -55,7 +45,6 @@ type UserAuditEventDTO struct {
 type mcpUserState struct {
 	hidden   bool
 	steps    [3]bool
-	grants   []MCPGrantDTO
 	events   []UserAuditEventDTO
 	policies RoutingPoliciesDTO
 }
@@ -63,19 +52,37 @@ type mcpUserState struct {
 // MCPGrantHandler stores authorization metadata, not executable MCP
 // credentials. Records are isolated by principal and reset on process restart.
 type MCPGrantHandler struct {
-	mu            sync.Mutex
-	users         map[int64]*mcpUserState
-	pulseReader   adminPulseReader
-	extensions    []PluginExtensionDTO
-	extensionSave func(string) error
-	rates         map[string][]time.Time
-	costs         map[string]extensionCost
-	cache         map[string]extensionCache
-	cacheOrder    []string
+	mu             sync.Mutex
+	users          map[int64]*mcpUserState
+	pulseReader    adminPulseReader
+	rankingsReader publicRankingsReader
+	extensions     []PluginExtensionDTO
+	extensionSave  func(string) error
+	rates          map[string][]time.Time
+	costs          map[string]extensionCost
+	cache          map[string]extensionCache
+	cacheOrder     []string
+	cacheBytes     int
+	cacheUsage     service.CacheUsageRecorder
+	grantStore     service.MCPGrantStore
+	stepUpVerifier mcpStepUpVerifier
+}
+
+type mcpStepUpVerifier interface {
+	VerifyStepUp(context.Context, int64, string, string) (time.Duration, error)
 }
 
 func NewMCPGrantHandler() *MCPGrantHandler {
-	return &MCPGrantHandler{users: make(map[int64]*mcpUserState)}
+	return &MCPGrantHandler{users: make(map[int64]*mcpUserState), grantStore: newMemoryMCPGrantStore()}
+}
+
+func (h *MCPGrantHandler) SetSecurityDependencies(store service.MCPGrantStore, verifier mcpStepUpVerifier) {
+	h.grantStore = store
+	h.stepUpVerifier = verifier
+}
+
+func (h *MCPGrantHandler) SetCacheUsageRecorder(recorder service.CacheUsageRecorder) {
+	h.cacheUsage = recorder
 }
 
 // state must be called with mu held. Initialization is once per user, including
@@ -110,9 +117,11 @@ func (h *MCPGrantHandler) ListGrants(c *gin.Context) {
 	if !ok {
 		return
 	}
-	h.mu.Lock()
-	grants := append([]MCPGrantDTO{}, h.state(id).grants...)
-	h.mu.Unlock()
+	grants, err := h.grantStore.List(c.Request.Context(), id)
+	if err != nil {
+		response.Error(c, 503, "MCP grants unavailable")
+		return
+	}
 	response.Success(c, gin.H{"endpoint": "/mcp", "role": role, "grants": grants})
 }
 
@@ -175,6 +184,10 @@ func (h *MCPGrantHandler) createGrant(c *gin.Context, authorize bool) {
 		return
 	}
 	if authorize && req.Decision == "deny" {
+		if err := h.grantStore.RegisterClient(c.Request.Context(), id, req.ClientID, req.Name, req.RedirectURI); err != nil {
+			response.Error(c, 503, "MCP client registration unavailable")
+			return
+		}
 		audit := mcpAudit(c, "mcp.grant.denied", MCPGrantDTO{ID: req.ClientID, Name: req.Name})
 		audit.Status = "denied"
 		h.mu.Lock()
@@ -184,23 +197,53 @@ func (h *MCPGrantHandler) createGrant(c *gin.Context, authorize bool) {
 		response.Success(c, gin.H{"decision": "denied", "client_id": req.ClientID, "name": req.Name, "redirect_uri": req.RedirectURI})
 		return
 	}
+	if authorize {
+		if err := h.grantStore.RegisterClient(c.Request.Context(), id, req.ClientID, req.Name, req.RedirectURI); err != nil {
+			response.Error(c, 503, "MCP client registration unavailable")
+			return
+		}
+	}
 	if req.Scope == "admin" && role != "admin" {
 		response.Error(c, 403, "Administrator scope requires an administrator")
 		return
 	}
-	// Format validation only: this handler does not issue access credentials.
 	if req.Scope == "admin" && req.Permission == "write" && !mcpTOTPFormat.MatchString(req.TOTPCode) {
 		response.Error(c, 428, "A six-digit two-step verification code is required")
 		return
 	}
+	if authorize && req.Permission == "write" {
+		if h.stepUpVerifier == nil {
+			response.Error(c, 503, "Step-up verification unavailable")
+			return
+		}
+		matches, err := h.grantStore.ClientMatches(c.Request.Context(), id, req.ClientID, req.RedirectURI)
+		if err != nil || !matches {
+			response.Error(c, 400, "redirect_uri does not match the registered client")
+			return
+		}
+		if _, err := h.stepUpVerifier.VerifyStepUp(c.Request.Context(), id, middleware.StepUpSessionKey(c, id), req.TOTPCode); err != nil {
+			response.Error(c, 403, "Step-up verification failed")
+			return
+		}
+	}
 	if strings.TrimSpace(req.ClientID) == "" {
 		req.ClientID = uuid.NewString()
 	}
+	if !authorize {
+		if err := h.grantStore.RegisterClient(c.Request.Context(), id, req.ClientID, req.Name, req.RedirectURI); err != nil {
+			response.Error(c, 503, "MCP client registration unavailable")
+			return
+		}
+	}
 	now := time.Now().UTC()
 	grant := MCPGrantDTO{ID: uuid.NewString(), ClientID: req.ClientID, Name: req.Name, RedirectURI: req.RedirectURI, Scope: req.Scope, Permission: req.Permission, Status: "active", CreatedAt: now, ExpiresAt: now.Add(30 * 24 * time.Hour)}
+	grant, err = h.grantStore.Create(c.Request.Context(), id, grant)
+	if err != nil {
+		response.Error(c, 503, "MCP grant unavailable")
+		return
+	}
 	h.mu.Lock()
 	s := h.state(id)
-	s.grants = append(s.grants, grant)
 	s.events = append([]UserAuditEventDTO{mcpAudit(c, "mcp.grant.created", grant)}, s.events...)
 	h.mu.Unlock()
 	if authorize {
@@ -219,23 +262,28 @@ func (h *MCPGrantHandler) RevokeGrant(c *gin.Context) {
 	if !ok {
 		return
 	}
-	h.mu.Lock()
-	s := h.state(id)
-	for i := range s.grants {
-		if s.grants[i].ID != c.Param("id") {
-			continue
+	_, wasActive, _ := h.grantStore.Active(c.Request.Context(), id, c.Param("id"))
+	grant, err := h.grantStore.Revoke(c.Request.Context(), id, c.Param("id"))
+	if err == nil {
+		if wasActive {
+			h.mu.Lock()
+			s := h.state(id)
+			s.events = append([]UserAuditEventDTO{mcpAudit(c, "mcp.grant.revoked", grant)}, s.events...)
+			h.mu.Unlock()
 		}
-		if s.grants[i].Status != "revoked" {
-			s.grants[i].Status = "revoked"
-			s.events = append([]UserAuditEventDTO{mcpAudit(c, "mcp.grant.revoked", s.grants[i])}, s.events...)
-		}
-		grant := s.grants[i]
-		h.mu.Unlock()
 		response.Success(c, grant)
 		return
 	}
-	h.mu.Unlock()
+	if !errors.Is(err, ErrMCPGrantNotFound) {
+		response.Error(c, 503, "MCP grant unavailable")
+		return
+	}
 	response.Error(c, 404, "Grant not found")
+}
+
+func (h *MCPGrantHandler) storeGrant(ctx context.Context, userID int64, grantID string) (MCPGrantDTO, bool) {
+	grant, ok, err := h.grantStore.Active(ctx, userID, grantID)
+	return grant, ok && err == nil
 }
 
 func (h *MCPGrantHandler) ListUserAuditLogs(c *gin.Context) {
@@ -317,14 +365,44 @@ func (h *MCPGrantHandler) UpdateOnboarding(c *gin.Context) {
 	response.Success(c, result)
 }
 
-// No public usage aggregate currently supplies the legacy ranking dimensions.
+type publicRankingsReader interface {
+	PublicModelRankings(context.Context, time.Time, time.Time, int) ([]service.PublicModelRanking, error)
+}
+
 func (h *MCPGrantHandler) GetModelRankings(c *gin.Context) {
-	c.Header("Cache-Control", "no-store")
-	response.Error(c, http.StatusServiceUnavailable, "Public model rankings are unavailable")
+	limit, err := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	if err != nil {
+		response.BadRequest(c, "limit must be an integer")
+		return
+	}
+	limit = min(50, max(1, limit))
+	if h.rankingsReader == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Public model rankings are unavailable")
+		return
+	}
+	end := time.Now().UTC().Truncate(time.Minute)
+	start := end.Add(-24 * time.Hour)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 2500*time.Millisecond)
+	defer cancel()
+	items, err := h.rankingsReader.PublicModelRankings(ctx, start, end, limit)
+	if err != nil {
+		response.Error(c, http.StatusServiceUnavailable, "Public model rankings are unavailable")
+		return
+	}
+	state := "observed"
+	if len(items) == 0 {
+		items = []service.PublicModelRanking{}
+		state = "insufficient_samples"
+	}
+	c.Header("Cache-Control", "public, max-age=60")
+	response.Success(c, gin.H{"items": items, "state": state, "sample_state": state, "window": gin.H{"start": start, "end": end}, "source": "channel_monitor_v2_metrics_1m"})
 }
 
 // SetPulseUsageHandler reuses the monitoring dependency during route registration.
 func (h *MCPGrantHandler) SetPulseUsageHandler(usage *UsageHandler) {
+	if usage != nil && usage.usageService != nil {
+		h.rankingsReader = usage.usageService
+	}
 	if usage != nil && usage.opsService != nil {
 		h.pulseReader = usage.opsService
 	}
@@ -541,99 +619,6 @@ func (h *MCPGrantHandler) UpdateRoutingPolicies(c *gin.Context) {
 	response.Success(c, req)
 }
 
-// PlaygroundChat uses an operator-configured OpenAI-compatible gateway. It never
-// invents completions or token usage when the gateway is unavailable.
-func (h *MCPGrantHandler) PlaygroundChat(c *gin.Context) {
-	h.executeExtensions(c, func() { h.playgroundChat(c) })
-}
-func (h *MCPGrantHandler) playgroundChat(c *gin.Context) {
-	var req struct {
-		Model    string `json:"model"`
-		Message  string `json:"message"`
-		Strategy string `json:"strategy"`
-	}
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 65536)
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, 400, "Invalid request")
-		return
-	}
-	req.Model = strings.TrimSpace(req.Model)
-	req.Message = strings.TrimSpace(req.Message)
-	if req.Strategy == "" {
-		req.Strategy = "smart"
-	}
-	if req.Model == "" || len(req.Model) > 200 || req.Message == "" || len(req.Message) > 32000 || !validRoutingStrategy(req.Strategy) {
-		response.Error(c, 400, "Invalid model, message or strategy")
-		return
-	}
-	base, key := strings.TrimRight(os.Getenv("OMNIHIVE_PLAYGROUND_BASE_URL"), "/"), os.Getenv("OMNIHIVE_PLAYGROUND_API_KEY")
-	if base == "" || key == "" {
-		response.Error(c, 503, "Playground upstream is not configured")
-		return
-	}
-	parsedBase, err := url.Parse(base)
-	if err != nil || (parsedBase.Scheme != "https" && parsedBase.Scheme != "http") || parsedBase.Hostname() == "" {
-		response.Error(c, 503, "Playground upstream configuration is invalid")
-		return
-	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-	defer cancel()
-	body, _ := json.Marshal(gin.H{"model": req.Model, "messages": []gin.H{{"role": "user", "content": req.Message}}, "stream": false, "max_tokens": 1024})
-	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/chat/completions", bytes.NewReader(body)) //nolint:gosec // G704: operator-configured OMNIHIVE_PLAYGROUND_BASE_URL
-	if err != nil {
-		response.Error(c, 503, "Playground upstream configuration is invalid")
-		return
-	}
-	upstream.Header.Set("Authorization", "Bearer "+key)
-	upstream.Header.Set("Content-Type", "application/json")
-	upstream.Header.Set("X-Routing-Strategy", req.Strategy)
-	started := time.Now()
-	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	res, err := client.Do(upstream) //nolint:gosec // G704: operator-configured OMNIHIVE_PLAYGROUND_BASE_URL
-	if err != nil {
-		response.Error(c, 502, "Playground upstream is unavailable")
-		return
-	}
-	defer func() { _ = res.Body.Close() }()
-	if res.StatusCode != 200 {
-		response.Error(c, 502, "Playground upstream rejected the request")
-		return
-	}
-	var completion struct {
-		ID          string `json:"id"`
-		Model       string `json:"model"`
-		Provider    string `json:"provider"`
-		RoutedGroup string `json:"routed_group"`
-		Choices     []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-		Usage *struct {
-			PromptTokens     int `json:"prompt_tokens"`
-			CompletionTokens int `json:"completion_tokens"`
-		} `json:"usage"`
-	}
-	if err := json.NewDecoder(io.LimitReader(res.Body, 2<<20)).Decode(&completion); err != nil || len(completion.Choices) == 0 || completion.Choices[0].Message.Content == "" || completion.Usage == nil {
-		response.Error(c, 502, "Invalid playground upstream response")
-		return
-	}
-	if completion.ID == "" {
-		completion.ID = "chatcmpl-omnihive-" + uuid.NewString()
-	}
-	if completion.Model == "" {
-		completion.Model = req.Model
-	}
-	if completion.Provider == "" {
-		completion.Provider = res.Header.Get("X-Provider")
-	}
-	if completion.RoutedGroup == "" {
-		completion.RoutedGroup = res.Header.Get("X-Routed-Group")
-	}
-	c.Header("Cache-Control", "no-store")
-	response.Success(c, gin.H{"id": completion.ID, "model": completion.Model, "provider": completion.Provider, "routed_group": completion.RoutedGroup, "latency_ms": time.Since(started).Milliseconds(), "prompt_tokens": completion.Usage.PromptTokens, "completion_tokens": completion.Usage.CompletionTokens, "reply": completion.Choices[0].Message.Content})
-}
-
 type PluginExtensionDTO struct {
 	Key            string         `json:"key"`
 	Name           string         `json:"name"`
@@ -653,7 +638,7 @@ func defaultPluginExtensions() []PluginExtensionDTO {
 	raw := `[
 {"key":"prompt-guard","name":"关键词与提示词风控","category":"security","description":"在请求转发前执行提示词敏感模式匹配、PII 脱敏与风险审计。","config":{"mode":"audit","redact_pii":true,"max_scan_chars":16000}},
 {"key":"rate-limiter","name":"自适应智能限流","category":"traffic","description":"按访问主体分配并发配额与等待队列。","config":{"burst_rpm":120,"strategy":"fair_queue","max_wait_ms":3000}},
-{"key":"cache-layer","name":"语义与前缀响应缓存","category":"performance","description":"按密钥隔离响应缓存并控制过期时间。","config":{"ttl_seconds":300,"max_payload_kb":512,"scope":"key_isolated"}},
+{"key":"cache-layer","name":"语义与前缀响应缓存","category":"performance","description":"按密钥隔离响应缓存并控制过期时间。","config":{"ttl_seconds":300,"max_payload_kb":512,"max_entries":256,"scope":"key_isolated"}},
 {"key":"cost-tracker","name":"多维成本追踪与预算熔断","category":"billing","description":"追踪每日成本并检查预算与突增阈值。","config":{"daily_alert_usd":200,"spike_ratio":2.5,"circuit_breaker":false}}
 ]`
 	var result []PluginExtensionDTO
@@ -803,6 +788,7 @@ func (h *MCPGrantHandler) UpdatePluginExtension(c *gin.Context) {
 		}
 		h.cache = nil
 		h.cacheOrder = nil
+		h.cacheBytes = 0
 		response.Success(c, current)
 		return
 	}
@@ -938,10 +924,73 @@ type extensionCost struct {
 	Day string
 	USD float64
 }
+
+const gatewayCacheHitKey = "gatewayCacheHit"
+
 type extensionCache struct {
 	Body    []byte
 	Type    string
 	Expires time.Time
+	Receipt []byte
+}
+
+func (e extensionCache) size() int { return len(e.Body) + len(e.Receipt) }
+
+func (h *MCPGrantHandler) cachedExtension(key string, now time.Time) (extensionCache, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	cached, ok := h.cache[key]
+	if !ok {
+		return extensionCache{}, false
+	}
+	if !now.Before(cached.Expires) {
+		h.cacheBytes -= cached.size()
+		delete(h.cache, key)
+		for i, current := range h.cacheOrder {
+			if current == key {
+				h.cacheOrder = append(h.cacheOrder[:i], h.cacheOrder[i+1:]...)
+				break
+			}
+		}
+		return extensionCache{}, false
+	}
+	for i, current := range h.cacheOrder {
+		if current == key {
+			h.cacheOrder = append(h.cacheOrder[:i], h.cacheOrder[i+1:]...)
+			break
+		}
+	}
+	h.cacheOrder = append(h.cacheOrder, key)
+	return cached, true
+}
+
+func (h *MCPGrantHandler) cacheExtension(key string, cached extensionCache, maxEntries int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.cache == nil {
+		h.cache = map[string]extensionCache{}
+	}
+	if old, exists := h.cache[key]; exists {
+		h.cacheBytes -= old.size()
+		for i, current := range h.cacheOrder {
+			if current == key {
+				h.cacheOrder = append(h.cacheOrder[:i], h.cacheOrder[i+1:]...)
+				break
+			}
+		}
+	}
+	if maxEntries <= 0 {
+		maxEntries = 256
+	}
+	for len(h.cacheOrder) >= maxEntries || h.cacheBytes+cached.size() > 32<<20 && len(h.cacheOrder) > 0 {
+		oldest := h.cacheOrder[0]
+		h.cacheBytes -= h.cache[oldest].size()
+		delete(h.cache, oldest)
+		h.cacheOrder = h.cacheOrder[1:]
+	}
+	h.cache[key] = cached
+	h.cacheBytes += cached.size()
+	h.cacheOrder = append(h.cacheOrder, key)
 }
 
 var extensionRisk = regexp.MustCompile(`(?i)ignore (all )?previous instructions|reveal system prompt|dump api key|sk-[A-Za-z0-9_-]{20,}`)
@@ -1258,10 +1307,11 @@ func (w *extensionWriter) Write(b []byte) (int, error) {
 }
 func (w *extensionWriter) WriteString(s string) (int, error) { return w.Write([]byte(s)) }
 func (h *MCPGrantHandler) GatewayExtensionMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) { h.executeExtensions(c, func() { c.Next() }) }
+	return func(c *gin.Context) {
+		h.executeExtensions(c, func() { c.Next() })
+	}
 }
 func (h *MCPGrantHandler) executeExtensions(c *gin.Context, next func()) {
-	// A route may invoke PlaygroundChat behind the middleware; execute only once.
 	if _, ok := c.Get("omnihive_extensions"); ok {
 		next()
 		return
@@ -1354,21 +1404,38 @@ func (h *MCPGrantHandler) executeExtensions(c *gin.Context, next func()) {
 	}
 	isBatchPath := strings.HasPrefix(c.Request.URL.Path, "/v1/images/batches") || strings.HasPrefix(c.Request.URL.Path, "/images/batches")
 	// Paid Playground runs require their own dispatch, journal and settlement.
-	if cacheConfig != nil && !ctxkey.PrivateGatewayContent(c.Request.Context()) && bodyBuffered && !isBatchPath && c.Request.Method == "POST" && strings.Contains(ct, "application/json") && input != nil && input["stream"] != true {
+	if cacheConfig != nil && !service.HasGatewayRoutingConstraints(c.Request.Context()) && !ctxkey.PrivateGatewayContent(c.Request.Context()) && bodyBuffered && !isBatchPath && c.Request.Method == "POST" && strings.Contains(ct, "application/json") && input != nil && input["stream"] != true {
 		limit = int(extFloat(cacheConfig, "max_payload_kb")) * 1024
 		if limit > 16<<20 {
 			limit = 16 << 20
 		}
 		if len(body) <= limit {
-			cacheKey = fmt.Sprintf("%x", sha256.Sum256([]byte(subject+"\x00"+c.Request.URL.RequestURI()+"\x00"+string(body))))
-			h.mu.Lock()
-			cached, ok := h.cache[cacheKey]
-			h.mu.Unlock()
-			if ok && time.Now().Before(cached.Expires) {
-				c.Header("X-OmniHive-Cache", "HIT")
-				c.Data(200, cached.Type, cached.Body)
-				c.Abort()
-				return
+			cacheSubject := subject
+			if key, ok := middleware.GetAPIKeyFromContext(c); ok && key != nil {
+				cacheSubject = fmt.Sprintf("user:%d:key:%d", key.UserID, key.ID)
+			}
+			cacheKey = fmt.Sprintf("%x", sha256.Sum256([]byte(cacheSubject+"\x00"+c.Request.URL.RequestURI()+"\x00"+string(body))))
+			cached, ok := h.cachedExtension(cacheKey, time.Now())
+			if ok {
+				serve := func() {
+					c.Header("X-OmniHive-Cache", "HIT")
+					c.Data(http.StatusOK, cached.Type, stripCachedUsage(cached.Body))
+					c.Abort()
+				}
+				if h.cacheUsage == nil {
+					serve()
+					return
+				}
+				var receipt service.UsageSettlementReceipt
+				if json.Unmarshal(cached.Receipt, &receipt) == nil && receipt.Cacheable() {
+					c.Set(gatewayCacheHitKey, func() {
+						if err := h.cacheUsage.RecordCacheHit(c.Request.Context(), &receipt); err != nil {
+							extensionError(c, http.StatusServiceUnavailable, "CACHE_USAGE_UNAVAILABLE", "Cached usage could not be recorded")
+							return
+						}
+						serve()
+					})
+				}
 			}
 			c.Header("X-OmniHive-Cache", "MISS")
 		}
@@ -1399,21 +1466,43 @@ func (h *MCPGrantHandler) executeExtensions(c *gin.Context, next func()) {
 		defer func() { c.Writer = original }()
 	}
 	next()
-	if capture != nil && !capture.overflow && c.Writer.Status() == 200 && strings.Contains(c.Writer.Header().Get("Content-Type"), "application/json") && json.Valid(capture.body.Bytes()) {
-		h.mu.Lock()
-		defer h.mu.Unlock()
-		if h.cache == nil {
-			h.cache = map[string]extensionCache{}
-		}
-		if _, exists := h.cache[cacheKey]; !exists {
-			if len(h.cacheOrder) >= 256 {
-				delete(h.cache, h.cacheOrder[0])
-				h.cacheOrder = h.cacheOrder[1:]
+	if capture != nil && c.Writer.Header().Get("X-OmniHive-Cache") != "HIT" && !capture.overflow && c.Writer.Status() == 200 && strings.Contains(c.Writer.Header().Get("Content-Type"), "application/json") && json.Valid(capture.body.Bytes()) {
+		cached := extensionCache{Body: append([]byte(nil), capture.body.Bytes()...), Type: c.Writer.Header().Get("Content-Type"), Expires: time.Now().Add(time.Duration(extFloat(cacheConfig, "ttl_seconds")) * time.Second)}
+		if h.cacheUsage != nil {
+			plan := service.GatewayRequestPlanFromContext(c.Request.Context())
+			if plan == nil || plan.State().ReceiptKey.RequestID == "" {
+				return
 			}
-			h.cacheOrder = append(h.cacheOrder, cacheKey)
+			receipt, err := h.cacheUsage.LoadReceipt(c.Request.Context(), plan.State().ReceiptKey)
+			if err != nil || !receipt.Cacheable() {
+				return
+			}
+			cached.Receipt, err = json.Marshal(receipt)
+			if err != nil || cached.size() > 32<<20 {
+				return
+			}
 		}
-		h.cache[cacheKey] = extensionCache{append([]byte(nil), capture.body.Bytes()...), c.Writer.Header().Get("Content-Type"), time.Now().Add(time.Duration(extFloat(cacheConfig, "ttl_seconds")) * time.Second)}
+		h.cacheExtension(cacheKey, cached, int(extFloat(cacheConfig, "max_entries")))
 	}
+}
+
+func stripCachedUsage(body []byte) []byte {
+	if !json.Valid(body) {
+		return body
+	}
+	var decoded map[string]any
+	if json.Unmarshal(body, &decoded) != nil {
+		return body
+	}
+	delete(decoded, "usage")
+	if response, ok := decoded["response"].(map[string]any); ok {
+		delete(response, "usage")
+	}
+	encoded, err := json.Marshal(decoded)
+	if err != nil {
+		return body
+	}
+	return encoded
 }
 
 // Probes use the actual middleware on a private handler, never production buckets or spend.
@@ -1462,8 +1551,9 @@ func probeExtension(e PluginExtensionDTO) (bool, string) {
 	case "cache-layer":
 		a := request(`{"probe":true}`)
 		b := request(`{"probe":true}`)
-		ok := a.Header().Get("X-OmniHive-Cache") == "MISS" && b.Header().Get("X-OmniHive-Cache") == "HIT" && sha256.Sum256(a.Body.Bytes()) == sha256.Sum256(b.Body.Bytes()) && calls == 1
+		ok := a.Header().Get("X-OmniHive-Cache") == "MISS" && b.Header().Get("X-OmniHive-Cache") == "HIT" && sha256.Sum256(stripCachedUsage(a.Body.Bytes())) == sha256.Sum256(b.Body.Bytes()) && calls == 1
 		h.cache = nil
+		h.cacheBytes = 0
 		return ok, "cache write/read digest matched; private cache deleted"
 	case "cost-tracker":
 		h.RecordExtensionSpend("__probe__", extFloat(isolated.Config, "daily_alert_usd"))

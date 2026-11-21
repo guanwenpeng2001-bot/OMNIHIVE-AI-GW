@@ -2,9 +2,11 @@
 
 The B0 identity migration targets two stable releases, roughly 90 days after the first independent stable release. Confirm the cutover date and supported deployment inventory before starting that window. Keep each compatibility path until its owner reconciles client and deployment versions, verifies backup and restore where applicable, and rehearses the rollback. Source counts below describe in-repository entry points. Deployed caller counts are unknown until measured.
 
+**Cutover honesty (I05 / E02):** as of this revision the two-release retirement window has **no recorded start date** (`window_start` is NULL and no `notice_id`/`coverage_from` evidence is registered), and **zero** APIs, storage paths or identities have actually been retired. A production deployment census, per-domain reconciliation, backup/representative-restore drill and rollback rehearsal are pre-production cutover gates recorded in [GA_CHECKLIST.md](../../../docs/runbooks/backend-v2/GA_CHECKLIST.md). The compatibility window is a required observation period; it is **not** authorization to delete old tables or stop old readers.
+
 ## Decision at the integration baseline
 
-At `958fdedb1`, 87 catalog entries cover nine domains. The repository supplies no complete deployed-version census, supported caller count, or published, elapsed exit window for any entry. All 87 deployed-version lists and remaining caller counts start as **unknown**. This change retires zero APIs, storage paths or identities. Release smoke observations and a checkout SHA cannot establish fleet coverage. The [catalog](../../../backend/internal/legacy/retirement/catalog.tsv) lists the old surface, replacement, owner and exit gate for every observation ID. Related aliases sharing an owner and gate have one ID; its caller census must cover every alias.
+At `958fdedb1`, 87 catalog entries cover nine domains. The repository supplies no complete deployed-version census, supported caller count, or published, elapsed exit window for any entry. All 87 deployed-version lists and remaining caller counts start as **unknown**. This change retires zero APIs, storage paths or identities (`actual_exit_count = 0`). Release smoke observations and a checkout SHA cannot establish fleet coverage. The [catalog](../../../backend/internal/legacy/retirement/catalog.tsv) lists the old surface, replacement, owner and exit gate for every observation ID. Related aliases sharing an owner and gate have one ID; its caller census must cover every alias.
 
 | Initial disposition | Entries | Evidence |
 | --- | ---: | --- |

@@ -880,7 +880,8 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /** List safe collector metadata under ops.export.configure */
+        get: operations["listTelemetryExportDestinations"];
         put?: never;
         /** Register an immutable HTTPS collector under ops.export.configure */
         post: operations["registerTelemetryExportDestination"];
@@ -919,7 +920,8 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /** List safe export configurations under ops.export.configure */
+        get: operations["listTelemetryExports"];
         put?: never;
         /** Approve a scoped export and queue destination validation */
         post: operations["createTelemetryExport"];
@@ -1129,6 +1131,26 @@ export interface paths {
         };
         /** Download the current metadata projection */
         get: operations["downloadScopedAuditEvent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/audit/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        /** Export a redacted project audit page with audit.read and audit.export */
+        get: operations["exportScopedAuditEvents"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1623,6 +1645,48 @@ export interface paths {
          * @description Requires credentials.byok.manage.
          */
         delete: operations["byokProjectRevokeServiceAccount"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/groups/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Assign an unused default-project group to this project */
+        put: operations["identityBindGroup"];
+        post?: never;
+        /** Return an unused project group to the workspace default project */
+        delete: operations["identityUnbindGroup"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/key-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        /** List groups eligible for key issuance by the current actor */
+        get: operations["identityKeyGroups"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3220,6 +3284,10 @@ export interface components {
             /** Format: date-time */
             effective_at: string;
         };
+        IdentityGroupBinding: {
+            group_id: components["schemas"]["IdentityID"];
+            project_id: components["schemas"]["IdentityID"];
+        };
         IdentityID: string;
         IdentityKey: {
             id: components["schemas"]["IdentityID"];
@@ -3229,6 +3297,17 @@ export interface components {
             version: components["schemas"]["IdentityID"];
             credential: string | null;
         };
+        IdentityKeyGroup: {
+            id: components["schemas"]["IdentityID"];
+            name: string;
+            platform: string;
+        };
+        IdentityKeyGroupPage: {
+            items: components["schemas"]["IdentityKeyGroup"][];
+            next_cursor: string | null;
+            /** Format: date-time */
+            as_of: string;
+        };
         IdentityKeyInput: {
             group_id?: components["schemas"]["IdentityID"];
             name: string;
@@ -3237,7 +3316,7 @@ export interface components {
                 mode: "allow_list" | "inherit" | "deny_all";
                 ids: string[];
             };
-            actions: ("text.chat" | "text.embeddings" | "image.generate" | "usage.read" | "tasks.read")[];
+            actions: ("models.read" | "text.chat" | "text.embeddings" | "image.generate" | "usage.read" | "tasks.read")[];
             /** Format: date-time */
             expires_at: string | null;
         };
@@ -3804,7 +3883,7 @@ export interface components {
             /** @enum {unknown} */
             state: "queued" | "running" | "succeeded" | "failed" | "unknown";
             /** @enum {unknown} */
-            stage: "queued" | "check_source" | "snapshot" | "applying" | "verify_counts" | "verified";
+            stage: "queued" | "check_source" | "snapshot" | "applying" | "verify_counts" | "tx_apply" | "tx_verify" | "committing" | "rolled_back" | "manual_recovery" | "reconciled" | "verified";
             report: null | components["schemas"]["RestoreReport"];
         };
         RestorePreview: {
@@ -4037,6 +4116,19 @@ export interface components {
             /** Format: date-time */
             at: string;
             affected?: string;
+            request_id?: string;
+            route?: string;
+            method?: string;
+            actor_email?: string;
+            actor_role?: string;
+            status_code?: number;
+            reason?: string;
+            changes?: {
+                field: string;
+                operation: string;
+                before: unknown;
+                after: unknown;
+            }[];
         };
         /** @enum {string} */
         ScopedAuditResource: "request_export" | "artifact" | "billing_command" | "retention" | "audit_event" | "project";
@@ -4445,6 +4537,25 @@ export interface components {
                 "application/json": components["schemas"]["IdentityError"];
             };
         };
+        /** @description Redacted audit page */
+        ScopedAuditPage: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    message: string;
+                    data: {
+                        items: components["schemas"]["ScopedAuditEvent"][];
+                        /** Format: date-time */
+                        as_of: string;
+                        next_cursor: string | null;
+                    };
+                };
+            };
+        };
         /** @description Effective policy */
         ScopedAuditPolicy: {
             headers: {
@@ -4495,6 +4606,22 @@ export interface components {
             };
         };
         /** @description Scoped collector metadata */
+        TelemetryDestinationListResponse: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    message: string;
+                    data: {
+                        items: components["schemas"]["TelemetryDestination"][];
+                    };
+                };
+            };
+        };
+        /** @description Scoped collector metadata */
         TelemetryDestinationResponse: {
             headers: {
                 [name: string]: unknown;
@@ -4515,6 +4642,22 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["IdentityError"];
+            };
+        };
+        /** @description Scoped export configurations */
+        TelemetryExportListResponse: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    message: string;
+                    data: {
+                        items: components["schemas"]["TelemetryExportConfig"][];
+                    };
+                };
             };
         };
         /** @description Scoped export configuration */
@@ -6334,6 +6477,21 @@ export interface operations {
             };
         };
     };
+    listTelemetryExportDestinations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["TelemetryDestinationListResponse"];
+            default: components["responses"]["TelemetryExportError"];
+        };
+    };
     registerTelemetryExportDestination: {
         parameters: {
             query?: never;
@@ -6370,6 +6528,21 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: components["responses"]["TelemetryDestinationResponse"];
+            default: components["responses"]["TelemetryExportError"];
+        };
+    };
+    listTelemetryExports: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["TelemetryExportListResponse"];
             default: components["responses"]["TelemetryExportError"];
         };
     };
@@ -6939,6 +7112,30 @@ export interface operations {
                     "application/json": components["schemas"]["ScopedAuditEvent"];
                 };
             };
+            default: components["responses"]["ScopedAuditError"];
+        };
+    };
+    exportScopedAuditEvents: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+                action?: string;
+                resource?: components["schemas"]["ScopedAuditResource"];
+                resource_id?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ScopedAuditPage"];
             default: components["responses"]["ScopedAuditError"];
         };
     };
@@ -7712,6 +7909,125 @@ export interface operations {
         responses: {
             200: components["responses"]["ByokServicePrincipal"];
             default: components["responses"]["ByokError"];
+        };
+    };
+    identityBindGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["IdentityGroupBinding"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    identityUnbindGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["IdentityGroupBinding"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    identityKeyGroups: {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["IdentityLimit"];
+                cursor?: components["parameters"]["IdentityCursor"];
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["IdentityKeyGroupPage"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
         };
     };
     identityKeys: {

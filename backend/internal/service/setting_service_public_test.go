@@ -116,6 +116,32 @@ func TestSettingService_ChannelMonitorHideThroughputDefaultsToPrivate(t *testing
 	}
 }
 
+func TestPublicLegalPolicySlots(t *testing.T) {
+	docs := defaultLoginAgreementDocuments()
+	ids := map[string]bool{}
+	for _, doc := range docs {
+		ids[doc.ID] = true
+	}
+	for _, id := range []string{"usage-policy", "privacy-policy", "refund-policy"} {
+		require.True(t, ids[id], id)
+	}
+	require.False(t, loginAgreementReady(docs))
+}
+
+func TestPublicLegalPolicySlotsExcludeEmptyLegacyDocuments(t *testing.T) {
+	docs, err := marshalLoginAgreementDocuments([]LoginAgreementDocument{
+		{ID: "terms", Title: "Terms", ContentMD: "Published terms"},
+		{ID: "privacy-policy", Title: "Privacy", ContentMD: ""},
+	})
+	require.NoError(t, err)
+	settings, err := NewSettingService(&settingPublicRepoStub{values: map[string]string{
+		SettingKeyLoginAgreementEnabled:   "true",
+		SettingKeyLoginAgreementDocuments: docs,
+	}}, &config.Config{}).GetPublicSettings(context.Background())
+	require.NoError(t, err)
+	require.False(t, settings.LoginAgreementEnabled)
+}
+
 func TestSettingService_ChannelMonitorShowQuotaFailsClosed(t *testing.T) {
 	// 缺省（迁移插入 'false' / 老库无行）一律不展示。
 	missingRuntime := NewSettingService(&settingPublicRepoStub{values: map[string]string{}}, &config.Config{}).GetChannelMonitorRuntime(context.Background())

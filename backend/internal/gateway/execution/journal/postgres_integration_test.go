@@ -149,6 +149,28 @@ func TestCrashRecovery(t *testing.T) {
 	}
 }
 
+func TestRecoverAbandonedImmediatelyAfterCrash(t *testing.T) {
+	db := database(t)
+	a, _ := identity(t, db)
+	ctx := scope.With(t.Context(), a)
+	store := journal.New(db)
+	in := request()
+	e, replay, err := store.Admit(ctx, in)
+	require.NoError(t, err)
+	require.False(t, replay)
+	_, err = store.Dispatch(ctx, e, 1, 80)
+	require.NoError(t, err)
+
+	err = store.RecoverAbandoned(ctx)
+
+	require.NoError(t, err)
+	require.EqualValues(t, 1, id(t, db, "SELECT count(*) FROM gateway_execution_reconciliation WHERE request_id=$1 AND reason='missing_receipt'", e.RequestID))
+	err = store.RecoverAbandoned(ctx)
+	require.NoError(t, err)
+	require.NoError(t, receipt(t, db, e, 80, `{"InputTokens":0,"OutputTokens":0}`))
+	require.Zero(t, id(t, db, "SELECT count(*) FROM gateway_execution_reconciliation WHERE request_id=$1", e.RequestID))
+}
+
 func TestCrashProcess(t *testing.T) {
 	stage := os.Getenv("BE06_STAGE")
 	if stage == "" {
@@ -255,6 +277,26 @@ func TestRegistrationAndUncertainReplacement(t *testing.T) {
 	require.EqualValues(t, 1, id(t, db, "SELECT count(*) FROM gateway_execution_reconciliation WHERE request_id=$1 AND reason='abandoned_uncertain'", e.RequestID))
 	require.EqualValues(t, 0, id(t, db, "SELECT count(*) FROM usage_settlement_receipts WHERE request_id=$1 AND account_id=81", e.RequestID))
 	require.NoError(t, s.Finish(ctx, e.RequestID, lifecycle.Terminal, false))
+}
+
+func TestDecisionDoesNotEraseObservedHTTPRejection(t *testing.T) {
+	db := database(t)
+	a, _ := identity(t, db)
+	ctx := scope.With(t.Context(), a)
+	s := journal.New(db)
+	in := request()
+	e, replay, err := s.Admit(ctx, in)
+	require.NoError(t, err)
+	require.False(t, replay)
+	dispatched, err := s.Dispatch(ctx, e, 1, 80)
+	require.NoError(t, err)
+	dispatched.Acceptance, dispatched.Outcome = attempt.Accepted, "rejected"
+	require.NoError(t, s.Observe(ctx, dispatched))
+	require.NoError(t, s.Decision(ctx, e.RequestID, attempt.AttemptDecision{AttemptNumber: 1, Acceptance: attempt.NotSent, Reason: "account_switch"}))
+	var acceptance, outcome string
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT acceptance,outcome FROM gateway_execution_attempts WHERE attempt_id=$1", dispatched.ID).Scan(&acceptance, &outcome))
+	require.Equal(t, "accepted", acceptance)
+	require.Equal(t, "rejected", outcome)
 }
 
 type discardAckConnector struct {

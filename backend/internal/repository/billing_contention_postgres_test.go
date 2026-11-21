@@ -302,13 +302,20 @@ func runBillingMixedContention(t *testing.T, ctx context.Context, db *sql.DB, pa
 		input.Usage.RequestID = input.Key.RequestID
 		stored, err := receipts.Persist(ctx, &input)
 		require.NoError(t, err)
-		release, err := billingAdmission.acquire(ctx, p.user)
-		require.NoError(t, err)
+		var releases []func()
+		for range billingAdmission.maxPayerActive {
+			release, err := billingAdmission.acquire(ctx, p.user)
+			require.NoError(t, err)
+			t.Cleanup(release)
+			releases = append(releases, release)
+		}
 		blocked, stop := context.WithTimeout(ctx, 20*time.Millisecond)
 		defer stop()
 		_, err = receipts.Settle(blocked, stored.Key, stored.Command.RequestFingerprint)
 		require.ErrorIs(t, err, context.DeadlineExceeded)
-		release()
+		for _, release := range releases {
+			release()
+		}
 		pending, err := receipts.Get(ctx, stored.Key)
 		require.NoError(t, err)
 		require.Equal(t, service.UsageSettlementPending, pending.State)

@@ -45,6 +45,23 @@ func TestRegistrationFingerprint(t *testing.T) {
 	require.ErrorIs(t, err, ErrRegistration)
 }
 
+func TestRequiredJournalRejectsMissingStore(t *testing.T) {
+	ctx := RequireStore(context.Background())
+	s := ForAdmission(ctx)
+	require.NotNil(t, s)
+	_, _, err := s.Admit(ctx, Admission{})
+	require.ErrorIs(t, err, ErrDispatch)
+	require.Nil(t, ForAdmission(context.Background()))
+}
+
+func TestJobRegistrationOnlyTransferredToAsyncImagePlan(t *testing.T) {
+	reg, err := RegisterBytes("image", []byte{0, 255})
+	require.NoError(t, err)
+	ctx := WithRegistration(context.Background(), reg, "/v1/images/edits/async")
+	require.Same(t, reg, JobRegistrationFrom(ctx, "/v1/images/edits"))
+	require.Nil(t, JobRegistrationFrom(ctx, "/v1/videos"))
+}
+
 func BenchmarkRegistration(b *testing.B) {
 	body := []byte(`{"model":"model","input":[{"role":"user","content":"hello"}],"stream":true}`)
 	for _, key := range []string{"", "submit"} {

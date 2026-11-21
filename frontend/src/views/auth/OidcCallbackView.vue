@@ -91,9 +91,22 @@
                 @keyup.enter="handleSubmitInvitation"
               />
             </div>
+            <LoginAgreementPrompt
+              v-if="loginAgreementEnabled"
+              :enabled="loginAgreementEnabled"
+              :accepted="agreementAccepted"
+              :documents="loginAgreementDocuments"
+              :mode="loginAgreementMode"
+              :updated-at="loginAgreementUpdatedAt"
+              :visible="showAgreementModal"
+              @accept="acceptAgreement"
+              @reject="rejectAgreement"
+              @open="openAgreementModal"
+              @close="closeAgreementModal"
+            />
             <button
               class="btn btn-primary w-full"
-              :disabled="isSubmitting || !invitationCode.trim()"
+              :disabled="isSubmitting || !invitationCode.trim() || (loginAgreementEnabled && !agreementAccepted)"
               @click="handleSubmitInvitation"
             >
               {{
@@ -254,6 +267,7 @@
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
+import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
 import PendingOAuthCreateAccountForm from '@/components/auth/PendingOAuthCreateAccountForm.vue'
 import { useOAuthCallback } from '@/composables/useOAuthCallback'
 import { completeOIDCOAuthRegistration, getPublicSettings } from '@/api/auth'
@@ -284,6 +298,16 @@ const {
   needsTotpChallenge,
   totpCode,
   totpUserEmailMasked,
+  loginAgreementEnabled,
+  loginAgreementMode,
+  loginAgreementUpdatedAt,
+  loginAgreementDocuments,
+  agreementAccepted,
+  showAgreementModal,
+  acceptAgreement,
+  rejectAgreement,
+  openAgreementModal,
+  closeAgreementModal,
   needsCreateAccount,
   needsChooser,
   needsBindLogin,

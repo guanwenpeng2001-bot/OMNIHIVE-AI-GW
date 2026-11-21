@@ -39,12 +39,30 @@
         <div class="flex w-full flex-wrap items-center justify-between gap-2 text-xs">
           <div class="flex min-w-0 flex-wrap items-center gap-2.5">
             <span
+              data-testid="admin-telemetry-dot"
+              :data-telemetry-state="pulseState"
               :class="[
                 'inline-block h-2 w-2 shrink-0 rounded-full',
-                pulseDegraded ? 'bg-[var(--oh-warn-fg)]' : 'bg-[var(--oh-ok-fg)]'
+                pulseDotClass
               ]"
             />
-            <span class="oh-eyebrow text-oh-primary">{{ isZh ? '网关遥测' : 'GATEWAY TELEMETRY' }}</span>
+            <span class="oh-eyebrow text-oh-primary">{{ t('routing.telemetry.title') }}</span>
+            <span
+              data-testid="admin-telemetry-status"
+              class="rounded border border-oh-default bg-oh-surface px-1.5 py-0.5 font-mono text-[11px] text-oh-secondary"
+            >
+              {{ t(`routing.telemetry.status.${pulseState}`) }}
+            </span>
+            <span
+              data-testid="admin-telemetry-observed"
+              class="font-mono text-[11px] text-oh-muted oh-tabular"
+            >
+              {{
+                pulseLastObservedAt
+                  ? t('routing.telemetry.lastObservedLabel', { time: pulseLastObservedAt })
+                  : t('routing.telemetry.lastObservedUnknown')
+              }}
+            </span>
 
             <div
               v-if="pulseMetrics"
@@ -275,14 +293,36 @@ const { replayTour, cancelTour } = useOnboardingTour({
 
 const pulseCollapsed = ref(false)
 const pulseMetrics = ref<AdminPulseDTO | null>(null)
+const pulseLastObservedAt = ref<string | null>(null)
+const pulsePollFailed = ref(false)
 let pulseTimer: ReturnType<typeof setInterval> | null = null
 
-const pulseDegraded = computed(() => {
-  if (!pulseMetrics.value) return false
-  return (
+const pulseState = computed<'unknown' | 'healthy' | 'degraded' | 'failed' | 'disconnected'>(() => {
+  if (pulsePollFailed.value) {
+    return pulseLastObservedAt.value ? 'disconnected' : 'failed'
+  }
+  if (!pulseMetrics.value) return 'unknown'
+  if (
     pulseMetrics.value.status === 'degraded' ||
     (pulseMetrics.value.error_rate_percent ?? 0) > 5
-  )
+  ) {
+    return 'degraded'
+  }
+  return 'healthy'
+})
+
+const pulseDotClass = computed(() => {
+  switch (pulseState.value) {
+    case 'healthy':
+      return 'bg-[var(--oh-ok-fg)]'
+    case 'degraded':
+      return 'bg-[var(--oh-warn-fg)]'
+    case 'failed':
+    case 'disconnected':
+      return 'bg-[var(--oh-danger-fg)]'
+    default:
+      return 'bg-oh-muted'
+  }
 })
 
 function formatCompact(num: number | null | undefined): string {
@@ -298,9 +338,15 @@ async function refreshPulse(): Promise<void> {
   try {
     const { mcpAPI } = await import('@/api/mcp')
     const data = await mcpAPI.getAdminPulse()
-    if (data) pulseMetrics.value = data
+    if (data) {
+      pulseMetrics.value = data
+      pulsePollFailed.value = false
+      pulseLastObservedAt.value = data.updated_at || new Date().toISOString()
+    } else {
+      pulsePollFailed.value = true
+    }
   } catch {
-    // Isolated unit tests may not mount full HTTP runtime.
+    pulsePollFailed.value = true
   }
 }
 
@@ -346,7 +392,6 @@ watch(
 onMounted(() => {
   if (isNestedShell) return
   onboardingStore.setReplayCallback(replayTour)
-  if (resolvedTier.value === 'admin') void refreshPulse()
   pulseTimer = setInterval(() => {
     if (
       resolvedTier.value === 'admin' &&

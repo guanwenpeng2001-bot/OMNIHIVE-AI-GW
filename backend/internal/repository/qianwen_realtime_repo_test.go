@@ -59,7 +59,7 @@ func TestQianwenRealtimeAnchorAndChargeShareTransaction(t *testing.T) {
 			mock.ExpectQuery(`INSERT INTO usage_logs`).WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(11, time.Now()))
 			mock.ExpectQuery(`SELECT id FROM users WHERE id=\$1 AND deleted_at IS NULL FOR NO KEY UPDATE`).WithArgs(int64(1)).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 			mock.ExpectQuery(lockUserBalanceSQL).WithArgs(int64(1)).WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(10.0))
-			mock.ExpectExec(chargeCoveredBalanceSQL).WithArgs(0.000325, int64(1)).WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectExec(chargeCoveredBalanceSQL).WithArgs("0.000325", int64(1)).WillReturnResult(sqlmock.NewResult(0, 1))
 			update := mock.ExpectExec(`UPDATE upstream_jobs SET`)
 			if fail {
 				update.WillReturnError(errors.New("injected anchor update failure"))

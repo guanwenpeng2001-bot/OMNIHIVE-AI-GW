@@ -102,6 +102,49 @@
         </details>
       </section>
 
+      <section
+        v-if="lastIssuedProjectKeyScope"
+        data-testid="issued-project-key-scope-banner"
+        class="card space-y-2 border-[var(--oh-accent-border,rgba(245,158,11,0.35))] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.06))] p-3 sm:px-4"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-xs font-semibold text-[var(--foreground)]">
+            {{ t('keys.issuedProjectKeyScopeTitle', { name: lastIssuedProjectKeyScope.name }) }}
+          </span>
+          <button
+            type="button"
+            class="text-xs text-[var(--muted-foreground)] underline"
+            @click="lastIssuedProjectKeyScope = null"
+          >
+            {{ t('keys.dismissScopeBanner') }}
+          </button>
+        </div>
+        <div class="flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span class="font-medium text-[var(--muted-foreground)]">{{ t('keys.projectScopeGrantedActions') }}:</span>
+          <code
+            v-for="act in lastIssuedProjectKeyScope.actions"
+            :key="act"
+            class="rounded border border-[var(--border)] bg-[var(--card)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--foreground)]"
+          >
+            {{ act }}
+          </code>
+        </div>
+        <p
+          class="text-[11px]"
+          :class="
+            lastIssuedProjectKeyScope.actions.includes('models.read')
+              ? 'text-emerald-700 dark:text-emerald-300'
+              : 'text-[var(--muted-foreground)]'
+          "
+        >
+          {{
+            lastIssuedProjectKeyScope.actions.includes('models.read')
+              ? t('keys.projectScopeModelsReadIncluded')
+              : t('keys.projectScopeModelsReadExcluded')
+          }}
+        </p>
+      </section>
+
       <section class="oh-gateway-banner card p-3 sm:px-4" aria-labelledby="pay-as-you-go-title">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div class="flex flex-wrap items-center gap-2.5">
@@ -380,6 +423,7 @@
                 type="checkbox"
                 class="h-3.5 w-3.5 rounded border-[var(--border)] text-amber-600 focus:ring-amber-500"
                 :checked="selectedKeyIds.has(row.id)"
+                :aria-label="isZh ? `选择密钥 ${value}` : `Select key ${value}`"
                 @change="toggleKeySelection(row.id, ($event.target as HTMLInputElement).checked)"
               />
               <span class="font-semibold text-[var(--foreground)]">{{ value }}</span>
@@ -824,6 +868,47 @@
               }}
             </span>
           </label>
+          <div
+            v-if="issueProjectPolicyCredential"
+            data-testid="project-key-scope-preview"
+            class="mt-2.5 space-y-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] p-2.5 text-[11px]"
+          >
+            <p class="font-semibold text-[var(--foreground)]">
+              {{ t('keys.projectScopePreviewTitle') }}
+            </p>
+            <label class="flex cursor-pointer items-center gap-2 text-[var(--foreground)]">
+              <input
+                v-model="projectKeyAllowModelsRead"
+                type="checkbox"
+                data-testid="project-key-models-read-checkbox"
+                class="h-3.5 w-3.5 rounded border-[var(--border)]"
+              />
+              <span>{{ t('keys.projectScopeModelsReadLabel') }}</span>
+            </label>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="text-[var(--muted-foreground)]">{{ t('keys.projectScopeGrantedActions') }}:</span>
+              <code
+                v-for="act in selectedProjectKeyActions"
+                :key="act"
+                class="rounded border border-[var(--border)] bg-[var(--surface-2,transparent)] px-1.5 py-0.5 font-mono text-[var(--foreground)]"
+              >
+                {{ act }}
+              </code>
+            </div>
+            <p
+              :class="
+                projectKeyAllowModelsRead
+                  ? 'text-emerald-700 dark:text-emerald-300'
+                  : 'text-[var(--muted-foreground)]'
+              "
+            >
+              {{
+                projectKeyAllowModelsRead
+                  ? t('keys.projectScopeModelsReadIncluded')
+                  : t('keys.projectScopeModelsReadExcluded')
+              }}
+            </p>
+          </div>
         </div>
 
         <div>
@@ -963,6 +1048,14 @@
               {{ isZh ? `一键绑定「${recommendedDefaultGroup.label}」` : `Bind "${recommendedDefaultGroup.label}"` }}
             </button>
           </div>
+          <p
+            v-if="!showEditModal && issueProjectPolicyCredential && !groupsLoading && !groupsLoadFailed && resolvedProjectGroupId === null"
+            role="alert"
+            data-testid="project-key-group-required-alert"
+            class="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300"
+          >
+            {{ t('keys.projectGroupRequired') }}
+          </p>
         </div>
 
         <!-- Custom Key Section (only for create) -->
@@ -1486,7 +1579,7 @@
           <button
             form="key-form"
             type="submit"
-            :disabled="submitting || (!showEditModal && (groupsLoading || groupsLoadFailed || (!issueProjectPolicyCredential && (!formData.group_id || !groups.some(group => group.id === formData.group_id)))))"
+            :disabled="submitting || (!showEditModal && (groupsLoading || groupsLoadFailed || (issueProjectPolicyCredential ? resolvedProjectGroupId === null : (!formData.group_id || !groups.some(group => group.id === formData.group_id)))))"
             class="btn btn-primary"
             data-tour="key-form-submit"
           >
@@ -1546,7 +1639,7 @@
     <UseKeyModal
       :show="showUseKeyModal"
       :api-key="'<YOUR_API_KEY>'"
-      :base-url="publicSettings?.api_base_url || ''"
+      :base-url="publicSettings?.api_base_url || defaultGatewayOrigin"
       :site-name="publicSettings?.site_name"
       :platform="selectedKey?.group?.platform || null"
       :allow-messages-dispatch="selectedKey?.group?.allow_messages_dispatch || false"
@@ -1714,6 +1807,23 @@ const instance = getCurrentInstance()
 const activeConsoleScope = ref<ConsoleScopeSelection>(readPersistedConsoleScope())
 const projectScopedKeys = ref<IdentityKey[]>([])
 const issueProjectPolicyCredential = ref(false)
+const projectKeyAllowModelsRead = ref(false)
+const PROJECT_KEY_GRANTED_ACTIONS = [
+  'text.chat',
+  'text.embeddings',
+  'image.generate',
+  'usage.read',
+  'tasks.read'
+] as const
+const selectedProjectKeyActions = computed<string[]>(() =>
+  projectKeyAllowModelsRead.value
+    ? [...PROJECT_KEY_GRANTED_ACTIONS, 'models.read']
+    : [...PROJECT_KEY_GRANTED_ACTIONS]
+)
+const lastIssuedProjectKeyScope = ref<{
+  name: string
+  actions: string[]
+} | null>(null)
 
 const scopedBillingHref = computed(() => {
   const ws = activeConsoleScope.value.workspaceId
@@ -2049,6 +2159,7 @@ const showCreateModal = ref(false)
 const showEditModal = ref(false)
 const showDeleteDialog = ref(false)
 const showUseKeyModal = ref(false)
+const defaultGatewayOrigin = typeof window !== 'undefined' ? window.location.origin : ''
 const showRotateModal = ref(false)
 const rotateTarget = ref<ApiKey | null>(null)
 const showSecretDialog = ref(false)
@@ -2227,7 +2338,32 @@ const recommendedDefaultGroup = computed<GroupOption | null>(() => {
   const defaultId = resolveDefaultRoutingGroupId(
     candidates.map((item) => ({ id: item.value, subscription_type: item.subscriptionType }))
   )
-  return candidates.find((item) => item.value === defaultId) ?? candidates[0] ?? null
+  return (
+    (defaultId !== null
+      ? candidates.find((item) => String(item.value) === String(defaultId))
+      : undefined) ??
+    candidates[0] ??
+    null
+  )
+})
+
+const resolvedProjectGroupId = computed<number | string | null>(() => {
+  if (
+    formData.value.group_id !== null &&
+    groups.value.some((group) => String(group.id) === String(formData.value.group_id))
+  ) {
+    return formData.value.group_id
+  }
+  const recommended = recommendedDefaultGroup.value?.value ?? null
+  if (recommended !== null && groups.value.some((group) => String(group.id) === String(recommended))) {
+    return recommended
+  }
+  const fallback = resolveDefaultRoutingGroupId(groups.value)
+  if (fallback !== null) {
+    const matched = groups.value.find((group) => String(group.id) === String(fallback))
+    if (matched) return matched.id
+  }
+  return null
 })
 
 const selectedFormGroupLabel = computed(() => {
@@ -2370,13 +2506,45 @@ async function loadAuxiliary<Result>(
   }
 }
 
+const isProjectKeyCreateMode = computed(
+  () =>
+    showCreateModal.value &&
+    !showEditModal.value &&
+    issueProjectPolicyCredential.value &&
+    Boolean(activeConsoleScope.value.workspaceId) &&
+    Boolean(activeConsoleScope.value.projectId)
+)
+
+function isGroupInSelectedScope(group: Group, workspaceId: string, projectId: string): boolean {
+  const candidate = group as Group & {
+    workspace_id?: number | string | null
+    project_id?: number | string | null
+  }
+  if (candidate.workspace_id != null && String(candidate.workspace_id) !== workspaceId) {
+    return false
+  }
+  if (candidate.project_id != null && String(candidate.project_id) !== projectId) {
+    return false
+  }
+  return true
+}
+
 const loadGroups = async () => {
+  const scopedWorkspaceId = isProjectKeyCreateMode.value ? activeConsoleScope.value.workspaceId : null
+  const scopedProjectId = isProjectKeyCreateMode.value ? activeConsoleScope.value.projectId : null
   groupsLoading.value = true
   groupsLoadFailed.value = false
   await loadAuxiliary('groups', async options => {
     try {
-      // This endpoint returns all active groups the current user may bind, without pagination.
-      return await userGroupsAPI.getAvailable(options)
+      const requestOptions =
+        scopedWorkspaceId && scopedProjectId
+          ? { ...options, workspaceId: scopedWorkspaceId, projectId: scopedProjectId }
+          : options
+      const result = await userGroupsAPI.getAvailable(requestOptions)
+      if (scopedWorkspaceId && scopedProjectId) {
+        return result.filter(group => isGroupInSelectedScope(group, scopedWorkspaceId, scopedProjectId))
+      }
+      return result
     } catch (error) {
       if (!options.signal.aborted && !disposed) groupsLoadFailed.value = true
       throw error
@@ -2391,8 +2559,44 @@ const loadGroups = async () => {
     }
   })
 }
-watch(showCreateModal, open => { if (open) void loadGroups() })
-const loadUserGroupRates = () => loadAuxiliary('group rates', userGroupsAPI.getUserGroupRates, result => { userGroupRates.value = result })
+watch(
+  [
+    showCreateModal,
+    issueProjectPolicyCredential,
+    () => activeConsoleScope.value.workspaceId,
+    () => activeConsoleScope.value.projectId
+  ],
+  ([isOpen, isProjectKey, wsId, projId], [wasOpen, wasProjectKey, prevWsId, prevProjId]) => {
+    if (!isOpen || showEditModal.value) return
+    const scopeChanged =
+      isProjectKey !== wasProjectKey ||
+      (isProjectKey && (wsId !== prevWsId || projId !== prevProjId))
+    if (scopeChanged) {
+      groups.value = []
+      userGroupRates.value = {}
+      formData.value.group_id = null
+    }
+    if (!wasOpen || scopeChanged) {
+      void loadGroups()
+      if (scopeChanged || isProjectKey) {
+        void loadUserGroupRates()
+      }
+    }
+  }
+)
+const loadUserGroupRates = () => {
+  const scopedWorkspaceId = isProjectKeyCreateMode.value ? activeConsoleScope.value.workspaceId : null
+  return loadAuxiliary(
+    'group rates',
+    options =>
+      userGroupsAPI.getUserGroupRates(
+        scopedWorkspaceId ? { ...options, workspaceId: scopedWorkspaceId } : options
+      ),
+    result => {
+      userGroupRates.value = result
+    }
+  )
+}
 const loadPublicSettings = () => loadAuxiliary('public settings', authAPI.getPublicSettings, result => { publicSettings.value = result })
 
 const openUseKeyModal = (key: ApiKey) => {
@@ -2646,16 +2850,25 @@ const buildBudgetPayload = (): ApiKeyPeriodBudgetRequest | null => {
 }
 
 const handleSubmit = async () => {
-  if (!showEditModal.value && issueProjectPolicyCredential.value && formData.value.group_id === null && recommendedDefaultGroup.value) {
-    formData.value.group_id = recommendedDefaultGroup.value.value
+  if (!showEditModal.value && issueProjectPolicyCredential.value) {
+    if (groupsLoading.value || groupsLoadFailed.value) {
+      appStore.showError(t(groupsLoadFailed.value ? 'keys.groupsLoadFailed' : 'keys.projectGroupRequired'))
+      return
+    }
+    if (resolvedProjectGroupId.value === null) {
+      appStore.showError(t('keys.projectGroupRequired'))
+      return
+    }
+    const numericProjectGroupId = Number(resolvedProjectGroupId.value)
+    formData.value.group_id = Number.isSafeInteger(numericProjectGroupId) ? numericProjectGroupId : null
   }
   if (!showEditModal.value && !issueProjectPolicyCredential.value && (groupsLoading.value || groupsLoadFailed.value || !groups.value.some(group => group.id === formData.value.group_id))) {
     appStore.showError(t(groupsLoadFailed.value ? 'keys.groupsLoadFailed' : 'keys.groupRequired'))
     return
   }
   // Validate group_id is required
-  if (formData.value.group_id === null && !issueProjectPolicyCredential.value) {
-    appStore.showError(t('keys.groupRequired'))
+  if (!showEditModal.value && formData.value.group_id === null) {
+    appStore.showError(t(issueProjectPolicyCredential.value ? 'keys.projectGroupRequired' : 'keys.groupRequired'))
     return
   }
 
@@ -2734,21 +2947,32 @@ const handleSubmit = async () => {
       activeConsoleScope.value.workspaceId &&
       activeConsoleScope.value.projectId
     ) {
-      const projectGroupId =
-        formData.value.group_id ??
-        recommendedDefaultGroup.value?.value ??
-        resolveDefaultRoutingGroupId(groups.value)
+      const projectGroupId = resolvedProjectGroupId.value
+      if (projectGroupId === null) {
+        appStore.showError(t('keys.projectGroupRequired'))
+        return
+      }
       const created = await identityApi.createProjectKey(
         activeConsoleScope.value.workspaceId,
         activeConsoleScope.value.projectId,
         {
-          ...(projectGroupId ? { group_id: String(projectGroupId) } : {}),
+          group_id: String(projectGroupId),
           name: formData.value.name.trim(),
           model_access: { mode: 'inherit', ids: [] },
-          actions: ['text.chat', 'text.embeddings', 'image.generate', 'usage.read', 'tasks.read'],
+          actions: [...selectedProjectKeyActions.value] as Parameters<
+            typeof identityApi.createProjectKey
+          >[2]['actions'],
           expires_at: expiresAt || null
         }
       )
+      const createdActions = (created as { actions?: string[] } | undefined)?.actions
+      lastIssuedProjectKeyScope.value = {
+        name: created?.name || formData.value.name.trim(),
+        actions:
+          Array.isArray(createdActions) && createdActions.length > 0
+            ? createdActions
+            : [...selectedProjectKeyActions.value]
+      }
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       if (created?.credential) {
         issuedSecret.value = created.credential
@@ -2813,10 +3037,12 @@ const handleDelete = async () => {
 }
 
 const closeModals = () => {
+  const hadProjectScope = isProjectKeyCreateMode.value
   showCreateModal.value = false
   showEditModal.value = false
   selectedKey.value = null
   issueProjectPolicyCredential.value = false
+  projectKeyAllowModelsRead.value = false
   formData.value = {
     name: '',
     group_id: null,
@@ -2842,6 +3068,12 @@ const closeModals = () => {
     enable_expiration: false,
     expiration_preset: '30',
     expiration_date: ''
+  }
+  if (hadProjectScope) {
+    groups.value = []
+    userGroupRates.value = {}
+    void loadGroups()
+    void loadUserGroupRates()
   }
 }
 

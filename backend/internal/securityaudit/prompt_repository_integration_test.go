@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testresources"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
@@ -22,10 +23,9 @@ const promptAuditPostgresTestEnv = "PROMPT_AUDIT_TEST_POSTGRES_DSN"
 
 func openPromptAuditIntegrationDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dsn := strings.TrimSpace(os.Getenv(promptAuditPostgresTestEnv))
-	if dsn == "" {
-		t.Skip(promptAuditPostgresTestEnv + " is not set")
-	}
+	// The suite creates stub identity tables and truncates them between runs,
+	// so it must own an otherwise empty database, never the shared job_test.
+	dsn := strings.TrimSpace(testresources.DedicatedPostgresDSN(t, promptAuditPostgresTestEnv, "prompt_audit_test"))
 	db, err := sql.Open("postgres", dsn)
 	require.NoError(t, err)
 	db.SetMaxOpenConns(16)

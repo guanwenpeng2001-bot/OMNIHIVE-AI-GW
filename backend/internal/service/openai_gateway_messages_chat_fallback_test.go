@@ -11,8 +11,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/apicompat"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/openai_compat"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -322,9 +324,7 @@ func TestForwardAsAnthropic_ForceChatCompletionsStreamingLengthMapsToMaxTokens(t
 	require.Contains(t, out, "event: message_stop")
 }
 
-// An upstream that ends immediately with [DONE] must still produce a fully
-// framed (message_start → message_delta → message_stop) Anthropic stream.
-func TestForwardAsAnthropic_ForceChatCompletionsEmptyStreamStillFramesMessage(t *testing.T) {
+func TestForwardAsAnthropic_ForceChatCompletionsEmptyStreamRequiresReview(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	body := []byte(`{"model":"gpt-5.4","max_tokens":8,"messages":[{"role":"user","content":"hello"}],"stream":true}`)
@@ -344,13 +344,10 @@ func TestForwardAsAnthropic_ForceChatCompletionsEmptyStreamStillFramesMessage(t 
 	}
 
 	result, err := svc.ForwardAsAnthropic(context.Background(), c, forceChatMessagesFallbackAccount(), body, "", "")
-	require.NoError(t, err)
+	require.Error(t, err)
 	require.NotNil(t, result)
-
-	out := rec.Body.String()
-	require.Contains(t, out, "event: message_start")
-	require.Contains(t, out, "event: message_delta")
-	require.Contains(t, out, "event: message_stop")
+	require.True(t, result.UsageIncomplete)
+	require.NotContains(t, rec.Body.String(), "event: message_stop")
 }
 
 // Non-failover 4xx responses must go through the shared compat error handler:
@@ -487,4 +484,28 @@ func TestForwardAsAnthropic_ResponsesSupportedAccountStillUsesResponsesEndpoint(
 	require.Empty(t, upstream.lastReq.Header.Get("version"))
 	require.Empty(t, upstream.lastReq.Header.Get("OpenAI-Beta"))
 	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "content.0.text").String())
+}
+
+func TestChatStreamPartialCountersRemainReviewEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name, lastUsage string
+		input           int
+	}{
+		{"split", `{"completion_tokens":2}`, 7},
+		{"explicit_zero", `{"prompt_tokens":0}`, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := "data: " + `{"choices":[],"usage":{"prompt_tokens":7}}` + "\n\n" +
+				"data: " + `{"choices":[],"usage":{"completion_tokens":2}}` + "\n\n" +
+				"data: " + `{"choices":[],"usage":` + tc.lastUsage + "}\n\ndata: [DONE]\n\n"
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+			scan := (&OpenAIGatewayService{}).scanCCStream(c, &http.Response{Body: io.NopCloser(strings.NewReader(body))}, &Account{}, "", "", time.Now(), func(*apicompat.ChatCompletionsChunk) {})
+			require.Error(t, scan.Err)
+			require.True(t, scan.SawDone)
+			require.False(t, scan.UsageKnown)
+			require.Equal(t, tc.input, scan.Usage.InputTokens)
+			require.Equal(t, 2, scan.Usage.OutputTokens)
+		})
+	}
 }

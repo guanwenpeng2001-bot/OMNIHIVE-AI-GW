@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"net/http/httptest"
 	"sync/atomic"
@@ -10,6 +11,64 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
+
+type interruptedStreamReceiptRepo struct {
+	receipt *service.UsageSettlementReceipt
+}
+
+func (r *interruptedStreamReceiptRepo) Persist(_ context.Context, receipt *service.UsageSettlementReceipt) (*service.UsageSettlementReceipt, error) {
+	copy := *receipt
+	r.receipt = &copy
+	return &copy, nil
+}
+func (r *interruptedStreamReceiptRepo) Get(context.Context, service.UsageSettlementKey) (*service.UsageSettlementReceipt, error) {
+	return r.receipt, nil
+}
+func (r *interruptedStreamReceiptRepo) Settle(context.Context, service.UsageSettlementKey, string) (*service.UsageSettlementResult, error) {
+	return nil, service.ErrUsageSettlementNeedsReview
+}
+func (r *interruptedStreamReceiptRepo) ListPending(context.Context, int64, int) ([]*service.UsageSettlementReceipt, error) {
+	return nil, nil
+}
+func (r *interruptedStreamReceiptRepo) ReserveTPMAttempt(context.Context, service.TPMReservationCommand) (*service.TPMReservation, error) {
+	return nil, nil
+}
+func (r *interruptedStreamReceiptRepo) SettleTPMAttempt(context.Context, service.TPMReservationIdentity, int64) error {
+	return nil
+}
+func (r *interruptedStreamReceiptRepo) ReleaseUnsentTPMAttempt(context.Context, service.TPMReservationIdentity) error {
+	return nil
+}
+func (r *interruptedStreamReceiptRepo) MarkTPMAttemptUnknown(context.Context, service.TPMReservationIdentity) error {
+	return nil
+}
+
+func TestDeliveredStreamWithoutUsageProducerBecomesNeedsReview(t *testing.T) {
+	for _, route := range []string{"/v1/chat/completions", "/v1/responses", "/v1/messages"} {
+		t.Run(route, func(t *testing.T) {
+			receipts := &interruptedStreamReceiptRepo{}
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest("POST", route, bytes.NewReader([]byte(`{}`)))
+			gateway := service.ProvideOpenAIGatewayService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(receipts, nil, nil))
+			finish := beginGatewayRequestPlan(c, gateway, &service.APIKey{ID: 2, UserID: 1}, "gpt-5", "openai", 0)
+			plan := service.GatewayRequestPlanFromContext(c.Request.Context())
+			observe, err := service.BeginGenerationAttempt(c.Request.Context(), 3)
+			require.NoError(t, err)
+			observe(200, nil)
+			c.Header("Content-Type", "text/event-stream")
+			_, err = c.Writer.WriteString("data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n")
+			require.NoError(t, err)
+			finish()
+			require.NotNil(t, receipts.receipt)
+			require.Equal(t, service.UsageSettlementNeedsReview, receipts.receipt.State)
+			require.Equal(t, "unresolved", receipts.receipt.ResolutionState)
+			require.Equal(t, "interrupted", receipts.receipt.CompletionState)
+			require.Equal(t, route, *receipts.receipt.Usage.InboundEndpoint)
+			require.True(t, receipts.receipt.Usage.Stream)
+			require.False(t, plan.Record(), "the unresolved receipt owns the usage identity")
+		})
+	}
+}
 
 func TestGatewayRequestPlanAdapterLifecycleFixtures(t *testing.T) {
 	for _, protocol := range []string{"anthropic_messages", "openai_responses"} {

@@ -9,24 +9,13 @@ func scopedAuditProjection(v *AuditLog) *AuditLog {
 	if v == nil || !strings.HasPrefix(v.Path, "/api/v2/") {
 		return v
 	}
-	action := "scope.write"
-	if v.Method == "GET" || v.Method == "HEAD" {
-		action = "scope.read"
+	p := *v
+	p.CredentialMasked = ""
+	p.UserAgent = ""
+	if strings.HasPrefix(v.Action, "playground.") || strings.HasPrefix(v.Action, "requests.") {
+		p.Extra = auditSafeExtra(v.Extra)
 	}
-	// Playground and replay routes publish their own server-derived action and a
-	// fixed private-body placeholder. Keep those bounded metadata fields while
-	// still stripping user agents and credential masks.
-	private := strings.HasPrefix(v.Action, "playground.") || strings.HasPrefix(v.Action, "requests.")
-	if private {
-		action = v.Action
-	}
-	p := &AuditLog{ID: v.ID, CreatedAt: v.CreatedAt, ActorUserID: v.ActorUserID, Method: v.Method,
-		Path: "/api/v2/", Action: action, StatusCode: v.StatusCode, LatencyMs: v.LatencyMs}
-	if private {
-		p.RequestBody = v.RequestBody
-		p.Extra = v.Extra
-	}
-	return p
+	return &p
 }
 
 // Management readers receive the historical action and its disposition. Raw
@@ -37,9 +26,30 @@ func auditManagementView(v *AuditLog) *AuditLog {
 		return nil
 	}
 	p := *scopedAuditProjection(v)
-	p.RequestBody = ""
-	p.Extra = nil
 	p.CredentialMasked = ""
 	p.UserAgent = ""
 	return &p
+}
+
+func auditSafeExtra(extra map[string]any) map[string]any {
+	if len(extra) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(extra))
+	for key, value := range extra {
+		switch key {
+		case "submitted_diff", "diff", "reason", "params", "workspace_id", "project_id", "result", "error_code", "outcome":
+			if key == "params" {
+				if params, ok := value.(map[string]string); ok {
+					converted := make(map[string]any, len(params))
+					for name, param := range params {
+						converted[name] = param
+					}
+					value = converted
+				}
+			}
+			out[key] = value
+		}
+	}
+	return out
 }

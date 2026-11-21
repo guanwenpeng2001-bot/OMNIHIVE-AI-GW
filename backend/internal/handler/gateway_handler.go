@@ -16,6 +16,7 @@ import (
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/antigravity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 	pkgerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
@@ -342,6 +343,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		for {
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, "", int64(0)) // Gemini 不使用会话限制
 			if err != nil {
+				if errors.Is(err, policy.NativePolicyDenied) {
+					h.handleStreamingAwareErrorWithCode(c, policy.NativePolicyDenied.Status, "permission_error", policy.NativePolicyDenied.Reason, policy.NativePolicyDenied.Message, streamStarted)
+					return
+				}
 				if failoverClientGone(c) {
 					reqLog.Info("gateway.account_select_aborted_client_disconnected", zap.Error(err))
 					return
@@ -556,13 +561,15 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					forwardFailedFields = append(forwardFailedFields, zap.Int64p("proxy_id", account.ProxyID))
 				}
 				reqLog.Error("gateway.forward_failed", forwardFailedFields...)
-				return
+				if result == nil || !result.UsageIncomplete {
+					return
+				}
 			}
 
 			// RPM 计数递增（Forward 成功后）
 			// 注意：TOCTOU 竞态是已知且可接受的设计权衡，与 WindowCost 一致的 soft-limit 模式。
 			// 在高并发下可能短暂超出 RPM 限制，但不会导致请求失败。
-			if account.IsAnthropicOAuthOrSetupToken() && account.GetBaseRPM() > 0 {
+			if err == nil && account.IsAnthropicOAuthOrSetupToken() && account.GetBaseRPM() > 0 {
 				if err := h.gatewayService.IncrementAccountRPM(c.Request.Context(), account.ID); err != nil {
 					reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
@@ -693,6 +700,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				service.WithCompositeTargetAdvancement(c.Request.Context()),
 				currentAPIKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, parsedReq.MetadataUserID, subject.UserID)
 			if err != nil {
+				if errors.Is(err, policy.NativePolicyDenied) {
+					h.handleStreamingAwareErrorWithCode(c, policy.NativePolicyDenied.Status, "permission_error", policy.NativePolicyDenied.Reason, policy.NativePolicyDenied.Message, streamStarted)
+					return
+				}
 				if failoverClientGone(c) {
 					reqLog.Info("gateway.account_select_aborted_client_disconnected", zap.Error(err))
 					return

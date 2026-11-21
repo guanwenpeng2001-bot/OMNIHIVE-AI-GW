@@ -208,6 +208,7 @@ func TestForwardAlphaSearchPATBackfillsMissingChatGPTAccountMetadata(t *testing.
 	defer whoamiServer.Close()
 	oldWhoamiURL := openAICodexPATWhoamiURL
 	openAICodexPATWhoamiURL = whoamiServer.URL
+	useLoopbackClient(t, &codexPATHTTPClient)
 	defer func() { openAICodexPATWhoamiURL = oldWhoamiURL }()
 
 	upstream := &httpUpstreamRecorder{resp: &http.Response{

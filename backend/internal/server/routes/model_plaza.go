@@ -26,7 +26,6 @@ func RegisterModelPlazaRoutes(
 	public.Use(gin.HandlerFunc(optionalJWT))
 	public.Use(middleware.BackendModeUserGuard(settingService))
 	public.GET("/rankings", mcpHandler.GetModelRankings)
-	public.POST("/playground/chat", mcpHandler.PlaygroundChat)
 	plaza := v1.Group("/model-plaza")
 	plaza.Use(middleware.DefaultWorkspaceScope())
 	plaza.Use(panelRateLimiter.PublicIP())

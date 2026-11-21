@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/claude"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/logredact"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/urlvalidator"
 	"github.com/tidwall/gjson"
 
@@ -902,6 +903,7 @@ func truncateForLog(b []byte, maxBytes int) string {
 	}
 	s := string(b)
 	// 保持一行，避免污染日志格式
+	s = logredact.RedactDiagnostic(s)
 	s = strings.ReplaceAll(s, "\n", "\\n")
 	s = strings.ReplaceAll(s, "\r", "\\r")
 	return s
@@ -922,16 +924,9 @@ func (s *GatewayService) buildCustomRelayURL(ctx context.Context, baseURL, path 
 }
 
 func (s *GatewayService) validateUpstreamBaseURL(raw string) (string, error) {
-	if s.cfg != nil && !s.cfg.Security.URLAllowlist.Enabled {
-		normalized, err := urlvalidator.ValidateURLFormat(raw, s.cfg.Security.URLAllowlist.AllowInsecureHTTP)
-		if err != nil {
-			return "", fmt.Errorf("invalid base_url: %w", err)
-		}
-		return normalized, nil
-	}
-	normalized, err := urlvalidator.ValidateHTTPSURL(raw, urlvalidator.ValidationOptions{
+	normalized, err := urlvalidator.ValidateHTTPURL(raw, s.cfg != nil && s.cfg.Security.URLAllowlist.AllowInsecureHTTP, urlvalidator.ValidationOptions{
 		AllowedHosts:     s.cfg.Security.URLAllowlist.UpstreamHosts,
-		RequireAllowlist: true,
+		RequireAllowlist: s.cfg != nil && s.cfg.Security.URLAllowlist.Enabled,
 		AllowPrivate:     s.cfg.Security.URLAllowlist.AllowPrivateHosts,
 	})
 	if err != nil {

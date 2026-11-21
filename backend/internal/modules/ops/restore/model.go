@@ -52,6 +52,7 @@ type Preview struct {
 	ExpiresAt time.Time         `json:"expires_at"`
 }
 type Report struct {
+	Detail string            `json:"detail,omitempty"`
 	Digest string            `json:"source_digest,omitempty"`
 	Counts map[string]string `json:"counts,omitempty"`
 	Reason string            `json:"reason,omitempty"`
@@ -77,7 +78,7 @@ type Archives interface {
 }
 type Database interface {
 	Dump(context.Context) (io.ReadCloser, error)
-	Restore(context.Context, io.Reader) error
+	RestoreChecked(context.Context, string, string, func() error, func() error, func() error) error
 }
 type Target struct {
 	DB       *sql.DB
@@ -92,6 +93,7 @@ type Service struct {
 }
 
 type lease struct {
+	diagnostic string
 	Operation
 	Actor         Actor
 	Owner, Digest string

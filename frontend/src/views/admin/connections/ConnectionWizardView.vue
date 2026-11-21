@@ -25,6 +25,7 @@ import {
   formatVerificationCheckReason,
   getAuthModeLabel,
   getProviderDisplayMeta,
+  hasUnavailableVerificationEvidence,
   isConnectionResource,
   isHeaderOverrideSupported,
   isOAuthWorkflowSupported,
@@ -44,8 +45,10 @@ import type {
 } from '@/features/connections/types'
 import {
   buildCredentialInputPayload,
+  buildMinimalConnectionPatch,
   canProceedFromStep,
   createInitialWizardState,
+  createPersistedSnapshotFromState,
   getUtf8ByteLength,
   getWizardStepStatuses,
   hasPendingCredentialMutation,
@@ -359,14 +362,30 @@ const hasFailedVerificationCheck = computed(() =>
   Boolean(state.verification?.checks.some((checkItem) => checkItem.state === 'failed'))
 )
 
-const hasUnknownEvidenceOnly = computed(
+const hasUnavailableEvidence = computed(
   () =>
-    Boolean(state.verification) &&
-    !hasFailedVerificationCheck.value &&
-    Boolean(
-      state.verification?.checks.some(
-        (checkItem) => checkItem.state === 'unknown' || checkItem.reason === 'EVIDENCE_UNAVAILABLE'
+    hasUnavailableVerificationEvidence(state.verification) ||
+    state.asyncError?.reason === 'EVIDENCE_UNAVAILABLE'
+)
+
+const hasVerificationBlockedPreview = computed(() =>
+  Boolean(
+    state.preview?.blocked.some(
+      (reason) => reason === 'VERIFICATION_REQUIRED' || reason === 'EVIDENCE_UNAVAILABLE'
+    ) ||
+      state.preview?.items.some(
+        (item) => item.reason === 'VERIFICATION_REQUIRED' || item.reason === 'EVIDENCE_UNAVAILABLE'
       )
+  )
+)
+
+const shouldShowTopAsyncBanner = computed(
+  () =>
+    Boolean(pageAsyncState.value) &&
+    !(
+      state.currentStep === 'verify' &&
+      hasUnavailableEvidence.value &&
+      state.asyncError?.reason === 'EVIDENCE_UNAVAILABLE'
     )
 )
 
@@ -412,7 +431,7 @@ async function loadInitialData() {
       modelIdsText.value = resource.model_ids.join(', ')
       void loadConnectionEvents(resource.id)
     } else if (schemas.value.length > 0 && !state.provider) {
-      selectProviderSchema(schemas.value[0])
+      selectProviderSchema(matchingSchemas.value[0] ?? schemas.value[0])
     }
     pageAsyncState.value = schemas.value.length === 0 && !connectionIdParam.value ? 'empty' : null
   } catch (err) {
@@ -544,13 +563,34 @@ function addDiscoveredModel(modelId: string) {
   }
 }
 
-async function ensureConnectionPersisted(): Promise<boolean> {
+async function applyCredentialMutation(
+  connectionId: string,
+  payload: ReturnType<typeof buildCredentialInputPayload>
+): Promise<void> {
+  const credResult = await connectionsApi.changeCredential(connectionId, state.version, payload)
+  const fallbackCredVersion = String(Number(state.credentialVersion || '1') + 1)
+  state.version = credResult.version
+  state.credentialVersion = credResult.credential?.version ?? fallbackCredVersion
+  state.credentialState =
+    credResult.credential?.state ?? (payload.operation === 'clear' ? 'unset' : 'unverified')
+  state.credentialLastFour = credResult.credential?.last_four ?? null
+  state.credentialSecret = ''
+  state.credentialRefreshToken = ''
+  state.credentialMode = payload.operation === 'clear' ? 'set' : 'keep'
+  state.mode = 'edit'
+}
+
+async function ensureConnectionPersisted(
+  options: { includeAssignments?: boolean } = {}
+): Promise<boolean> {
+  const includeAssignments = options.includeAssignments ?? true
   state.asyncError = null
   normalizeStepOneInputs()
   if (
-    modelIdsText.value.trim() ||
-    state.currentStep === 'preview' ||
-    state.currentStep === 'activate'
+    includeAssignments &&
+    (modelIdsText.value.trim() ||
+      state.currentStep === 'preview' ||
+      state.currentStep === 'activate')
   ) {
     state.modelIds = modelIdsText.value
       .split(/[,\n]/)
@@ -591,6 +631,7 @@ async function ensureConnectionPersisted(): Promise<boolean> {
       Object.assign(state, hydrateWizardFromResource(state, created))
     } else {
       state.version = created.version
+      state.persistedSnapshot = createPersistedSnapshotFromState(state)
     }
     if (shouldMutateCredential) {
       state.credentialSecret = draftSecret
@@ -598,22 +639,7 @@ async function ensureConnectionPersisted(): Promise<boolean> {
       state.credentialMode = draftCredentialMode
     }
     if (state.connectionId && shouldMutateCredential && pendingCredentialPayload.operation !== 'keep') {
-      const credResult = await connectionsApi.changeCredential(
-        state.connectionId,
-        state.version,
-        pendingCredentialPayload
-      )
-      const fallbackCredVersion = String(Number(state.credentialVersion || '1') + 1)
-      state.version = credResult.version
-      state.credentialVersion = credResult.credential?.version ?? fallbackCredVersion
-      state.credentialState =
-        credResult.credential?.state ??
-        (pendingCredentialPayload.operation === 'clear' ? 'unset' : 'unverified')
-      state.credentialLastFour = credResult.credential?.last_four ?? null
-      state.credentialSecret = ''
-      state.credentialRefreshToken = ''
-      state.credentialMode = 'keep'
-      state.mode = 'edit'
+      await applyCredentialMutation(state.connectionId, pendingCredentialPayload)
     }
     if (state.connectionId) {
       void loadConnectionEvents(state.connectionId)
@@ -621,36 +647,44 @@ async function ensureConnectionPersisted(): Promise<boolean> {
     return true
   }
 
-  const patched = await connectionsApi.patchConnection(state.connectionId, state.version, {
-    name: state.name.trim(),
-    endpoint: state.endpoint.trim(),
-    network_policy_id: state.networkPolicyId.trim(),
-    ...(supportsHeaderOverrides.value ? { header_overrides: headerMap } : {}),
-    model_ids: state.modelIds,
-    pool_ids: state.poolIds,
-    limits: { concurrency: state.concurrency }
-  })
-  state.version = patched.version
+  // Clear existing secret BEFORE patching endpoint/egress policy to prevent 409 CLEAR_CREDENTIAL_BEFORE_EGRESS_CHANGE
+  if (shouldMutateCredential && pendingCredentialPayload.operation === 'clear') {
+    await applyCredentialMutation(state.connectionId, pendingCredentialPayload)
+  }
 
-  if (shouldMutateCredential && pendingCredentialPayload.operation !== 'keep') {
-    const credResult = await connectionsApi.changeCredential(
+  const patchPayload = buildMinimalConnectionPatch(state, {
+    includeAssignments,
+    supportsHeaderOverrides: supportsHeaderOverrides.value
+  })
+  if (patchPayload !== null) {
+    const patched = await connectionsApi.patchConnection(
       state.connectionId,
       state.version,
-      pendingCredentialPayload
+      patchPayload
     )
-    const fallbackCredVersion = String(Number(state.credentialVersion || '1') + 1)
-    state.version = credResult.version
-    state.credentialVersion = credResult.credential?.version ?? fallbackCredVersion
-    state.credentialState =
-      credResult.credential?.state ??
-      (pendingCredentialPayload.operation === 'clear' ? 'unset' : 'unverified')
-    state.credentialLastFour = credResult.credential?.last_four ?? null
-    state.credentialSecret = ''
-    state.credentialRefreshToken = ''
-    state.credentialMode = 'keep'
-    state.mode = 'edit'
+    state.version = patched.version
+    if (isConnectionResource(patched)) {
+      state.connectionState = patched.state
+    }
+    const prevBaseline = state.persistedSnapshot ?? createPersistedSnapshotFromState(state)
+    state.persistedSnapshot = {
+      name: state.name.trim(),
+      endpoint: state.endpoint.trim().replace(/\/+$/, ''),
+      networkPolicyId: state.networkPolicyId.trim(),
+      headerOverrides: supportsHeaderOverrides.value ? headerMap : prevBaseline.headerOverrides,
+      modelIds: includeAssignments ? [...state.modelIds] : prevBaseline.modelIds,
+      poolIds: includeAssignments ? [...state.poolIds] : prevBaseline.poolIds,
+      concurrency: includeAssignments ? state.concurrency : prevBaseline.concurrency
+    }
   }
-  void loadConnectionEvents(state.connectionId)
+
+  if (shouldMutateCredential && pendingCredentialPayload.operation === 'set') {
+    await applyCredentialMutation(state.connectionId, pendingCredentialPayload)
+  }
+
+  if (patchPayload !== null || (shouldMutateCredential && pendingCredentialPayload.operation !== 'keep')) {
+    void loadConnectionEvents(state.connectionId)
+  }
   return true
 }
 
@@ -659,9 +693,32 @@ async function handleSaveDraft() {
   busy.value = true
   pageAsyncState.value = 'background_refresh'
   try {
-    const ok = await ensureConnectionPersisted()
+    const ok = await ensureConnectionPersisted({ includeAssignments: true })
     if (ok) {
       pageAsyncState.value = 'confirmed'
+    }
+  } catch (err) {
+    const mapped = mapApiErrorToAsyncContext(
+      err,
+      isZh.value ? '保存连接草稿失败。' : 'Failed to save draft.',
+      isZh.value
+    )
+    state.asyncError = mapped
+    pageAsyncState.value = mapped.state
+  } finally {
+    busy.value = false
+  }
+}
+
+async function handleSaveDraftAndExit() {
+  if (busy.value) return
+  busy.value = true
+  pageAsyncState.value = 'background_refresh'
+  try {
+    const ok = await ensureConnectionPersisted({ includeAssignments: true })
+    if (ok) {
+      pageAsyncState.value = 'confirmed'
+      await router.push('/admin/accounts')
     }
   } catch (err) {
     const mapped = mapApiErrorToAsyncContext(
@@ -681,7 +738,7 @@ async function handleEnrollOAuth() {
   busy.value = true
   pageAsyncState.value = 'background_refresh'
   try {
-    const ok = await ensureConnectionPersisted()
+    const ok = await ensureConnectionPersisted({ includeAssignments: false })
     if (!ok || !state.connectionId) return
     const result = await connectionsApi.attachAuthorization(state.connectionId, state.version, {
       credential_draft: oauthCode.value.trim(),
@@ -741,7 +798,7 @@ async function handleRunVerification() {
   pageAsyncState.value = 'background_refresh'
   state.asyncError = null
   try {
-    const ok = await ensureConnectionPersisted()
+    const ok = await ensureConnectionPersisted({ includeAssignments: false })
     if (!ok || !state.connectionId) return
     const initialOp = await connectionsApi.verifyConnection(state.connectionId, state.version, {
       checks: ['network', 'authorization', 'discover_models'],
@@ -766,12 +823,18 @@ async function handleRunVerification() {
     }
     void loadConnectionEvents(state.connectionId)
 
-    if (finalOp.state === 'failed') {
-      if (hasUnknownEvidenceOnly.value) {
-        state.asyncError = null
-        pageAsyncState.value = null
-        return
+    if (hasUnavailableVerificationEvidence(state.verification)) {
+      state.asyncError = {
+        state: 'partial_failure',
+        status: 409,
+        reason: 'EVIDENCE_UNAVAILABLE',
+        message: isZh.value
+          ? '验证探测未能获取完整的上游连通或模型证据（EVIDENCE_UNAVAILABLE）：可能由于上游端点不可达、鉴权被拒或当前协议暂无内置主动探针。请检查配置后重试探测，或先保存为草稿并退出。'
+          : 'Verification probe could not obtain valid upstream evidence (EVIDENCE_UNAVAILABLE): upstream endpoint may be unreachable, authorization rejected, or active probe unsupported. Retry verification probe or save as draft and exit.',
+        requestId: finalOp.operation_id
       }
+      pageAsyncState.value = 'partial_failure'
+    } else if (finalOp.state === 'failed' || hasFailedVerificationCheck.value) {
       const opError = finalOp.error as Record<string, unknown> | null | undefined
       const rawOpMessage =
         typeof opError?.message === 'string'
@@ -816,7 +879,7 @@ async function handleRunPreview() {
       .split(/[,\n]/)
       .map((item) => item.trim())
       .filter((item) => item.length > 0)
-    const ok = await ensureConnectionPersisted()
+    const ok = await ensureConnectionPersisted({ includeAssignments: false })
     if (!ok || !state.connectionId) return
     const preview = await connectionsApi.previewConnection(state.connectionId, state.version, {
       model_ids: state.modelIds,
@@ -825,7 +888,22 @@ async function handleRunPreview() {
     })
     state.preview = preview
     state.previewStale = false
-    pageAsyncState.value = 'confirmed'
+    state.confirmedVersion = null
+    if (preview.blocked.length > 0 || preview.items.some((item) => item.state !== 'applicable')) {
+      const primaryBlockedReason =
+        preview.blocked[0] ??
+        preview.items.find((item) => item.state !== 'applicable')?.reason ??
+        'PREVIEW_BLOCKED'
+      state.asyncError = {
+        state: 'partial_failure',
+        status: 409,
+        reason: primaryBlockedReason,
+        message: formatBlockedReason(primaryBlockedReason)
+      }
+      pageAsyncState.value = 'partial_failure'
+    } else {
+      pageAsyncState.value = 'confirmed'
+    }
   } catch (err) {
     const mapped = mapApiErrorToAsyncContext(
       err,
@@ -1017,22 +1095,26 @@ function formatCheckState(checkState: string): string {
   if (checkState === 'passed') return '通过'
   if (checkState === 'failed') return '未通过'
   if (checkState === 'unsupported') return '不支持'
-  return '无内置探针'
+  return '证据缺失'
 }
 
 function formatBlockedReason(reason: string): string {
   const mapZh: Record<string, string> = {
     MODELS_REQUIRED: '请至少填写一个已通过探测的模型 ID',
     INCOMPATIBLE_PROVIDER: '所填模型不在本次探测发现的可用模型列表中，请核对模型名称',
+    EVIDENCE_UNAVAILABLE:
+      '验证探测未能获取有效的上游能力证据（EVIDENCE_UNAVAILABLE），请返回第 3 步重试验证探针或先保存为草稿并退出',
     VERIFICATION_REQUIRED:
-      '该协议尚未获得主动探测通过凭证；若使用无内置探针的兼容协议，可点击底部“保存草稿”保存模型与资源池配置',
+      '尚未具备在有效期内的验证通过凭证（VERIFICATION_REQUIRED），请返回第 3 步执行连通性验证，或保存为草稿并退出',
     CONNECTION_INACTIVE: '当前连接尚未处于启用状态'
   }
   const mapEn: Record<string, string> = {
     MODELS_REQUIRED: 'Specify at least one verified model ID',
     INCOMPATIBLE_PROVIDER: 'One or more model IDs were not returned by upstream discovery',
+    EVIDENCE_UNAVAILABLE:
+      'Verification evidence is unavailable (EVIDENCE_UNAVAILABLE). Return to Step 3 to retry verification probe or save as draft and exit',
     VERIFICATION_REQUIRED:
-      'Active probe verification is required to preview activation; for custom schemas without built-in probes, use Save Draft',
+      'Valid live verification is required before previewing activation (VERIFICATION_REQUIRED). Return to Step 3 to run verification or save as draft and exit',
     CONNECTION_INACTIVE: 'Connection is currently inactive'
   }
   return (isZh.value ? mapZh[reason] : mapEn[reason]) || reason
@@ -1095,7 +1177,7 @@ function formatEventType(type: string): string {
 
       <div ref="bannerAnchorRef" tabindex="-1" class="outline-none scroll-mt-20">
         <AsyncStateBanner
-          v-if="pageAsyncState"
+          v-if="shouldShowTopAsyncBanner && pageAsyncState"
           :state="pageAsyncState"
           :error="state.asyncError"
           :confirmed-version="state.confirmedVersion ?? state.version"
@@ -1582,16 +1664,17 @@ function formatEventType(type: string): string {
               </div>
 
               <div
-                v-if="hasUnknownEvidenceOnly"
-                role="status"
-                class="rounded-oh-md border border-oh-warning bg-oh-surface p-3.5 space-y-1.5 text-xs"
+                v-if="hasUnavailableEvidence"
+                role="alert"
+                data-testid="verify-evidence-unavailable-banner"
+                class="rounded-oh-md border border-oh-warning bg-oh-surface p-4 space-y-3 text-xs"
               >
                 <div class="flex flex-wrap items-center justify-between gap-2">
                   <span class="font-semibold text-oh-fg">
                     {{
                       isZh
-                        ? '当前兼容协议暂无内置主动探针（已允许继续手工配置）'
-                        : 'No built-in active probe for this compatible schema (manual setup unlocked)'
+                        ? '未能获取有效的上游验证证据，暂无法进入启用预览'
+                        : 'Verification evidence unavailable — preview and activation are gated'
                     }}
                   </span>
                   <Badge tone="warning" variant="subtle">EVIDENCE_UNAVAILABLE</Badge>
@@ -1599,10 +1682,30 @@ function formatEventType(type: string): string {
                 <p class="text-oh-secondary">
                   {{
                     isZh
-                      ? '服务端已记录当前连接与凭据，但该兼容协议未提供内置网络/模型主动探测器。您可直接点击下方“下一步”手工录入模型 ID 并保存配置，或调整服务地址后重新探测。'
-                      : 'Connection and credentials are saved, but this compatible schema does not expose a built-in active probe. Click Continue below to configure model IDs manually and save, or update the Endpoint URL and retry.'
+                      ? '诊断说明：上游探测请求不可达、鉴权被拒绝，或当前兼容协议不支持内置主动探测端点。系统要求具备有效实时验证凭证后才允许生成分配预览与正式启用；您可检查服务地址及网络策略后重试探针，或先将当前连接保存为草稿并退出。'
+                      : 'Diagnostic: The upstream probe was unreachable, authorization was rejected, or this protocol does not expose an active verification probe. Live verification is required before previewing pool assignments or activating. Check your endpoint/egress settings and retry the probe, or save as draft and exit.'
                   }}
                 </p>
+                <div class="flex flex-wrap items-center gap-2 pt-1">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    data-testid="verify-retry-probe-btn"
+                    :loading="busy"
+                    @click="handleRunVerification"
+                  >
+                    {{ isZh ? '重试验证探针' : 'Retry Verification Probe' }}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    data-testid="verify-save-draft-exit-btn"
+                    :loading="busy"
+                    @click="handleSaveDraftAndExit"
+                  >
+                    {{ isZh ? '保存草稿并退出' : 'Save as Draft & Exit' }}
+                  </Button>
+                </div>
               </div>
 
               <div v-if="state.verification" class="divide-y divide-oh-default rounded-oh-md border border-oh-default">
@@ -1693,14 +1796,36 @@ function formatEventType(type: string): string {
               </div>
 
               <div
-                v-if="hasUnknownEvidenceOnly"
-                class="rounded-oh-md border border-oh-default bg-oh-subtle/40 px-3.5 py-2.5 text-xs text-oh-secondary"
+                v-if="hasVerificationBlockedPreview"
+                role="alert"
+                data-testid="preview-verification-blocked-banner"
+                class="rounded-oh-md border border-oh-warning bg-oh-surface p-3.5 space-y-2.5 text-xs"
               >
-                {{
-                  isZh
-                    ? '当前兼容协议处于手工模型配置模式（EVIDENCE_UNAVAILABLE）。请在下方填写允许调度的模型 ID 与资源池，点击底部“保存草稿”即可持久化全部模型绑定。'
-                    : 'Manual model setup mode (EVIDENCE_UNAVAILABLE): enter exposed model IDs and pools below, then click Save Draft to persist your configuration.'
-                }}
+                <p class="font-medium text-oh-fg">
+                  {{
+                    isZh
+                      ? '当前连接缺少有效实时验证凭证，无法继续启用。'
+                      : 'Valid live verification is missing or expired; activation cannot proceed.'
+                  }}
+                </p>
+                <div class="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="primary"
+                    size="xs"
+                    data-testid="preview-back-to-verify-btn"
+                    @click="handleSelectStep('verify')"
+                  >
+                    {{ isZh ? '返回第 3 步重新验证' : 'Back to Step 3 Verify' }}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="xs"
+                    :loading="busy"
+                    @click="handleSaveDraftAndExit"
+                  >
+                    {{ isZh ? '保存草稿并退出' : 'Save as Draft & Exit' }}
+                  </Button>
+                </div>
               </div>
 
               <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">

@@ -29,9 +29,12 @@ func TestCredentialDraftRepositoryTransactionOwnership(t *testing.T) {
 	require.NoError(t, ApplyMigrations(ctx, database))
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, database)))
 	repository := newAccountRepositoryWithSQL(client, database, nil)
+	repository.credentialEncryptor = persistentTestAES(t, true)
 	fixture := uniqueName("credential-draft-test")
 	t.Cleanup(func() {
 		_, err := database.ExecContext(ctx, "DELETE FROM pending_auth_sessions WHERE browser_session_key=$1", fixture)
+		require.NoError(t, err)
+		_, err = database.ExecContext(ctx, "DELETE FROM credential_secrets WHERE account_id IN (SELECT id FROM accounts WHERE name LIKE $1)", fixture+"-%")
 		require.NoError(t, err)
 		_, err = database.ExecContext(ctx, "DELETE FROM accounts WHERE name LIKE $1", fixture+"-%")
 		require.NoError(t, err)
@@ -126,11 +129,14 @@ func TestCredentialDraftRepositoryTransactionOwnership(t *testing.T) {
 		baseline, err := repository.GetByID(ctx, candidate.ID)
 		require.NoError(t, err)
 		replacement := map[string]any{"access_token": "other-authorization", "base_url": "https://new.example"}
-		_, err = client.Account.UpdateOneID(candidate.ID).SetCredentials(replacement).Save(ctx)
+		err = repository.UpdateCredentialsCAS(ctx, baseline, replacement)
 		require.NoError(t, err)
 		_, err = pending.UpdateAccountCredentialsIfUnchanged(ctx, baseline, admin, &service.UpdateAccountInput{Credentials: map[string]any{"access_token": "stale-refresh"}})
 		require.ErrorIs(t, err, service.ErrAccountCredentialDraftConflict)
-		require.Equal(t, replacement, client.Account.GetX(ctx, candidate.ID).Credentials)
+		current, err := repository.GetByID(ctx, candidate.ID)
+		require.NoError(t, err)
+		service.StripCredentialReferenceKeys(current.Credentials)
+		require.Equal(t, replacement, current.Credentials)
 		baseline, err = repository.GetByID(ctx, candidate.ID)
 		require.NoError(t, err)
 		updated, err := pending.UpdateAccountCredentialsIfUnchanged(ctx, baseline, admin, &service.UpdateAccountInput{Credentials: map[string]any{"access_token": "fresh"}})
@@ -153,6 +159,6 @@ func (admin *credentialGuardAdmin) UpdateAccount(ctx context.Context, id int64, 
 	if err != nil {
 		return nil, err
 	}
-	candidate.Credentials = input.Credentials
+	candidate.Credentials = service.MergeCredentials(candidate.Credentials, input.Credentials)
 	return candidate, admin.repository.Update(ctx, candidate)
 }

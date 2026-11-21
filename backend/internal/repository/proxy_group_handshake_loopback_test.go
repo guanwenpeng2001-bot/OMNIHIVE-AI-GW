@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -58,7 +58,9 @@ func TestProxyGroupTLSLoopbackDiscoveryAlternatesAndSticks(t *testing.T) {
 			require.Empty(t, r.Header.Get("Authorization"))
 			require.NotEmpty(t, r.Header.Get("Proxy-Authorization"))
 			count.Add(1)
-			conn, buffer, err := w.(http.Hijacker).Hijack()
+			hijacker, ok := w.(http.Hijacker)
+			require.True(t, ok)
+			conn, buffer, err := hijacker.Hijack()
 			require.NoError(t, err)
 			defer conn.Close()
 			_, _ = buffer.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n")
@@ -78,7 +80,8 @@ func TestProxyGroupTLSLoopbackDiscoveryAlternatesAndSticks(t *testing.T) {
 	healthy := makeProxy(false, &healthyConnects)
 	defer healthy.Close()
 	group := &service.ProxyGroup{ID: 7, WorkspaceID: 1, Status: service.StatusActive, FallbackMode: service.FallbackModeNone}
-	upstream := NewHTTPUpstream(nil).(*httpUpstreamService)
+	upstream, ok := NewHTTPUpstream(loopbackUpstreamConfig()).(*httpUpstreamService)
+	require.True(t, ok)
 	for index, raw := range []string{failed.URL, healthy.URL} {
 		u, _ := url.Parse(raw)
 		port, _ := strconv.Atoi(u.Port())
@@ -86,8 +89,12 @@ func TestProxyGroupTLSLoopbackDiscoveryAlternatesAndSticks(t *testing.T) {
 		group.Members = append(group.Members, service.ProxyGroupMember{GroupID: 7, WorkspaceID: 1, ProxyID: p.ID, Proxy: p})
 		entry, err := upstream.getOrCreateClient(p.URL(), 91, 1)
 		require.NoError(t, err)
-		transport := entry.client.Transport.(*http.Transport)
-		transport.TLSClientConfig = origin.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
+		public, ok := entry.client.Transport.(*httpclient.PublicTransport)
+		require.True(t, ok)
+		transport := public.Base
+		originTransport, ok := origin.Client().Transport.(*http.Transport)
+		require.True(t, ok)
+		transport.TLSClientConfig = originTransport.TLSClientConfig.Clone()
 		transport.DisableKeepAlives = true
 		defer transport.CloseIdleConnections()
 	}
@@ -95,7 +102,7 @@ func TestProxyGroupTLSLoopbackDiscoveryAlternatesAndSticks(t *testing.T) {
 	runtime := service.NewProxyGroupRuntime(&handshakeLoopbackGroups{group: group}, nil, cache)
 	account := &service.Account{ID: 91, WorkspaceID: 1, Platform: service.PlatformDeepseek, Type: service.AccountTypeAPIKey, Concurrency: 1, ProxyGroupID: &group.ID, Credentials: map[string]any{"api_key": "fixture-origin", "base_url": origin.URL}}
 	account.AttachEgress(runtime)
-	discovery := service.NewAccountTestService(nil, nil, nil, nil, nil, upstream, &config.Config{}, nil)
+	discovery := service.NewAccountTestService(nil, nil, nil, nil, nil, upstream, loopbackUpstreamConfig(), nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	models, err := discovery.FetchUpstreamSupportedModels(ctx, account)

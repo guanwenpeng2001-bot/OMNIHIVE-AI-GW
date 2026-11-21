@@ -49,6 +49,17 @@ func (h *Handler) decode(raw string, want [32]byte, now time.Time) (cursor, erro
 	return v, nil
 }
 func (h *Handler) list(c *gin.Context, k domain.Scope, _ int64) (any, error) {
+	return h.page(c, k)
+}
+
+func (h *Handler) export(c *gin.Context, k domain.Scope, _ int64) (any, error) {
+	if _, err := h.Store.Authorize(c.Request.Context(), k, domain.Export); err != nil {
+		return nil, err
+	}
+	return h.page(c, k)
+}
+
+func (h *Handler) page(c *gin.Context, k domain.Scope) (any, error) {
 	ctx := c.Request.Context()
 	a, err := h.Store.Authorize(ctx, k, domain.Read)
 	if err != nil {
@@ -84,9 +95,6 @@ func (h *Handler) list(c *gin.Context, k domain.Scope, _ int64) (any, error) {
 			}
 			p.ResourceID = v
 		case "action":
-			if !slices.Contains([]string{"requests.export", "tasks.artifacts.revoke", "billing.adjust", "billing.reconcile", "audit.retention.set", "audit.retention.purge", "audit.export", "scope.read", "scope.write"}, v) {
-				return nil, fault.Invalid("/action")
-			}
 			p.Action = v
 		case "from", "to":
 			t, e := time.Parse(time.RFC3339Nano, v)
@@ -106,6 +114,11 @@ func (h *Handler) list(c *gin.Context, k domain.Scope, _ int64) (any, error) {
 	}
 	if p.From != nil && p.To != nil && !p.From.Before(*p.To) {
 		return nil, fault.Invalid("/to")
+	}
+	if p.Resource == "" || p.Action == "" {
+		if !slices.Contains([]string{"", "request_export", "artifact", "billing_command", "retention", "audit_event", "project"}, p.Resource) {
+			return nil, fault.Invalid("/resource")
+		}
 	}
 	b, _ := json.Marshal(struct {
 		Scope   domain.Scope

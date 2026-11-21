@@ -64,6 +64,24 @@ func TestWorkspaceTelemetryRoutes(t *testing.T) {
 		c.Next()
 	}
 	observability.Register(engine.Group("/api/v2"), observability.New(store), session)
+	base := fmt.Sprintf("/api/v2/workspaces/%d/observability", workspace)
+	list := func(actor int64, path string, code int) []any {
+		t.Helper()
+		req := httptest.NewRequest("GET", path, nil)
+		req.Header.Set("Fixture-Actor", strconv.FormatInt(actor, 10))
+		out := httptest.NewRecorder()
+		engine.ServeHTTP(out, req)
+		require.Equal(t, code, out.Code, out.Body.String())
+		var envelope struct {
+			Data struct {
+				Items []any `json:"items"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(out.Body.Bytes(), &envelope))
+		return envelope.Data.Items
+	}
+	list(admin, base+"/destinations", 200)
+	list(admin, base+"/exports", 200)
 	call := func(actor int64, method, path, key, version, body string, code int) map[string]any {
 		t.Helper()
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -108,7 +126,6 @@ func TestWorkspaceTelemetryRoutes(t *testing.T) {
 		require.JSONEq(t, expected, string(raw))
 	}
 
-	base := fmt.Sprintf("/api/v2/workspaces/%d/observability", workspace)
 	foreign := fmt.Sprintf("/api/v2/workspaces/%d/observability", outside)
 	destinationInput := read("destination-input")
 	call(0, "POST", base+"/destinations", "same", "", destinationInput, 401)
@@ -118,6 +135,9 @@ func TestWorkspaceTelemetryRoutes(t *testing.T) {
 	require.Equal(t, "INVALID_INPUT", badBody["reason"])
 	dest := call(admin, "POST", base+"/destinations", "same", "", destinationInput, 201)
 	destID := dest["id"].(string)
+	listed := list(admin, base+"/destinations", 200)
+	require.Len(t, listed, 1)
+	require.Equal(t, destID, listed[0].(map[string]any)["id"])
 	bindDestination := func(fixture string) string {
 		return strings.ReplaceAll(read(fixture), "00000000-0000-4000-8000-000000000029", destID)
 	}
@@ -131,6 +151,9 @@ func TestWorkspaceTelemetryRoutes(t *testing.T) {
 	call(admin, "POST", base+"/exports", "same", "", strings.Replace(createInput, `"0.05"`, "0.05", 1), 422)
 	created := call(admin, "POST", base+"/exports", "same", "", createInput, 201)
 	exportID := created["id"].(string)
+	listed = list(admin, base+"/exports", 200)
+	require.Len(t, listed, 1)
+	require.Equal(t, exportID, listed[0].(map[string]any)["id"])
 	bindExport := func(fixture string) string {
 		return strings.ReplaceAll(bindDestination(fixture), "00000000-0000-4000-8000-000000000318", exportID)
 	}
@@ -169,4 +192,6 @@ func TestWorkspaceTelemetryRoutes(t *testing.T) {
 	require.Equal(t, "0", out["queue_depth"])
 	call(admin, "PATCH", base+path, "", `"5"`, `{"enabled":true}`, 404)
 	expect(bindExport("created"), call(admin, "POST", base+"/exports", "same", "", createInput, 201))
+	require.Len(t, list(admin, base+"/destinations", 200), 1)
+	require.Len(t, list(admin, base+"/exports", 200), 1)
 }

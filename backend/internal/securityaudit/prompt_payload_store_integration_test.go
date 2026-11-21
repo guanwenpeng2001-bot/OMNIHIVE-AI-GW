@@ -59,7 +59,7 @@ func TestPromptRuntimeAggregatesConfigWorkersQueueRedisEndpointsAndGuardMetrics(
 		config,
 		NewPostgreSQLRepository(db),
 		NewRedisPayloadStore(client),
-		NewOpenAICompatibleScanner(),
+		localScanner(),
 		metrics,
 	)
 	service.probes["guard-1"] = ProbeResult{OK: true, Status: "healthy", HTTPStatus: 200}

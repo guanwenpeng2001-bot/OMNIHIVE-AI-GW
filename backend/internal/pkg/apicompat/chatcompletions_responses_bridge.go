@@ -58,14 +58,14 @@ func ResponsesToChatCompletionsRequestWithOptions(req *ResponsesRequest, opts *R
 	}
 
 	out := &ChatCompletionsRequest{
-		Model:               req.Model,
-		Messages:            messages,
-		MaxCompletionTokens: req.MaxOutputTokens,
-		Temperature:         req.Temperature,
-		TopP:                req.TopP,
-		Stream:              req.Stream,
-		ServiceTier:         req.ServiceTier,
-		ParallelToolCalls:   req.ParallelToolCalls,
+		Model:             req.Model,
+		Messages:          messages,
+		MaxTokens:         req.MaxOutputTokens,
+		Temperature:       req.Temperature,
+		TopP:              req.TopP,
+		Stream:            req.Stream,
+		ServiceTier:       req.ServiceTier,
+		ParallelToolCalls: req.ParallelToolCalls,
 	}
 	if req.Reasoning != nil {
 		out.ReasoningEffort = req.Reasoning.Effort

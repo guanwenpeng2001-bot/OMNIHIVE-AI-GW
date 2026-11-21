@@ -194,6 +194,12 @@ func withModelAccessSnapshot(ctx context.Context, snapshot ModelAccessSnapshot) 
 	ctx = context.WithValue(ctx, modelAccessSnapshotKey{}, snapshot)
 	return WithVisibleModelKeyPolicy(ctx, snapshot.Key)
 }
+
+func WithProjectKeyModelPolicy(ctx context.Context, platform string) context.Context {
+	snapshot, _ := ctx.Value(modelAccessSnapshotKey{}).(ModelAccessSnapshot)
+	snapshot.ProjectKeyPlatform = platform
+	return context.WithValue(ctx, modelAccessSnapshotKey{}, snapshot)
+}
 func modelAccessAccountAllows(ctx context.Context, accountID int64, model string) bool {
 	if ctx == nil {
 		return true

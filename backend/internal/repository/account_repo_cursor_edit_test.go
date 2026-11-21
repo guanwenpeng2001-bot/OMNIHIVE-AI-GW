@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,15 @@ import (
 type cursorEditTestDriver struct{ *entsql.Driver }
 type cursorEditTestTx struct{ dialect.Tx }
 
+var cursorEditPostgresPlaceholder = regexp.MustCompile(`\$[0-9]+`)
+
+func cursorEditSQLiteQuery(query string) string {
+	query = strings.TrimSuffix(query, " FOR UPDATE")
+	query = strings.ReplaceAll(query, "::jsonb", "")
+	query = strings.ReplaceAll(query, "NOW()", "CURRENT_TIMESTAMP")
+	return cursorEditPostgresPlaceholder.ReplaceAllString(query, "?")
+}
+
 func (d cursorEditTestDriver) Tx(ctx context.Context) (dialect.Tx, error) {
 	tx, err := d.Driver.Tx(ctx)
 	if err != nil {
@@ -35,10 +45,12 @@ func (tx cursorEditTestTx) QueryContext(ctx context.Context, query string, args 
 		args = args[:1]
 	}
 	entTx, _ := tx.Tx.(*entsql.Tx)
+	query = cursorEditSQLiteQuery(query)
 	return entTx.QueryContext(ctx, query, args...)
 }
 func (tx cursorEditTestTx) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	entTx, _ := tx.Tx.(*entsql.Tx)
+	query = cursorEditSQLiteQuery(query)
 	return entTx.ExecContext(ctx, query, args...)
 }
 
@@ -56,7 +68,15 @@ func newCursorEditTestRepository(t *testing.T) (*accountRepository, *dbent.Clien
 	require.NoError(t, err)
 	_, err = db.Exec(`CREATE TABLE provider_connections (account_id INTEGER PRIMARY KEY REFERENCES accounts(id), legacy_dirty BOOLEAN DEFAULT false, verified_id TEXT, version INTEGER DEFAULT 1)`)
 	require.NoError(t, err)
-	return newAccountRepositoryWithSQL(client, db, nil), client, db
+	_, err = db.Exec(`DROP TABLE credential_secrets`)
+	require.NoError(t, err)
+	_, err = db.Exec(`CREATE TABLE credential_secrets(id INTEGER PRIMARY KEY, reference TEXT NOT NULL UNIQUE, workspace_id INTEGER NOT NULL DEFAULT 1, account_id INTEGER NOT NULL UNIQUE, version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0), ciphertext TEXT NOT NULL, revoked_at DATETIME, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, api_key_digest TEXT)`)
+	require.NoError(t, err)
+	_, err = db.Exec(`CREATE TABLE audit_logs(id INTEGER PRIMARY KEY, actor_user_id INTEGER, actor_role TEXT, action TEXT, request_id TEXT, status_code INTEGER, extra BLOB)`)
+	require.NoError(t, err)
+	repository := newAccountRepositoryWithSQL(client, db, nil)
+	repository.credentialEncryptor = persistentTestAES(t, true)
+	return repository, client, db
 }
 
 func TestCursorMetadataEditRefreshRacePreservesDatabaseCooldown(t *testing.T) {
@@ -105,7 +125,10 @@ func TestCursorMetadataEditRefreshRacePreservesDatabaseCooldown(t *testing.T) {
 				current, err := client.Account.Get(ctx, entity.ID)
 				require.NoError(t, err)
 				require.Equal(t, "edited", current.Name)
-				require.Equal(t, snapshot.Credentials, current.Credentials)
+				require.NotContains(t, current.Credentials, "refresh_token")
+				resolved, err := repo.GetByID(ctx, entity.ID)
+				require.NoError(t, err)
+				require.Equal(t, snapshot.Credentials["refresh_token"], resolved.Credentials["refresh_token"])
 				if cleared {
 					require.Nil(t, current.TempUnschedulableUntil)
 					require.Nil(t, current.TempUnschedulableReason)
@@ -160,7 +183,11 @@ func TestCursorReauthRecoveryUsesCurrentReasonAndRollsBackWithCredentials(t *tes
 				require.Equal(t, service.StatusError, current.Status)
 				require.False(t, current.Schedulable)
 			} else {
-				require.Equal(t, edit.Credentials, current.Credentials)
+				resolved, err := repo.GetByID(ctx, entity.ID)
+				require.NoError(t, err)
+				require.Equal(t, "synthetic-new", resolved.Credentials["refresh_token"])
+				require.Equal(t, edit.Credentials[service.CredentialSecretReferenceKey], resolved.Credentials[service.CredentialSecretReferenceKey])
+				require.Equal(t, service.CredentialVersion(current.Credentials), service.CredentialVersion(resolved.Credentials))
 				require.Equal(t, service.StatusActive, current.Status)
 				require.True(t, current.Schedulable)
 			}

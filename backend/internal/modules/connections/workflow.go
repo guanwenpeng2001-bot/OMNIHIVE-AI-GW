@@ -234,10 +234,21 @@ func (r *Session) applicable(c Connection, p Patch) error {
 		return e
 	}
 	if c.Verification == nil {
-		return conflict("VERIFICATION_REQUIRED")
+		return r.verificationBlock(c)
 	}
 	if e := r.fresh(c, c.Verification.ID); e != nil {
 		return e
+	}
+	for _, check := range c.Verification.Checks {
+		if check.Name != "discover_models" {
+			continue
+		}
+		switch check.State {
+		case "unknown", "unsupported":
+			return evidenceUnavailable()
+		case "failed":
+			return probeFailed()
+		}
 	}
 	ids := p.Models
 	if ids == nil {
@@ -252,6 +263,66 @@ func (r *Session) applicable(c Connection, p Patch) error {
 		}
 	}
 	return nil
+}
+
+func evidenceUnavailable() error {
+	return &fault.Fault{Status: 409, Reason: "EVIDENCE_UNAVAILABLE",
+		Message: "The probe could not provide verification evidence. Retry verification or save the configuration as a draft."}
+}
+
+func probeFailed() error {
+	return &fault.Fault{Status: 409, Reason: "PROBE_FAILED",
+		Message: "The verification probe failed. Review the check results and retry verification."}
+}
+
+func (r *Session) verificationBlock(c Connection) error {
+	required := &fault.Fault{Status: 409, Reason: "VERIFICATION_REQUIRED",
+		Message: "Run network and authorization verification before previewing activation."}
+	if c.Credential.Version == 0 || c.Credential.State == "revoked" {
+		return required
+	}
+	_, rev, err := legacy.Proxy(r.ctx, r.tx, r.Workspace, c.NetworkPolicyID, true)
+	if err != nil {
+		return err
+	}
+	var data []byte
+	var eligible bool
+	// Failed attempts are diagnostic only. Retain their guidance after an
+	// intervening metadata edit without giving the attempt activation authority.
+	err = r.tx.QueryRowContext(r.ctx, `SELECT snapshot,eligible FROM connection_verifications
+ WHERE workspace_id=$1 AND account_id=$2 AND base_version<=$3 AND credential_version=$4
+   AND proxy_revision=$5 AND expires_at>now()
+ ORDER BY expires_at DESC, id DESC LIMIT 1`,
+		r.Workspace, c.ID, c.Version, c.Credential.Version, rev).Scan(&data, &eligible)
+	if errors.Is(err, sql.ErrNoRows) {
+		return required
+	}
+	if err != nil {
+		return err
+	}
+	if eligible {
+		return required
+	}
+	var v Verification
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	unavailable := false
+	for _, check := range v.Checks {
+		if check.Name == "discover_models" {
+			continue
+		}
+		switch check.State {
+		case "unknown", "unsupported":
+			unavailable = true
+		case "failed":
+			return probeFailed()
+		}
+	}
+	if unavailable {
+		return evidenceUnavailable()
+	}
+	return required
 }
 func difference(a, b []string) []string {
 	out := []string{}
@@ -297,10 +368,12 @@ func (r *Session) Preview(ids []string, p Patch) (any, error) {
 			}
 			item.State = "blocked"
 			item.Reason = f.Reason
+			item.Message = f.Message
 		}
 		if !one && c.State != "active" {
 			item.State = "blocked"
 			item.Reason = "CONNECTION_INACTIVE"
+			item.Message = "Activate this connection before using bulk assignment."
 		}
 		if one {
 			out.Base = c.Version

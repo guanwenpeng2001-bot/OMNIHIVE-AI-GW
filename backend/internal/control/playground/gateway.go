@@ -23,6 +23,7 @@ import (
 	execcompat "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/execution"
 	keycompat "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/billing/readmodel"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/byok"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	pg "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/playground"
@@ -98,6 +99,11 @@ type prepared struct {
 
 func (g *Gateway) prepare(ctx context.Context, a identity.Access, s pg.Submit, ip string, replay bool) (prepared, error) {
 	var p prepared
+	for name, value := range s.Input {
+		if err := byok.CheckSharedFunding(name, value); err != nil {
+			return p, err
+		}
+	}
 	if g == nil || g.DB == nil || g.Plans == nil || g.Routes == nil || g.Keys == nil || g.Scopes == nil || g.Policies == nil || g.Catalog == nil || g.Access == nil {
 		return p, pg.Unavailable
 	}
@@ -263,9 +269,12 @@ func (j runJournal) Dispatch(ctx context.Context, e journal.AdmittedExecution, n
 }
 func (g *Gateway) admit(p prepared, r pg.Summary, reg *journal.Registration) (context.Context, *service.GatewayRequestPlan, func(), error) {
 	j := runJournal{journal.New(g.DB), r, p.account, g.DB, func(ctx context.Context) error {
-		fresh, err := g.Policies.PlanExecution(ctx, p.frozen, p.scenario, nil, p.decision.Seed)
+		fresh, err := g.Policies.PlanExecution(ctx, p.frozen, p.scenario, service.GatewayRequestRoutingLayer(p.ctx), p.decision.Seed)
 		if err != nil {
 			return err
+		}
+		if fresh.Selected == nil && service.HasGatewayRoutingConstraints(p.ctx) {
+			return policy.NativePolicyDenied
 		}
 		if fresh.Selected == nil || fresh.Selected.CandidateID != p.decision.Selected.CandidateID || fresh.Selected.FundingSource != p.decision.Selected.FundingSource {
 			return journal.ErrDispatch
@@ -275,6 +284,7 @@ func (g *Gateway) admit(p prepared, r pg.Summary, reg *journal.Registration) (co
 	ctx, stop := service.WithAttemptBudget(journal.WithStore(p.ctx, j), 1, service.DefaultGenerationDeadline)
 	ctx = service.WithProjectBudgetCoordinator(ctx, readmodel.Store{DB: g.DB})
 	ctx = service.WithPrefetchedStickySession(ctx, p.account, p.key.Group.ID, true)
+	ctx = service.WithRequiredAccount(ctx, p.account)
 
 	spec := service.GatewayRequestSpec{ExecutionKind: "playground", Registration: reg, WorkspaceID: p.frozen.WorkspaceID, UserID: p.key.UserID, APIKeyID: p.key.ID, BillingGroupID: p.key.Group.ID, Route: strings.Split(p.native.Path, "?")[0], Action: "text.chat", Protocol: p.native.Protocol, Model: p.model, ModelVersion: p.decision.CatalogVersion, PriceVersion: p.decision.PriceVersion}
 	ctx, plan := g.Plans.CaptureRequestPlan(ctx, spec)
@@ -293,7 +303,7 @@ func (g *Gateway) admit(p prepared, r pg.Summary, reg *journal.Registration) (co
 		err = trace.NewPostgres(g.DB).Record(ctx, ex, p.decision)
 	}
 	if err == nil {
-		err = plan.ReserveBudget(ctx, service.RequestBudgetEstimate{Model: p.model, InputTokens: p.native.InputBound, OutputTokens: p.native.OutputBound, RateMultiplier: p.key.Group.RateMultiplier, SkipBalanceHold: p.funding != nil, SkipKeyBudget: !p.key.HasPeriodBudget()})
+		err = plan.ReserveBudget(ctx, service.RequestBudgetEstimate{Model: p.model, Group: p.key.Group, InputTokens: p.native.InputBound, OutputTokens: p.native.OutputBound, RateMultiplier: p.key.Group.RateMultiplier, SkipBalanceHold: p.funding != nil, SkipKeyBudget: !p.key.HasPeriodBudget()})
 	}
 	if err != nil {
 		closePlan()
@@ -305,6 +315,15 @@ func (g *Gateway) admit(p prepared, r pg.Summary, reg *journal.Registration) (co
 	return ctx, plan, closePlan, nil
 }
 func (g *Gateway) execute(ctx context.Context, p prepared, w http.ResponseWriter) error {
+	// The shared native router may execute only the payer and account
+	// selected at admission. Tenant attempts require byok.Gateway.Send.
+	funding := "wallet"
+	if p.funding != nil {
+		funding = "subscription"
+	}
+	if p.decision.Selected == nil || p.decision.Selected.FundingSource != funding {
+		return fault.Forbidden
+	}
 	req, err := http.NewRequestWithContext(context.WithValue(ctx, credentialTag{}, credential{p.key, p.funding}), "POST", p.native.Path, bytes.NewReader(p.native.Body))
 	if err != nil {
 		return err

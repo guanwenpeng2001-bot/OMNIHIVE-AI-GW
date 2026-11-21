@@ -34,19 +34,13 @@ These four defaults remain unchanged in the application and deployment examples:
 
 | Setting | Default | Operational meaning |
 | --- | --- | --- |
-| `security.trust_forwarded_ip_for_api_key_acl` | `true` | Forwarded headers can determine security-sensitive client IPs; protect the origin and overwrite them at the proxy. |
+| `server.trusted_proxies` | `[]` | Only explicitly trusted proxy hops can supply client addresses. |
 | `security.url_allowlist.enabled` | `false` | No upstream host allowlist is enabled by default. |
-| `security.url_allowlist.allow_private_hosts` | `true` | Configured destinations can reach private/loopback services. |
-| `security.url_allowlist.allow_insecure_http` | `true` | HTTP destinations are allowed; credentials/content may travel without TLS. |
+| `security.url_allowlist.allow_private_hosts` | `false` | Private/loopback upstreams require opt-in and an exact entry in upstream_hosts. |
+| `security.url_allowlist.allow_insecure_http` | `false` | Use HTTPS for configurable upstream URLs by default. |
 
-An administrator can opt into restrictions using the existing settings. Changing examples
-does not silently impose HTTPS, forbid private networks, or override an existing policy.
-Prompt-audit endpoints intentionally support internal HTTP/private services: the operator
-must trust the endpoint owner and the service network, because prompts and configured
-credentials are sent there. In the baseline implementation the prompt-audit client uses
-its own direct dialer; the generic URL allowlist alone must not be represented as an
-already-enforced restriction on that path. Verify the deployed version's prompt-audit
-allowlist enforcement before relying on it; apply network egress rules when needed.
+Prompt-audit and gateway clients validate resolved addresses and pin the connection.
+The admin-configured hostname allowlist can further restrict destinations.
 
 CORS defaults to an empty allowed-origin list. Explicit `cors.allowed_origins: ["*"]`
 is supported; it allows browser access from arbitrary origins and disables credentialed
@@ -63,42 +57,10 @@ of the 256 MiB request-body cap above. Keep overrides consistent across env and 
 
 ## Trusted client IPs
 
-`security.trust_forwarded_ip_for_api_key_acl` is enabled by default for upgrade
-compatibility. While enabled, raw forwarding headers take over client-IP
-resolution for logs and security-sensitive paths. Custom headers from
-`security.forwarded_client_ip_headers` are checked in configured order before
-the built-in `CF-Connecting-IP`, `X-Real-IP`, and `X-Forwarded-For` fallback.
-Header names are case-insensitive, normalized when loaded, de-duplicated, and
-limited to 16 unique valid HTTP field names. Header values must contain IP
-literals; comma-separated values are supported, invalid entries are skipped,
-and public addresses are preferred over private fallback addresses.
-
-The list can be supplied in YAML or with the comma-separated environment
-variable `SECURITY_FORWARDED_CLIENT_IP_HEADERS`; an explicitly empty environment
-value clears YAML values. It is also editable from the admin security settings
-and updates at runtime without a restart. A request snapshots the switch and
-header list together, so one request cannot mix old and new settings. Custom
-headers are ignored completely when the switch is disabled. In that mode Gin's
-`server.trusted_proxies` chain is authoritative: configure only the exact
-CIDR/IP addresses that connect directly to OmniHive. An explicit empty list
-trusts no forwarded client IPs.
-
-On the first upgrade to this mode, a legacy `false` value is changed to `true`
-only when `server.trusted_proxies` was not explicitly configured; explicit
-proxy policies remain in secure mode. New installations persist the configured
-custom header list during database initialization. Existing installations
-backfill a missing database value from the YAML configuration. A hidden
-migration marker prevents later administrator changes from being overwritten.
-If settings cannot be read or the persisted custom-header list is malformed,
-the process fails closed to trusted-proxy mode with no custom headers. If a
-migration write fails, the computed mode remains active for the current process
-and startup records a warning.
-
-Compatibility takeover accepts forwarded headers without validating the direct
-peer, including any configured custom header. Protect the origin from direct
-access while it is enabled. A CDN deployment must firewall the origin so only
-the CDN or load balancer can reach it, and that proxy must overwrite every
-trusted client-IP header rather than append an untrusted client value.
+Client addresses come from the socket peer by default. Configure the proxy IPs
+in `server.trusted_proxies` and have the edge overwrite X-Forwarded-For.
+Gin walks the chain from the socket inwards to the first untrusted address.
+Older database or YAML forwarding switches and custom headers have no effect.
 
 Example for a proxy on the same host:
 
@@ -198,6 +160,12 @@ not replace that list with `text/*` or the shorthand `encode gzip zstd`: both
 match `text/event-stream` and can buffer SSE until the response ends. Keep
 streaming responses uncompressed while retaining compression for the web UI,
 JSON, and static assets.
+
+The TLS site sets `Strict-Transport-Security: max-age=31536000; includeSubDomains`.
+Confirm HTTPS on every subdomain before deploying it. Preload is deliberately omitted:
+only the domain owner should opt in after reviewing the browser preload-list requirements
+and accepting its difficult rollback. The application owns the remaining security headers;
+verify them on the final Caddy response rather than duplicating them at the proxy.
 
 For a CDN deployment, first firewall the origin so only current CDN egress
 CIDRs can connect. Then configure those exact ranges as Caddy trusted proxies

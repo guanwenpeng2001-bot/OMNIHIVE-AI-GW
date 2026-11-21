@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/stretchr/testify/require"
-
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/shopspring/decimal"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -37,14 +37,14 @@ func TestDeductUsageBillingBalance_ChargesWhatTheBalanceCovers(t *testing.T) {
 		WithArgs(int64(42)).
 		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(10.0))
 	mock.ExpectExec(chargeCoveredBalanceSQL).
-		WithArgs(2.5, int64(42)).
+		WithArgs("2.5", int64(42)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	newBalance, uncovered, err := deductUsageBillingBalance(ctx, tx, 42, 2.5)
+	newBalance, uncovered, err := deductUsageBillingBalance(ctx, tx, 42, decimal.NewFromFloat(2.5))
 	require.NoError(t, err)
-	require.Zero(t, uncovered)
-	require.InDelta(t, 7.5, newBalance, 0.000001)
+	require.True(t, uncovered.IsZero())
+	require.InDelta(t, 7.5, newBalance.InexactFloat64(), 0.000001)
 	require.NoError(t, tx.Commit())
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -64,14 +64,14 @@ func TestDeductUsageBillingBalance_RecordsUncoveredWithoutNegativeBalance(t *tes
 		WithArgs(int64(42)).
 		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(4.0))
 	mock.ExpectExec(chargeCoveredBalanceSQL).
-		WithArgs(4.0, int64(42)).
+		WithArgs("4", int64(42)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	newBalance, uncovered, err := deductUsageBillingBalance(ctx, tx, 42, 10)
+	newBalance, uncovered, err := deductUsageBillingBalance(ctx, tx, 42, decimal.NewFromInt(10))
 	require.NoError(t, err)
-	require.InDelta(t, 0.0, newBalance, 0.000001)
-	require.InDelta(t, 6.0, uncovered, 0.000001)
+	require.InDelta(t, 0.0, newBalance.InexactFloat64(), 0.000001)
+	require.InDelta(t, 6.0, uncovered.InexactFloat64(), 0.000001)
 	require.NoError(t, tx.Commit())
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -90,7 +90,7 @@ func TestApplyUsageBillingEffects_FlagsUncoveredWithoutOverdraft(t *testing.T) {
 		WithArgs(int64(42)).
 		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(4.0))
 	mock.ExpectExec(chargeCoveredBalanceSQL).
-		WithArgs(4.0, int64(42)).
+		WithArgs("4", int64(42)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -122,7 +122,7 @@ func TestDeductUsageBillingBalance_ReturnsUserNotFoundWhenUserMissing(t *testing
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectRollback()
 
-	_, _, err = deductUsageBillingBalance(ctx, tx, 42, 10)
+	_, _, err = deductUsageBillingBalance(ctx, tx, 42, decimal.NewFromInt(10))
 	require.ErrorIs(t, err, service.ErrUserNotFound)
 	require.NoError(t, tx.Rollback())
 	require.NoError(t, mock.ExpectationsWereMet())

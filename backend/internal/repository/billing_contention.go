@@ -12,7 +12,7 @@ import (
 )
 
 // Admission is only a process-local pressure valve, never an idempotency or
-// money authority. A hot payer can occupy one connection and at most 64
+// money authority. A hot payer can occupy up to four connections and at most 64
 // live slots plus one recovery slot; unrelated payers execute concurrently. Waiting consumes no DB
 // connection. All rejected receipts remain durable and recoverable.
 var billingAdmission = newBillingAdmission(32, 1024, 64)
@@ -23,7 +23,8 @@ type billingWaiter struct {
 }
 
 type billingPayerQueue struct {
-	active   bool
+	active   int
+	ready    bool
 	recovery bool
 	waiters  []*billingWaiter
 }
@@ -34,12 +35,13 @@ type billingAdmissionQueue struct {
 	ready                         []int64
 	active, total, recovery       int
 	maxActive, maxTotal, maxPayer int
+	maxPayerActive                int
 	rejected                      uint64
 	waits                         billingSamples
 }
 
 func newBillingAdmission(active, total, payer int) *billingAdmissionQueue {
-	return &billingAdmissionQueue{payers: make(map[int64]*billingPayerQueue), maxActive: active, maxTotal: total, maxPayer: payer}
+	return &billingAdmissionQueue{payers: make(map[int64]*billingPayerQueue), maxPayerActive: max(1, min(4, active/4)), maxActive: active, maxTotal: total, maxPayer: payer}
 }
 
 func (q *billingAdmissionQueue) acquire(ctx context.Context, payer int64) (func(), error) {
@@ -55,10 +57,7 @@ func (q *billingAdmissionQueue) acquireWithRecovery(ctx context.Context, payer i
 	p := q.payers[payer]
 	count := 0
 	if p != nil {
-		count = len(p.waiters)
-		if p.active {
-			count++
-		}
+		count = len(p.waiters) + p.active
 	}
 	full := q.total >= q.maxTotal || count >= q.maxPayer
 	if recovery {
@@ -76,10 +75,9 @@ func (q *billingAdmissionQueue) acquireWithRecovery(ctx context.Context, payer i
 		q.payers[payer] = p
 	}
 	w := &billingWaiter{ready: make(chan struct{})}
-	if !p.active && len(p.waiters) == 0 {
-		q.ready = append(q.ready, payer)
-	}
+
 	p.waiters = append(p.waiters, w)
+	q.scheduleLocked(payer, p)
 	if recovery {
 		p.recovery = true
 		q.recovery++
@@ -105,8 +103,11 @@ func (q *billingAdmissionQueue) acquireWithRecovery(ctx context.Context, payer i
 				break
 			}
 		}
-		if !p.active && len(p.waiters) == 0 {
-			delete(q.payers, payer)
+		if len(p.waiters) == 0 {
+			if p.active == 0 {
+				delete(q.payers, payer)
+			}
+			p.ready = false
 			for i, id := range q.ready {
 				if id == payer {
 					q.ready = append(q.ready[:i], q.ready[i+1:]...)
@@ -125,17 +126,17 @@ func (q *billingAdmissionQueue) acquireWithRecovery(ctx context.Context, payer i
 		once.Do(func() {
 			q.mu.Lock()
 			defer q.mu.Unlock()
-			p.active = false
+			p.active--
 			q.active--
 			q.total--
 			if recovery {
 				p.recovery = false
 				q.recovery--
 			}
-			if len(p.waiters) == 0 {
+			if len(p.waiters) == 0 && p.active == 0 {
 				delete(q.payers, payer)
 			} else {
-				q.ready = append(q.ready, payer)
+				q.scheduleLocked(payer, p)
 			}
 			q.dispatchLocked()
 		})
@@ -147,6 +148,15 @@ func (q *billingAdmissionQueue) acquireWithRecovery(ctx context.Context, payer i
 	return release, nil
 }
 
+// Limit a hot payer to a fraction of global capacity. PostgreSQL still
+// serializes financial rows, while receipt preparation can overlap.
+func (q *billingAdmissionQueue) scheduleLocked(id int64, p *billingPayerQueue) {
+	if !p.ready && len(p.waiters) > 0 && p.active < q.maxPayerActive {
+		p.ready = true
+		q.ready = append(q.ready, id)
+	}
+}
+
 func (q *billingAdmissionQueue) dispatchLocked() {
 	for q.active < q.maxActive && len(q.ready) > 0 {
 		id := q.ready[0]
@@ -154,7 +164,10 @@ func (q *billingAdmissionQueue) dispatchLocked() {
 		p := q.payers[id]
 		w := p.waiters[0]
 		p.waiters = p.waiters[1:]
-		p.active, w.granted = true, true
+		p.ready = false
+		p.active++
+		w.granted = true
+		q.scheduleLocked(id, p)
 		q.active++
 		close(w.ready)
 	}

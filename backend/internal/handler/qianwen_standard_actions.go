@@ -127,6 +127,9 @@ func (h *OpenAIGatewayHandler) forwardQianwenStandard(c *gin.Context, adm *qianw
 		defer accountRelease()
 	}
 	defer beginGatewayRequestPlan(c, h.gatewayService, adm.key, adm.model, protocol, h.maxAccountSwitches)()
+	if c.IsAborted() {
+		return nil, nil, false
+	}
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 	if err := service.ValidateMediaTaskAccount(c.Request.Context(), account, adm.model); err != nil {
 		h.errorResponse(c, 422, "unsupported_operation_error", "Selected endpoint is unavailable for this media task")

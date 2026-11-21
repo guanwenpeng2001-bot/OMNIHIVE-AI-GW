@@ -1307,3 +1307,13 @@ func TestCalculateCost_ClaudeSonnetCatalogLadderIsDataDriven(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, cost.LongContextBillingApplied, "恰好 200000 不进高档（严格大于）")
 }
+
+func TestUnknownOpenAIModelHasNoGuessedPrice(t *testing.T) {
+	prices := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"gpt-5.4": {InputCostPerToken: 2.5e-6, OutputCostPerToken: 15e-6},
+	}}
+	require.Nil(t, prices.GetModelPricing("gpt-mock"), "an unrecognised name must not inherit the default model price")
+	require.NotNil(t, prices.GetModelPricing("gpt-5.4"))
+	_, err := NewBillingService(&config.Config{}, prices).GetModelPricing("gpt-mock")
+	require.Error(t, err, "billing must report the model as unpriced")
+}

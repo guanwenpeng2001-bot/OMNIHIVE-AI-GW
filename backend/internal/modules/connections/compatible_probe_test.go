@@ -32,8 +32,10 @@ func TestCompatibleEndpointProbe(t *testing.T) {
 	defer server.Close()
 
 	cfg := &config.Config{}
+	cfg.Security.URLAllowlist.Enabled = true
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 	cfg.Security.URLAllowlist.AllowPrivateHosts = true
+	cfg.Security.URLAllowlist.UpstreamHosts = []string{"127.0.0.1"}
 	native := service.NewAccountTestService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	store := New(nil, nil, nil, native, cfg)
 	for _, platform := range []string{"a6api", "siliconflow_cn"} {

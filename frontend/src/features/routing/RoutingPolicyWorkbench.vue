@@ -5,6 +5,7 @@ import { Badge, Button, EmptyState, ErrorState, Input, Modal, PageHeader, Skelet
 import { isSilentRequestError } from '@/api/client'
 import { normalizeApiError, type NormalizedApiError } from '@/utils/apiError'
 import { routingAPI, type PolicyDraft, type PolicyScope, type RoutingWorkspace, type SimulationRequest } from './api'
+import { listPublicModels } from '@/features/public/api'
 import PolicyEditor from './PolicyEditor.vue'
 import RoutingTracePanel from './RoutingTracePanel.vue'
 import { canPublish, composeRestrictions, countRankingCandidates, isIdentity, listValues, policyForm, validScenario } from './policy'
@@ -68,14 +69,35 @@ const model = ref('')
 const protocol = ref('openai_chat')
 const action = ref('text.chat')
 const capabilities = ref('')
-const inputTokenBound = ref('')
-const outputTokenBound = ref('')
-const seed = ref('')
+const inputTokenBound = ref('1024')
+const outputTokenBound = ref('1024')
+const seed = ref('1')
 const snapshot = ref('')
 const versionsFilter = ref('')
 const changeNote = ref('')
 const command = ref<{ kind: 'publish' | 'rollback'; version: string } | null>(null)
 const scenarioInvalid = ref(false)
+const availableModelSlugs = ref<string[]>([])
+
+async function loadAvailableModels() {
+  try {
+    const page = await listPublicModels({ limit: 50, sort: 'name' })
+    const slugs = (page.items ?? []).map(item => item.model).filter(Boolean)
+    availableModelSlugs.value = slugs
+    if (!model.value.trim() && slugs.length > 0) {
+      model.value = slugs[0]
+    }
+  } catch {
+    // Optional helper list; simulator continues to accept manual input.
+  }
+}
+
+function beginNewDraft() {
+  opening.value = true
+  if (!form.value.name.trim()) {
+    form.value.name = t('routing.defaultPolicyName')
+  }
+}
 const scenarioKeyAnchor = computed(() => scope.value?.type === 'api_key' ? scope.value.id : scenarioKey.value)
 const scenarioProjectAnchor = computed(() => scope.value?.type === 'project' || scope.value?.type === 'api_key' ? project.value : scenarioProject.value)
 const expired = computed(() => Boolean(simulation.value && Date.parse(simulation.value.expires_at) <= now.value))
@@ -349,6 +371,7 @@ watch(() => issue.value?.status, status => {
 
 onMounted(() => {
   void discover()
+  void loadAvailableModels()
   tick = setInterval(() => { now.value = Date.now() }, 1000)
   window.addEventListener('online', onlineChanged)
   window.addEventListener('offline', onlineChanged)
@@ -499,7 +522,7 @@ onUnmounted(() => {
           </section>
 
           <EmptyState v-if="!opening" :title="t('routing.empty')" :description="t('routing.emptyHint')">
-            <template #actions><Button variant="primary" :disabled="!canMutate" @click="opening = true">{{ t('routing.create') }}</Button></template>
+            <template #actions><Button variant="primary" :disabled="!canMutate" @click="beginNewDraft">{{ t('routing.create') }}</Button></template>
           </EmptyState>
           <template v-else>
             <section
@@ -601,7 +624,12 @@ onUnmounted(() => {
                         </select>
                       </label>
                       <Input v-if="scope.type !== 'api_key'" v-model="scenarioKey" :label="t('routing.optionalKey')" :maxlength="19" mono />
-                      <Input v-model="model" :label="t('routing.modelId')" :placeholder="t('routing.modelPlaceholder')" mono required />
+                      <div class="space-y-1">
+                        <Input v-model="model" list="routing-simulator-models" :label="t('routing.modelId')" :placeholder="t('routing.modelPlaceholder')" mono required />
+                        <datalist id="routing-simulator-models">
+                          <option v-for="slug in availableModelSlugs" :key="slug" :value="slug" />
+                        </datalist>
+                      </div>
                       <label class="routing-field">
                         <span>{{ t('routing.protocol') }}</span>
                         <select v-model="protocol" class="routing-control">

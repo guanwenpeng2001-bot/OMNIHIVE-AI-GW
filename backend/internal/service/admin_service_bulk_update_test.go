@@ -595,3 +595,20 @@ func TestAdminServiceBulkUpdateAccounts_ValidatesFilterResolvedOpenAITargets(t *
 	require.Equal(t, []int64{7}, repo.getByIDsIDs)
 	require.Zero(t, repo.bulkUpdateCalls)
 }
+
+func TestManagedAccountGroupAssignment(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{
+		getByIDAccounts: map[int64]*Account{3: {ID: 3, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive}},
+		updateErr:       ErrAccountConnectionManaged,
+	}
+	svc := &adminServiceImpl{accountRepo: repo, groupRepo: &sparkShadowValidatingGroupRepoStub{existing: map[int64]bool{7: true}}}
+	for _, ids := range [][]int64{{7}, {}} {
+		_, err := svc.UpdateAccount(t.Context(), 3, &UpdateAccountInput{GroupIDs: &ids})
+		require.NoError(t, err)
+		require.Equal(t, ids, repo.bindGroupsByAccount[3])
+	}
+	ids := []int64{7}
+	_, err := svc.UpdateAccount(t.Context(), 3, &UpdateAccountInput{Name: "renamed", GroupIDs: &ids})
+	require.ErrorIs(t, err, ErrAccountConnectionManaged)
+	require.Len(t, repo.bindGroupsCalls, 2)
+}

@@ -335,3 +335,29 @@ func TestGenerateHexSecretLengths(t *testing.T) {
 
 	require.NotEqual(t, v1, v2)
 }
+
+func TestReleaseRejectsPersistedExampleJWT(t *testing.T) {
+	client := newSecuritySecretTestClient(t)
+	ctx := context.Background()
+	_, err := client.SecuritySecret.Create().SetKey(securitySecretKeyJWT).SetValue("change-this-to-a-secure-random-string").Save(ctx)
+	require.NoError(t, err)
+	cfg := &config.Config{}
+	cfg.Server.Mode = "release"
+	require.ErrorContains(t, ensureBootstrapSecrets(ctx, client, cfg), "JWT_ROTATE")
+}
+
+func TestExplicitJWTRotationPersistsReplacement(t *testing.T) {
+	client := newSecuritySecretTestClient(t)
+	ctx := context.Background()
+	_, err := client.SecuritySecret.Create().SetKey(securitySecretKeyJWT).SetValue("too-short").Save(ctx)
+	require.NoError(t, err)
+	cfg := &config.Config{}
+	cfg.Server.Mode = "release"
+	cfg.JWT.Rotate = true
+	cfg.JWT.Secret = "new-admin-managed-signing-key-for-test"
+	require.NoError(t, ensureBootstrapSecrets(ctx, client, cfg))
+	next := &config.Config{}
+	next.Server.Mode = "release"
+	require.NoError(t, ensureBootstrapSecrets(ctx, client, next))
+	require.Equal(t, cfg.JWT.Secret, next.JWT.Secret)
+}

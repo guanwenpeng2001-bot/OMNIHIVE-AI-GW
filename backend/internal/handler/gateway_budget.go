@@ -2,8 +2,10 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"unicode/utf8"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 
@@ -25,43 +27,101 @@ func reserveGatewayRequestBudget(c *gin.Context, key *service.APIKey, model stri
 	if c == nil || key == nil {
 		return true
 	}
-	if err := reserveRequestBudget(c.Request.Context(), key, model, body); err != nil {
+	if err := reserveRequestBudget(c.Request.Context(), key, model, body, c.GetHeader("Content-Type")); err != nil {
 		abortGatewayRequestBudget(c, err)
 		return false
 	}
+	hit, _ := c.Get(gatewayCacheHitKey)
+	if serve, ok := hit.(func()); ok {
+		serve()
+		return false
+	}
+
 	return true
 }
 
-func reserveRequestBudget(ctx context.Context, key *service.APIKey, model string, body []byte) error {
+func reserveRequestBudget(ctx context.Context, key *service.APIKey, model string, body []byte, contentType ...string) error {
 	plan := service.GatewayRequestPlanFromContext(ctx)
+	if err := validateMediaRequestAliases(plan.Snapshot(), body, contentType...); err != nil {
+		return &fault.Fault{Status: http.StatusBadRequest, Reason: "invalid_request_error", Message: err.Error()}
+	}
 	if !key.HasPeriodBudget() && !plan.HasProjectBudgetCoordinator() {
 		return nil
 	}
 	if plan == nil {
 		return service.ErrAPIKeyBudgetUnavailable
 	}
-	return plan.ReserveBudget(ctx, gatewayRequestBudgetEstimate(plan, key, model, body))
+	estimate := gatewayRequestBudgetEstimate(plan, key, model, body, contentType...)
+	err := plan.ReserveBudget(ctx, estimate)
+	if errors.Is(err, service.ErrAPIKeyBudgetUnavailable) && service.GatewayBudgetModelUnknown(plan, estimate) {
+		return service.ErrGatewayBudgetModelNotFound
+	}
+	return err
 }
 
-// gatewayRequestBudgetEstimate 选择本次请求的预留上界。
-//
-// 媒体/音频/realtime 的请求体只带生成参数，没有 token 用量：本地 token 估算器是
-// Anthropic 文本形状的，用它去数图片参数只会得到一个无意义的小数字，等于把
-// 媒体请求伪装成 token 请求。这些协议因此直接丢掉 body 派生的估算，只用文档化的
-// 有界上界，真正的金额仍由结算阶段按实际上游计量决定。
-func gatewayRequestBudgetEstimate(plan *service.GatewayRequestPlan, key *service.APIKey, model string, body []byte) service.RequestBudgetEstimate {
+// Media units come from the inbound protocol and the generation parameters.
+func gatewayRequestBudgetEstimate(plan *service.GatewayRequestPlan, key *service.APIKey, model string, body []byte, contentType ...string) service.RequestBudgetEstimate {
 	estimate := service.RequestBudgetEstimate{
 		Model:           model,
 		SkipKeyBudget:   !key.HasPeriodBudget(),
 		RateMultiplier:  gatewayRequestRateMultiplier(key),
 		SkipBalanceHold: key != nil && key.Group != nil && key.Group.IsSubscriptionType(),
 	}
+	if key != nil {
+		estimate.Group = key.Group
+	}
+	estimate.ServiceTier = gjson.GetBytes(body, "service_tier").String()
+	estimate.ReasoningEffort = gjson.GetBytes(body, "reasoning.effort").String()
 	if plan != nil && budgetEstimateIgnoresBody(plan.Snapshot().Protocol) {
+		estimate.Meter = requestMediaMeter(plan.Snapshot(), body, contentType...)
 		return estimate
 	}
 	estimate.InputTokens = estimateGatewayRequestInputTokens(body)
 	estimate.OutputTokens = declaredGatewayMaxOutputTokens(body)
+	estimate.OutputTokens = gatewayCandidateCount(body) * (estimate.OutputTokens + declaredGatewayReasoningTokens(body))
+	if estimate.OutputTokens == 0 {
+		estimate.OutputTokens = service.GatewayModelOutputBudgetLimit(plan, model)
+	}
+	estimate.CacheCreationTokens = estimateGatewayCacheCreationTokens(body, estimate.InputTokens)
 	return estimate
+}
+
+func gatewayCandidateCount(body []byte) int {
+	for _, name := range []string{"n", "best_of", "generationConfig.candidateCount", "generation_config.candidate_count"} {
+		if count := gjson.GetBytes(body, name); count.Exists() && count.Type == gjson.Number && count.Int() > 1 {
+			return int(count.Int())
+		}
+	}
+	return 1
+}
+
+func declaredGatewayReasoningTokens(body []byte) int {
+	for _, name := range []string{"generationConfig.thinkingConfig.thinkingBudget", "generation_config.thinking_config.thinking_budget"} {
+		if value := gjson.GetBytes(body, name); value.Exists() && value.Type == gjson.Number && value.Int() > 0 {
+			return int(value.Int())
+		}
+	}
+	return 0
+}
+
+func estimateGatewayCacheCreationTokens(body []byte, input int) int {
+	var total int
+	var inspect func(gjson.Result)
+	inspect = func(value gjson.Result) {
+		if value.IsObject() && value.Get("cache_control.type").String() == "ephemeral" {
+			encoded, _ := json.Marshal(value.Value())
+			total += (utf8.RuneCount(encoded) + 3) / 4
+			return
+		}
+		if value.IsObject() || value.IsArray() {
+			value.ForEach(func(_, child gjson.Result) bool {
+				inspect(child)
+				return true
+			})
+		}
+	}
+	inspect(gjson.ParseBytes(body))
+	return min(total, input)
 }
 
 // budgetEstimateIgnoresBody 报告该协议是否"请求体不含 token 用量"。
@@ -80,6 +140,9 @@ func abortGatewayRequestBudget(c *gin.Context, err error) {
 }
 
 func gatewayBudgetErrorResponse(err error) (status int, reason, message string) {
+	if errors.Is(err, service.ErrGatewayBudgetModelNotFound) {
+		return http.StatusNotFound, "model_not_found", "Model does not exist or is not available for this group"
+	}
 	var f *fault.Fault
 	if errors.As(err, &f) {
 		return f.Status, f.Reason, f.Message

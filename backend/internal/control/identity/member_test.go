@@ -81,3 +81,16 @@ func TestMemberGrantsRoundTrip(t *testing.T) {
 	require.Equal(t, 412, call("PUT", body, etag).Code)
 	require.Equal(t, 200, call("PUT", body, newTag).Code)
 }
+
+func TestProjectGroupRoutesRequireSession(t *testing.T) {
+	engine := gin.New()
+	Register(engine.Group("/api/v2"), New(nil, domain.Operations{}, &config.Config{}))
+	for method, suffix := range map[string]string{"GET": "/key-groups", "PUT": "/groups/5", "DELETE": "/groups/5"} {
+		t.Run(method, func(t *testing.T) {
+			req := httptest.NewRequest(method, "/api/v2/workspaces/2/projects/3"+suffix, nil)
+			rec := httptest.NewRecorder()
+			engine.ServeHTTP(rec, req)
+			require.Equal(t, 401, rec.Code)
+		})
+	}
+}

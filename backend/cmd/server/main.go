@@ -115,7 +115,14 @@ func main() {
 	}
 }
 
+func configureGinMode(mode string) {
+	if strings.EqualFold(strings.TrimSpace(mode), gin.ReleaseMode) {
+		gin.SetMode(gin.ReleaseMode)
+	}
+}
+
 func runSetupServer() {
+	configureGinMode(viper.GetString("server.mode"))
 	r := gin.New()
 	r.Use(middleware.Recovery())
 	r.Use(middleware.CORS(config.CORSConfig{}))
@@ -163,6 +170,7 @@ func runMainServer(role string) error {
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
 	}
+	configureGinMode(cfg.Server.Mode)
 	if role == "" {
 		role = viper.GetString("runtime.mode")
 	}

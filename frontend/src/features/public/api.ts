@@ -79,6 +79,7 @@ export interface PublicTimeBand {
 }
 
 export interface PublicCatalogMetrics {
+  window?: string | null
   window_start?: string
   window_end?: string
   source?: string
@@ -147,6 +148,7 @@ export interface PublicModelDetail {
   endpoints?: PublicCatalogEndpoint[]
   price_version?: string | null
   price_source?: string | null
+  reference_price?: { source: string; input_rate: PublicRate; output_rate: PublicRate }
   additional_rates?: PublicRateBand[]
   context_basis?: string
   time_bands?: PublicTimeBand[]
@@ -308,6 +310,54 @@ function withoutImplicitTimezone(params: Record<string, unknown> = {}): Record<s
   return { ...params, timezone: undefined }
 }
 
+const STABLE_MODEL_ID_RE = /^m_[0-9a-f]{32}$/
+
+function normalizeModelIdentifier(raw: string): string {
+  const trimmed = String(raw ?? '').trim().replace(/^\/+|\/+$/g, '')
+  if (!trimmed.includes('%')) return trimmed
+  try {
+    return decodeURIComponent(trimmed).trim().replace(/^\/+|\/+$/g, '')
+  } catch {
+    return trimmed
+  }
+}
+
+function isNotFoundError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const candidate = err as {
+    status?: number
+    code?: number | string
+    reason?: string
+    response?: { status?: number }
+  }
+  return (
+    candidate.status === 404 ||
+    candidate.code === 404 ||
+    candidate.code === 'NOT_FOUND' ||
+    candidate.reason === 'NOT_FOUND' ||
+    candidate.response?.status === 404
+  )
+}
+
+function matchesCanonicalModelSlug(item: PublicModelSummary, idOrSlug: string): boolean {
+  if (item.id === idOrSlug || item.model === idOrSlug) return true
+  if (item.provider && `${item.provider}/${item.model}` === idOrSlug) return true
+  return false
+}
+
+async function fetchPublicModelDirect(
+  idOrSlug: string,
+  catalogVersion?: string
+): Promise<PublicModelDetail> {
+  const { data } = await apiClient.get(
+    `/api/v2/public/models/${encodeURIComponent(idOrSlug)}`,
+    {
+      params: withoutImplicitTimezone(catalogVersion ? { catalog_version: catalogVersion } : {})
+    }
+  )
+  return (data?.data ?? data) as PublicModelDetail
+}
+
 export async function listPublicModels(params: ListParams): Promise<PublicModelPage> {
   const { data } = await apiClient.get('/api/v2/public/models', {
     params: withoutImplicitTimezone(arrayParams(params)),
@@ -316,11 +366,39 @@ export async function listPublicModels(params: ListParams): Promise<PublicModelP
   return (data?.data ?? data) as PublicModelPage
 }
 
-export async function getPublicModel(id: string, catalogVersion?: string): Promise<PublicModelDetail> {
-  const { data } = await apiClient.get(`/api/v2/public/models/${encodeURIComponent(id)}`, {
-    params: withoutImplicitTimezone(catalogVersion ? { catalog_version: catalogVersion } : {})
-  })
-  return (data?.data ?? data) as PublicModelDetail
+export async function getPublicModel(
+  idOrSlug: string,
+  catalogVersion?: string
+): Promise<PublicModelDetail> {
+  const target = normalizeModelIdentifier(idOrSlug)
+  try {
+    return await fetchPublicModelDirect(target, catalogVersion)
+  } catch (err) {
+    if (STABLE_MODEL_ID_RE.test(target) || !isNotFoundError(err)) {
+      throw err
+    }
+
+    const primaryPage = await listPublicModels({ q: target, limit: 50 })
+    let matched = (primaryPage.items ?? []).find((item) =>
+      matchesCanonicalModelSlug(item, target)
+    )
+
+    if (!matched && target.includes('/')) {
+      const slashIndex = target.indexOf('/')
+      const modelTail = target.slice(slashIndex + 1).trim()
+      if (modelTail) {
+        const tailPage = await listPublicModels({ q: modelTail, limit: 50 })
+        matched = (tailPage.items ?? []).find((item) =>
+          matchesCanonicalModelSlug(item, target)
+        )
+      }
+    }
+
+    if (matched?.id && matched.id !== target) {
+      return fetchPublicModelDirect(matched.id, catalogVersion)
+    }
+    throw err
+  }
 }
 
 export async function comparePublicModels(

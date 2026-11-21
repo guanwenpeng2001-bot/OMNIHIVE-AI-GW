@@ -125,11 +125,11 @@ func TestBackupRetentionOrderIsTransitiveWithLegacyDates(t *testing.T) {
 	}
 }
 
-func TestBackupRetentionMissingScheduleKeepsLegacyDefaults(t *testing.T) {
+func TestBackupRetentionMissingScheduleIsDisabledWithDefaultRetention(t *testing.T) {
 	repo := newMockSettingRepo()
 	repo.getValueErr = ErrSettingNotFound
 	svc := newTestBackupService(repo, &mockDumper{}, newMockObjectStore())
 	schedule, err := svc.GetSchedule(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, &BackupScheduleConfig{}, schedule)
+	require.Equal(t, &BackupScheduleConfig{RetainDays: 14}, schedule)
 }

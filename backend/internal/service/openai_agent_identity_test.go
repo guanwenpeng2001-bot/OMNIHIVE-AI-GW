@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/curve25519"
 	"golang.org/x/crypto/nacl/box"
@@ -119,10 +120,10 @@ func TestRegisterAgentIdentityTaskAcceptsPlaintextAndEncryptedResponses(t *testi
 		"agent_runtime_id":  key.runtimeID,
 		"agent_private_key": privateKey,
 	}}
-	taskID, err := registerAgentIdentityTask(context.Background(), account)
+	taskID, err := registerAgentIdentityTask(context.Background(), account, []string{"127.0.0.1"})
 	require.NoError(t, err)
 	require.Equal(t, "task-plain", taskID)
-	taskID, err = registerAgentIdentityTask(context.Background(), account)
+	taskID, err = registerAgentIdentityTask(context.Background(), account, []string{"127.0.0.1"})
 	require.NoError(t, err)
 	require.Equal(t, "task-encrypted", taskID)
 }
@@ -144,7 +145,7 @@ func TestEnsureAgentIdentityTaskPersistsAndRedactsCredentials(t *testing.T) {
 		"agent_private_key":  privateKey,
 		"chatgpt_account_id": "account-test",
 	}}
-	service := &OpenAIGatewayService{accountRepo: repo}
+	service := &OpenAIGatewayService{accountRepo: repo, cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{AllowPrivateHosts: true, UpstreamHosts: []string{"127.0.0.1"}}}}}
 	require.NoError(t, service.ensureAgentIdentityTask(context.Background(), account, ""))
 	require.Equal(t, "task-persisted", account.GetCredential("task_id"))
 	require.Equal(t, "task-persisted", repo.credentials["task_id"])
@@ -185,7 +186,7 @@ func TestEnsureAgentIdentityTaskSharesLockAcrossServicesForSameAccount(t *testin
 	for _, request := range requests {
 		go func() {
 			<-start
-			errors <- ensureAgentIdentityTaskForAccount(context.Background(), repo, nil, &sync.Mutex{}, request, "")
+			errors <- ensureAgentIdentityTaskForAccount(context.Background(), repo, nil, &sync.Mutex{}, request, "", []string{"127.0.0.1"})
 		}()
 	}
 	close(start)

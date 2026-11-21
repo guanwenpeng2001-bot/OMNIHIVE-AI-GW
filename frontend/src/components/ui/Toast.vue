@@ -28,6 +28,7 @@ function handleDismiss(id: string): void {
 <template>
   <Teleport to="body" :disabled="teleportDisabled">
     <div
+      role="region"
       aria-label="Notifications"
       class="pointer-events-none fixed bottom-4 right-4 z-50 flex w-full max-w-sm flex-col gap-2 px-4 sm:px-0"
     >

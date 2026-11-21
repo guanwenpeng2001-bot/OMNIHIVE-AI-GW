@@ -534,7 +534,7 @@ func (r *Session) Patch(p Patch) (any, error) {
 	clearVerification := endpointChanged(c.Endpoint, p.Endpoint) ||
 		(p.NetworkPolicyID != nil && *p.NetworkPolicyID != c.NetworkPolicyID) || headersChanged
 	applyPatch(&c, p)
-	if e = r.save(c, "draft", clearVerification); e != nil {
+	if e = r.save(c, c.State, clearVerification); e != nil {
 		return nil, e
 	}
 	if e = r.event(c.ID, "connection.edited", c.Version+1); e != nil {

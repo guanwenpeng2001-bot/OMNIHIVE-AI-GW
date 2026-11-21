@@ -1,0 +1,65 @@
+name: Sync pi-ai model catalog
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '37 2 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tools/pi-catalog/package-lock.json
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Update the pinned package
+        working-directory: tools/pi-catalog
+        run: npm install --save-exact @mariozechner/pi-ai@latest --ignore-scripts --no-audit --no-fund
+      - name: Generate the capability and price supplements
+        id: generate
+        run: node scripts/sync-pi-catalog.mjs
+      - name: Verify catalog and pricing contracts
+        working-directory: backend
+        run: |
+          go test ./internal/modules/catalog ./resources/model-capabilities ./resources/model-pricing
+          go test ./internal/service -run '^(TestCapabilitySourceContracts|TestCapabilityReleaseIndependentOfPricing|Test.*ModelRegistry.*|Test.*PricingService.*)$'
+      - name: Report updates
+        id: diff
+        if: ${{ !cancelled() && steps.generate.outcome == 'success' }}
+        shell: bash
+        run: |
+          paths=(tools/pi-catalog/package.json tools/pi-catalog/package-lock.json
+            backend/resources/model-capabilities/pi-supplement.json
+            backend/resources/model-pricing/pi-prices-supplement.json)
+          git diff --binary -- "${paths[@]}" > "$RUNNER_TEMP/pi-catalog.patch"
+          if [[ ! -s "$RUNNER_TEMP/pi-catalog.patch" ]]; then
+            echo 'The pinned dependency and supplements are current.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo 'A pi-ai catalog update is available. Download the patch artifact to review it.'
+            echo
+            echo '~~~'
+            git diff --stat -- "${paths[@]}"
+            echo '~~~'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo 'changed=true' >> "$GITHUB_OUTPUT"
+      - name: Upload the update patch
+        if: ${{ !cancelled() && steps.diff.outputs.changed == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: pi-catalog-update
+          path: ${{ runner.temp }}/pi-catalog.patch
+          retention-days: 14

@@ -114,8 +114,8 @@ func (g Gateway) inspect(ctx context.Context, tx *sql.Tx, a scope.Authorized, d 
 	if c.Version != d.Version {
 		return v, fault.Stale(c.Version)
 	}
-	if d.Source == "wallet" && (!c.Fallback || !d.Consent) || d.Source == "byok" && d.AccountID != c.ID {
-		return v, fault.Forbidden
+	if err := checkFundingGrant(a, d, c); err != nil {
+		return v, err
 	}
 	candidate := CandidateID(c, d.AccountID, d.Source)
 	if d.Ordinal == 1 && plan.Selected.CandidateID != candidate || !slices.ContainsFunc(plan.Candidates, func(x trace.Candidate) bool { return x.ID == candidate && x.State == "eligible" && x.Rank != nil }) {
@@ -408,9 +408,24 @@ func (g Gateway) commitSend(ctx context.Context, tx *sql.Tx, a scope.Authorized,
 		}
 	}()
 	defer func() { stop(); <-done }()
-	sendCtx := transport
-	if d.Source == "byok" {
-		sendCtx = service.WithTenantCredentialTransport(transport, d.AccountID)
+	return sendFundedAttempt(transport, d, v.credential, Funding{v.cost, at, hold}, secret, send)
+}
+
+// sendFundedAttempt is entered only after the dispatch and its funding row
+// commit. Fence the callback arguments against the frozen tenant and account.
+func sendFundedAttempt(ctx context.Context, d Dispatch, c Credential, f Funding, secret map[string]any, send Transport) error {
+	a, ok := scope.From(ctx)
+	if !ok || send == nil || f.Attempt.ID == "" || f.Attempt.AccountID != d.AccountID || f.Attempt.RequestID != d.RequestID || f.Attempt.Number != d.Ordinal || f.Source != d.Source {
+		return fault.Forbidden
 	}
-	return send(sendCtx, Funding{v.cost, at, hold}, secret)
+	if err := checkFundingGrant(a, d, c); err != nil {
+		return err
+	}
+	if d.Source == "byok" {
+		if len(secret) == 0 {
+			return fault.Forbidden
+		}
+		ctx = service.WithTenantCredentialTransport(ctx, d.AccountID)
+	}
+	return send(ctx, f, secret)
 }

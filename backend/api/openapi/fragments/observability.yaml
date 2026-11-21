@@ -2,6 +2,12 @@ paths:
   /api/v2/workspaces/{workspace_id}/observability/destinations:
     parameters:
       - {$ref: '#/components/parameters/IdentityWorkspaceID'}
+    get:
+      operationId: listTelemetryExportDestinations
+      summary: List safe collector metadata under ops.export.configure
+      responses:
+        '200': {$ref: '#/components/responses/TelemetryDestinationListResponse'}
+        default: {$ref: '#/components/responses/TelemetryExportError'}
     post:
       operationId: registerTelemetryExportDestination
       summary: Register an immutable HTTPS collector under ops.export.configure
@@ -30,6 +36,12 @@ paths:
   /api/v2/workspaces/{workspace_id}/observability/exports:
     parameters:
       - {$ref: '#/components/parameters/IdentityWorkspaceID'}
+    get:
+      operationId: listTelemetryExports
+      summary: List safe export configurations under ops.export.configure
+      responses:
+        '200': {$ref: '#/components/responses/TelemetryExportListResponse'}
+        default: {$ref: '#/components/responses/TelemetryExportError'}
     post:
       operationId: createTelemetryExport
       summary: Approve a scoped export and queue destination validation
@@ -184,6 +196,23 @@ components:
               code: {const: 0}
               message: {type: string}
               data: {$ref: '#/components/schemas/TelemetryDestination'}
+    TelemetryDestinationListResponse:
+      description: Scoped collector metadata
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message, data]
+            properties:
+              code: {const: 0}
+              message: {type: string}
+              data:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/TelemetryDestination'}
     TelemetryExportResponse:
       description: Scoped export configuration
       content:
@@ -195,6 +224,23 @@ components:
               code: {const: 0}
               message: {type: string}
               data: {$ref: '#/components/schemas/TelemetryExportConfig'}
+    TelemetryExportListResponse:
+      description: Scoped export configurations
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message, data]
+            properties:
+              code: {const: 0}
+              message: {type: string}
+              data:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/TelemetryExportConfig'}
     TelemetryExportError:
       description: Redacted export error
       content:

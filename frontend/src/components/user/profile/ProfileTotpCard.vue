@@ -115,6 +115,9 @@ import TotpSetupModal from './TotpSetupModal.vue'
 import TotpDisableDialog from './TotpDisableDialog.vue'
 
 const { t } = useI18n()
+const emit = defineEmits<{
+  (e: 'status-loaded', value: TotpStatus): void
+}>()
 
 const loading = ref(true)
 const loadFailed = ref(false)
@@ -127,6 +130,9 @@ const loadStatus = async () => {
   loadFailed.value = false
   try {
     status.value = await totpAPI.getStatus()
+    if (status.value) {
+      emit('status-loaded', status.value)
+    }
   } catch {
     loadFailed.value = true
   } finally {

@@ -2,6 +2,7 @@ import { reactive } from 'vue'
 import { classifyConsoleError } from '@/features/console/asyncState'
 import { generateIdempotencyKey } from '@/features/console/scope'
 import { playgroundApi } from './api'
+import { normalizePlaygroundError } from './errors'
 import type { ParsedSseRecord } from './sseParser'
 import type {
   PlaygroundEvent,
@@ -70,11 +71,13 @@ export function createPlaygroundRunController(
     api?: PlaygroundApiAdapter
     now?: () => number
     isZh?: () => boolean
+    isKeyOwned?: (apiKeyId: string) => boolean
   }
 ) {
   const api = options?.api ?? playgroundApi
   const now = options?.now ?? (() => Date.now())
   const isZh = options?.isZh ?? (() => false)
+  const isKeyOwned = options?.isKeyOwned ?? (() => true)
 
   const state = reactive<PlaygroundSessionSnapshot>(createInitialSnapshot())
   const toolCallIndexMap = new Map<string, PlaygroundToolCallView>()
@@ -388,9 +391,10 @@ export function createPlaygroundRunController(
         return
       }
 
-      const classified = classifyConsoleError(err, {
+      const classified = normalizePlaygroundError(err, {
         requiredGrantFallback: 'playground.run',
-        isZh: isZh()
+        isZh: isZh(),
+        isNonOwnedKey: !isKeyOwned(payload.api_key_id)
       })
       state.errorNotice = classified
       state.status = classified.kind === 'unknown' ? 'unknown' : 'failed'
@@ -447,9 +451,10 @@ export function createPlaygroundRunController(
     } catch (err) {
       if (generation !== activeGeneration) return
       state.elapsedMs = Math.max(0, now() - startedTimestampMs)
-      const classified = classifyConsoleError(err, {
+      const classified = normalizePlaygroundError(err, {
         requiredGrantFallback: 'requests.replay',
-        isZh: isZh()
+        isZh: isZh(),
+        isNonOwnedKey: !isKeyOwned(payload.api_key_id)
       })
       state.errorNotice = classified
       state.status = classified.kind === 'unknown' ? 'unknown' : 'failed'

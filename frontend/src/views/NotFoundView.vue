@@ -37,6 +37,12 @@
           <span>{{ isZh ? '返回上一页' : 'Go Back' }}</span>
         </button>
         <router-link
+          to="/home"
+          class="oh-focus-ring inline-flex h-9 items-center justify-center gap-1.5 rounded-oh-md border border-oh-default bg-oh-surface px-3.5 text-[13px] font-medium text-oh-primary shadow-oh-xs transition-colors hover:border-oh-strong hover:bg-oh-hover"
+        >
+          <span>{{ isZh ? '返回首页' : 'Public Home' }}</span>
+        </router-link>
+        <router-link
           to="/dashboard"
           class="oh-focus-ring inline-flex h-9 items-center justify-center gap-1.5 rounded-oh-md border border-transparent bg-oh-accent px-3.5 text-[13px] font-semibold text-oh-accent-ink shadow-oh-xs transition-colors hover:bg-oh-accent-hover active:bg-oh-accent-active"
         >

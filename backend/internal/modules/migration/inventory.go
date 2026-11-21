@@ -276,7 +276,7 @@ func readRestore(ctx context.Context, db *sql.DB) (map[string]Count, error) {
 			return err
 		}
 		outstanding, err := readCount(ctx, tx, operations, "generation",
-			" WHERE state IN ('queued', 'running', 'unknown')", []string{"state"})
+			" WHERE state IN ('queued', 'running', 'unknown') OR stage='manual_recovery'", []string{"state", "stage"})
 		if err != nil {
 			return err
 		}

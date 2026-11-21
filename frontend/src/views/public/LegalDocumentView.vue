@@ -14,7 +14,7 @@
               </svg>
             </span>
             <span class="truncate text-base font-semibold text-[var(--foreground)] ">
-              OmniHive
+              {{ siteName }}
             </span>
           </template>
           <template v-else>
@@ -32,16 +32,44 @@
     </header>
 
     <main class="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:py-10">
+      <nav
+        v-if="!isAdminComplianceDocument"
+        :aria-label="t('publicPortal.legal.documentsNavAria')"
+        class="mb-6 flex flex-wrap items-center gap-2"
+      >
+        <RouterLink
+          v-for="item in navDocuments"
+          :key="item.routeId"
+          :to="{ name: 'LegalDocument', params: { documentId: item.routeId } }"
+          class="btn btn-outline text-xs"
+          :class="isActiveNavDoc(item.routeId) ? 'border-[var(--brand)] text-[var(--brand-text)]' : ''"
+        >
+          {{ item.title }}
+        </RouterLink>
+        <RouterLink to="/home" class="btn btn-outline ml-auto text-xs">
+          {{ t('publicPortal.legal.backToHome') }}
+        </RouterLink>
+      </nav>
+
       <div v-if="loading" class="flex min-h-[320px] items-center justify-center">
         <div class="h-8 w-8 animate-spin rounded-full border-b-2 border-[var(--brand)]"></div>
       </div>
 
       <section
-        v-else-if="loadError && !currentDocument"
+        v-else-if="shouldShowLoadError"
+        data-testid="legal-load-error"
         class="rounded-lg border border-red-200 bg-red-50 p-6 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200"
       >
         <h1 class="text-lg font-semibold">{{ t('legal.loadFailed') }}</h1>
         <p class="mt-2 text-sm">{{ t('legal.retryLater') }}</p>
+        <button
+          type="button"
+          data-testid="legal-load-retry"
+          class="btn btn-outline mt-4 text-xs"
+          @click="loadSettings"
+        >
+          {{ t('publicPortal.legal.retry') }}
+        </button>
       </section>
 
       <section
@@ -80,6 +108,16 @@
         </div>
 
         <div
+          v-if="usingTemplateFallback"
+          data-testid="legal-template-notice"
+          class="mb-6 rounded-lg border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"
+        >
+          <p class="font-semibold">{{ t('publicPortal.legal.templateNoticeTitle') }}</p>
+          <p class="mt-1 leading-6 opacity-90">{{ t('publicPortal.legal.templateNoticeBody') }}</p>
+          <p v-if="contactInfo" class="mt-2 font-medium">{{ contactInfo }}</p>
+        </div>
+
+        <div
           v-if="hasContent"
           class="legal-document-content"
           v-html="renderedHtml"
@@ -105,6 +143,13 @@ import Icon from '@/components/icons/Icon.vue'
 import { getLocale } from '@/i18n'
 import { sanitizeUrl } from '@/utils/url'
 import { useAppStore } from '@/stores/app'
+import {
+  canonicalLegalDocumentId,
+  DEFAULT_LEGAL_NAV_SLOTS,
+  findConfiguredLegalDocument,
+  getLegalSlotTemplateKeys,
+  legalDocumentRouteParam,
+} from '@/features/public/legal'
 import type { LoginAgreementDocument } from '@/types'
 import zhAdminCompliance from '../../../../docs/legal/admin-compliance.zh.md?raw'
 import enAdminCompliance from '../../../../docs/legal/admin-compliance.en.md?raw'
@@ -114,7 +159,8 @@ type LegalDocumentIcon = 'document' | 'shield' | 'globe' | 'cog'
 const route = useRoute()
 const { t } = useI18n()
 const appStore = useAppStore()
-const settings = computed(() => appStore.cachedPublicSettings)
+const loadedPublicSettings = ref(appStore.cachedPublicSettings)
+const settings = computed(() => loadedPublicSettings.value ?? appStore.cachedPublicSettings)
 const loading = ref(!settings.value)
 const loadError = ref(false)
 
@@ -127,10 +173,14 @@ const documentId = computed(() => String(route.params.documentId || ''))
 const isAdminComplianceDocument = computed(() => documentId.value === 'admin-compliance')
 const documents = computed(() => settings.value?.login_agreement_documents ?? [])
 const siteName = computed(() => (settings.value?.site_name || 'OmniHive').replace(/sub2api/gi, 'OmniHive'))
+const contactInfo = computed(() => (settings.value?.contact_info || '').trim())
 const siteLogo = computed(() => sanitizeUrl(settings.value?.site_logo || '', {
   allowRelative: true,
   allowDataUrl: true,
 }))
+const shouldShowLoadError = computed(
+  () => !isAdminComplianceDocument.value && loadError.value && !settings.value
+)
 const updatedAt = computed(() =>
   isAdminComplianceDocument.value ? '' : settings.value?.login_agreement_updated_at || ''
 )
@@ -138,107 +188,82 @@ const documentTypeLabel = computed(() =>
   isAdminComplianceDocument.value ? t('legal.adminCompliance') : t('legal.loginAgreement')
 )
 
-const currentDocument = computed<LoginAgreementDocument | null>(() => {
+const navDocuments = computed(() => {
+  const result: Array<{ routeId: string; canonicalId: string; title: string }> = []
+  const seenCanonical = new Set<string>()
+
+  for (const doc of documents.value) {
+    const canonicalId = canonicalLegalDocumentId(doc.id || doc.title)
+    if (!canonicalId || seenCanonical.has(canonicalId)) continue
+    seenCanonical.add(canonicalId)
+    const slotKeys = getLegalSlotTemplateKeys(doc.id || canonicalId)
+    result.push({
+      routeId: legalDocumentRouteParam(doc),
+      canonicalId,
+      title: (doc.title?.trim() || (slotKeys ? t(slotKeys.titleKey) : doc.id)).replace(/sub2api/gi, 'OmniHive'),
+    })
+  }
+
+  for (const slotId of DEFAULT_LEGAL_NAV_SLOTS) {
+    if (seenCanonical.has(slotId)) continue
+    seenCanonical.add(slotId)
+    const slotKeys = getLegalSlotTemplateKeys(slotId)
+    if (!slotKeys) continue
+    result.push({
+      routeId: slotId === 'privacy-policy' ? 'privacy' : slotId,
+      canonicalId: slotId,
+      title: t(slotKeys.titleKey),
+    })
+  }
+
+  return result
+})
+
+function isActiveNavDoc(routeId: string): boolean {
+  return canonicalLegalDocumentId(documentId.value) === canonicalLegalDocumentId(routeId)
+}
+
+const resolvedDocument = computed<{
+  document: LoginAgreementDocument | null
+  usingFallback: boolean
+}>(() => {
   if (isAdminComplianceDocument.value) {
     return {
-      id: 'admin-compliance',
-      title: t('adminCompliance.title'),
-      content_md: getLocale() === 'zh' ? zhAdminCompliance : enAdminCompliance
+      document: {
+        id: 'admin-compliance',
+        title: t('adminCompliance.title'),
+        content_md: getLocale() === 'zh' ? zhAdminCompliance : enAdminCompliance
+      },
+      usingFallback: false
     }
   }
   const id = documentId.value
   if (!id) {
-    return null
+    return { document: null, usingFallback: false }
   }
-  const configuredDocument = documents.value.find((doc) => doc.id === id)
-  if (configuredDocument && (configuredDocument.content_md?.trim() || (id !== 'terms' && id !== 'privacy'))) {
-    return configuredDocument
+  const configuredDocument = findConfiguredLegalDocument(documents.value, id)
+  if (configuredDocument && configuredDocument.content_md?.trim()) {
+    return { document: configuredDocument, usingFallback: false }
   }
-  const chinese = getLocale() === 'zh'
-  if (id === 'terms') {
+  const slotKeys = getLegalSlotTemplateKeys(id)
+  if (slotKeys) {
     return {
-      id,
-      title: configuredDocument?.title?.trim() || (chinese ? 'OmniHive 服务条款' : 'OmniHive Terms of Service'),
-      content_md: chinese
-        ? `## 服务范围
-OmniHive 提供账户管理、模型接口访问、用量查询及相关网关功能。具体可用功能、模型与额度以当前站点展示和账户权限为准。
-
-## 账户与凭证
-请提供准确的注册信息，妥善保管密码与 API 密钥，并对账户下的操作负责。发现凭证泄露或未经授权的使用时，请及时更新凭证并联系站点管理员。
-
-## 使用要求
-请遵守适用法律及所选模型提供方的使用要求。不得利用服务实施未经授权的访问、滥用接口或侵害他人权益。请仅提交您有权处理的内容，并核验模型输出后再使用。
-
-## 费用与额度
-使用付费功能前，请核对站点展示的价格、计费规则、额度与有效期。订单、退款及账单疑问请通过站点提供的支持渠道联系管理员处理。
-
-## 第三方服务与可用性
-模型请求可能交由您所选的上游服务处理，其可用性和输出受该服务影响。维护、容量限制或上游故障可能导致请求失败；请根据实际返回结果决定是否重试。
-
-## 条款更新与联系
-请在使用前阅读站点公布的条款及更新说明。对服务范围、账户处理或条款有疑问时，请联系当前站点的运营方。`
-        : `## Service scope
-OmniHive provides account management, model API access, usage information, and related gateway features. Available features, models, and quotas depend on this site's settings and your account permissions.
-
-## Accounts and credentials
-Provide accurate registration information, protect your password and API keys, and take responsibility for activity under your account. If credentials are exposed or used without authorization, update them and contact the site administrator.
-
-## Acceptable use
-Follow applicable laws and the usage requirements of your selected model provider. Do not use the service for unauthorized access, API abuse, or infringement of others' rights. Submit only content you are authorized to process and review model outputs before using them.
-
-## Charges and quotas
-Before using paid features, review the site's displayed prices, billing rules, quotas, and validity periods. Contact the administrator through the site's support channels for orders, refunds, or billing questions.
-
-## Third-party services and availability
-Model requests may be processed by your selected upstream provider. Availability and outputs depend on that service. Maintenance, capacity limits, or upstream failures may interrupt requests; review actual responses before retrying.
-
-## Updates and contact
-Read the terms and update notices published by this site before use. Contact the operator of this site with questions about service scope, account handling, or these terms.`
+      document: {
+        id: configuredDocument?.id || id,
+        title: configuredDocument?.title?.trim() || t(slotKeys.titleKey),
+        content_md: t(slotKeys.templateKey)
+      },
+      usingFallback: true
     }
   }
-  if (id === 'privacy') {
-    return {
-      id,
-      title: configuredDocument?.title?.trim() || (chinese ? 'OmniHive 隐私政策' : 'OmniHive Privacy Policy'),
-      content_md: chinese
-        ? `## 信息范围
-注册、登录和使用 OmniHive 涉及您提供的邮箱、用户名等账户信息，以及验证信息、接口请求、用量和订单记录。实际处理的信息取决于您使用的功能和当前站点配置。
-
-## 信息用途
-相关信息用于账户验证、提供模型服务、统计用量、计费、排查故障和保障服务安全。请避免在请求中提交与任务无关的个人信息或敏感凭证。
-
-## 服务提供方
-模型请求可能发送至所选上游提供方；启用第三方登录、验证或支付功能时，相应服务也会参与处理必要信息。使用前请阅读相关提供方的隐私说明。
-
-## 本地存储
-浏览器本地存储及会话存储用于登录状态、界面偏好、协议确认及注册流程等功能。您可以通过浏览器设置清除这些数据；清除后可能需要重新登录或填写信息。
-
-## 保存与管理
-具体日志范围、保存期限、部署地区及访问权限由当前站点的运营配置决定。请向站点运营方了解这些安排，并通过其支持渠道提出信息查询、更正或删除请求。
-
-## 联系与更新
-如有隐私或账户安全问题，请联系当前站点管理员，并提供处理请求所需的最少信息。请同时关注站点公布的隐私政策及更新说明。`
-        : `## Information involved
-Registration, sign-in, and use of OmniHive involve account information you provide, such as email and username, along with verification information, API requests, usage, and order records. The information processed depends on the features you use and this site's configuration.
-
-## Purposes
-This information supports account verification, model services, usage measurement, billing, troubleshooting, and service security. Avoid submitting personal information or sensitive credentials unrelated to your task.
-
-## Service providers
-Model requests may be sent to the selected upstream provider. When third-party sign-in, verification, or payment features are enabled, those services also process necessary information. Review their privacy information before use.
-
-## Browser storage
-Local and session storage support sign-in state, interface preferences, agreement acceptance, and registration workflows. You can clear this data in your browser settings; you may then need to sign in or enter information again.
-
-## Retention and management
-Logging scope, retention periods, deployment regions, and access permissions depend on the operator's configuration. Contact the site operator for details and use its support channels to request access, correction, or deletion.
-
-## Contact and updates
-Contact the site administrator about privacy or account security, providing only the information needed to address your request. Review the privacy policy and update notices published by this site.`
-    }
+  if (configuredDocument) {
+    return { document: configuredDocument, usingFallback: !configuredDocument.content_md?.trim() }
   }
-  return null
+  return { document: null, usingFallback: false }
 })
+
+const currentDocument = computed<LoginAgreementDocument | null>(() => resolvedDocument.value.document)
+const usingTemplateFallback = computed<boolean>(() => resolvedDocument.value.usingFallback)
 
 const hasContent = computed(() => Boolean(currentDocument.value?.content_md?.trim()))
 
@@ -259,29 +284,43 @@ const renderedHtml = computed(() => {
 })
 
 const documentIcon = computed<LegalDocumentIcon>(() => {
+  const canonical = canonicalLegalDocumentId(currentDocument.value?.id || documentId.value)
+  if (canonical === 'privacy-policy' || canonical === 'usage-policy') {
+    return 'shield'
+  }
+  if (canonical === 'supported-regions') {
+    return 'globe'
+  }
+  if (canonical === 'service-specific-terms' || canonical === 'refund-policy') {
+    return 'cog'
+  }
   const title = currentDocument.value?.title || ''
   if (/privacy|policy|政策|隐私/i.test(title)) {
     return 'shield'
   }
-  if (title.includes('国家') || title.includes('地区')) {
-    return 'globe'
-  }
-  if (title.includes('特定')) {
-    return 'cog'
-  }
   return 'document'
 })
 
-onMounted(async () => {
+async function loadSettings(): Promise<void> {
+  loading.value = true
   loadError.value = false
   try {
     const loadedSettings = await appStore.fetchPublicSettings()
+    loadedPublicSettings.value = loadedSettings
     loadError.value = !loadedSettings
   } catch {
     loadError.value = true
   } finally {
     loading.value = false
   }
+}
+
+onMounted(async () => {
+  if (isAdminComplianceDocument.value) {
+    loading.value = false
+    return
+  }
+  await loadSettings()
 })
 </script>
 

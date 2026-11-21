@@ -158,6 +158,24 @@ export function useSettingsSave(editor: SettingsEditor) {
         );
         return;
       }
+      const unfinishedLoginAgreementDocument =
+        form.login_agreement_enabled &&
+        normalizedLoginAgreementDocuments.find(
+          (doc) =>
+            !doc.content_md.trim() ||
+            doc.content_md.includes(
+              "[TEMPLATE — replace before enabling registration agreements]",
+            ),
+        );
+      if (unfinishedLoginAgreementDocument) {
+        appStore.showError(
+          localText(
+            `启用登录条款确认前，请把「${unfinishedLoginAgreementDocument.title}」的模板内容替换为正式文本。`,
+            `Replace the template text in "${unfinishedLoginAgreementDocument.title}" before enabling login agreements.`,
+          ),
+        );
+        return;
+      }
       const duplicateLoginAgreementDocumentId =
         findDuplicateLoginAgreementDocumentId(
           normalizedLoginAgreementDocuments,

@@ -3,6 +3,7 @@ package service
 import (
 	"archive/tar"
 	"bufio"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -21,10 +22,12 @@ import (
 
 	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
+	"golang.org/x/mod/semver"
 )
 
 var (
 	ErrNoUpdateAvailable         = infraerrors.Conflict("ALREADY_UP_TO_DATE", "no update available; current version is latest")
+	ErrRollbackManifestInvalid   = infraerrors.Conflict("ROLLBACK_MANIFEST_INVALID", "invalid backup identity or manifest authentication")
 	ErrRollbackVersionNotAllowed = infraerrors.BadRequest("ROLLBACK_VERSION_NOT_ALLOWED", "version is not in the allowed rollback list")
 )
 
@@ -34,6 +37,11 @@ const (
 	updateBinaryName       = "omnihive"
 	legacyUpdateBinaryName = "sub2api"
 	githubRepo             = "guanwenpeng2001-bot/OMNIHIVE-AI-GW"
+	releaseManifestName    = "omnihive-release-manifest.json"
+	maxReleaseManifestSize = 64 * 1024
+
+	// Versions before the OmniHive v2 schema may not serve a migrated database.
+	minimumRollbackVersion = "v0.2.5"
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -64,17 +72,26 @@ type GitHubReleaseClient interface {
 
 // UpdateService handles software updates
 type UpdateService struct {
-	executablePath func() (string, error)
-	cache          UpdateCache
-	githubClient   GitHubReleaseClient
-	currentVersion string
-	buildType      string // "source" for manual builds, "release" for CI builds
+	executablePath    func() (string, error)
+	runningBinary     func() (string, error)
+	backupKey         []byte
+	readRollbackFloor func(context.Context) (string, error)
+	cache             UpdateCache
+	githubClient      GitHubReleaseClient
+	currentVersion    string
+	buildType         string // "source" for manual builds, "release" for CI builds
 }
 
 // NewUpdateService creates a new UpdateService
 func NewUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, version, buildType string) *UpdateService {
 	return &UpdateService{
 		executablePath: os.Executable,
+		runningBinary: func() (string, error) {
+			if runtime.GOOS == "linux" {
+				return "/proc/self/exe", nil
+			}
+			return os.Executable()
+		},
 		cache:          cache,
 		githubClient:   githubClient,
 		currentVersion: version,
@@ -203,7 +220,7 @@ func copyUpdateBinary(source, target string) error {
 	return os.Rename(out.Name(), target)
 }
 
-func stagePersistentBinary(exePath, newBinaryPath string) (bool, error) {
+func (s *UpdateService) stagePersistentBinary(exePath, newBinaryPath string) (bool, error) {
 	dataDir := resolveDockerDataDir()
 	if info, err := os.Stat(dataDir); err != nil || !info.IsDir() {
 		return false, nil
@@ -225,6 +242,9 @@ func stagePersistentBinary(exePath, newBinaryPath string) (bool, error) {
 		return false, err
 	}
 	if err := copyUpdateBinary(previous, filepath.Join(updatesDir, "backup", updateBinaryName)); err != nil {
+		return false, err
+	}
+	if err := s.prepareBackupManifest(filepath.Join(updatesDir, "backup", updateBinaryName)); err != nil {
 		return false, err
 	}
 	if err := copyUpdateBinary(newBinaryPath, current); err != nil {
@@ -305,27 +325,35 @@ func (s *UpdateService) PerformUpdate(ctx context.Context) error {
 // verifies its checksum, and atomically swaps the running binary.
 // Shared by PerformUpdate (latest) and RollbackToVersion (specific older version).
 func (s *UpdateService) applyReleaseAssets(ctx context.Context, version string, releaseAssets []Asset) error {
-	asset, checksumURL := selectUpdateAssets(version, releaseAssets)
-	if asset.DownloadURL == "" {
-		return fmt.Errorf("no compatible release found for %s/%s", runtime.GOOS, runtime.GOARCH)
+	tag := releaseVersion(version)
+	if tag == "" {
+		return fmt.Errorf("invalid release version %q", version)
 	}
-	downloadURL, downloadName := asset.DownloadURL, asset.Name
-	if strings.HasPrefix(downloadName, updateBinaryName+"_") {
-		if checksumURL == "" {
-			return fmt.Errorf("checksum asset not found for %s", downloadName)
-		}
-	} else {
-		runtimeenv.WarnLegacy(downloadName, updateBinaryName+"_<version>_<os>_<arch>.tar.gz")
+	if semver.Compare(tag, minimumRollbackVersion) < 0 {
+		return rollbackBelowFloor(tag, minimumRollbackVersion)
 	}
 
-	// SECURITY: Validate download URL is from trusted domain
-	if err := validateDownloadURL(downloadURL); err != nil {
-		return fmt.Errorf("invalid download URL: %w", err)
+	asset, checksum, manifest, err := selectUpdateAssets(tag, releaseAssets)
+	if err != nil {
+		return err
 	}
-	if checksumURL != "" {
-		if err := validateDownloadURL(checksumURL); err != nil {
-			return fmt.Errorf("invalid checksum URL: %w", err)
+	for _, a := range []Asset{asset, checksum, manifest} {
+		if err := validateDownloadURL(a.DownloadURL); err != nil {
+			return fmt.Errorf("invalid download URL for %s: %w", a.Name, err)
 		}
+	}
+	checksums, err := s.githubClient.FetchChecksumFile(ctx, checksum.DownloadURL)
+	if err != nil {
+		return fmt.Errorf("failed to download checksums: %w", err)
+	}
+	// Resolve both digests before downloading any executable bytes.
+	archiveHash, err := findReleaseChecksum(checksums, asset.Name)
+	if err != nil {
+		return err
+	}
+	manifestHash, err := findReleaseChecksum(checksums, manifest.Name)
+	if err != nil {
+		return err
 	}
 
 	// Get current executable path
@@ -348,17 +376,17 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, version string, 
 	}
 	defer func() { _ = os.RemoveAll(tempDir) }()
 
-	// Download archive
-	archivePath := filepath.Join(tempDir, downloadName)
-	if err := s.downloadFile(ctx, downloadURL, archivePath); err != nil {
+	if err := s.verifyReleaseManifest(ctx, tempDir, manifest, manifestHash, tag); err != nil {
+		return err
+	}
+
+	archivePath := filepath.Join(tempDir, asset.Name)
+	if err := s.downloadFile(ctx, asset.DownloadURL, archivePath); err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
 
-	// Verify checksum if available
-	if checksumURL != "" {
-		if err := s.verifyChecksum(ctx, archivePath, checksumURL); err != nil {
-			return fmt.Errorf("checksum verification failed: %w", err)
-		}
+	if err := verifyReleaseChecksum(archivePath, archiveHash); err != nil {
+		return fmt.Errorf("checksum verification failed: %w", err)
 	}
 
 	// Extract binary from archive
@@ -372,7 +400,7 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, version string, 
 		return fmt.Errorf("chmod failed: %w", err)
 	}
 
-	staged, err := stagePersistentBinary(exePath, newBinaryPath)
+	staged, err := s.stagePersistentBinary(exePath, newBinaryPath)
 	if err != nil {
 		return fmt.Errorf("persistent staging failed: %w", err)
 	}
@@ -388,6 +416,10 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, version string, 
 	// 2. Rename new -> current (atomic on Unix, same filesystem)
 	// If step 2 fails, restore backup
 	backupPath := exePath + ".backup"
+	backupManifest, err := s.runningManifest()
+	if err != nil {
+		return fmt.Errorf("backup manifest failed: %w", err)
+	}
 
 	// Remove old backup if exists
 	_ = os.Remove(backupPath)
@@ -398,6 +430,12 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, version string, 
 			return nil
 		}
 		return fmt.Errorf("backup failed: %w", err)
+	}
+	if err := writeBackupManifest(backupPath, backupManifest); err != nil {
+		if restoreErr := os.Rename(backupPath, exePath); restoreErr != nil {
+			return fmt.Errorf("backup manifest failed and restore failed: %w (restore error: %v)", err, restoreErr)
+		}
+		return fmt.Errorf("backup manifest failed: %w", err)
 	}
 
 	// Step 2: Move new binary to target location (atomic, same filesystem)
@@ -419,6 +457,10 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, version string, 
 
 // Rollback restores the previous version
 func (s *UpdateService) Rollback() error {
+	return s.rollback(context.Background())
+}
+
+func (s *UpdateService) rollback(ctx context.Context) error {
 	exePath, err := s.executablePath()
 	if err != nil {
 		return fmt.Errorf("failed to get executable path: %w", err)
@@ -428,6 +470,24 @@ func (s *UpdateService) Rollback() error {
 		return fmt.Errorf("failed to resolve symlinks: %w", err)
 	}
 
+	floor, err := s.databaseRollbackFloor(ctx)
+	if err != nil {
+		return fmt.Errorf("rollback database compatibility check failed: %w", err)
+	}
+	backupFile := exePath + ".backup"
+	directInfo, statErr := os.Lstat(backupFile)
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return statErr
+	}
+	directBackup := statErr == nil && directInfo.Mode().IsRegular()
+	if statErr == nil && !directBackup && !directInfo.IsDir() {
+		return fmt.Errorf("unexpected direct backup file type")
+	}
+	if directBackup {
+		if err := s.verifyBackup(backupFile, floor); err != nil {
+			return fmt.Errorf("rollback verification failed: %w", err)
+		}
+	}
 	persistentBackup := filepath.Join(resolveDockerDataDir(), ".updates", "backup", updateBinaryName)
 	persistentCurrent := filepath.Join(resolveDockerDataDir(), ".updates", "current", updateBinaryName)
 	if _, err := os.Stat(persistentBackup); os.IsNotExist(err) {
@@ -442,6 +502,9 @@ func (s *UpdateService) Rollback() error {
 		if err := os.MkdirAll(filepath.Dir(persistentCurrent), 0755); err != nil {
 			return err
 		}
+		if err := s.verifyBackup(persistentBackup, floor); err != nil {
+			return fmt.Errorf("persistent rollback verification failed: %w", err)
+		}
 		if err := os.Rename(persistentBackup, persistentCurrent); err != nil {
 			return fmt.Errorf("persistent rollback failed: %w", err)
 		}
@@ -453,13 +516,12 @@ func (s *UpdateService) Rollback() error {
 		return err
 	}
 
-	backupFile := exePath + ".backup"
-	if _, err := os.Stat(backupFile); err == nil {
+	if directBackup {
 		if err := os.Rename(backupFile, exePath); err != nil && !staged {
 			return fmt.Errorf("rollback failed: %w", err)
 		}
 	} else if !staged {
-		return fmt.Errorf("no backup found: %w", err)
+		return fmt.Errorf("no backup found at %s", backupFile)
 	}
 
 	return nil
@@ -489,9 +551,12 @@ func (s *UpdateService) ListRollbackVersions(ctx context.Context) ([]RollbackVer
 // The target must be one of the versions returned by ListRollbackVersions;
 // anything else (including the current version) is rejected.
 func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) error {
-	target := strings.TrimPrefix(strings.TrimSpace(version), "v")
+	target := releaseVersion(strings.TrimSpace(version))
 	if target == "" {
 		return ErrRollbackVersionNotAllowed
+	}
+	if semver.Compare(target, minimumRollbackVersion) < 0 {
+		return rollbackBelowFloor(target, minimumRollbackVersion)
 	}
 
 	releases, err := s.fetchRollbackCandidates(ctx)
@@ -501,7 +566,7 @@ func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) e
 
 	var match *GitHubRelease
 	for _, r := range releases {
-		if strings.TrimPrefix(r.TagName, "v") == target {
+		if releaseVersion(r.TagName) == target {
 			match = r
 			break
 		}
@@ -536,8 +601,8 @@ func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubR
 		if r == nil || r.Draft || r.Prerelease {
 			continue
 		}
-		v := strings.TrimPrefix(r.TagName, "v")
-		if v == "" || seen[v] {
+		v := releaseVersion(r.TagName)
+		if v == "" || seen[v] || semver.Prerelease(v) != "" || semver.Compare(v, minimumRollbackVersion) < 0 {
 			continue
 		}
 		// Only versions strictly older than current (also excludes current itself)
@@ -601,20 +666,59 @@ func (s *UpdateService) downloadFile(ctx context.Context, downloadURL, dest stri
 	return s.githubClient.DownloadFile(ctx, downloadURL, dest, maxDownloadSize)
 }
 
-func selectUpdateAssets(version string, releaseAssets []Asset) (Asset, string) {
-	version = strings.TrimPrefix(version, "v")
-	suffix := fmt.Sprintf("_%s_%s_%s.tar.gz", version, runtime.GOOS, runtime.GOARCH)
-	assets := make(map[string]Asset, len(releaseAssets))
-	for _, asset := range releaseAssets {
-		assets[asset.Name] = asset
+func releaseVersion(version string) string {
+	tag := "v" + strings.TrimPrefix(version, "v")
+	core, _, _ := strings.Cut(tag, "-")
+	core, _, _ = strings.Cut(core, "+")
+	if strings.Count(core, ".") != 2 || !semver.IsValid(tag) {
+		return ""
 	}
-	checksumURL := assets["checksums.txt"].DownloadURL
-	for _, prefix := range []string{updateBinaryName, "omnihive-ai-gw", legacyUpdateBinaryName} {
-		if asset, ok := assets[prefix+suffix]; ok {
-			return asset, checksumURL
+	return tag
+}
+
+func backupVersion(version string) string {
+	version = strings.TrimSpace(version)
+	if releaseVersion(version) == "" {
+		return ""
+	}
+	return "v" + strings.TrimPrefix(version, "v")
+}
+
+func rollbackBelowFloor(version, floor string) error {
+	return fmt.Errorf("release %s is below the database rollback compatibility floor %s: %w", version, floor, ErrRollbackVersionNotAllowed)
+}
+
+func selectUpdateAssets(version string, releaseAssets []Asset) (archive, checksum, manifest Asset, err error) {
+	suffix := fmt.Sprintf("_%s_%s_%s.tar.gz", strings.TrimPrefix(version, "v"), runtime.GOOS, runtime.GOARCH)
+	var wrongProduct string
+	for _, asset := range releaseAssets {
+		switch asset.Name {
+		case updateBinaryName + suffix:
+			archive = asset
+		case "checksums.txt":
+			checksum = asset
+		case releaseManifestName, "release-manifest.json":
+			if manifest.Name != releaseManifestName {
+				manifest = asset
+			}
+		default:
+			if strings.HasSuffix(asset.Name, suffix) {
+				wrongProduct = asset.Name
+			}
 		}
 	}
-	return Asset{}, checksumURL
+	if archive.DownloadURL == "" {
+		if wrongProduct != "" {
+			err = fmt.Errorf("wrong product release asset %q: expected %s", wrongProduct, updateBinaryName+suffix)
+			return
+		}
+		err = fmt.Errorf("no compatible release found for %s/%s", runtime.GOOS, runtime.GOARCH)
+	} else if checksum.DownloadURL == "" {
+		err = fmt.Errorf("checksum asset checksums.txt not found for %s", archive.Name)
+	} else if manifest.DownloadURL == "" {
+		err = fmt.Errorf("OmniHive release manifest %s not found", releaseManifestName)
+	}
+	return
 }
 
 // validateDownloadURL checks if the URL is from an allowed domain
@@ -643,14 +747,33 @@ func validateDownloadURL(rawURL string) error {
 	return nil
 }
 
-func (s *UpdateService) verifyChecksum(ctx context.Context, filePath, checksumURL string) error {
-	// Download checksums file
-	checksumData, err := s.githubClient.FetchChecksumFile(ctx, checksumURL)
-	if err != nil {
-		return fmt.Errorf("failed to download checksums: %w", err)
+func findReleaseChecksum(data []byte, name string) (string, error) {
+	var expected string
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		parts := strings.Fields(scanner.Text())
+		if len(parts) != 2 || strings.TrimPrefix(parts[1], "*") != name {
+			continue
+		}
+		if expected != "" {
+			return "", fmt.Errorf("duplicate checksum entry for %s", name)
+		}
+		hash, err := hex.DecodeString(parts[0])
+		if err != nil || len(hash) != sha256.Size {
+			return "", fmt.Errorf("invalid SHA256 checksum for %s", name)
+		}
+		expected = strings.ToLower(parts[0])
 	}
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("failed to read checksums: %w", err)
+	}
+	if expected == "" {
+		return "", fmt.Errorf("checksum not found for %s", name)
+	}
+	return expected, nil
+}
 
-	// Calculate file hash
+func verifyReleaseChecksum(filePath, expected string) error {
 	f, err := os.Open(filePath)
 	if err != nil {
 		return err
@@ -661,23 +784,47 @@ func (s *UpdateService) verifyChecksum(ctx context.Context, filePath, checksumUR
 	if _, err := io.Copy(h, f); err != nil {
 		return err
 	}
-	actualHash := hex.EncodeToString(h.Sum(nil))
-
-	// Find expected hash in checksums file
-	fileName := filepath.Base(filePath)
-	scanner := bufio.NewScanner(strings.NewReader(string(checksumData)))
-	for scanner.Scan() {
-		line := scanner.Text()
-		parts := strings.Fields(line)
-		if len(parts) == 2 && parts[1] == fileName {
-			if parts[0] == actualHash {
-				return nil
-			}
-			return fmt.Errorf("checksum mismatch: expected %s, got %s", parts[0], actualHash)
-		}
+	actual := hex.EncodeToString(h.Sum(nil))
+	if actual != expected {
+		return fmt.Errorf("checksum mismatch for %s: expected %s, got %s", filepath.Base(filePath), expected, actual)
 	}
+	return nil
+}
 
-	return fmt.Errorf("checksum not found for %s", fileName)
+func (s *UpdateService) verifyReleaseManifest(ctx context.Context, dir string, asset Asset, hash, version string) error {
+	manifestPath := filepath.Join(dir, asset.Name)
+	if err := s.githubClient.DownloadFile(ctx, asset.DownloadURL, manifestPath, maxReleaseManifestSize); err != nil {
+		return fmt.Errorf("download release manifest failed: %w", err)
+	}
+	if err := verifyReleaseChecksum(manifestPath, hash); err != nil {
+		return fmt.Errorf("release manifest verification failed: %w", err)
+	}
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return err
+	}
+	var manifest struct {
+		Product                string `json:"product"`
+		Version                string `json:"version"`
+		MinimumRollbackVersion string `json:"minimum_rollback_version"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return fmt.Errorf("invalid release manifest: %w", err)
+	}
+	if manifest.Product != updateBinaryName {
+		return fmt.Errorf("wrong product %q in release manifest: expected %s", manifest.Product, updateBinaryName)
+	}
+	if releaseVersion(manifest.Version) != version {
+		return fmt.Errorf("release manifest version %q does not match requested release %s", manifest.Version, version)
+	}
+	floor := releaseVersion(manifest.MinimumRollbackVersion)
+	if floor == "" || semver.Prerelease(floor) != "" || semver.Build(floor) != "" {
+		return fmt.Errorf("invalid minimum rollback version %q in release manifest", manifest.MinimumRollbackVersion)
+	}
+	if semver.Compare(version, floor) < 0 {
+		return rollbackBelowFloor(version, floor)
+	}
+	return nil
 }
 
 func (s *UpdateService) extractBinary(archivePath, destPath string) error {
@@ -687,89 +834,44 @@ func (s *UpdateService) extractBinary(archivePath, destPath string) error {
 	}
 	defer func() { _ = f.Close() }()
 
-	var reader io.Reader = f
-
-	// Handle gzip compression
-	if strings.HasSuffix(archivePath, ".gz") || strings.HasSuffix(archivePath, ".tar.gz") || strings.HasSuffix(archivePath, ".tgz") {
-		gzr, err := gzip.NewReader(f)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = gzr.Close() }()
-		reader = gzr
-	}
-
-	// Handle tar archive
-	if strings.Contains(archivePath, ".tar") {
-		tr := tar.NewReader(reader)
-		for {
-			hdr, err := tr.Next()
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				return err
-			}
-
-			// SECURITY: Prevent Zip Slip / Path Traversal attack
-			// Only allow files with safe base names, no directory traversal
-			baseName := filepath.Base(hdr.Name)
-
-			// Check for path traversal attempts
-			if strings.Contains(hdr.Name, "..") {
-				return fmt.Errorf("path traversal attempt detected: %s", hdr.Name)
-			}
-
-			// Validate the entry is a regular file
-			if hdr.Typeflag != tar.TypeReg {
-				continue // Skip directories and special files
-			}
-
-			// Only extract the specific binary we need
-			binaryName := strings.TrimSuffix(baseName, ".exe")
-			if binaryName == updateBinaryName || binaryName == legacyUpdateBinaryName || binaryName == "omnihive-ai-gw" {
-				if binaryName != updateBinaryName {
-					runtimeenv.WarnLegacy(binaryName, updateBinaryName)
-				}
-				// Additional security: limit file size (max 500MB)
-				const maxBinarySize = 500 * 1024 * 1024
-				if hdr.Size > maxBinarySize {
-					return fmt.Errorf("binary too large: %d bytes (max %d)", hdr.Size, maxBinarySize)
-				}
-
-				out, err := os.Create(destPath)
-				if err != nil {
-					return err
-				}
-
-				// Use LimitReader to prevent decompression bombs
-				limited := io.LimitReader(tr, maxBinarySize)
-				if _, err := io.Copy(out, limited); err != nil {
-					_ = out.Close()
-					return err
-				}
-				if err := out.Close(); err != nil {
-					return err
-				}
-				return nil
-			}
-		}
-		return fmt.Errorf("binary not found in archive")
-	}
-
-	// Direct copy for non-tar files (with size limit)
-	const maxBinarySize = 500 * 1024 * 1024
-	out, err := os.Create(destPath)
+	gzr, err := gzip.NewReader(f)
 	if err != nil {
 		return err
 	}
+	defer func() { _ = gzr.Close() }()
 
-	limited := io.LimitReader(reader, maxBinarySize)
-	if _, err := io.Copy(out, limited); err != nil {
-		_ = out.Close()
-		return err
+	tr := tar.NewReader(gzr)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			return fmt.Errorf("OmniHive executable not found in archive")
+		}
+		if err != nil {
+			return err
+		}
+		// The release binary is a regular file at the root of the archive.
+		name := strings.TrimPrefix(hdr.Name, "./")
+		if name == legacyUpdateBinaryName || name == legacyUpdateBinaryName+".exe" ||
+			name == "omnihive-ai-gw" || name == "omnihive-ai-gw.exe" {
+			return fmt.Errorf("wrong product executable %q in archive", hdr.Name)
+		}
+		if hdr.Typeflag != tar.TypeReg || (name != updateBinaryName && name != updateBinaryName+".exe") {
+			continue
+		}
+		if hdr.Size <= 0 || hdr.Size > maxDownloadSize {
+			return fmt.Errorf("invalid executable size %d in archive", hdr.Size)
+		}
+		out, err := os.Create(destPath)
+		if err != nil {
+			return err
+		}
+		_, copyErr := io.Copy(out, tr)
+		closeErr := out.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		return closeErr
 	}
-	return out.Close()
 }
 
 func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {

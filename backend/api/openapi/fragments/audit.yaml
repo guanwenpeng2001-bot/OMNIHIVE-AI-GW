@@ -54,6 +54,22 @@ paths:
                   message: {type: string}
                   data: {$ref: '#/components/schemas/ScopedAuditEvent'}
         default: {$ref: '#/components/responses/ScopedAuditError'}
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/audit/export:
+    parameters: *auditScope
+    get:
+      operationId: exportScopedAuditEvents
+      summary: Export a redacted project audit page with audit.read and audit.export
+      parameters:
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
+        - {name: action, in: query, schema: {type: string}}
+        - {name: resource, in: query, schema: {$ref: '#/components/schemas/ScopedAuditResource'}}
+        - {name: resource_id, in: query, schema: {type: string}}
+        - {name: cursor, in: query, schema: {type: string, maxLength: 1024}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 25}}
+      responses:
+        '200': {$ref: '#/components/responses/ScopedAuditPage'}
+        default: {$ref: '#/components/responses/ScopedAuditError'}
   /api/v2/workspaces/{workspace_id}/projects/{project_id}/audit/events/{id}/exports:
     parameters: *auditEvent
     post:
@@ -138,6 +154,23 @@ components:
         effect: {type: string, enum: [committed, observed]}
         at: {type: string, format: date-time}
         affected: {type: string}
+        request_id: {type: string}
+        route: {type: string}
+        method: {type: string}
+        actor_email: {type: string}
+        actor_role: {type: string}
+        status_code: {type: integer}
+        reason: {type: string}
+        changes:
+          type: array
+          items:
+            type: object
+            required: [field, operation, before, after]
+            properties:
+              field: {type: string}
+              operation: {type: string}
+              before: {nullable: true}
+              after: {nullable: true}
     ScopedAuditRetention:
       type: object
       additionalProperties: false
@@ -147,6 +180,23 @@ components:
         trace_days: {type: integer, minimum: 1, maximum: 3650, default: 7}
         content_hours: {type: integer, minimum: 0, maximum: 24, default: 24}
   responses:
+    ScopedAuditPage:
+      description: Redacted audit page
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message, data]
+            properties:
+              code: {const: 0}
+              message: {type: string}
+              data:
+                type: object
+                required: [items, as_of, next_cursor]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/ScopedAuditEvent'}}
+                  as_of: {type: string, format: date-time}
+                  next_cursor: {type: [string, 'null']}
     ScopedAuditError:
       description: Scoped audit error
       content:

@@ -114,11 +114,37 @@ type AnthropicImageSource struct {
 
 // AnthropicTool describes a tool available to the model.
 type AnthropicTool struct {
-	Type         string                 `json:"type,omitempty"` // e.g. "web_search_20250305" for server tools
-	Name         string                 `json:"name"`
-	Description  string                 `json:"description,omitempty"`
-	InputSchema  json.RawMessage        `json:"input_schema,omitempty"` // JSON Schema object
-	CacheControl *AnthropicCacheControl `json:"cache_control,omitempty"`
+	Type          string                 `json:"type,omitempty"` // e.g. "web_search_20250305" for server tools
+	Name          string                 `json:"name"`
+	Description   string                 `json:"description,omitempty"`
+	InputSchema   json.RawMessage        `json:"input_schema,omitempty"` // JSON Schema object
+	CacheControl  *AnthropicCacheControl `json:"cache_control,omitempty"`
+	Strict        *bool                  `json:"strict,omitempty"`
+	unmappedField string
+}
+
+// Preserve the identity of unrecognized options for bridges with a narrower tool contract.
+func (t *AnthropicTool) UnmarshalJSON(raw []byte) error {
+	type plain AnthropicTool
+	var value plain
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	for key := range fields {
+		switch key {
+		case "type", "name", "description", "input_schema", "cache_control", "strict":
+		default:
+			if value.unmappedField == "" || key < value.unmappedField {
+				value.unmappedField = key
+			}
+		}
+	}
+	*t = AnthropicTool(value)
+	return nil
 }
 
 // AnthropicCacheControl 对应 Anthropic API 的 cache_control 字段。

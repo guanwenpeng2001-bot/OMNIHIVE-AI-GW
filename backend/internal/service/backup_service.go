@@ -109,12 +109,26 @@ func (c *BackupS3Config) IsConfigured() bool {
 	return c.Bucket != "" && c.AccessKeyID != "" && c.SecretAccessKey != ""
 }
 
+const defaultBackupRetainDays = 14
+
 // BackupScheduleConfig 定时备份配置
 type BackupScheduleConfig struct {
 	Enabled     bool   `json:"enabled"`
 	CronExpr    string `json:"cron_expr"`    // cron 表达式，如 "0 2 * * *" 每天凌晨2点
 	RetainDays  int    `json:"retain_days"`  // 备份文件过期天数，默认14，0=不自动清理
 	RetainCount int    `json:"retain_count"` // 最多保留份数，0=不限制
+}
+
+// UnmarshalJSON applies the same default to API input and saved schedules.
+// An explicitly stored zero is the operator's permanent-retention policy.
+func (c *BackupScheduleConfig) UnmarshalJSON(data []byte) error {
+	type schedule BackupScheduleConfig
+	value := schedule{RetainDays: defaultBackupRetainDays}
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*c = BackupScheduleConfig(value)
+	return nil
 }
 
 // BackupRecord 备份记录
@@ -444,7 +458,7 @@ func (s *BackupService) GetSchedule(ctx context.Context) (*BackupScheduleConfig,
 		return nil, fmt.Errorf("load backup schedule: %w", err)
 	}
 	if raw == "" {
-		return &BackupScheduleConfig{}, nil
+		return &BackupScheduleConfig{RetainDays: defaultBackupRetainDays}, nil
 	}
 	var cfg BackupScheduleConfig
 	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {

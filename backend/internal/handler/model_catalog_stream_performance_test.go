@@ -122,6 +122,7 @@ func TestCatalogGatewayFirstContentPerformance(tester *testing.T) {
 	require.NoError(tester, err)
 	configuration := &config.Config{}
 	configuration.Security.URLAllowlist.AllowPrivateHosts = true
+	configuration.Security.URLAllowlist.UpstreamHosts = []string{"127.0.0.1"}
 	configuration.Security.URLAllowlist.AllowInsecureHTTP = true
 	configuration.Gateway.StreamDataIntervalTimeout = 30
 	configuration.Gateway.MaxBodySize = 256 * 1024 * 1024

@@ -30,7 +30,7 @@ func TestHTTPUpstreamPublicRequestsUseIsolatedPinnedTransport(t *testing.T) {
 	entry, err := s.acquireClient("", 1, 1)
 	require.NoError(t, err)
 	req, _ := http.NewRequest("GET", "https://example.com", nil)
-	require.Same(t, entry.client, s.requestClient(entry, req))
+	require.Same(t, entry.publicClient, s.requestClient(entry, req))
 	marked := req.WithContext(service.WithHTTPUpstreamPublicHostsOnly(req.Context()))
 	strict := s.requestClient(entry, marked)
 	require.NotSame(t, entry.client, strict)
@@ -40,6 +40,7 @@ func TestHTTPUpstreamPublicRequestsUseIsolatedPinnedTransport(t *testing.T) {
 	s.cfg.Security.URLAllowlist.Enabled = true
 	require.Same(t, strict, s.requestClient(entry, req))
 	s.cfg.Security.URLAllowlist.AllowPrivateHosts = true
+	s.cfg.Security.URLAllowlist.UpstreamHosts = []string{"127.0.0.1"}
 	require.Same(t, entry.client, s.requestClient(entry, req))
 	require.Same(t, strict, s.requestClient(entry, marked), "per-request policy overrides private-host exception")
 }
@@ -116,7 +117,7 @@ func TestHTTPUpstreamPinnedTransportBlocksPrivateEvenWithoutPrecheck(t *testing.
 	var calls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(204) }))
 	defer server.Close()
-	s, ok := NewHTTPUpstream(nil).(*httpUpstreamService)
+	s, ok := NewHTTPUpstream(loopbackUpstreamConfig()).(*httpUpstreamService)
 	require.True(t, ok)
 	entry, err := s.acquireClient("", 1, 1)
 	require.NoError(t, err)

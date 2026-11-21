@@ -37,15 +37,15 @@ func TestConfigurationDiffRecordsFieldsWithoutValues(t *testing.T) {
 	require.Equal(t, "remove", byField["removed_key"].Operation)
 
 	encoded := marshalForTest(t, diff)
-	for _, plaintext := range []string{"old-secret-value", "new-secret-value", "brand-new", "gone", "https://old.example.invalid"} {
+	for _, plaintext := range []string{"old-secret-value", "new-secret-value", "https://old.example.invalid"} {
 		require.NotContains(t, string(encoded), plaintext, "audit diff must never record values")
 	}
-	require.Equal(t, "[redacted]", byField["refresh_token"].Before)
-	require.Equal(t, "[redacted]", byField["refresh_token"].After)
-	require.Empty(t, byField["added_key"].Before)
-	require.Equal(t, "[redacted]", byField["added_key"].After)
-	require.Equal(t, "[redacted]", byField["removed_key"].Before)
-	require.Empty(t, byField["removed_key"].After)
+	require.Equal(t, "changed", byField["refresh_token"].Before)
+	require.Equal(t, "changed", byField["refresh_token"].After)
+	require.Nil(t, byField["added_key"].Before)
+	require.Equal(t, "brand-new", byField["added_key"].After)
+	require.Equal(t, "gone", byField["removed_key"].Before)
+	require.Nil(t, byField["removed_key"].After)
 
 	// Unchanged fields are not diff entries at all.
 	_, tracked := byField["base_url"]

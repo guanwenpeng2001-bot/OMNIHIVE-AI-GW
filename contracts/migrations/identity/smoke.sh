@@ -28,7 +28,7 @@ def require(condition, message):
         raise SystemExit(message)
 
 
-def request(method, path, expected, *, bearer=None, google_key=None, payload=None, idempotency_key=None):
+def request(method, path, expected, *, bearer=None, google_key=None, payload=None, idempotency_key=None, with_status=False):
     headers = {"Accept": "application/json"}
     if bearer:
         headers["Authorization"] = "Bearer " + bearer
@@ -49,7 +49,8 @@ def request(method, path, expected, *, bearer=None, google_key=None, payload=Non
         content = json.load(response)
         status = response.status
         headers = response.headers
-    if status != expected:
+    allowed = expected if isinstance(expected, tuple) else (expected,)
+    if status not in allowed:
         code = content.get("reason", content.get("error", {}).get("code"))
         message = content.get("error", {}).get("message", content.get("message"))
         raise SystemExit(f"{method} {path}: expected {expected}, got {status} ({code}, {message})")
@@ -57,7 +58,7 @@ def request(method, path, expected, *, bearer=None, google_key=None, payload=Non
         require(headers.get("Cache-Control") == "private, no-store", f"{path}: cache policy missing")
         require(headers.get("X-Request-ID"), f"{path}: request ID missing")
     print(f"{method} {path} -> {status}")
-    return content
+    return (status, content) if with_status else content
 
 
 request("GET", "/api/v2/me/scopes", 401)
@@ -97,8 +98,14 @@ if compliance["required"]:
             payload={"phrase": compliance["ack_phrase_en"], "language": "en"})
 request("POST", f"/api/v1/admin/users/{user_id}/balance", 200, bearer=session,
         payload={"balance": 1, "operation": "set", "notes": "Isolated BE-01 smoke"})
-billing = request("GET", "/v1/sub2api/billing", 403, bearer=credential)
-require(billing["error"]["message"] == "API key is not assigned to a group", "Ordinary gateway did not admit the allowed project action.")
+# The billing alias is registered before group admission. Whether the restricted
+# key already has an eligible group depends on fixture state, so both admitted
+# outcomes are valid; an action denial is not.
+billing_status, billing = request("GET", "/v1/sub2api/billing", (200, 403), bearer=credential, with_status=True)
+if billing_status == 200:
+    require(billing.get("object") == "sub2api.key_billing", "Ordinary gateway did not admit the allowed usage.read project action.")
+else:
+    require(billing["error"]["message"] == "API key is not assigned to a group", "Ordinary gateway did not admit the allowed usage.read project action.")
 ordinary = request("POST", "/v1/embeddings", 403, bearer=credential,
                    payload={"model": "text-embedding-3-small", "input": "Smoke"})
 require(ordinary["error"]["message"] == "Access denied", "Ordinary gateway failed outside project action enforcement.")
@@ -106,8 +113,15 @@ google_payload = {"contents": [{"role": "user", "parts": [{"text": "Smoke"}]}]}
 google_model = "/v1beta/models/gemini-2.5-flash:"
 google = request("POST", google_model + "countTokens", 403, google_key=credential, payload=google_payload)
 require(google["error"]["message"] == "Access denied", "Google gateway failed outside project action enforcement.")
-google = request("POST", google_model + "generateContent", 403, google_key=credential, payload=google_payload)
-require("not assigned to any group" in google["error"]["message"], "Google gateway did not admit the allowed project action.")
+# Admitted text.chat: depending on whether the restricted key already resolved
+# an eligible group, the request stops either at group admission (403) or at
+# scheduling because this isolated server has no upstream accounts (503).
+google_status, google = request("POST", google_model + "generateContent", (403, 503), google_key=credential,
+                                payload=google_payload, with_status=True)
+if google_status == 403:
+    require("not assigned to any group" in google["error"]["message"], "Google gateway did not admit the allowed project action.")
+else:
+    require("available" in google["error"]["message"].lower(), "Google gateway did not reach scheduling for the allowed project action.")
 print("Both gateway adapters recognized the restricted credential and enforced its actions.")
 
 group = request("POST", "/api/v1/admin/groups", 200, bearer=session, payload={

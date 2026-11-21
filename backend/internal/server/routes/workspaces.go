@@ -30,6 +30,7 @@ func RegisterWorkspaceRoutes(parent *gin.RouterGroup, handlers *handler.Handlers
 	registerAccountRoutes(resources, handlers, stepUp)
 	registerGroupRoutes(resources, handlers)
 	registerProxyRoutes(resources, handlers, stepUp)
+	registerProxyGroupRoutes(resources, handlers)
 	registerChannelRoutes(resources, handlers)
 	registerChannelMonitorRoutes(resources, handlers, settings)
 	for _, telemetryPath := range []string{"/channel-telemetry", "/channel-monitor-v2"} {

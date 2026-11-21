@@ -315,6 +315,7 @@ type Item struct {
 	Base         int64  `json:"base_version,string"`
 	State        string `json:"state"`
 	Reason       string `json:"reason,omitempty"`
+	Message      string `json:"message,omitempty"`
 	Version      int64  `json:"version,string,omitempty"`
 }
 type Preview struct {

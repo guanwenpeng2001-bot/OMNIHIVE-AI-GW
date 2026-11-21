@@ -7,9 +7,11 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/attempt"
@@ -26,6 +28,8 @@ const DefaultGenerationDeadline = 5 * time.Minute
 var ErrAttemptBudgetExhausted = errors.New("generation attempt budget exhausted")
 var ErrResponseCommitted = errors.New("downstream response committed; generation replay forbidden")
 var ErrAttemptOutcomeUnknown = errors.New("upstream submission outcome unknown; generation replay forbidden")
+
+var errWrittenRequestTimeout = errors.New("written generation timed out before response headers")
 
 type attemptBudgetKey struct{}
 
@@ -44,13 +48,15 @@ func (b *attemptResponseBody) Close() error {
 // AttemptRecord contains no credentials, request bodies or caller-controlled labels.
 // A transport error cannot prove that the upstream did not execute the request.
 type AttemptRecord struct {
-	AbandonedUncertain bool
-	Turn               int
-	Number             int
-	AccountID          int64
-	Reason             string
-	Outcome            string
-	Status             int
+	preHeaderUnknown      bool
+	writtenRequestTimeout bool
+	AbandonedUncertain    bool
+	Turn                  int
+	Number                int
+	AccountID             int64
+	Reason                string
+	Outcome               string
+	Status                int
 }
 
 type AttemptBudget struct {
@@ -63,7 +69,7 @@ type AttemptBudget struct {
 	limit       int
 	response    *lifecycle.Response
 	pendingWS   *AttemptRecord
-	observeWS   func(string)
+	observeWS   func(string, int)
 	interrupted *AttemptRecord
 	// replayFrom identifies the sole abandoned attempt whose replacement is authorized.
 	replayFrom     *AttemptRecord
@@ -147,7 +153,7 @@ func rejectAttemptWS(ctx context.Context, accountID int64, status int) {
 		return
 	}
 	b.mu.Lock()
-	var observe func(string)
+	var observe func(string, int)
 	if r := b.pendingWS; r != nil && r.AccountID == accountID {
 		r.Outcome, r.Status = "rejected", status
 		observe = b.observeWS
@@ -155,7 +161,7 @@ func rejectAttemptWS(ctx context.Context, accountID int64, status int) {
 	}
 	b.mu.Unlock()
 	if observe != nil {
-		observe("rejected")
+		observe("rejected", status)
 	}
 }
 
@@ -167,14 +173,14 @@ func writeAttemptWS(ctx context.Context, payload []byte, send func() error) erro
 	event := gjson.GetBytes(payload, "type").String()
 	b.mu.Lock()
 	r := b.response
-	var observe func(string)
+	var observe func(string, int)
 	if b.pendingWS != nil && b.pendingWS.Outcome != "transport_response" && strings.HasPrefix(event, "response.") {
 		b.pendingWS.Outcome = "transport_response"
 		observe = b.observeWS
 	}
 	b.mu.Unlock()
 	if observe != nil {
-		observe("transport_response")
+		observe("transport_response", 0)
 	}
 	if isOpenAIWSTerminalEvent(event) {
 		if !r.BeginTerminal() {
@@ -286,7 +292,7 @@ func interruptGeneration(ctx context.Context, accountID int64, silentFirstOutput
 		return
 	}
 	r.Outcome = "unknown"
-	r.AbandonedUncertain = silentFirstOutputTimeout && b.response.State() == lifecycle.PreOutput && !b.response.ReplayBlocked()
+	r.AbandonedUncertain = r.preHeaderUnknown || silentFirstOutputTimeout && b.response.State() == lifecycle.PreOutput && !b.response.ReplayBlocked()
 	b.interrupted = r
 }
 
@@ -325,7 +331,7 @@ func (b *AttemptBudget) checkLocked(ctx context.Context) error {
 	if !time.Now().Before(b.deadline) {
 		return context.DeadlineExceeded
 	}
-	if b.interrupted != nil && (b.interrupted != b.replayFrom || b.response.State() != lifecycle.PreOutput || b.response.ReplayBlocked()) {
+	if b.interrupted != nil && (b.interrupted != b.replayFrom || !b.interrupted.AbandonedUncertain || b.response.State() != lifecycle.PreOutput || b.response.ReplayBlocked()) {
 		return ErrAttemptOutcomeUnknown
 	}
 	if b.replayFrom != nil && b.attempts[len(b.attempts)-1] != b.replayFrom {
@@ -364,6 +370,27 @@ func AttemptDecisionBudget(ctx context.Context) attempt.Budget {
 	return decisionBudgetLocked(ctx, b)
 }
 
+// A known rejection declines generation even though a physical send occurred.
+func generationAcceptance(outcome string, status int) attempt.Acceptance {
+	switch outcome {
+	case "not_sent":
+		return attempt.NotSent
+	case "rejected":
+		switch status {
+		case http.StatusBadRequest, http.StatusUnauthorized, http.StatusPaymentRequired,
+			http.StatusForbidden, http.StatusNotFound, http.StatusMethodNotAllowed,
+			http.StatusRequestEntityTooLarge, http.StatusUnsupportedMediaType,
+			http.StatusUnprocessableEntity, http.StatusTooManyRequests:
+			return attempt.NotSent
+		}
+		return attempt.Accepted
+	case "transport_response":
+		return attempt.Accepted
+	default:
+		return attempt.Unknown
+	}
+}
+
 func decisionBudgetLocked(ctx context.Context, b *AttemptBudget) attempt.Budget {
 	view := attempt.Budget{Acceptance: attempt.NotSent, Remaining: -1}
 	var err error
@@ -374,12 +401,11 @@ func decisionBudgetLocked(ctx context.Context, b *AttemptBudget) attempt.Budget 
 		if view.Number > 0 {
 			r := b.attempts[view.Number-1]
 			view.AbandonedUncertain = r.AbandonedUncertain
-			view.ReplayAvailable = b.replayFrom == nil && view.AbandonedUncertain && b.response.State() == lifecycle.PreOutput && !b.response.ReplayBlocked()
-			switch r.Outcome {
-			case "unknown":
-				view.Acceptance = attempt.Unknown
-			case "transport_response":
-				view.Acceptance = attempt.Accepted
+			view.ReplayAvailable = !r.preHeaderUnknown && b.replayFrom == nil && view.AbandonedUncertain && b.response.State() == lifecycle.PreOutput && !b.response.ReplayBlocked()
+			view.Acceptance = generationAcceptance(r.Outcome, r.Status)
+			if r.writtenRequestTimeout {
+				view.StopReason = attempt.PreHeaderTimeout
+				return view
 			}
 		}
 		err = b.checkLocked(ctx)
@@ -476,6 +502,11 @@ func beginGenerationAttempt(ctx context.Context, accountID int64, ws bool) (func
 		return nil, err
 	}
 	plan := GatewayRequestPlanFromContext(ctx)
+	if journal.From(ctx) != nil {
+		if plan == nil || plan.store == nil {
+			return nil, journal.ErrDispatch
+		}
+	}
 	tpmSequence, tpmErr := plan.beginTPMSend(ctx, accountID)
 	if tpmErr != nil {
 		return nil, tpmErr
@@ -502,7 +533,7 @@ func beginGenerationAttempt(ctx context.Context, accountID int64, ws bool) (func
 		if err := b.checkSendLocked(ctx, accountID); err != nil {
 			b.mu.Unlock()
 			plan.releaseUnsentTPM(tpmSequence)
-			plan.observeJournalAttempt(durable, "not_sent")
+			plan.observeJournalAttempt(durable, "not_sent", 0)
 			return nil, err
 		}
 		index := len(b.attempts)
@@ -528,7 +559,7 @@ func beginGenerationAttempt(ctx context.Context, accountID int64, ws bool) (func
 		if ws && b.streamTurns {
 			b.pendingWS = record
 			if durable.ID != "" {
-				b.observeWS = func(outcome string) { plan.observeJournalAttempt(durable, outcome) }
+				b.observeWS = func(outcome string, status int) { plan.observeJournalAttempt(durable, outcome, status) }
 			}
 		}
 		b.mu.Unlock()
@@ -564,11 +595,20 @@ func beginGenerationAttempt(ctx context.Context, accountID int64, ws bool) (func
 						record.Outcome = "not_sent"
 					} else if record.Turn == b.turn {
 						b.uncertain = true
+						// A timeout before HTTP headers cannot prove the POST was not accepted.
+						if !ws && status == 0 && (errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)) {
+							record.preHeaderUnknown, record.AbandonedUncertain = true, true
+							b.interrupted = record
+						}
 					}
 				}
-				outcome = record.Outcome
+				if errors.Is(err, errWrittenRequestTimeout) {
+					record.writtenRequestTimeout = true
+					record.AbandonedUncertain = false
+				}
+				outcome, status = record.Outcome, record.Status
 				b.mu.Unlock()
-				plan.observeJournalAttempt(durable, outcome)
+				plan.observeJournalAttempt(durable, outcome, status)
 			}
 		})
 	}, nil
@@ -591,6 +631,15 @@ func generationHTTP(request *http.Request, accountID int64, send func(*http.Requ
 	ctx, cancelGeneration := context.WithCancel(request.Context())
 	ctx, cancelDeadline := AttemptExecutionContext(ctx)
 	cancel := func() { cancelGeneration(); cancelDeadline() }
+	var written atomic.Bool
+	plan := GatewayRequestPlanFromContext(ctx)
+	if plan != nil && plan.spec.NonStreamingText {
+		ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{WroteRequest: func(info httptrace.WroteRequestInfo) {
+			if info.Err == nil {
+				written.Store(true)
+			}
+		}})
+	}
 	request = request.WithContext(ctx)
 	response, sendErr := send(request)
 	status := 0
@@ -604,7 +653,18 @@ func generationHTTP(request *http.Request, accountID int64, send func(*http.Requ
 			}
 		}
 	}
-	finish(status, sendErr)
+	var timeout net.Error
+	if response == nil && written.Load() && errors.As(sendErr, &timeout) && timeout.Timeout() {
+		finish(status, errors.Join(sendErr, errWrittenRequestTimeout))
+		controller := attempt.New(0)
+		reviewCtx := context.WithoutCancel(ctx)
+		attempt.Record(reviewCtx, DecideAttempt(reviewCtx, &controller, attempt.Failure{AccountID: accountID}))
+		if plan.settlement != nil && plan.Record() {
+			plan.persistUnresolvedUsage(reviewCtx, false)
+		}
+	} else {
+		finish(status, sendErr)
+	}
 	if sendErr != nil || response == nil || response.Body == nil {
 		cancel()
 	} else {

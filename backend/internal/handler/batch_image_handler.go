@@ -48,6 +48,9 @@ func (h *BatchImageHandler) Submit(c *gin.Context) {
 	if h.openAI != nil {
 		apiKey, _ := middleware.GetAPIKeyFromContext(c)
 		defer beginGatewayRequestPlan(c, h.openAI.gatewayService, apiKey, req.Model, "media", h.openAI.maxAccountSwitches)()
+		if c.IsAborted() {
+			return
+		}
 	}
 	got, err := h.service.Submit(c.Request.Context(), owner, req, c.GetHeader("Idempotency-Key"))
 	if err != nil {

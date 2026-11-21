@@ -146,7 +146,7 @@ func TestReasoningTransparencyBudgetGroupPolicy(t *testing.T) {
 				if forceChat {
 					account = forceChatMessagesFallbackAccount()
 					field = "reasoning_effort"
-					capField = "max_completion_tokens"
+					capField = "max_tokens"
 					upstream.resp = &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"id":"chat","model":"gpt-5.2","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`))}
 				}
 				c := adaptiveProtocolTestContext("/v1/messages", body)

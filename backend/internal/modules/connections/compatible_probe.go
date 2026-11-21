@@ -12,7 +12,6 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/urlvalidator"
 )
 
 const compatibleProbeTimeout = 12 * time.Second
@@ -48,18 +47,13 @@ func (p compatibleEndpointProber) ProbeConnection(ctx context.Context, account *
 		}
 	}
 
-	opts := urlvalidator.ValidationOptions{RequireAllowlist: p.policy.Enabled, AllowPrivate: p.policy.AllowPrivateHosts}
-	if p.policy.Enabled {
-		opts.AllowedHosts = p.policy.UpstreamHosts
-	}
-	allowHTTP := !p.policy.Enabled && p.policy.AllowInsecureHTTP
-	base, err := urlvalidator.ValidateHTTPURL(base, allowHTTP, opts)
+	base, err := p.policy.ValidateProbeURL(base)
 	if err != nil {
 		return failed
 	}
 	shared, err := httpclient.GetClient(httpclient.Options{
 		Timeout: compatibleProbeTimeout, ProxyURL: proxy,
-		ValidateResolvedIP: true, AllowPrivateHosts: p.policy.AllowPrivateHosts,
+		ValidateResolvedIP: true, AllowPrivateHosts: p.policy.AllowPrivateHosts, PrivateHosts: p.policy.UpstreamHosts,
 	})
 	if err != nil {
 		return failed

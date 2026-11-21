@@ -58,7 +58,7 @@ func TestModelsDevRegistryRejectsRedirectWithoutCaching(t *testing.T) {
 	localTransport.Proxy = nil
 	defer localTransport.CloseIdleConnections()
 	transport := &modelsDevRedirectTransport{targetURL: target.URL + "/registry", localTransport: localTransport}
-	upstream, _ := NewHTTPUpstream(nil).(*httpUpstreamService)
+	upstream, _ := NewHTTPUpstream(loopbackUpstreamConfig()).(*httpUpstreamService)
 	entry, err := upstream.getOrCreateClient("", 99301, 1)
 	require.NoError(t, err)
 	// Substitute only network responses; the real repository HTTPUpstream,

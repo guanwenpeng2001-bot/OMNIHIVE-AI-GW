@@ -46,7 +46,10 @@ func evaluate(ctx context.Context, q queryer, actor, w, p int64, action string) 
 	err := q.QueryRowContext(ctx, `SELECT u.id,w.id,coalesce(p.id,0),w.scope_version,now()+interval '60 seconds',
  ARRAY(SELECT action FROM identity_actions a WHERE
  (a.category='member' OR u.role='admin' OR (`+administrator+` AND a.category<>'platform') OR
- EXISTS(SELECT 1 FROM project_grants g WHERE g.workspace_id=w.id AND g.user_id=u.id AND g.project_id=p.id AND g.action=a.action))
+ EXISTS(SELECT 1 FROM project_grants g JOIN projects granted ON granted.workspace_id=g.workspace_id AND granted.id=g.project_id AND granted.archived_at IS NULL
+ WHERE g.workspace_id=w.id AND g.user_id=u.id AND g.action=a.action AND
+ (g.project_id=p.id OR ($3=0 AND a.category='project' AND
+ (a.action LIKE 'connections.%' OR a.action LIKE 'pools.%' OR a.action LIKE 'credentials.%')))))
  ORDER BY action)`+membership+` LEFT JOIN projects p ON p.workspace_id=w.id AND p.id=$3 AND p.archived_at IS NULL
  WHERE w.id=$2 AND `+memberFilter+` AND ($3=0 OR (p.id IS NOT NULL AND `+visibleProject+`))`, actor, w, p).Scan(&a.ActorID, &a.WorkspaceID, &a.ProjectID, &a.Version, &a.ExpiresAt, pq.Array(&a.Actions))
 	if err != nil {

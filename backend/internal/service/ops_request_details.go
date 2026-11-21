@@ -18,6 +18,7 @@ type OpsRequestDetail struct {
 	Kind      OpsRequestKind `json:"kind"`
 	CreatedAt time.Time      `json:"created_at"`
 	RequestID string         `json:"request_id"`
+	DetailURL string         `json:"detail_url,omitempty"`
 
 	Platform string `json:"platform,omitempty"`
 	Model    string `json:"model,omitempty"`

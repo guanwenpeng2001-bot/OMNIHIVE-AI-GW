@@ -5,6 +5,8 @@ export interface SkeletonProps {
   variant?: 'line' | 'rect' | 'circle' | 'stat' | 'table-row'
   lines?: number
   columns?: number
+  height?: string
+  width?: string
   label?: string
 }
 
@@ -24,17 +26,24 @@ withDefaults(defineProps<SkeletonProps>(), {
       <div class="oh-skeleton-pulse h-3 w-20 rounded-oh-xs bg-oh-inset" />
     </div>
 
-    <div v-else-if="variant === 'table-row'" class="flex items-center gap-4 py-3">
+    <div v-else-if="variant === 'table-row'" class="space-y-2 py-2">
       <div
-        v-for="colIndex in columns"
-        :key="colIndex"
-        :class="
-          cn(
-            'oh-skeleton-pulse h-4 rounded-oh-xs bg-oh-inset',
-            colIndex === 1 ? 'w-2/5' : 'flex-1'
-          )
-        "
-      />
+        v-for="rowIndex in lines"
+        :key="rowIndex"
+        data-testid="skeleton-table-row"
+        class="flex items-center gap-4 px-3 py-2"
+      >
+        <div
+          v-for="colIndex in columns"
+          :key="colIndex"
+          :class="
+            cn(
+              'oh-skeleton-pulse h-4 rounded-oh-xs bg-oh-inset',
+              colIndex === 1 ? 'w-2/5' : 'flex-1'
+            )
+          "
+        />
+      </div>
     </div>
 
     <div
@@ -44,13 +53,16 @@ withDefaults(defineProps<SkeletonProps>(), {
 
     <div
       v-else-if="variant === 'rect'"
+      data-testid="skeleton-rect"
       class="oh-skeleton-pulse h-24 w-full rounded-oh-md bg-oh-inset"
+      :style="height || width ? { height, width } : undefined"
     />
 
     <div v-else class="space-y-2">
       <div
         v-for="lineIndex in lines"
         :key="lineIndex"
+        :style="height || width ? { height, width: lineIndex === lines && lines > 1 ? '75%' : width } : undefined"
         :class="
           cn(
             'oh-skeleton-pulse h-3.5 rounded-oh-xs bg-oh-inset',

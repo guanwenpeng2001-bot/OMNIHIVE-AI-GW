@@ -55,6 +55,9 @@ func (h *OpenAIGatewayHandler) KimiSearch(c *gin.Context) {
 		model = "kimi-search-pro"
 	}
 	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, model, "search", h.maxAccountSwitches)()
+	if c.IsAborted() {
+		return
+	}
 	setOpsRequestContext(c, model, false)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeSync))
 	auditBody, _ := json.Marshal(map[string]any{

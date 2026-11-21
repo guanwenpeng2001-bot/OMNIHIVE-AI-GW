@@ -228,6 +228,9 @@ func (h *GatewayHandler) forwardBedrockAction(c *gin.Context, admission *bedrock
 		return nil, nil, false
 	}
 	defer beginGatewayRequestPlan(c, h.openAIGatewayService, admission.key, admission.model, protocol, h.maxAccountSwitches)()
+	if c.IsAborted() {
+		return nil, nil, false
+	}
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 	result, err := forward(account)
 	if writeGatewayTPMError(c, err) {

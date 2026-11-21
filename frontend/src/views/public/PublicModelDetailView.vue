@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { computed, onMounted, ref, watch } from 'vue'
+import { applyRouteSeo } from '@/features/public/seo'
 import { useRoute, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import PublicShell from '@/components/layout/PublicShell.vue'
@@ -14,8 +15,11 @@ import type { UiTone } from '@/components/ui/types'
 import {
   evidenceStateLabel,
   formatContextTokens,
+  formatPriceSourceLabel,
   formatPublicTimestamp,
+  formatRateBandKind,
   formatRateBandPrice,
+  formatShortVersion,
   maturityLabel,
   maturityTone,
   metricsStateReason,
@@ -257,7 +261,7 @@ const visibleFacts = computed(() => (shouldCompactUndeclared.value ? declaredFac
 function displayPrice(kind: 'input' | 'output'): string {
   if (model.value?.price_state === 'free') return isZh.value ? '免费' : 'Free'
   const rate = kind === 'input' ? model.value?.input_rate : model.value?.output_rate
-  return publicTokenPrice(rate, 4, isZh.value)
+  return publicTokenPrice(rate, 'adaptive', isZh.value)
 }
 
 async function load(): Promise<void> {
@@ -267,7 +271,22 @@ async function load(): Promise<void> {
   showUndeclaredDetails.value = false
   try {
     const response = await getPublicModel(modelId.value)
-    if (currentRequest === request) detail.value = response
+    if (currentRequest === request) {
+      detail.value = response
+      const loaded = response?.model
+      if (loaded) {
+        const modelTitle = loaded.display_name || loaded.model
+        const siteName = 'OmniHive'
+        applyRouteSeo({
+          title: `${modelTitle} - ${siteName}`,
+          description: isZh.value
+            ? `${modelTitle} 的上下文窗口、支持能力、定价与实时延迟指标。`
+            : `Context window, capabilities, pricing, and live latency telemetry for ${modelTitle}.`,
+          canonicalPath: `/model-plaza/${encodeURIComponent(loaded.model || loaded.id)}`,
+          siteName
+        })
+      }
+    }
   } catch (err) {
     if (currentRequest === request) error.value = err
   } finally {
@@ -286,7 +305,7 @@ onMounted(() => void load())
         {{ isZh ? '模型广场' : 'Models' }}
       </RouterLink>
       <span>/</span>
-      <span class="min-w-0 break-all font-mono">{{ modelId }}</span>
+      <span class="min-w-0 break-all font-mono text-oh-secondary">{{ model?.model || modelId }}</span>
     </div>
 
     <Skeleton v-if="loading" class="py-4" :lines="10" :label="isZh ? '正在加载模型详情' : 'Loading model details'" />
@@ -316,17 +335,20 @@ onMounted(() => void load())
             {{ model.display_name || model.model }}
           </h1>
           <div class="flex flex-wrap items-center gap-2">
-            <code class="rounded-oh-xs border border-oh-subtle bg-oh-subtle px-2 py-0.5 font-mono text-xs text-oh-primary">
+            <code
+              v-if="model.display_name && model.display_name !== model.model"
+              class="rounded-oh-xs border border-oh-subtle bg-oh-subtle px-2 py-0.5 font-mono text-xs text-oh-primary"
+            >
               {{ model.model }}
             </code>
+            <span v-else class="font-mono text-xs text-oh-muted">
+              {{ isZh ? '调用模型标识' : 'Model Slug' }}
+            </span>
             <CopyButton
               :value="model.model"
               variant="secondary"
               :aria-label="isZh ? '复制调用模型名' : 'Copy model identifier'"
             />
-            <span v-if="model.id !== model.model" class="font-mono text-[11px] text-oh-muted">
-              ID: {{ model.id }}
-            </span>
           </div>
           <div v-if="detail?.aliases?.length" class="flex flex-wrap items-center gap-1.5 pt-1">
             <span class="font-mono text-[11px] text-oh-muted">{{ isZh ? '支持别名：' : 'Aliases:' }}</span>
@@ -366,8 +388,11 @@ onMounted(() => void load())
           <p class="mt-2 font-mono text-lg font-semibold tabular-nums text-oh-primary">
             {{ displayPrice('input') }}
           </p>
+          <p v-if="detail?.reference_price" class="mt-1 text-xs text-oh-muted">
+            {{ isZh ? 'pi-ai 参考价' : 'pi-ai reference price' }} · {{ publicTokenPrice(detail.reference_price.input_rate, 'adaptive', isZh) }}
+          </p>
           <p v-if="detail?.price_source" class="mt-1 font-mono text-[11px] text-oh-muted">
-            {{ isZh ? `定价源：${detail.price_source}` : `Source: ${detail.price_source}` }}
+            {{ isZh ? `定价源：${formatPriceSourceLabel(detail.price_source, true)}` : `Source: ${formatPriceSourceLabel(detail.price_source, false)}` }}
           </p>
         </div>
 
@@ -378,8 +403,11 @@ onMounted(() => void load())
           <p class="mt-2 font-mono text-lg font-semibold tabular-nums text-oh-primary">
             {{ displayPrice('output') }}
           </p>
-          <p v-if="detail?.price_version" class="mt-1 truncate font-mono text-[11px] text-oh-muted">
-            {{ isZh ? `费率快照 ${detail.price_version}` : `Rate rev ${detail.price_version}` }}
+          <p v-if="detail?.reference_price" class="mt-1 text-xs text-oh-muted">
+            {{ isZh ? 'pi-ai 参考价' : 'pi-ai reference price' }} · {{ publicTokenPrice(detail.reference_price.output_rate, 'adaptive', isZh) }}
+          </p>
+          <p v-if="detail?.price_version" class="mt-1 truncate font-mono text-[11px] text-oh-muted" :title="detail.price_version">
+            {{ isZh ? `费率快照 ${formatShortVersion(detail.price_version)}` : `Snapshot ${formatShortVersion(detail.price_version)}` }}
           </p>
         </div>
 
@@ -649,7 +677,7 @@ onMounted(() => void load())
               class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-xs"
             >
               <div>
-                <span class="font-medium text-oh-primary">{{ band.label || band.kind }}</span>
+                <span class="font-medium text-oh-primary">{{ formatRateBandKind(band.label || band.kind, isZh) }}</span>
                 <span v-if="band.min_tokens || band.max_tokens" class="ml-2 font-mono text-[11px] text-oh-muted">
                   [{{ formatContextTokens(band.min_tokens) }} – {{ band.max_tokens ? formatContextTokens(band.max_tokens) : '∞' }}]
                 </span>

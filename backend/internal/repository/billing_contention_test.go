@@ -194,3 +194,15 @@ func TestBillingFinancialRowLockOrder(t *testing.T) {
 	require.NoError(t, tx.Rollback())
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestBillingAdmissionOverlapsIndependentReceiptPreparation(t *testing.T) {
+	q := newBillingAdmission(32, 1024, 64)
+	first, err := q.acquire(t.Context(), 1)
+	require.NoError(t, err)
+	defer first()
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	second, err := q.acquire(ctx, 1)
+	require.NoError(t, err)
+	second()
+}

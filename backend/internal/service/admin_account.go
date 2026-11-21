@@ -650,6 +650,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		return nil, err
 	}
 	defer s.captureRuntimeInvalidation(ctx, account)()
+	if groupOnlyAccountUpdate(input) {
+		return s.updateAccountGroupsOnly(ctx, account, input)
+	}
 	previousCredentials := account.Credentials
 	if err := validateCompatibleSpecialAuthTransition(account, input.Credentials); err != nil {
 		return nil, err
@@ -1507,10 +1510,15 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filte
 func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {
 	if s.runtimeInvalidator != nil {
 		account, err := s.accountRepo.GetByID(ctx, id)
-		if err != nil {
+		switch {
+		case err == nil:
+			defer s.captureRuntimeInvalidation(ctx, account)()
+		case IsCredentialUnusable(err):
+			// An account whose stored credential cannot be resolved has no
+			// usable runtime state; the operator must still be able to remove it.
+		default:
 			return err
 		}
-		defer s.captureRuntimeInvalidation(ctx, account)()
 	}
 
 	// 级联删除 spark 影子账号（先删影子，再删母账号）

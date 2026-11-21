@@ -1,0 +1,7 @@
+{
+  "name": "omnihive-pi-catalog",
+  "private": true,
+  "dependencies": {
+    "@mariozechner/pi-ai": "0.73.1"
+  }
+}

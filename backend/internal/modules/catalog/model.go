@@ -191,6 +191,7 @@ type Benchmark struct {
 }
 
 type Detail struct {
+	ReferencePrice   *Price          `json:"reference_price,omitempty"`
 	EligibleGroups   []int64         `json:"-"`
 	Model            Summary         `json:"model"`
 	Aliases          []string        `json:"aliases"`

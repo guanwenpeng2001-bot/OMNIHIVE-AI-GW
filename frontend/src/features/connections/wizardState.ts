@@ -1,5 +1,7 @@
 import type { UiStepItem, UiStepStatus } from '@/components/ui'
 import {
+  buildHeaderOverridesMap,
+  hasUnavailableVerificationEvidence,
   isAllowedCredentialType,
   isOAuthWorkflowSupported,
   isVerificationFresh,
@@ -11,6 +13,7 @@ import type {
   AsyncErrorContext,
   ConnectionCredentialInput,
   ConnectionItem,
+  ConnectionPatch,
   ConnectionPreview,
   ConnectionResource,
   ConnectionSchema,
@@ -28,6 +31,16 @@ export const WIZARD_STEP_ORDER: readonly WizardStepId[] = [
   'preview',
   'activate'
 ]
+
+export interface PersistedConnectionSnapshot {
+  name: string
+  endpoint: string
+  networkPolicyId: string
+  headerOverrides: Record<string, string>
+  modelIds: string[]
+  poolIds: string[]
+  concurrency: number
+}
 
 export interface ConnectionWizardState {
   mode: 'create' | 'edit'
@@ -57,6 +70,118 @@ export interface ConnectionWizardState {
   previewStale: boolean
   confirmedVersion: string | null
   asyncError: AsyncErrorContext | null
+  persistedSnapshot?: PersistedConnectionSnapshot | null
+}
+
+function normalizeSnapshotEndpoint(endpoint: string): string {
+  return endpoint.trim().replace(/\/+$/, '')
+}
+
+function normalizeSnapshotPolicyId(policyId: string): string {
+  const trimmed = policyId.trim()
+  return trimmed.toLowerCase() === 'default' ? '' : trimmed
+}
+
+export function createPersistedSnapshotFromState(
+  state: Pick<
+    ConnectionWizardState,
+    'name' | 'endpoint' | 'networkPolicyId' | 'headerOverrides' | 'modelIds' | 'poolIds' | 'concurrency'
+  >
+): PersistedConnectionSnapshot {
+  return {
+    name: state.name.trim(),
+    endpoint: normalizeSnapshotEndpoint(state.endpoint),
+    networkPolicyId: normalizeSnapshotPolicyId(state.networkPolicyId),
+    headerOverrides: buildHeaderOverridesMap(state.headerOverrides),
+    modelIds: [...state.modelIds],
+    poolIds: [...state.poolIds],
+    concurrency: state.concurrency
+  }
+}
+
+function stringArraysEqual(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
+}
+
+function stringMapsEqual(a: Record<string, string>, b: Record<string, string>): boolean {
+  const keysA = Object.keys(a)
+  const keysB = Object.keys(b)
+  if (keysA.length !== keysB.length) return false
+  for (const key of keysA) {
+    if (!Object.prototype.hasOwnProperty.call(b, key) || a[key] !== b[key]) {
+      return false
+    }
+  }
+  return true
+}
+
+export function buildMinimalConnectionPatch(
+  state: ConnectionWizardState,
+  options: { includeAssignments?: boolean; supportsHeaderOverrides?: boolean } = {}
+): ConnectionPatch | null {
+  const includeAssignments = options.includeAssignments ?? true
+  const supportsHeaderOverrides = options.supportsHeaderOverrides ?? false
+  const baseline = state.persistedSnapshot ?? null
+  const nextName = state.name.trim()
+  const nextEndpoint = normalizeSnapshotEndpoint(state.endpoint)
+  const nextPolicyId = normalizeSnapshotPolicyId(state.networkPolicyId)
+  const nextHeaders = buildHeaderOverridesMap(state.headerOverrides)
+
+  if (!baseline) {
+    const fallbackPatch: ConnectionPatch = {
+      name: nextName,
+      endpoint: nextEndpoint,
+      network_policy_id: nextPolicyId,
+      ...(supportsHeaderOverrides ? { header_overrides: nextHeaders } : {})
+    }
+    if (includeAssignments) {
+      fallbackPatch.model_ids = [...state.modelIds]
+      fallbackPatch.pool_ids = [...state.poolIds]
+      fallbackPatch.limits = { concurrency: state.concurrency }
+    }
+    return fallbackPatch
+  }
+
+  const patch: ConnectionPatch = {}
+  let hasChanges = false
+
+  if (nextName !== baseline.name) {
+    patch.name = nextName
+    hasChanges = true
+  }
+  if (nextEndpoint !== baseline.endpoint) {
+    patch.endpoint = nextEndpoint
+    hasChanges = true
+  }
+  if (nextPolicyId !== baseline.networkPolicyId) {
+    patch.network_policy_id = nextPolicyId
+    hasChanges = true
+  }
+  if (supportsHeaderOverrides && !stringMapsEqual(nextHeaders, baseline.headerOverrides)) {
+    patch.header_overrides = nextHeaders
+    hasChanges = true
+  }
+
+  if (includeAssignments) {
+    if (!stringArraysEqual(state.modelIds, baseline.modelIds)) {
+      patch.model_ids = [...state.modelIds]
+      hasChanges = true
+    }
+    if (!stringArraysEqual(state.poolIds, baseline.poolIds)) {
+      patch.pool_ids = [...state.poolIds]
+      hasChanges = true
+    }
+    if (state.concurrency !== baseline.concurrency) {
+      patch.limits = { concurrency: state.concurrency }
+      hasChanges = true
+    }
+  }
+
+  return hasChanges ? patch : null
 }
 
 export function createInitialWizardState(mode: 'create' | 'edit' = 'create'): ConnectionWizardState {
@@ -87,7 +212,8 @@ export function createInitialWizardState(mode: 'create' | 'edit' = 'create'): Co
     preview: null,
     previewStale: false,
     confirmedVersion: null,
-    asyncError: null
+    asyncError: null,
+    persistedSnapshot: null
   }
 }
 
@@ -105,6 +231,8 @@ export function hydrateWizardFromResource(
         value: String(value ?? '')
       }))
     : state.headerOverrides
+  const normalizedPolicyId = normalizeSnapshotPolicyId(resource.network_policy_id)
+  const concurrency = resource.limits?.concurrency ?? 4
   return {
     ...state,
     mode: preserveCreateDraftMode ? 'create' : 'edit',
@@ -119,7 +247,7 @@ export function hydrateWizardFromResource(
     authType: resource.auth_type,
     name: resource.name,
     endpoint: resource.endpoint,
-    networkPolicyId: resource.network_policy_id,
+    networkPolicyId: normalizedPolicyId,
     headerOverrides,
     credentialMode: nextCredentialState === 'unset' ? 'set' : 'keep',
     credentialSecret: '',
@@ -128,11 +256,22 @@ export function hydrateWizardFromResource(
     verificationStale: resource.last_verification ? !isVerificationFresh(resource.last_verification) : false,
     modelIds: [...resource.model_ids],
     poolIds: [...resource.pool_ids],
-    concurrency: resource.limits?.concurrency ?? 4,
+    concurrency,
     preview: null,
     previewStale: false,
     confirmedVersion: resource.state === 'active' ? resource.version : null,
-    asyncError: null
+    asyncError: null,
+    persistedSnapshot: {
+      name: resource.name.trim(),
+      endpoint: normalizeSnapshotEndpoint(resource.endpoint),
+      networkPolicyId: normalizedPolicyId,
+      headerOverrides: resource.header_overrides
+        ? { ...resource.header_overrides }
+        : buildHeaderOverridesMap(headerOverrides),
+      modelIds: [...resource.model_ids],
+      poolIds: [...resource.pool_ids],
+      concurrency
+    }
   }
 }
 
@@ -141,14 +280,16 @@ export function invalidateVerification(state: ConnectionWizardState): Connection
     ...state,
     verificationStale: state.verification !== null,
     preview: null,
-    previewStale: state.preview !== null
+    previewStale: state.preview !== null,
+    confirmedVersion: null
   }
 }
 
 export function invalidatePreview(state: ConnectionWizardState): ConnectionWizardState {
   return {
     ...state,
-    previewStale: state.preview !== null
+    previewStale: state.preview !== null,
+    confirmedVersion: null
   }
 }
 
@@ -317,6 +458,14 @@ export function canProceedFromStep(
           : 'Resolve failed verification checks before previewing.'
       }
     }
+    if (hasUnavailableVerificationEvidence(state.verification)) {
+      return {
+        valid: false,
+        reason: isZh
+          ? '验证探测未能获取有效能力证据（EVIDENCE_UNAVAILABLE），请重试验证探针或先保存为草稿并退出。'
+          : 'Verification evidence is unavailable (EVIDENCE_UNAVAILABLE). Retry verification probe or save as draft and exit.'
+      }
+    }
     return { valid: true }
   }
 
@@ -363,7 +512,13 @@ export function getWizardStepStatuses(
     if (stepId === state.currentStep) {
       status = state.asyncError ? 'error' : 'current'
     } else if (idx < currentIdx) {
-      if (stepId === 'verify' && (state.verificationStale || !isVerificationFresh(state.verification, nowMs))) {
+      if (
+        stepId === 'verify' &&
+        (state.verificationStale ||
+          !isVerificationFresh(state.verification, nowMs) ||
+          hasUnavailableVerificationEvidence(state.verification) ||
+          Boolean(state.verification?.checks.some((check) => check.state === 'failed')))
+      ) {
         status = 'warning'
       } else if (stepId === 'preview' && state.previewStale) {
         status = 'warning'

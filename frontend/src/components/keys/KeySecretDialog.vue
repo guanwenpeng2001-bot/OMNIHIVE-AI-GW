@@ -24,7 +24,7 @@
         </button>
       </div>
 
-      <p v-if="copied" role="status" class="font-mono text-xs text-[var(--oh-accent-ink,var(--brand-text,#d97706))]">
+      <p v-if="copied" role="status" class="font-mono text-xs text-oh-accent-text">
         ✓ {{ t('keys.copied') }}
       </p>
 

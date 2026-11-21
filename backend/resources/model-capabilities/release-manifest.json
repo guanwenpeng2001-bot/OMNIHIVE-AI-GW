@@ -89,7 +89,7 @@
     "internal/pkg/capabilitysources/sources.go": "53bfce114f855e398cd9bfe2752e564bca7f6414cad154963143650e21d5f25e",
     "internal/service/compatible_billing_plan.go": "1d119033a7a90def5439a199c1a936983636b07ebf7d2e8e566aefc6721e75f8",
     "internal/service/compatible_provider_runtime.go": "eda64e73176c8e5116cfd880b1a1147606c46ba1d169a8e3d2a47863ebf7e5d8",
-    "internal/service/model_capability_catalog.go": "1f0052d680cfab199a4f51ec51c40e8fcd4c2abfbf7a0cce921e55f64f051870",
+    "internal/service/model_capability_catalog.go": "cece1f37a4b64e4d731eba89d72fd55030ed27ac124ee30e25e81d4c656f923d",
     "internal/service/model_capability_heuristics.go": "fb24fd608d08e741502c3ae77439c98629cab454c160d2f43d24f0b46f5c9dda",
     "internal/service/model_capability_matcher.go": "241f1e4d4ce1aa7c46d95d5c294cbcfe345a907a8c4485bdea71f38ef38e49b5",
     "internal/service/model_capability_profile.go": "82de553037d94f266f3ded47cf475149153291cc4b0e2f9159a0ea89a29621ae",

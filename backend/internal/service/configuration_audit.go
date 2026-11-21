@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"sort"
+	"strings"
 )
 
 type ConfigurationAuditActor struct {
@@ -30,8 +31,8 @@ func ConfigurationActor(ctx context.Context) ConfigurationAuditActor {
 type ConfigurationFieldDiff struct {
 	Field     string `json:"field"`
 	Operation string `json:"operation"`
-	Before    string `json:"before,omitempty"`
-	After     string `json:"after,omitempty"`
+	Before    any    `json:"before"`
+	After     any    `json:"after"`
 }
 
 func ConfigurationDiff(before, after map[string]any) []ConfigurationFieldDiff {
@@ -55,14 +56,24 @@ func ConfigurationDiff(before, after map[string]any) []ConfigurationFieldDiff {
 			continue
 		}
 		change := ConfigurationFieldDiff{Field: field, Operation: "replace"}
-		if existed {
-			change.Before = "[redacted]"
+		if isAuditSensitiveBodyKey(field) || strings.Contains(auditNormalizeBodyKey(field), "credential") {
+			if existed {
+				change.Before = "changed"
+			}
+			if exists {
+				change.After = "changed"
+			}
 		} else {
-			change.Operation = "add"
+			if existed {
+				change.Before = redactAuditValue(previous, 0)
+			}
+			if exists {
+				change.After = redactAuditValue(current, 0)
+			}
 		}
-		if exists {
-			change.After = "[redacted]"
-		} else {
+		if !existed {
+			change.Operation = "add"
+		} else if !exists {
 			change.Operation = "remove"
 		}
 		changes = append(changes, change)

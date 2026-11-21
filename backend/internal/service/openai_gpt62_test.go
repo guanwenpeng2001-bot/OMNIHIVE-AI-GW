@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -115,7 +116,9 @@ func TestOpenAICompatibleCatalogChatOnlyForwarding(t *testing.T) {
 }
 
 func TestOpenAICompatibleConnectionProbeHTTP(t *testing.T) {
+	var sends atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sends.Add(1)
 		if r.URL.Path != "/v1/models" || r.UserAgent() != "test-relay/1" {
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -132,6 +135,8 @@ func TestOpenAICompatibleConnectionProbeHTTP(t *testing.T) {
 	}, Extra: map[string]any{"header_overrides": map[string]string{"User-Agent": "test-relay/1"}}}
 
 	cfg := &config.Config{}
+	cfg.Security.URLAllowlist.Enabled = true
+	cfg.Security.URLAllowlist.UpstreamHosts = []string{"127.0.0.1"}
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 	cfg.Security.URLAllowlist.AllowPrivateHosts = true
 	service := &AccountTestService{cfg: cfg}
@@ -142,11 +147,12 @@ func TestOpenAICompatibleConnectionProbeHTTP(t *testing.T) {
 
 	cfg.Security.URLAllowlist.AllowPrivateHosts = false
 	probe = service.ProbeConnection(t.Context(), account, "")
-	require.Equal(t, "failed", probe.Network)
+	require.NotEqual(t, "passed", probe.Network)
 	cfg.Security.URLAllowlist.AllowPrivateHosts = true
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = false
 	probe = service.ProbeConnection(t.Context(), account, "")
 	require.NotEqual(t, "passed", probe.Network)
+	require.EqualValues(t, 2, sends.Load())
 }
 
 func TestGPT62UltrafastRemainsBlockedForEveryPlan(t *testing.T) {

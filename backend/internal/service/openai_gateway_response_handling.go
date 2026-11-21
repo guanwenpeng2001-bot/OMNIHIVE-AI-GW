@@ -1379,6 +1379,10 @@ func logOpenAISuccessMissingUsage(ctx context.Context, c *gin.Context, account *
 }
 
 func extractOpenAIUsageFromJSONBytes(body []byte) (OpenAIUsage, bool) {
+	return extractObservedOpenAIUsage(body, nil)
+}
+
+func extractObservedOpenAIUsage(body []byte, observation *TokenUsageObservation) (OpenAIUsage, bool) {
 	if len(body) == 0 || !gjson.ValidBytes(body) {
 		return OpenAIUsage{}, false
 	}
@@ -1396,7 +1400,23 @@ func extractOpenAIUsageFromJSONBytes(body []byte) (OpenAIUsage, bool) {
 		{usagePath: "data.response.usage", imageUsagePath: "data.response.tool_usage.image_gen"},
 	}
 	for _, candidate := range candidates {
-		if usage, ok := openAIUsageFromGJSON(gjson.GetBytes(body, candidate.usagePath)); ok {
+		value := gjson.GetBytes(body, candidate.usagePath)
+		if usage, ok := openAIUsageFromGJSON(value); ok {
+			if observation != nil {
+				raw := []byte(value.Raw)
+				known := func(primary, alias string) bool {
+					if value.Get(primary).Exists() {
+						_, valid := openRouterCounter(raw, primary)
+						if !valid || value.Get(primary).Int() != 0 || !value.Get(alias).Exists() {
+							return valid
+						}
+					}
+					_, valid := openRouterCounter(raw, alias)
+					return valid
+				}
+				observation.InputTokensKnown = known("input_tokens", "prompt_tokens")
+				observation.OutputTokensKnown = known("output_tokens", "completion_tokens")
+			}
 			mergeHostedImageGenToolUsage(gjson.GetBytes(body, candidate.imageUsagePath), &usage)
 			return usage, true
 		}

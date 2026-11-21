@@ -77,10 +77,6 @@ func ProvideRouter(
 	redisClient *redis.Client,
 	db *sql.DB,
 ) *gin.Engine {
-	if cfg.Server.Mode == "release" {
-		gin.SetMode(gin.ReleaseMode)
-	}
-
 	r := gin.New()
 	r.Use(middleware2.Recovery())
 	configureTrustedProxies(r, cfg.Server)
@@ -138,7 +134,7 @@ func configureTrustedProxies(r *gin.Engine, cfg config.ServerConfig) {
 			log.Printf("Failed to disable trusted proxies: %v", err)
 		}
 		if cfg.Mode == "release" {
-			log.Printf("Warning: server.trusted_proxies is not configured; disabling the forwarded-IP compatibility switch will use direct peer addresses only")
+			log.Printf("Warning: server.trusted_proxies is not configured; using direct peer addresses only")
 		}
 	}
 }

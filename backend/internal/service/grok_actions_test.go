@@ -151,6 +151,9 @@ func TestGrokActionsMediaWireBudgetAndCancellation(t *testing.T) {
 			ctx, cancel := WithAttemptBudget(context.Background(), 1, time.Minute)
 			defer cancel()
 			body := []byte(`{"model":"grok-imagine-video","prompt":"A moving cloud","image":{"url":"https://example.com/input.png"},"video":{"url":"https://example.com/input.mp4"},"duration":5,"resolution":"720p"}`)
+			if fixture.endpoint == GrokMediaEndpointImagesGenerations || fixture.endpoint == GrokMediaEndpointImagesEdits {
+				body = []byte(`{"model":"grok-imagine-video","prompt":"A moving cloud","image":{"url":"https://example.com/input.png"},"resolution":"1k"}`)
+			}
 			result, err := service.ForwardGrokMedia(ctx, requestContext, grokMediaContentTestAccount(), fixture.endpoint, "", body, "application/json")
 			require.NoError(t, err)
 			require.Equal(t, "/v1/"+fixture.path, upstream.request.URL.Path)

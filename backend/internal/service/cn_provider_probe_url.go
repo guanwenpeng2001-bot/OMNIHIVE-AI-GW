@@ -25,22 +25,13 @@ func cnValidateProbeURL(cfg *config.Config, raw string) (string, error) {
 	if trimmed == "" {
 		return "", errors.New("probe url is required")
 	}
-	if cfg != nil && cfg.Security.URLAllowlist.Enabled {
-		normalized, err := urlvalidator.ValidateHTTPSURL(trimmed, urlvalidator.ValidationOptions{
-			AllowedHosts:     cfg.Security.URLAllowlist.UpstreamHosts,
-			RequireAllowlist: true,
-			AllowPrivate:     cfg.Security.URLAllowlist.AllowPrivateHosts,
-		})
-		if err != nil {
-			return "", fmt.Errorf("probe target rejected by URL security policy: %w", err)
-		}
-		return normalized, nil
-	}
 	var allowInsecureHTTP bool
+	var options urlvalidator.ValidationOptions
 	if cfg != nil {
 		allowInsecureHTTP = cfg.Security.URLAllowlist.AllowInsecureHTTP
+		options = urlvalidator.ValidationOptions{AllowedHosts: cfg.Security.URLAllowlist.UpstreamHosts, RequireAllowlist: cfg.Security.URLAllowlist.Enabled, AllowPrivate: cfg.Security.URLAllowlist.AllowPrivateHosts}
 	}
-	normalized, err := urlvalidator.ValidateURLFormat(trimmed, allowInsecureHTTP)
+	normalized, err := urlvalidator.ValidateHTTPURL(trimmed, allowInsecureHTTP, options)
 	if err != nil {
 		return "", fmt.Errorf("probe target rejected by URL security policy: %w", err)
 	}

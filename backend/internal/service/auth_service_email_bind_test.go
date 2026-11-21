@@ -877,6 +877,24 @@ type emailBindRefreshTokenCacheStub struct {
 	tokens   map[string]*service.RefreshTokenData
 	userSets map[int64]map[string]struct{}
 	families map[string]map[string]struct{}
+	revoked  map[string]struct{}
+}
+
+func (s *emailBindRefreshTokenCacheStub) RevokeSessionFamily(_ context.Context, familyID string, _ time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.revoked == nil {
+		s.revoked = map[string]struct{}{}
+	}
+	s.revoked[familyID] = struct{}{}
+	return nil
+}
+
+func (s *emailBindRefreshTokenCacheStub) IsSessionFamilyRevoked(_ context.Context, familyID string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.revoked[familyID]
+	return ok, nil
 }
 
 func newEmailBindRefreshTokenCacheStub() *emailBindRefreshTokenCacheStub {

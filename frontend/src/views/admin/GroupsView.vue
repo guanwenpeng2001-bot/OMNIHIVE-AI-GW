@@ -3740,6 +3740,10 @@ const loadModelAllowlistCandidates = async (
   const requestID = modelAllowlistCandidatesTracker.next(request);
   const state = mode === "create" ? createModelAllowlistState : editModelAllowlistState;
   const loadingRef = mode === "create" ? createModelAllowlistLoading : editModelAllowlistLoading;
+  if (mode === "create" || !Number.isFinite(groupID) || groupID <= 0) {
+    loadingRef.value = false;
+    return;
+  }
   loadingRef.value = true;
   try {
     const models = await adminAPI.groups.getModelAllowlistCandidates(groupID, platform);
@@ -4106,8 +4110,10 @@ const cancelUnsupportedLive = () => {
 
 const openCreateModal = () => {
   groupConfigSection.value = "all";
+  createModelAllowlistLoading.value = false;
+  createAllowlistCustomEntry.value = "";
+  createAllowlistCustomErrorKey.value = null;
   showCreateModal.value = true;
-  loadModelAllowlistCandidates("create", 0, createForm.platform);
 };
 
 const closeCreateModal = () => {
@@ -4173,6 +4179,9 @@ const closeCreateModal = () => {
   createForm.reasoning_effort_mappings = [];
   createReasoningEffortPolicyRef.value?.resetValidation();
   resetModelAllowlistState(createModelAllowlistState);
+  createModelAllowlistLoading.value = false;
+  createAllowlistCustomEntry.value = "";
+  createAllowlistCustomErrorKey.value = null;
   createModelRoutingRules.value = [];
 };
 
@@ -4873,7 +4882,8 @@ watch(
     }
     resetDisabledBatchImagePricing(createForm);
     resetModelAllowlistState(createModelAllowlistState);
-    loadModelAllowlistCandidates("create", 0, newVal);
+    createModelAllowlistLoading.value = false;
+    createAllowlistCustomErrorKey.value = null;
   },
 );
 
@@ -4929,7 +4939,7 @@ watch(
       editForm.require_privacy_set = false;
     }
     resetDisabledBatchImagePricing(editForm);
-    if (editingGroup.value) {
+    if (editingGroup.value && showEditModal.value) {
       resetModelAllowlistState(editModelAllowlistState, editForm.platform === editingGroup.value.platform ? editingGroup.value.model_allowlist : undefined);
       loadModelAllowlistCandidates("edit", editingGroup.value.id, newVal);
     }
@@ -4984,7 +4994,6 @@ onMounted(() => {
   loadGroups();
   if (!authStore.isSimpleMode) {
     void loadLiveCapability();
-    loadModelAllowlistCandidates("create", 0, createForm.platform);
   }
   document.addEventListener("click", handleClickOutside);
 });

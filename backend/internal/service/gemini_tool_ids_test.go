@@ -244,7 +244,7 @@ func TestGeminiToolIDsResponsePreservation(t *testing.T) {
 			require.NoError(t, marshalErr)
 			_, _ = events.WriteString("data: " + string(chunk) + "\n\n")
 		}
-		_, _ = events.WriteString("data: {\"candidates\":[{\"finishReason\":\"STOP\"}]}\n\n") // strings.Builder writes cannot fail.
+		_, _ = events.WriteString("data: {\"candidates\":[{\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":1,\"candidatesTokenCount\":2}}\n\n") // strings.Builder writes cannot fail.
 		upstream := &http.Response{Body: io.NopCloser(strings.NewReader(events.String()))}
 		collected, _, collectErr := collectGeminiSSE(nil, strings.NewReader(events.String()), false)
 		require.NoError(t, collectErr)

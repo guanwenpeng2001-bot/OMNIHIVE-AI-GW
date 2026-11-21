@@ -230,6 +230,9 @@ func (h *OpenAIGatewayHandler) handleAPIKeyMediaAction(c *gin.Context, platform 
 
 	reqLog = reqLog.With(zap.String("model", requestModel))
 	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, requestModel, mistralActionPlanProtocol(kind), h.maxAccountSwitches)()
+	if c.IsAborted() {
+		return
+	}
 	// 入口前置 hold：媒体/音频/realtime/异步 job 在调用上游之前先按估算占用周期预算，
 	// 结算时按实际消耗修正；没有周期预算的 Key 不产生额外工作（T3-2.2）。
 	if !reserveGatewayRequestBudget(c, apiKey, requestModel, body) {

@@ -50,10 +50,38 @@ type UsageBillingCommand struct {
 	// the balance twice. It is additive: old receipts decode as 0 and keep the
 	// legacy deduction path.
 	BudgetReservationID   int64
+	ProjectWorkspaceID    int64        `json:"project_workspace_id,omitempty"`
+	ProjectID             int64        `json:"project_id,omitempty"`
 	ProjectReservationRef string       `json:"project_reservation_ref,omitempty"`
 	Estimate              *money.Money `json:"estimate,omitempty"`
 	Reserved              *money.Money `json:"reserved,omitempty"`
 	ChargedAmount         *money.Money `json:"charged_amount,omitempty"`
+}
+
+// BindFrozenCharge also upgrades pending receipts produced before the exact
+// money field existed. The snapshot remains the financial source of truth.
+func (c *UsageBillingCommand) BindFrozenCharge(snapshot string) error {
+	charge, err := frozenReceiptCharge(snapshot)
+	if err != nil {
+		return err
+	}
+	if c.ChargedAmount != nil && (charge == nil || c.ChargedAmount.Currency() != charge.Currency() || c.ChargedAmount.String() != charge.String()) {
+		return ErrInvalidBillingAmount
+	}
+	c.ChargedAmount = charge
+	return nil
+}
+
+// CustomerEffect returns the exact frozen charge for a selected customer
+// effect. Legacy commands retain their original eight-place amount.
+func (c *UsageBillingCommand) CustomerEffect(legacy float64) decimal.Decimal {
+	if legacy == 0 {
+		return decimal.Zero
+	}
+	if c.ChargedAmount != nil {
+		return decimal.RequireFromString(c.ChargedAmount.String())
+	}
+	return quantizedBillingDecimal(legacy)
 }
 
 func (c *UsageBillingCommand) Normalize() {

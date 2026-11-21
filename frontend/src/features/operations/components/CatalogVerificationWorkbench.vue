@@ -61,6 +61,13 @@ const accountModeOptions = computed(() =>
   }))
 )
 
+const rolloutWorkspace = ref('1')
+const rolloutChannelPath = computed(() => {
+  const workspace = rolloutWorkspace.value.trim()
+  if (!isValidPositiveIntString(workspace)) return undefined
+  return workspace === '1' ? '/admin/channels/pricing' : `/workspaces/${workspace}/channels/pricing`
+})
+
 const sessionTargets = ref<CatalogVerificationTarget[]>([])
 const activeTargetDetail = ref<CatalogVerificationTargetDetail | null>(null)
 const lastProbeOperation = ref<CatalogVerificationOperation | null>(null)
@@ -98,7 +105,7 @@ function handleCatalogFailure(cause: unknown, fallbackZh: string, fallbackEn: st
 const targetProvider = ref('openai')
 const targetModel = ref('')
 const targetConnectionId = ref('')
-const targetAdapterVersion = ref('2026.1')
+const targetAdapterVersion = ref('ad_openai_chat_responses_v1')
 const targetAction = ref('text.chat')
 const targetAccountMode = ref<CatalogAccountMode>('api_key')
 const targetProtocol = ref('openai_chat')
@@ -474,7 +481,7 @@ const probeProvider = ref('openai')
 const probeModel = ref('')
 const probeEntryIdOverride = ref('')
 const probeConnectionId = ref('')
-const probeAdapterVersion = ref('2026.1')
+const probeAdapterVersion = ref('ad_openai_chat_responses_v1')
 const probeAction = ref('text.chat')
 const probeAccountMode = ref<CatalogAccountMode>('api_key')
 const probeProtocol = ref('openai_chat')
@@ -623,6 +630,21 @@ function formatOperationState(state: string): string {
     :subtitle="isZh ? '注册平台模型核验目标、管理周期探测计划、立即触发真实探测并按证据推进兼容性生命周期发布。' : 'Register verification targets, manage recurring probe schedules, trigger immediate catalog probes, and publish evidence-backed compatibility states.'"
   >
     <div class="space-y-4">
+      <p class="text-sm">
+        {{ isZh
+          ? '核验目标只接受平台工作区（#1）的活动连接。提供商、账号模式和协议须与连接一致。OpenAI Chat 经 Responses 桥接时，使用 ad_openai_chat_responses_v1，成功探测会自动运行兼容性 fixture。其他适配器请填写实际版本。'
+          : 'Use an active platform workspace (#1) connection with the matching provider, account mode and protocol. For OpenAI Chat over the Responses bridge, use ad_openai_chat_responses_v1 to run the compatibility fixture on a successful probe. For other adapters enter their actual version.' }}
+      </p>
+      <p class="text-sm">
+        {{ isZh
+          ? 'experimental 已可用于上线。要在项目目录和 Playground 使用模型，请在目标工作区将已验证账号加入项目分组，将活动渠道关联该分组，保存后重新编辑渠道，确认并保存该模型。公开广场读取平台工作区的公开分组。'
+          : 'Experimental is sufficient for rollout. In the target workspace, add the verified account to a project group, associate an active channel with the group, then save and reopen the channel to confirm the model. The public plaza reads public groups in the platform workspace.' }}
+      </p>
+      <div class="flex flex-wrap items-end gap-3">
+        <Input id="catalog-rollout-workspace" v-model="rolloutWorkspace" size="sm"
+          :label="isZh ? '上线目标工作区 ID' : 'Rollout workspace ID'" />
+        <a v-if="rolloutChannelPath" :href="rolloutChannelPath" data-testid="catalog-channel-setup" class="underline">{{ isZh ? '管理渠道与广场展示' : 'Manage channels and plaza visibility' }}</a>
+      </div>
       <div
         v-if="permissionDenied"
         role="alert"
@@ -701,7 +723,7 @@ function formatOperationState(state: string): string {
               size="sm"
               mono
               :label="isZh ? '适配器版本' : 'Adapter Version'"
-              placeholder="2026.1"
+              placeholder="ad_openai_chat_responses_v1"
             />
             <Input
               id="catalog-target-action"
@@ -807,7 +829,7 @@ function formatOperationState(state: string): string {
               size="sm"
               mono
               :label="isZh ? '适配器版本' : 'Adapter Version'"
-              placeholder="2026.1"
+              placeholder="ad_openai_chat_responses_v1"
             />
             <Input
               id="catalog-probe-action"

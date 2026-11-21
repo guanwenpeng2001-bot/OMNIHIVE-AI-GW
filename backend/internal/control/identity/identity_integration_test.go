@@ -338,10 +338,43 @@ func TestProjectKeyGroupBinding(t *testing.T) {
 	exec("INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'admin')", w, user)
 	group := id("INSERT INTO groups(workspace_id,name,platform,is_exclusive) VALUES($1,$2,'openai',true) RETURNING id", w, uuid.NewString())
 	store := postgres.New(db)
-	in := domain.CreateKey{Name: "scoped", Actions: []string{"text.chat"}, GroupID: &group, ModelAccess: domain.ModelAccess{Mode: "inherit"}}
-	_, err := store.CreateKey(ctx, user, w, p, in, "wrong-project")
+	engine := gin.New()
+	actor := user
+	control.Register(engine.Group("/api/v2"), control.New(store, domain.Operations{}, &config.Config{}), func(c *gin.Context) {
+		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: actor})
+	})
+	base := fmt.Sprintf("/api/v2/workspaces/%d/projects/%d", w, p)
+	call := func(method, suffix string, status int) []byte {
+		t.Helper()
+		req := httptest.NewRequest(method, base+suffix, nil)
+		rec := httptest.NewRecorder()
+		engine.ServeHTTP(rec, req)
+		require.Equal(t, status, rec.Code, rec.Body.String())
+		return rec.Body.Bytes()
+	}
+	binding := fmt.Sprintf("/groups/%d", group)
+	other := id("INSERT INTO workspaces(name) VALUES('another workspace') RETURNING id")
+	foreign := id("INSERT INTO groups(workspace_id,name,platform) VALUES($1,$2,'openai') RETURNING id", other, uuid.NewString())
+	call("PUT", fmt.Sprintf("/groups/%d", foreign), 404)
+	foreignKey := domain.CreateKey{Name: "foreign", Actions: []string{"text.chat"}, GroupID: &foreign, ModelAccess: domain.ModelAccess{Mode: "inherit"}}
+	_, err := store.CreateKey(ctx, user, w, p, foreignKey, "foreign")
 	require.ErrorIs(t, err, fault.NotFound)
-	exec("INSERT INTO project_resources(kind,resource_id,workspace_id,project_id) VALUES('groups',$1,$2,$3)", group, w, p)
+	member := id("INSERT INTO users(email,password_hash) VALUES($1,'fixture') RETURNING id", uuid.NewString()+"@example.test")
+	exec("INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'member')", w, member)
+	_, err = store.SetGrants(ctx, user, w, member, 1, []int64{p}, []string{"projects.edit", "keys.create"})
+	require.NoError(t, err)
+	actor = member
+	call("PUT", binding, 403)
+	actor = user
+
+	in := domain.CreateKey{Name: "scoped", Actions: []string{"text.chat"}, GroupID: &group, ModelAccess: domain.ModelAccess{Mode: "inherit"}}
+	_, err = store.CreateKey(ctx, user, w, p, in, "wrong-project")
+	require.ErrorIs(t, err, fault.NotFound)
+	call("PUT", binding, 200)
+	call("DELETE", binding, 200)
+	call("PUT", binding, 200)
+	require.EqualValues(t, 2, id("SELECT count(*) FROM audit_logs WHERE actor_user_id=$1 AND action='project.group.bind'", user))
+	require.NotContains(t, string(call("GET", "/key-groups", 200)), `"platform":"openai"`)
 	_, err = store.CreateKey(ctx, user, w, p, in, "exclusive")
 	require.ErrorIs(t, err, fault.NotFound)
 	auto := in
@@ -350,9 +383,38 @@ func TestProjectKeyGroupBinding(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), id("SELECT count(*) FROM api_keys WHERE id=$1 AND group_id IS NULL", withoutGroup.ID))
 	exec("INSERT INTO user_allowed_groups(user_id,group_id) VALUES($1,$2)", user, group)
+	var candidates struct {
+		Data struct {
+			Items []struct {
+				ID       string
+				Platform string
+			}
+		}
+	}
+	require.NoError(t, json.Unmarshal(call("GET", "/key-groups", 200), &candidates))
+	require.Len(t, candidates.Data.Items, 1)
+	require.Equal(t, strconv.FormatInt(group, 10), candidates.Data.Items[0].ID)
 	key, err := store.CreateKey(ctx, user, w, p, in, "permitted")
 	require.NoError(t, err)
 	require.Equal(t, group, id("SELECT group_id FROM api_keys WHERE id=$1", key.ID))
+
+	call("DELETE", binding, 409)
+	policy, err := store.ProjectCredential(ctx, service.APIKeyCredentialDigest(*key.Credential))
+	require.NoError(t, err)
+	require.NotNil(t, policy)
+	require.Equal(t, group, policy.GroupID)
+	require.True(t, policy.Allows("text.chat", []string{"example"}))
+
+	readModels := in
+	readModels.Name = "model discovery"
+	readModels.Actions = []string{"models.read"}
+	readModelsKey, err := store.CreateKey(ctx, user, w, p, readModels, "models-read")
+	require.NoError(t, err)
+	readPolicy, err := store.ProjectCredential(ctx, service.APIKeyCredentialDigest(*readModelsKey.Credential))
+	require.NoError(t, err)
+	require.Equal(t, []string{"models.read"}, readPolicy.Actions)
+	require.True(t, readPolicy.Allows("models.read", nil))
+	require.False(t, readPolicy.Allows("text.chat", []string{"example"}))
 
 	standard := id("INSERT INTO groups(workspace_id,name,platform,is_exclusive) VALUES($1,$2,'openai',false) RETURNING id", w, uuid.NewString())
 	exec("INSERT INTO project_resources(kind,resource_id,workspace_id,project_id) VALUES('groups',$1,$2,$3)", standard, w, p)

@@ -122,7 +122,12 @@ func TestGeminiForwardCollectorsUseConfiguredLineLimit(t *testing.T) {
 				result, err = svc.ForwardNative(context.Background(), c, account, "gemini-2.5-pro", "generateContent", false, []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`))
 			}
 			require.Error(t, err)
-			require.Nil(t, result)
+			if endpoint == "native" {
+				require.Nil(t, result)
+			} else {
+				require.NotNil(t, result)
+				require.True(t, result.UsageIncomplete)
+			}
 			require.True(t, body.closed)
 			require.Positive(t, body.bytes)
 			require.LessOrEqual(t, body.bytes, 512)

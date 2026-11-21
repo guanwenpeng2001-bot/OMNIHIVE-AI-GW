@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/proxyutil"
 	"golang.org/x/net/proxy"
 )
@@ -80,6 +81,12 @@ func Do(client HTTPDoer, request *http.Request, native bool) (*http.Response, er
 		}
 		transport = standard
 		closeIdle = standard.CloseIdleConnections
+		if original, ok := client.(*http.Client); ok {
+			if guarded, ok := original.Transport.(*httpclient.PublicTransport); ok {
+				pinned := guarded.WithBase(standard)
+				transport, closeIdle = pinned, pinned.CloseIdleConnections
+			}
+		}
 	}
 	selected := &http.Client{Transport: transport, Timeout: 5 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	if original, ok := client.(*http.Client); ok {

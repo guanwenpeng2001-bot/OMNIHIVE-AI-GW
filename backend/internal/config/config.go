@@ -15,10 +15,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/urlvalidator"
 	"github.com/spf13/viper"
 	"golang.org/x/net/http/httpguts"
-
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
 )
 
 const (
@@ -828,8 +828,31 @@ type URLAllowlistConfig struct {
 	PricingHosts      []string `mapstructure:"pricing_hosts"`
 	CRSHosts          []string `mapstructure:"crs_hosts"`
 	AllowPrivateHosts bool     `mapstructure:"allow_private_hosts"`
-	// 关闭 URL 白名单校验时，是否允许 http URL（默认只允许 https）
+	// 是否允许 HTTP 探针和上游 URL（默认仅 HTTPS）
 	AllowInsecureHTTP bool `mapstructure:"allow_insecure_http"`
+}
+
+// ValidateProbeURL checks both native and compatible discovery endpoints.
+func (c URLAllowlistConfig) ValidateProbeURL(raw string) (string, error) {
+	opts := urlvalidator.ValidationOptions{RequireAllowlist: c.Enabled, AllowPrivate: c.AllowPrivateHosts}
+	if c.Enabled {
+		insecure := strings.HasPrefix(strings.ToLower(strings.TrimSpace(raw)), "http://")
+		for _, host := range c.UpstreamHosts {
+			if insecure && strings.Contains(host, "*") {
+				continue
+			}
+			opts.AllowedHosts = append(opts.AllowedHosts, host)
+		}
+	}
+	return urlvalidator.ValidateHTTPURL(raw, c.AllowInsecureHTTP, opts)
+}
+
+// PrivateUpstreamHosts returns the exact names eligible for private egress.
+func (c URLAllowlistConfig) PrivateUpstreamHosts() []string {
+	if !c.AllowPrivateHosts {
+		return nil
+	}
+	return c.UpstreamHosts
 }
 
 type ResponseHeaderConfig struct {
@@ -1672,6 +1695,7 @@ type OpsMetricsCollectorCacheConfig struct {
 }
 
 type JWTConfig struct {
+	Rotate     bool   `mapstructure:"rotate"`
 	Secret     string `mapstructure:"secret"`
 	ExpireHour int    `mapstructure:"expire_hour"`
 	// AccessTokenExpireMinutes: Access Token有效期（分钟）
@@ -1997,22 +2021,12 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 		cfg.Totp.EncryptionKeyConfigured = true
 	}
 
-	originalJWTSecret := cfg.JWT.Secret
-	if allowMissingJWTSecret && originalJWTSecret == "" {
-		// 启动阶段允许先无 JWT 密钥，后续在数据库初始化后补齐。
-		cfg.JWT.Secret = strings.Repeat("0", 32)
-	}
-
-	if err := cfg.Validate(); err != nil {
+	if err := cfg.validate(allowMissingJWTSecret); err != nil {
 		return nil, fmt.Errorf("validate config error: %w", err)
 	}
 
-	if allowMissingJWTSecret && originalJWTSecret == "" {
-		cfg.JWT.Secret = ""
-	}
-
 	if !cfg.Security.URLAllowlist.Enabled {
-		slog.Warn("security.url_allowlist.enabled=false; allowlist/SSRF checks disabled (minimal format validation only).")
+		slog.Warn("security.url_allowlist.enabled=false; upstream hostname allowlist disabled; public address policy still applies.")
 	}
 	if !cfg.Security.ResponseHeaders.Enabled {
 		slog.Warn("security.response_headers.enabled=false; configurable header filtering disabled (default allowlist only).")
@@ -2138,15 +2152,15 @@ func setDefaults() {
 		"raw.githubusercontent.com",
 	})
 	viper.SetDefault("security.url_allowlist.crs_hosts", []string{})
-	viper.SetDefault("security.url_allowlist.allow_private_hosts", true)
-	viper.SetDefault("security.url_allowlist.allow_insecure_http", true)
+	viper.SetDefault("security.url_allowlist.allow_private_hosts", false)
+	viper.SetDefault("security.url_allowlist.allow_insecure_http", false)
 	viper.SetDefault("security.response_headers.enabled", true)
 	viper.SetDefault("security.response_headers.additional_allowed", []string{})
 	viper.SetDefault("security.response_headers.force_remove", []string{})
 	viper.SetDefault("security.csp.enabled", true)
 	viper.SetDefault("security.csp.policy", DefaultCSPPolicy)
 	viper.SetDefault("security.proxy_probe.insecure_skip_verify", false)
-	viper.SetDefault("security.trust_forwarded_ip_for_api_key_acl", true)
+	viper.SetDefault("security.trust_forwarded_ip_for_api_key_acl", false)
 
 	// Security - disable direct fallback on proxy error
 	viper.SetDefault("security.proxy_fallback.allow_direct_on_error", false)
@@ -2241,8 +2255,8 @@ func setDefaults() {
 	viper.SetDefault("database.password", "postgres")
 	viper.SetDefault("database.dbname", DefaultDatabaseName)
 	viper.SetDefault("database.sslmode", "prefer")
-	viper.SetDefault("database.max_open_conns", 256)
-	viper.SetDefault("database.max_idle_conns", 128)
+	viper.SetDefault("database.max_open_conns", 32)
+	viper.SetDefault("database.max_idle_conns", 8)
 	viper.SetDefault("database.conn_max_lifetime_minutes", 30)
 	viper.SetDefault("database.conn_max_idle_time_minutes", 5)
 	viper.SetDefault("database.user_platform_quota_flusher_enabled", false)
@@ -2343,6 +2357,7 @@ func setDefaults() {
 
 	// JWT
 	viper.SetDefault("jwt.secret", "")
+	viper.SetDefault("jwt.rotate", false)
 	viper.SetDefault("jwt.expire_hour", 24)
 	viper.SetDefault("jwt.access_token_expire_minutes", 0) // 0 表示回退到 expire_hour
 	viper.SetDefault("jwt.refresh_token_expire_days", 30)  // 30天Refresh Token有效期
@@ -2453,7 +2468,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.grok_response_header_timeout", 120)
 	viper.SetDefault("gateway.openai_first_output_timeout_seconds", 0)
 	viper.SetDefault("gateway.openai_high_effort_first_output_timeout_seconds", 0)
-	viper.SetDefault("gateway.log_upstream_error_body", true)
+	viper.SetDefault("gateway.log_upstream_error_body", false)
 	viper.SetDefault("gateway.log_upstream_error_body_max_bytes", 2048)
 	viper.SetDefault("gateway.inject_beta_for_apikey", false)
 	viper.SetDefault("gateway.failover_on_400", false)
@@ -2739,7 +2754,8 @@ func setEnvReachableDefaults() {
 	viper.SetDefault("dingtalk_connect.sync_corp_email_attr_name", "")
 }
 
-func (c *Config) Validate() error {
+func (c *Config) Validate() error { return c.validate(false) }
+func (c *Config) validate(allowMissingJWT bool) error {
 	if c.Gateway.AffinityHMACKey != "" && c.Gateway.AffinityHMACKeyVersion == "" {
 		return fmt.Errorf("gateway.affinity_hmac_key_version is required when gateway.affinity_hmac_key is set")
 	}
@@ -2809,14 +2825,10 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("api_key_auth_cache.invalid_abuse.capacity must be between 256 and 1000000")
 		}
 	}
-	jwtSecret := strings.TrimSpace(c.JWT.Secret)
-	if jwtSecret == "" {
-		return fmt.Errorf("jwt.secret is required")
-	}
-	// NOTE: 按 UTF-8 编码后的字节长度计算。
-	// 选择 bytes 而不是 rune 计数，确保二进制/随机串的长度语义更接近“熵”而非“字符数”。
-	if len([]byte(jwtSecret)) < 32 {
-		return fmt.Errorf("jwt.secret must be at least 32 bytes")
+	if !allowMissingJWT || c.JWT.Secret != "" || c.JWT.Rotate {
+		if err := ValidateJWTSecret(c.Server.Mode, c.JWT.Secret); err != nil {
+			return err
+		}
 	}
 	switch c.Log.Level {
 	case "debug", "info", "warn", "error":
@@ -3834,20 +3846,41 @@ func normalizeStringSlice(values []string) []string {
 	return normalized
 }
 
+func ValidateJWTSecret(mode, secret string) error {
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
+		return fmt.Errorf("jwt.secret is required")
+	}
+	if len(secret) < 32 {
+		return fmt.Errorf("jwt.secret must be at least 32 bytes")
+	}
+	if mode == "release" && isWeakJWTSecret(secret) {
+		return fmt.Errorf("weak jwt.secret in release mode: configure a new random JWT_SECRET and use JWT_ROTATE=true to replace the persisted key")
+	}
+	return nil
+}
+
 func isWeakJWTSecret(secret string) bool {
 	lower := strings.ToLower(strings.TrimSpace(secret))
 	if lower == "" {
 		return true
 	}
 	weak := map[string]struct{}{
-		"change-me-in-production": {},
-		"changeme":                {},
-		"secret":                  {},
-		"password":                {},
-		"123456":                  {},
-		"12345678":                {},
-		"admin":                   {},
-		"jwt-secret":              {},
+		"change-me-in-production":               {},
+		"change-this-to-a-secure-random-string": {},
+		"replace-with-a-generated-secret":       {},
+		"changeme":                              {},
+		"secret":                                {},
+		"password":                              {},
+		"123456":                                {},
+		"12345678":                              {},
+		"admin":                                 {},
+		"jwt-secret":                            {},
+	}
+	for period := 1; period <= 16 && period*2 <= len(lower); period++ {
+		if lower[period:] == lower[:len(lower)-period] {
+			return true
+		}
 	}
 	_, exists := weak[lower]
 	return exists

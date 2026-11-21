@@ -13,7 +13,7 @@ import (
 	"time"
 
 	ws "github.com/coder/websocket"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -59,7 +59,7 @@ func TestOpenAIRealtimeFakeUpstreamTurnAndDisconnect(t *testing.T) {
 			defer provider.Close()
 			account := openAIActionAccount()
 			account.Credentials["base_url"] = provider.URL
-			gateway := &OpenAIGatewayService{cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{AllowInsecureHTTP: true}}}}
+			gateway := &OpenAIGatewayService{cfg: loopbackHTTPTestConfig()}
 			repository := &openAIRealtimeMemoryRepository{&fileBatchMemoryRepo{jobs: map[string]*UpstreamJob{}, claims: map[string]string{}}}
 			jobs := NewUpstreamJobService(repository, nil, GatewayResourceJobCharge)
 			session, err := jobs.StartOpenAIRealtime(ctx, openAIRealtimeSessionFixture(priced))
@@ -144,7 +144,7 @@ func TestOpenAIRealtimeHandshakePreservesUpstreamHTTPFailure(t *testing.T) {
 		}))
 		account := openAIActionAccount()
 		account.Credentials["base_url"] = provider.URL
-		gateway := &OpenAIGatewayService{cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{AllowInsecureHTTP: true}}}}
+		gateway := &OpenAIGatewayService{cfg: loopbackHTTPTestConfig()}
 		_, err := gateway.OpenOpenAIRealtime(context.Background(), account, "gpt-realtime-2.1")
 		var upstream *UpstreamFailoverError
 		require.ErrorAs(t, err, &upstream)

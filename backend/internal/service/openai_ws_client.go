@@ -14,6 +14,8 @@ import (
 
 	coderws "github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
 	openaiwsrelay "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service/openai_ws_relay"
 )
 
@@ -72,13 +74,25 @@ type openAIWSTransportMetricsDialer interface {
 	SnapshotTransportMetrics() OpenAIWSTransportMetricsSnapshot
 }
 
-func newDefaultOpenAIWSClientDialer() openAIWSClientDialer {
+func newDefaultOpenAIWSClientDialer(cfg *config.Config) openAIWSClientDialer {
+	hosts := privateUpstreamHosts(cfg)
+	baseTransport, _ := http.DefaultTransport.(*http.Transport)
 	return &coderOpenAIWSClientDialer{
+		privateHosts: hosts, direct: &http.Client{Transport: httpclient.NewUpstreamTransport(baseTransport, hosts)},
 		proxyClients: make(map[string]*openAIWSProxyClientEntry),
 	}
 }
 
+func privateUpstreamHosts(cfg *config.Config) []string {
+	if cfg == nil {
+		return nil
+	}
+	return cfg.Security.URLAllowlist.PrivateUpstreamHosts()
+}
+
 type coderOpenAIWSClientDialer struct {
+	privateHosts []string
+	direct       *http.Client
 	proxyMu      sync.Mutex
 	proxyClients map[string]*openAIWSProxyClientEntry
 	proxyHits    atomic.Int64
@@ -125,7 +139,7 @@ func (d *coderOpenAIWSClientDialer) Dial(
 
 	wrapped := &coderOpenAIWSClientConn{}
 	opts := &coderws.DialOptions{
-		HTTPHeader:      cloneHeader(headers),
+		HTTPClient: d.direct, HTTPHeader: cloneHeader(headers),
 		CompressionMode: coderws.CompressionContextTakeover,
 		OnPingReceived: func(context.Context, []byte) bool {
 			wrapped.upstreamPings.Add(1)
@@ -196,7 +210,7 @@ func (d *coderOpenAIWSClientDialer) proxyHTTPClient(proxy string) (*http.Client,
 		TLSHandshakeTimeout: 10 * time.Second,
 		ForceAttemptHTTP2:   true,
 	}
-	client := &http.Client{Transport: transport}
+	client := &http.Client{Transport: httpclient.NewUpstreamTransport(transport, d.privateHosts)}
 	d.proxyClients[normalizedProxy] = &openAIWSProxyClientEntry{
 		client:           client,
 		lastUsedUnixNano: now,
@@ -265,9 +279,7 @@ func closeOpenAIWSProxyClient(client *http.Client) {
 	if client == nil || client.Transport == nil {
 		return
 	}
-	if transport, ok := client.Transport.(*http.Transport); ok && transport != nil {
-		transport.CloseIdleConnections()
-	}
+	client.CloseIdleConnections()
 }
 
 func (d *coderOpenAIWSClientDialer) SnapshotTransportMetrics() OpenAIWSTransportMetricsSnapshot {

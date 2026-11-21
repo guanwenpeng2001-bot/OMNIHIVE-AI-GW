@@ -477,16 +477,9 @@ func (s *GeminiMessagesCompatService) listSchedulableAccountsOnce(ctx context.Co
 }
 
 func (s *GeminiMessagesCompatService) validateUpstreamBaseURL(raw string) (string, error) {
-	if s.cfg != nil && !s.cfg.Security.URLAllowlist.Enabled {
-		normalized, err := urlvalidator.ValidateURLFormat(raw, s.cfg.Security.URLAllowlist.AllowInsecureHTTP)
-		if err != nil {
-			return "", fmt.Errorf("invalid base_url: %w", err)
-		}
-		return normalized, nil
-	}
-	normalized, err := urlvalidator.ValidateHTTPSURL(raw, urlvalidator.ValidationOptions{
+	normalized, err := urlvalidator.ValidateHTTPURL(raw, s.cfg != nil && s.cfg.Security.URLAllowlist.AllowInsecureHTTP, urlvalidator.ValidationOptions{
 		AllowedHosts:     s.cfg.Security.URLAllowlist.UpstreamHosts,
-		RequireAllowlist: true,
+		RequireAllowlist: s.cfg != nil && s.cfg.Security.URLAllowlist.Enabled,
 		AllowPrivate:     s.cfg.Security.URLAllowlist.AllowPrivateHosts,
 	})
 	if err != nil {
@@ -977,7 +970,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		streamRes, err := s.handleStreamingResponse(c, resp, startTime, originalModel)
 		if err != nil {
 			if streamRes != nil && streamRes.usage != nil {
-				return &ForwardResult{RequestID: requestID, UpstreamHeaders: resp.Header, Usage: *streamRes.usage, Model: originalModel, UpstreamModel: mappedModel, Stream: true, Duration: time.Since(startTime), FirstTokenMs: streamRes.firstTokenMs}, err
+				return &ForwardResult{RequestID: requestID, UpstreamHeaders: resp.Header, UsageIncomplete: true, Usage: *streamRes.usage, Model: originalModel, UpstreamModel: mappedModel, Stream: true, Duration: time.Since(startTime), FirstTokenMs: streamRes.firstTokenMs}, err
 			}
 			return nil, err
 		}
@@ -987,7 +980,11 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		if useUpstreamStream {
 			collected, usageObj, err := collectGeminiSSE(s.cfg, resp.Body, true)
 			if err != nil {
-				return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to read upstream stream")
+				result := &ForwardResult{UsageIncomplete: true, RequestID: requestID, UpstreamHeaders: resp.Header, Model: originalModel, UpstreamModel: mappedModel, Duration: time.Since(startTime)}
+				if usageObj != nil {
+					result.Usage = *usageObj
+				}
+				return result, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to read upstream stream")
 			}
 			collectedBytes, _ := json.Marshal(collected)
 			upstreamResponseModelObserverFromContext(c).ObserveGemini(collectedBytes)
@@ -1976,6 +1973,7 @@ func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context,
 func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, originalModel string) (result *geminiStreamResult, streamErr error) {
 	var firstTokenMs *int
 	var usage ClaudeUsage
+	sawFinish, hasUsage := false, false
 	defer func() {
 		if streamErr != nil {
 			result = &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}
@@ -2037,10 +2035,6 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		if err := validateGeminiTextReply(geminiResp); err != nil {
 			return nil, err
 		}
-		if u := extractGeminiUsage(unwrappedBytes); u != nil {
-			usage = *u
-		}
-
 		if err := stream.Observe(geminiResp, func() {
 			if firstTokenMs == nil {
 				ms := int(time.Since(startTime).Milliseconds())
@@ -2050,8 +2044,10 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 			return nil, err
 		}
 
+		sawFinish = sawFinish || extractGeminiFinishReason(geminiResp) != ""
 		if u := extractGeminiUsage(unwrappedBytes); u != nil {
 			usage = *u
+			hasUsage = sawFinish && geminiFinalOutputUsage(unwrappedBytes)
 		}
 
 		// Process the final unterminated line at EOF as well.
@@ -2060,6 +2056,9 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		}
 	}
 
+	if !hasUsage {
+		return nil, errors.New("missing final Gemini usage")
+	}
 	if err := stream.Finish(usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens); err != nil {
 		return nil, err
 	}
@@ -2116,14 +2115,18 @@ func unwrapIfNeeded(isOAuth bool, raw []byte) []byte {
 }
 
 func collectGeminiSSE(cfg *config.Config, body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsage, error) {
-	collected, usage, _, err := collectGeminiSSEObserved(cfg, body, isOAuth, nil)
+	collected, usage, stats, err := collectGeminiSSEObserved(cfg, body, isOAuth, nil)
+	if err == nil && (!stats.sawFinish || !stats.sawUsage) {
+		err = errors.New("missing Gemini stream finish reason or usage")
+	}
 	return collected, usage, err
 }
 
 // geminiSSECollectStats 记录一次 SSE 聚合读到的 data 事件数，以及非 data 行的兜底内容。
 type geminiSSECollectStats struct {
-	dataEvents int
-	fallback   *geminiSSEFallbackBody
+	sawFinish, sawUsage bool
+	dataEvents          int
+	fallback            *geminiSSEFallbackBody
 }
 
 // collectGeminiSSEObserved 在聚合的同时把每个解包后的事件原文交给 observe（可为 nil）。
@@ -2196,8 +2199,10 @@ func collectGeminiSSEObserved(cfg *config.Config, body io.Reader, isOAuth bool, 
 					}
 					if parsed != nil {
 						last = parsed
+						stats.sawFinish = stats.sawFinish || extractGeminiFinishReason(parsed) != ""
 						if u := extractGeminiUsage(rawBytes); u != nil {
 							usage = u
+							stats.sawUsage = stats.sawFinish && geminiFinalOutputUsage(rawBytes)
 						}
 						if parts := extractGeminiParts(parsed); len(parts) > 0 {
 							lastWithParts = parsed
@@ -2677,6 +2682,11 @@ func isGeminiInlineImageMIMEType(mimeType string) bool {
 
 func isValidBase64(data string) bool {
 	return apicompat.IsValidGeminiInlineBase64(data)
+}
+
+func geminiFinalOutputUsage(data []byte) bool {
+	output := gjson.GetBytes(data, "usageMetadata.candidatesTokenCount")
+	return output.Type == gjson.Number && output.Float() >= 0 && output.Float() == float64(output.Int())
 }
 
 func extractGeminiUsage(data []byte) *ClaudeUsage {

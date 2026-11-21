@@ -51,4 +51,11 @@ describe('order status filtering', () => {
     await flushPromises()
     expect(api.getMyOrders).toHaveBeenLastCalledWith({ page: 4, page_size: 20, status: undefined })
   })
+
+  it('renders order invoice and receipt human-support instructions [E1-4]', async () => {
+    const wrapper = await openOrders()
+    const invoiceCard = wrapper.find('[data-testid="order-invoice-support"]')
+    expect(invoiceCard.exists()).toBe(true)
+    expect(invoiceCard.html()).toContain('/docs#support')
+  })
 })

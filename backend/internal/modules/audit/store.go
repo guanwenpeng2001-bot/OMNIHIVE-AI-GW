@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -50,6 +51,20 @@ type Event struct {
 	Effect     string    `json:"effect"`
 	At         time.Time `json:"at"`
 	Affected   *int64    `json:"affected,string,omitempty"`
+	RequestID  string    `json:"request_id,omitempty"`
+	Route      string    `json:"route,omitempty"`
+	Method     string    `json:"method,omitempty"`
+	ActorEmail string    `json:"actor_email,omitempty"`
+	ActorRole  string    `json:"actor_role,omitempty"`
+	StatusCode *int      `json:"status_code,omitempty"`
+	Changes    []Change  `json:"changes"`
+	Reason     string    `json:"reason,omitempty"`
+}
+type Change struct {
+	Field     string `json:"field"`
+	Operation string `json:"operation"`
+	Before    any    `json:"before"`
+	After     any    `json:"after"`
 }
 type Filter struct {
 	Resource, ResourceID, Action string
@@ -63,11 +78,16 @@ type Page struct {
 	AfterID   int64
 }
 
-const columns = "id,workspace_id,project_id,actor_id,resource,resource_id::text,action,effect,at,affected"
+const columns = "id,workspace_id,project_id,actor_id,resource,resource_id::text,action,effect,at,affected,coalesce(request_id,''),coalesce(route,''),coalesce(method,''),coalesce(actor_email,''),coalesce(actor_role,''),status_code,changes,coalesce(reason,'')"
 
 func scan(row interface{ Scan(...any) error }) (Event, error) {
 	var e Event
-	err := row.Scan(&e.ID, &e.Workspace, &e.Project, &e.Actor, &e.Resource, &e.ResourceID, &e.Action, &e.Effect, &e.At, &e.Affected)
+	var changes []byte
+	err := row.Scan(&e.ID, &e.Workspace, &e.Project, &e.Actor, &e.Resource, &e.ResourceID, &e.Action, &e.Effect, &e.At, &e.Affected, &e.RequestID, &e.Route, &e.Method, &e.ActorEmail, &e.ActorRole, &e.StatusCode, &changes, &e.Reason)
+	if err == nil {
+		e.Changes = []Change{}
+		err = json.Unmarshal(changes, &e.Changes)
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return e, fault.NotFound
 	}

@@ -1714,6 +1714,7 @@ func TestFetchCodexModelsManifestPassthrough(t *testing.T) {
 
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	defer func() { chatgptCodexModelsURL = original }()
 
 	s := &OpenAIGatewayService{}
@@ -1767,6 +1768,7 @@ func TestFetchCodexModelsManifestAgentIdentityUsesAssertionWithoutOAuthToken(t *
 
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	defer func() { chatgptCodexModelsURL = original }()
 
 	s := &OpenAIGatewayService{}
@@ -1823,9 +1825,11 @@ func TestFetchCodexModelsManifestAgentIdentityRecoversInvalidTaskOnce(t *testing
 
 	originalModelsURL := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	t.Cleanup(func() { chatgptCodexModelsURL = originalModelsURL })
 	originalAuthBase := openAIAgentIdentityAuthAPIBaseURL
 	openAIAgentIdentityAuthAPIBaseURL = server.URL
+	useLoopbackClient(t, &agentIdentityHTTPClient)
 	t.Cleanup(func() { openAIAgentIdentityAuthAPIBaseURL = originalAuthBase })
 
 	s := &OpenAIGatewayService{accountRepo: repo}
@@ -1860,6 +1864,7 @@ func TestFetchCodexModelsManifestAgentIdentityRedactsUpstreamErrors(t *testing.T
 	defer server.Close()
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	t.Cleanup(func() { chatgptCodexModelsURL = original })
 
 	s := &OpenAIGatewayService{}
@@ -1882,6 +1887,7 @@ func TestFetchCodexModelsManifestDefaultClientVersion(t *testing.T) {
 
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	defer func() { chatgptCodexModelsURL = original }()
 
 	s := &OpenAIGatewayService{}
@@ -1905,6 +1911,7 @@ func TestFetchCodexModelsManifestNotModified(t *testing.T) {
 
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	defer func() { chatgptCodexModelsURL = original }()
 
 	s := &OpenAIGatewayService{}
@@ -1945,6 +1952,7 @@ func TestFetchCodexModelsManifestUpstreamError(t *testing.T) {
 
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	defer func() { chatgptCodexModelsURL = original }()
 
 	s := &OpenAIGatewayService{}
@@ -2403,6 +2411,7 @@ func TestFetchCodexModelsManifestOAuthPreservesResponsesLite(t *testing.T) {
 	defer server.Close()
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	defer func() { chatgptCodexModelsURL = original }()
 
 	s := &OpenAIGatewayService{}
@@ -2509,6 +2518,7 @@ func TestFetchCodexModelsManifestAcceptsConfiguredLimitAboveLegacyBoundary(t *te
 
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	defer func() { chatgptCodexModelsURL = original }()
 
 	s := &OpenAIGatewayService{cfg: &config.Config{}}
@@ -3274,6 +3284,7 @@ func TestFetchCodexModelsManifestOAuth401MarksAccountUnschedulable(t *testing.T)
 
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	defer func() { chatgptCodexModelsURL = original }()
 
 	repo := &codexModelsAccountStateRepo{}
@@ -3298,6 +3309,7 @@ func TestFetchCodexModelsManifestOAuth401TokenRevokedDisablesAccount(t *testing.
 
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	defer func() { chatgptCodexModelsURL = original }()
 
 	repo := &codexModelsAccountStateRepo{}
@@ -3335,6 +3347,7 @@ func TestFetchCodexModelsManifestAgentIdentity401DoesNotDisableAccount(t *testin
 
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	defer func() { chatgptCodexModelsURL = original }()
 
 	repo := &codexModelsAccountStateRepo{}
@@ -3457,6 +3470,7 @@ func newCodexModelsOAuthCacheServer(t *testing.T, body string) (*httptest.Server
 	t.Cleanup(server.Close)
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	t.Cleanup(func() { chatgptCodexModelsURL = original })
 	return server, calls
 }
@@ -3501,6 +3515,7 @@ func TestFetchCodexModelsManifestOAuthStaleServesOldValueAndRefreshesInBackgroun
 	t.Cleanup(server.Close)
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	t.Cleanup(func() { chatgptCodexModelsURL = original })
 
 	s := &OpenAIGatewayService{}
@@ -3567,6 +3582,7 @@ func TestFetchCodexModelsManifestOAuthOverdueSynchronousRefreshAndFailure(t *tes
 		t.Cleanup(server.Close)
 		original := chatgptCodexModelsURL
 		chatgptCodexModelsURL = server.URL
+		useLoopbackClient(t, &codexModelsHTTPClient)
 		t.Cleanup(func() { chatgptCodexModelsURL = original })
 
 		s := &OpenAIGatewayService{}
@@ -3603,6 +3619,7 @@ func TestFetchCodexModelsManifestOAuthOverdueSynchronousRefreshAndFailure(t *tes
 		t.Cleanup(server.Close)
 		original := chatgptCodexModelsURL
 		chatgptCodexModelsURL = server.URL
+		useLoopbackClient(t, &codexModelsHTTPClient)
 		t.Cleanup(func() { chatgptCodexModelsURL = original })
 
 		s := &OpenAIGatewayService{}
@@ -3651,6 +3668,7 @@ func TestFetchCodexModelsManifestOAuthSharedAcrossGroupsWithIndependentFiltering
 	t.Cleanup(server.Close)
 	original := chatgptCodexModelsURL
 	chatgptCodexModelsURL = server.URL
+	useLoopbackClient(t, &codexModelsHTTPClient)
 	t.Cleanup(func() { chatgptCodexModelsURL = original })
 
 	s := &OpenAIGatewayService{

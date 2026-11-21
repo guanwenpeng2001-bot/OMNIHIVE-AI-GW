@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -138,14 +137,18 @@ func TestControlledProviderRetainsHostPolicy(t *testing.T) {
 	require.ErrorIs(t, err, errEgress)
 	require.NotContains(t, err.Error(), "canary")
 }
-func TestScopedAuditDropsSensitiveValuesBeforeQueueAndInHistoricalViews(t *testing.T) {
-	entry := &AuditLog{Path: "/api/v2/workspaces/:workspace_id/projects/:project_id/audit/events/:id", Action: "canary", Method: "POST", UserAgent: "canary", RequestBody: "prompt-canary", CredentialMasked: "token-canary", Extra: map[string]any{"url": "https://canary", "params": "canary"}, RequestID: "canary"}
+func TestScopedAuditRetainsRedactedTraceWithoutCredentialMetadata(t *testing.T) {
+	entry := &AuditLog{Path: "/api/v2/workspaces/:workspace_id/projects/:project_id/audit/events/:id", Action: "canary", Method: "POST", UserAgent: "canary", RequestBody: "prompt-canary", CredentialMasked: "token-canary", Extra: map[string]any{"url": "https://canary", "params": map[string]string{"id": "7"}}, RequestID: "request-canary"}
 	svc := NewAuditLogService(nil, nil)
 	svc.Record(entry)
-	for _, safe := range []*AuditLog{<-svc.queue, auditManagementView(entry)} {
-		if safe.CredentialMasked != "" || safe.Extra != nil || safe.UserAgent != "" || safe.RequestBody != "" || strings.Contains(safe.Action, "canary") || safe.RequestID != "" {
-			t.Fatal("sensitive audit projection")
-		}
+	for _, safe := range []*AuditLog{<-svc.queue, scopedAuditProjection(entry)} {
+		require.Empty(t, safe.CredentialMasked)
+		require.Empty(t, safe.UserAgent)
+		require.Equal(t, "request-canary", safe.RequestID)
+		require.Equal(t, "canary", safe.Action)
+		require.Equal(t, entry.Path, safe.Path)
+		require.Equal(t, "prompt-canary", safe.RequestBody)
+		require.NotContains(t, safe.Extra, "credential")
 	}
 	require.Equal(t, "prompt-canary", entry.RequestBody)
 }

@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/billing/readmodel"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/usagestats"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/shopspring/decimal"
 )
 
 // UsageSettlementEffect inserts required derived events in the same transaction.
@@ -67,7 +69,7 @@ func scanUsageSettlement(row interface{ Scan(...any) error }) (*service.UsageSet
 
 // insertUsageSettlementReceipt serializes the same frozen evidence for ordinary
 // writes and jobs that already own their financial transaction.
-func insertUsageSettlementReceipt(ctx context.Context, executor sqlExecutor, receipt *service.UsageSettlementReceipt) (sql.Result, error) {
+func insertUsageSettlementReceipt(ctx context.Context, executor *sql.Tx, receipt *service.UsageSettlementReceipt) (sql.Result, error) {
 	usage := receipt.Usage
 	// Keep one authoritative copy of frozen pricing in the receipt columns.
 	usage.PricingState, usage.PricingSnapshot = "", ""
@@ -75,7 +77,13 @@ func insertUsageSettlementReceipt(ctx context.Context, executor sqlExecutor, rec
 	if err != nil {
 		return nil, err
 	}
-	commandJSON, err := json.Marshal(settlementCommandPayload{UsageBillingCommand: receipt.Command, TPMReservation: receipt.TPMReservation})
+	command := receipt.Command
+	if receipt.State == service.UsageSettlementPending {
+		if err := command.BindFrozenCharge(receipt.Usage.PricingSnapshot); err != nil {
+			return nil, err
+		}
+	}
+	commandJSON, err := json.Marshal(settlementCommandPayload{UsageBillingCommand: command, TPMReservation: receipt.TPMReservation})
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +94,26 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 ON CONFLICT (request_id,api_key_id) DO NOTHING`, receipt.Key.RequestID, receipt.Key.APIKeyID, receipt.Key.UserID,
 		receipt.Command.AccountID, receipt.Command.RequestFingerprint, string(usageJSON), string(commandJSON), receipt.Usage.PricingState,
 		receipt.Usage.PricingSnapshot, receipt.ResolutionState, receipt.CompletionState, receipt.State)
-	return result, err
+	if err != nil {
+		return nil, err
+	}
+	inserted, err := result.RowsAffected()
+	if err != nil || inserted == 0 {
+		return result, err
+	}
+	if receipt.State == service.UsageSettlementNeedsReview {
+		if err := releaseReviewHolds(ctx, executor, receipt); err != nil {
+			return nil, err
+		}
+	} else {
+		// Publish the receipt while holding its reservation, so an expiry worker
+		// waiting on this row will see the pending owner in its next statement.
+		if _, err := executor.ExecContext(ctx, `SELECT id FROM api_key_budget_reservations WHERE api_key_id=$2 AND user_id=$3 AND (id=$1 OR ($1=0 AND request_id=$4)) FOR UPDATE`,
+			receipt.Command.BudgetReservationID, receipt.Key.APIKeyID, receipt.Key.UserID, receipt.Key.RequestID); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
 }
 
 func (r *usageSettlementReceiptRepository) Persist(ctx context.Context, input *service.UsageSettlementReceipt) (*service.UsageSettlementReceipt, error) {
@@ -94,7 +121,15 @@ func (r *usageSettlementReceiptRepository) Persist(ctx context.Context, input *s
 	if err != nil {
 		return nil, err
 	}
-	if _, err = insertUsageSettlementReceipt(ctx, r.db, receipt); err != nil {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err = insertUsageSettlementReceipt(ctx, tx, receipt); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	stored, err := r.Get(ctx, receipt.Key)
@@ -151,6 +186,61 @@ func (r *usageSettlementReceiptRepository) ReconcileLegacy(ctx context.Context, 
 	})
 }
 
+// Settlement owns the receipt before the key hold, payer, key and project hold.
+// Use the frozen reservation identities even if the key moved projects later.
+func releaseReviewHolds(ctx context.Context, tx *sql.Tx, r *service.UsageSettlementReceipt) error {
+	cmd := &r.Command
+	if cmd.BudgetReservationID > 0 {
+		var ref string
+		err := tx.QueryRowContext(ctx, `SELECT request_id FROM api_key_budget_reservations WHERE id=$1 AND api_key_id=$2 AND user_id=$3 FOR UPDATE`, cmd.BudgetReservationID, r.Key.APIKeyID, r.Key.UserID).Scan(&ref)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if err == nil {
+			if _, err := releaseKeyBudgetReservationTx(ctx, tx, r.Key.APIKeyID, ref); err != nil {
+				return err
+			}
+		}
+	}
+	if cmd.ProjectReservationRef == "" {
+		return nil
+	}
+	workspace, project := cmd.ProjectWorkspaceID, cmd.ProjectID
+	if workspace == 0 || project == 0 {
+		// Older receipts stored only the project request reference. Recover the
+		// original scope from the journal, the scoped receipt mapping, or a
+		// unique frozen UUID in the original key workspace.
+		err := tx.QueryRowContext(ctx, `SELECT workspace_id,project_id FROM (
+     SELECT 0 AS priority,e.workspace_id,e.project_id FROM gateway_executions e
+     WHERE e.request_id::text=$1 AND e.api_key_id=$2 AND e.funding_user_id=$3
+     UNION ALL SELECT 1,p.workspace_id,p.project_id FROM project_resources p
+     JOIN usage_settlement_receipts r ON p.resource_id=r.id AND p.kind='usage_settlement_receipts'
+     JOIN billing_project_holds h ON h.workspace_id=p.workspace_id AND h.project_id=p.project_id AND h.currency='USD' AND h.request_id=$1
+     WHERE r.request_id=$4 AND r.api_key_id=$2 AND r.user_id=$3
+     UNION ALL SELECT 2,min(h.workspace_id),min(h.project_id) FROM billing_project_holds h
+     WHERE h.currency='USD' AND h.request_id=$1
+     HAVING count(*)=1 AND min(h.workspace_id)=(SELECT workspace_id FROM api_keys WHERE id=$2)
+   ) scoped ORDER BY priority LIMIT 1`, cmd.ProjectReservationRef, r.Key.APIKeyID, r.Key.UserID, r.Key.RequestID).Scan(&workspace, &project)
+		if err != nil {
+			return err
+		}
+	}
+	return readmodel.Release(ctx, tx, readmodel.Scope{Workspace: workspace, Project: project}, cmd.ProjectReservationRef, "USD")
+}
+
+func commitReceiptReview(ctx context.Context, tx *sql.Tx, receipt *service.UsageSettlementReceipt, reason error) error {
+	if err := releaseReviewHolds(ctx, tx, receipt); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE usage_settlement_receipts SET state='needs_review' WHERE id=$1 AND state='pending'`, receipt.ID); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return reason
+}
+
 func (r *usageSettlementReceiptRepository) settle(ctx context.Context, key service.UsageSettlementKey, fingerprint string, reconcile bool) (*service.UsageSettlementResult, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -178,7 +268,10 @@ WHERE request_id=$1 AND api_key_id=$2 AND user_id=$3 FOR UPDATE`, strings.TrimSp
 		return nil, err
 	}
 	if prepared.State != service.UsageSettlementPending {
-		return nil, service.ErrUsageSettlementNeedsReview
+		return nil, commitReceiptReview(ctx, tx, receipt, service.ErrUsageSettlementNeedsReview)
+	}
+	if err := receipt.Command.BindFrozenCharge(receipt.Usage.PricingSnapshot); err != nil {
+		return nil, err
 	}
 	if reconcile && strings.TrimSpace(receipt.Command.RequestPayloadHash) == "" {
 		return nil, service.ErrUsageSettlementNeedsReview
@@ -187,9 +280,9 @@ WHERE request_id=$1 AND api_key_id=$2 AND user_id=$3 FOR UPDATE`, strings.TrimSp
 	if _, err := tx.ExecContext(ctx, `SAVEPOINT receipt_dedup`); err != nil {
 		return nil, err
 	}
-	claimed, err := billing.claimUsageBillingKey(ctx, tx, &receipt.Command)
-	if err != nil {
-		return nil, err
+	claimed, claimErr := billing.claimUsageBillingKey(ctx, tx, &receipt.Command)
+	if claimErr != nil && (reconcile || !errors.Is(claimErr, service.ErrUsageBillingRequestConflict)) {
+		return nil, claimErr
 	}
 	if !claimed {
 		if _, err := tx.ExecContext(ctx, `ROLLBACK TO SAVEPOINT receipt_dedup`); err != nil {
@@ -199,14 +292,7 @@ WHERE request_id=$1 AND api_key_id=$2 AND user_id=$3 FOR UPDATE`, strings.TrimSp
 			// A legacy or archived dedup is an existing charge. Never reapply effects
 			// or invent a canonical log if its old log is missing/has been retained
 			// elsewhere; preserve the receipt for explicit reconciliation instead.
-			_, err = tx.ExecContext(ctx, `UPDATE usage_settlement_receipts SET state='needs_review' WHERE id=$1`, receipt.ID)
-			if err != nil {
-				return nil, err
-			}
-			if err := tx.Commit(); err != nil {
-				return nil, err
-			}
-			return nil, service.ErrUsageSettlementNeedsReview
+			return nil, commitReceiptReview(ctx, tx, receipt, errors.Join(service.ErrUsageSettlementNeedsReview, claimErr))
 		}
 	}
 	inserted, err := (&usageLogRepository{}).createSingle(ctx, tx, &receipt.Usage)
@@ -218,13 +304,7 @@ WHERE request_id=$1 AND api_key_id=$2 AND user_id=$3 FOR UPDATE`, strings.TrimSp
 			if _, err := tx.ExecContext(ctx, `ROLLBACK TO SAVEPOINT receipt_dedup`); err != nil {
 				return nil, err
 			}
-			if _, err := tx.ExecContext(ctx, `UPDATE usage_settlement_receipts SET state='needs_review' WHERE id=$1`, receipt.ID); err != nil {
-				return nil, err
-			}
-			if err := tx.Commit(); err != nil {
-				return nil, err
-			}
-			return nil, service.ErrUsageSettlementNeedsReview
+			return nil, commitReceiptReview(ctx, tx, receipt, service.ErrUsageSettlementNeedsReview)
 		}
 		// Only a same-owner, same-model, same-unit zero row bound to this
 		// immutable receipt can advance. Never infer a historical price.
@@ -249,6 +329,13 @@ WHERE request_id=$1 AND api_key_id=$2 AND user_id=$3 FOR UPDATE`, strings.TrimSp
 		}
 	}
 	if claimed {
+		// The historical log DTO is float64. Correct its numeric projection when
+		// the frozen eight-place amount cannot round-trip through that DTO.
+		if charge := receipt.Command.ChargedAmount; charge != nil && !decimal.RequireFromString(charge.String()).Equal(decimal.NewFromFloat(receipt.Usage.ActualCost)) {
+			if _, err := tx.ExecContext(ctx, `UPDATE usage_logs SET actual_cost=$2 WHERE id=$1`, receipt.Usage.ID, charge.String()); err != nil {
+				return nil, err
+			}
+		}
 		result.Billing.Applied = true
 		if err := billing.applyUsageBillingEffects(ctx, tx, &receipt.Command, result.Billing); err != nil {
 			return nil, err
@@ -277,6 +364,11 @@ WHERE request_id=$1 AND api_key_id=$2 AND user_id=$3 FOR UPDATE`, strings.TrimSp
 	err = tx.QueryRowContext(ctx, `UPDATE usage_settlement_receipts SET state='settled',usage_log_id=$2,settled_at=NOW() WHERE id=$1 RETURNING settled_at`, receipt.ID, receipt.Usage.ID).Scan(&receipt.SettledAt)
 	if err != nil {
 		return nil, err
+	}
+	if receipt.Command.ProjectReservationRef != "" {
+		if err := releaseReviewHolds(ctx, tx, receipt); err != nil {
+			return nil, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err

@@ -33,6 +33,7 @@ func TestModelProbeBudgetPostgres(test *testing.T) {
 	test.Cleanup(func() { _ = database.Close() })
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, database)))
 	repository := newAccountRepositoryWithSQL(client, database, nil)
+	repository.credentialEncryptor = persistentTestAES(test, true)
 	if rawID := os.Getenv("MODEL_PROBE_RESTART_ACCOUNT_ID"); rawID != "" {
 		accountID, err := strconv.ParseInt(rawID, 10, 64)
 		require.NoError(test, err)
@@ -47,24 +48,35 @@ func TestModelProbeBudgetPostgres(test *testing.T) {
 	require.NoError(test, err)
 	test.Cleanup(func() { _ = otherDatabase.Close() })
 	other := newAccountRepositoryWithSQL(dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, otherDatabase))), otherDatabase, nil)
+	other.credentialEncryptor = repository.credentialEncryptor
 	var databaseNow time.Time
 	require.NoError(test, database.QueryRowContext(ctx, "SELECT clock_timestamp()").Scan(&databaseNow))
 	databaseNow = databaseNow.UTC()
 	create := func(test *testing.T) *service.Account {
-		row, err := client.Account.Create().SetName("model-availability-" + uuid.NewString()).SetPlatform(service.PlatformOpenAI).SetType(service.AccountTypeAPIKey).
-			SetStatus(service.StatusActive).SetSchedulable(true).
-			SetCredentials(map[string]any{"api_key": "isolated-fixture", "model_mapping": map[string]string{"alias": "private", "other": "other-private"}}).
-			SetExtra(map[string]any{service.UpstreamModelCatalogExtraKey: service.AccountModelCatalogSnapshot{Revision: 1, Complete: true, ObservedAt: databaseNow.Format(time.RFC3339Nano), DiscoveredModels: []string{"native"}}}).Save(ctx)
+		row := &service.Account{Name: "model-availability-" + uuid.NewString(), Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Credentials: map[string]any{"api_key": "isolated-fixture", "model_mapping": map[string]string{"alias": "private", "other": "other-private"}}}
+		err := repository.Create(ctx, row)
+		require.NoError(test, err)
+		encoded, err := json.Marshal(service.AccountModelCatalogSnapshot{Revision: 1, Complete: true, ObservedAt: databaseNow.Format(time.RFC3339Nano), DiscoveredModels: []string{"native"}})
+		require.NoError(test, err)
+		_, err = database.ExecContext(ctx, `UPDATE accounts SET extra=extra||jsonb_build_object('upstream_model_catalog',$2::jsonb) WHERE id=$1`, row.ID, encoded)
+		require.NoError(test, err)
+		_, err = database.ExecContext(ctx, `DELETE FROM audit_logs WHERE extra->>'account_id'=$1`, row.ID)
+		require.NoError(test, err)
+		_, err = database.ExecContext(ctx, `DELETE FROM scheduler_outbox WHERE account_id=$1`, row.ID)
 		require.NoError(test, err)
 		test.Cleanup(func() {
 			_, err := database.ExecContext(ctx, `DELETE FROM scheduler_outbox WHERE account_id=$1`, row.ID)
+			require.NoError(test, err)
+			_, err = database.ExecContext(ctx, `DELETE FROM credential_secrets WHERE account_id=$1`, row.ID)
 			require.NoError(test, err)
 			_, err = database.ExecContext(ctx, `DELETE FROM audit_logs WHERE extra->>'account_id'=$1`, strconv.FormatInt(row.ID, 10))
 			require.NoError(test, err)
 			_, err = database.ExecContext(ctx, `DELETE FROM accounts WHERE id=$1`, row.ID)
 			require.NoError(test, err)
 		})
-		return accountEntityToService(row)
+		account, err := repository.GetByID(ctx, row.ID)
+		require.NoError(test, err)
+		return account
 	}
 	get := func(test *testing.T, id int64) *service.Account {
 		account, err := repository.GetByID(ctx, id)
@@ -203,9 +215,12 @@ func TestModelProbeBudgetPostgres(test *testing.T) {
 		require.False(test, after.ModelAvailabilityDeclarations()[0].ValidFor(after, nil, time.Now()))
 		copyAccount := *before
 		copyAccount.ID, copyAccount.Name = 0, "model-availability-copy-"+uuid.NewString()
+		copyAccount.Credentials = map[string]any{"api_key": "copied-fixture", "model_mapping": map[string]string{"alias": "private", "other": "other-private"}}
 		require.NoError(test, repository.Create(ctx, &copyAccount))
 		test.Cleanup(func() {
 			_, err := database.ExecContext(ctx, "DELETE FROM scheduler_outbox WHERE account_id=$1", copyAccount.ID)
+			require.NoError(test, err)
+			_, err = database.ExecContext(ctx, "DELETE FROM credential_secrets WHERE account_id=$1", copyAccount.ID)
 			require.NoError(test, err)
 			_, err = database.ExecContext(ctx, "DELETE FROM accounts WHERE id=$1", copyAccount.ID)
 			require.NoError(test, err)

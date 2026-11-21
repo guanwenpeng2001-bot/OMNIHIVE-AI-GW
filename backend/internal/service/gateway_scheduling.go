@@ -31,38 +31,69 @@ func BindNativeRoutingPolicies(cfg *config.Config, store *policy.Store) {
 	}
 }
 
+type nativeRoutingPolicyReader interface {
+	NativeRequestAccounts(context.Context, scope.Authorized, string, *policy.Layer) (map[int64]bool, error)
+}
+
 type nativePolicyAccountsKey struct{}
-type nativePolicyAccounts map[int64]bool
+type nativePolicyAccounts struct {
+	owner   scope.Authorized
+	model   string
+	request *policy.Layer
+	allowed map[int64]bool
+}
 
 func withNativePolicyAccounts(ctx context.Context, cfg *config.Config, model string) (context.Context, error) {
+	request, _ := ctx.Value(nativeRequestLayerKey{}).(*policy.Layer)
 	auth, ok := scope.From(ctx)
 	if !ok || cfg == nil {
+		if request != nil {
+			return ctx, policy.NativePolicyDenied
+		}
 		return ctx, nil
-	}
-	if _, loaded := ctx.Value(nativePolicyAccountsKey{}).(nativePolicyAccounts); loaded {
-		return ctx, nil
-	}
-	value, ok := nativePolicyStores.Load(cfg)
-	if !ok {
-		return ctx, nil
-	}
-	store, ok := value.(*policy.Store)
-	if !ok {
-		return ctx, fmt.Errorf("invalid routing policy store")
 	}
 	if p := GatewayRequestPlanFromContext(ctx); p != nil && p.spec.Model != "" {
 		model = p.spec.Model
 	}
-	accounts, err := store.NativeAccounts(ctx, auth, model)
+	if previous, loaded := ctx.Value(nativePolicyAccountsKey{}).(nativePolicyAccounts); loaded && previous.owner == auth && previous.model == model && previous.request == request {
+		return ctx, nil
+	}
+	value, ok := nativePolicyStores.Load(cfg)
+	if !ok {
+		if request != nil {
+			return ctx, policy.NativePolicyDenied
+		}
+		return ctx, nil
+	}
+	store, ok := value.(nativeRoutingPolicyReader)
+	if !ok {
+		return ctx, fmt.Errorf("invalid routing policy store")
+	}
+	accounts, err := store.NativeRequestAccounts(ctx, auth, model, request)
 	if err != nil {
 		return ctx, err
 	}
-	return context.WithValue(ctx, nativePolicyAccountsKey{}, nativePolicyAccounts(accounts)), nil
+	if request != nil && len(accounts) == 0 {
+		return ctx, policy.NativePolicyDenied
+	}
+	return context.WithValue(ctx, nativePolicyAccountsKey{}, nativePolicyAccounts{auth, model, request, accounts}), nil
+}
+
+type requiredAccountKey struct{}
+
+// WithRequiredAccount restricts scheduling to one account. Callers that admit a
+// request against a specific verified connection use it so that a group with
+// several accounts cannot select a different one.
+func WithRequiredAccount(ctx context.Context, accountID int64) context.Context {
+	return context.WithValue(ctx, requiredAccountKey{}, accountID)
 }
 
 func nativePolicyAllows(ctx context.Context, a *Account) bool {
-	allowed, _ := ctx.Value(nativePolicyAccountsKey{}).(nativePolicyAccounts)
-	return allowed == nil || a != nil && allowed[a.ID]
+	if required, ok := ctx.Value(requiredAccountKey{}).(int64); ok && required > 0 && (a == nil || a.ID != required) {
+		return false
+	}
+	policy, _ := ctx.Value(nativePolicyAccountsKey{}).(nativePolicyAccounts)
+	return policy.allowed == nil || a != nil && policy.allowed[a.ID]
 }
 
 // SelectAccount 选择账号（粘性会话+优先级）

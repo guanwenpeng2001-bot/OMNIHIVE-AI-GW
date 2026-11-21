@@ -57,6 +57,8 @@ type AuditLog struct {
 	StatusCode       int            `json:"status_code"`
 	LatencyMs        int64          `json:"latency_ms"`
 	Extra            map[string]any `json:"extra,omitempty"`
+	ProjectID        *int64         `json:"project_id,string,omitempty"`
+	ResourceID       string         `json:"resource_id,omitempty"`
 }
 
 // AuditLogFilter 审计日志列表查询条件。

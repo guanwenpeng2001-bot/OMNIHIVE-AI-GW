@@ -45,6 +45,7 @@ func TestModelCatalogIndependentClientsCAS(test *testing.T) {
 	test.Cleanup(func() { require.NoError(test, database.Close()) })
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, database)))
 	repository := newAccountRepositoryWithSQL(client, database, nil)
+	repository.credentialEncryptor = persistentTestAES(test, true)
 	if testprocess.Role() != "" {
 		var account *service.Account
 		testprocess.Serve(test, func(payload json.RawMessage) any {
@@ -94,8 +95,7 @@ func TestModelCatalogIndependentClientsCAS(test *testing.T) {
 	}
 	for _, scenario := range []string{"same_baseline", "stale_identity", "stale_rules", "stale_publication", "outbox_rollback"} {
 		test.Run(scenario, func(test *testing.T) {
-			row, err := client.Account.Create().SetName("independent-catalog-" + scenario).SetPlatform(service.PlatformOpenAI).SetType(service.AccountTypeAPIKey).SetCredentials(map[string]any{"api_key": "fixture", "model_mapping": map[string]any{"alias": "target"}}).Save(ctx)
-			require.NoError(test, err)
+			row := createEncryptedCatalogFixture(test, ctx, client, database, repository, &service.Account{Name: "independent-catalog-" + scenario, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture", "model_mapping": map[string]any{"alias": "target"}}})
 			test.Cleanup(func() {
 				_, err := database.ExecContext(ctx, `DELETE FROM scheduler_outbox WHERE account_id=$1`, row.ID)
 				require.NoError(test, err)
@@ -121,11 +121,11 @@ func TestModelCatalogIndependentClientsCAS(test *testing.T) {
 				require.ElementsMatch(test, []string{"committed", "conflict"}, []string{left.Outcome, right.Outcome})
 				expected = independentCatalogSnapshot(account, 7)
 			case "stale_identity":
-				require.NoError(test, repository.UpdateCredentials(ctx, row.ID, map[string]any{"api_key": "rotated", "model_mapping": account.Credentials["model_mapping"]}))
+				require.NoError(test, repository.UpdateCredentials(ctx, row.ID, map[string]any{"api_key": "rotated", "model_mapping": account.Credentials["model_mapping"], service.CredentialSecretVersionKey: service.CredentialVersion(account.Credentials)}))
 				require.Equal(test, "conflict", commit(first, 7))
 				require.Equal(test, "conflict", commit(second, 7))
 			case "stale_rules":
-				require.NoError(test, repository.UpdateCredentials(ctx, row.ID, map[string]any{"api_key": "fixture", "model_mapping": map[string]any{"new-alias": "new-target"}}))
+				require.NoError(test, repository.UpdateCredentials(ctx, row.ID, map[string]any{"api_key": "fixture", "model_mapping": map[string]any{"new-alias": "new-target"}, service.CredentialSecretVersionKey: service.CredentialVersion(account.Credentials)}))
 				require.Equal(test, "conflict", commit(first, 7))
 				require.Equal(test, "conflict", commit(second, 7))
 			case "stale_publication":
@@ -152,7 +152,8 @@ func TestModelCatalogIndependentClientsCAS(test *testing.T) {
 			require.NoError(test, err)
 			require.Equal(test, expected, current.GetUpstreamModelCatalog())
 			if scenario == "same_baseline" || scenario == "stale_publication" || scenario == "outbox_rollback" {
-				require.Equal(test, account.Credentials, current.Credentials)
+				require.Equal(test, service.CredentialVersion(account.Credentials), service.CredentialVersion(current.Credentials))
+				require.Equal(test, account.GetCredential("api_key"), current.GetCredential("api_key"))
 			}
 			if scenario == "outbox_rollback" {
 				require.Equal(test, account.Extra, current.Extra)

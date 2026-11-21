@@ -102,6 +102,9 @@ func openAICompatiblePlanCatalogEndpoint(ctx context.Context, account *Account) 
 		// including chat-only platforms. Images and videos both execute here.
 		return CompositeRouteEndpointImages
 	case "audio", "rerank":
+		if plan.Snapshot().Protocol == "audio" && gatewayRequiredAction(ctx) == "audio.translate" {
+			return requestCatalogEndpoint(ctx)
+		}
 		if account != nil && IsChatOnlyPlatform(account.Platform) {
 			if plan.Snapshot().Protocol == "rerank" {
 				return "rerank"
@@ -338,6 +341,14 @@ func requestCatalogEndpoint(ctx context.Context) string {
 		return string(OpenAIEndpointCapabilityEmbeddings)
 	case "media":
 		return string(OpenAIEndpointCapabilityGrokMediaGeneration)
+	case "audio":
+		if action := gatewayRequiredAction(ctx); action != "" {
+			if action == "audio.translate" {
+				return "audio_translations"
+			}
+			return action
+		}
+		return "audio"
 	case "search":
 		return string(OpenAIEndpointCapabilityAlphaSearch)
 	case "live", "realtime":

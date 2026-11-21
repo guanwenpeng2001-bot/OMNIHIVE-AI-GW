@@ -82,7 +82,8 @@ func TestReserveGatewayRequestBudget_MediaEntryHoldsBeforeUpstream(t *testing.T)
 		ID: 7, UserID: 3, Name: "media-key",
 		BudgetPolicy: service.APIKeyBudgetPolicy{Mode: service.APIKeyBudgetModeDuration, LimitUSD: 5, DurationSeconds: 600},
 	}
-	group := &service.Group{ID: 3, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true}
+	perImage := 0.04
+	group := &service.Group{ID: 3, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true, ImagePrice1K: &perImage}
 	key.GroupID = &group.ID
 	key.Group = group
 

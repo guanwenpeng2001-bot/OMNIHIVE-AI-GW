@@ -12,7 +12,7 @@ const LocaleSwitcher = defineAsyncComponent(
 )
 
 interface PublicNavItem {
-  key: 'models' | 'quota' | 'pricing' | 'status' | 'docs'
+  key: 'models' | 'quota' | 'pricing' | 'status' | 'docs' | 'compatibility'
   label: string
   to?: string
   href?: string
@@ -20,11 +20,73 @@ interface PublicNavItem {
   active: boolean
 }
 
+const HEADER_MESSAGES = {
+  en: {
+    brandSubtitle: 'Unified AI Inference Gateway',
+    navModels: 'MODELS',
+    navQuota: 'QUOTA',
+    navPricing: 'PRICING',
+    navStatus: 'STATUS',
+    navDocsExternal: 'DOCS ↗',
+    navDocs: 'DOCS',
+    navCompatibility: 'COMPATIBILITY',
+    closeMenu: 'Close navigation menu',
+    openMenu: 'Open navigation menu',
+    searchAria: 'Search models and routes (⌘K)',
+    searchMedium: 'Search…',
+    searchShort: 'Search',
+    consoleShort: 'CONSOLE →',
+    consoleLong: 'CONSOLE →',
+    signIn: 'SIGN IN',
+    getStarted: 'GET STARTED',
+    mobileNavAria: 'Mobile public navigation',
+    switchToLight: 'Switch to light mode',
+    switchToDark: 'Switch to dark mode'
+  },
+  zh: {
+    brandSubtitle: '统一 AI 推理网关',
+    navModels: '模型广场',
+    navQuota: '额度查询',
+    navPricing: '定价',
+    navStatus: '服务状态',
+    navDocsExternal: '文档 ↗',
+    navDocs: '文档',
+    navCompatibility: '更新与兼容',
+    closeMenu: '关闭导航菜单',
+    openMenu: '打开导航菜单',
+    searchAria: '搜索模型与页面 (⌘K)',
+    searchMedium: '搜索模型或命令…',
+    searchShort: '搜索',
+    consoleShort: '控制台 →',
+    consoleLong: '进入控制台 →',
+    signIn: '登录',
+    getStarted: '注册',
+    mobileNavAria: '移动端公共导航',
+    switchToLight: '切换到浅色模式',
+    switchToDark: '切换到深色模式'
+  }
+} as const
+
+type HeaderMessageKey = keyof typeof HEADER_MESSAGES.en
+
+function toMessageFunctions<T extends Record<string, string>>(dict: T) {
+  return Object.fromEntries(
+    Object.entries(dict).map(([k, v]) => [k, () => v])
+  ) as Record<keyof T, () => string>
+}
+
 const MOBILE_NAV_ID = 'public-mobile-nav'
 const XL_BREAKPOINT_PX = 1280
 
 const route = useRoute()
-const { t, locale } = useI18n()
+const { t, locale } = useI18n({
+  useScope: 'local',
+  messages: {
+    en: toMessageFunctions(HEADER_MESSAGES.en),
+    zh: toMessageFunctions(HEADER_MESSAGES.zh),
+    'zh-CN': toMessageFunctions(HEADER_MESSAGES.zh)
+  }
+})
 const appStore = stores.useAppStore()
 const authStore = typeof stores.useAuthStore === 'function' ? stores.useAuthStore() : null
 const { isDark, toggleDarkMode } = useThemeDirection()
@@ -33,13 +95,20 @@ const mobileMenuOpen = ref(false)
 const menuButtonRef = ref<HTMLButtonElement | null>(null)
 const menuPanelRef = ref<HTMLElement | null>(null)
 
-const isZh = computed(() => String(locale?.value || 'zh').toLowerCase().startsWith('zh'))
+function tr(key: HeaderMessageKey): string {
+  const translated = t(key)
+  if (translated && translated !== key) return translated
+  const active = String(locale?.value || 'en').toLowerCase()
+  const dict = active.startsWith('zh') ? HEADER_MESSAGES.zh : HEADER_MESSAGES.en
+  return dict[key]
+}
+
 const brand = computed(
   () =>
     appStore.brandConfig ?? {
       siteName: appStore.siteName || 'OmniHive',
       siteLogo: appStore.siteLogo || '',
-      subtitle: isZh.value ? '统一 AI 推理网关' : 'Unified AI Inference Gateway'
+      subtitle: tr('brandSubtitle')
     }
 )
 const docUrl = computed(() =>
@@ -61,25 +130,25 @@ const navItems = computed<PublicNavItem[]>(() => {
     {
       key: 'models',
       to: '/model-plaza',
-      label: isZh.value ? '模型广场' : 'MODELS',
+      label: tr('navModels'),
       active: currentPath.startsWith('/model-plaza')
     },
     {
       key: 'quota',
       to: '/key-usage',
-      label: isZh.value ? '额度查询' : 'QUOTA',
+      label: tr('navQuota'),
       active: currentPath.startsWith('/key-usage')
     },
     {
       key: 'pricing',
       to: '/pricing',
-      label: isZh.value ? '定价' : 'PRICING',
+      label: tr('navPricing'),
       active: currentPath.startsWith('/pricing')
     },
     {
       key: 'status',
       to: '/status',
-      label: isZh.value ? '服务状态' : 'STATUS',
+      label: tr('navStatus'),
       active: currentPath.startsWith('/status')
     }
   )
@@ -89,26 +158,33 @@ const navItems = computed<PublicNavItem[]>(() => {
       key: 'docs',
       href: docUrl.value,
       external: true,
-      label: isZh.value ? '文档 ↗' : 'DOCS ↗',
+      label: tr('navDocsExternal'),
       active: false
     })
   } else {
     items.push({
       key: 'docs',
-      to: '/help',
-      label: isZh.value ? '文档' : 'DOCS',
+      to: '/docs',
+      label: tr('navDocs'),
       active: currentPath.startsWith('/help') || currentPath.startsWith('/docs')
     })
   }
+
+  items.push({
+    key: 'compatibility',
+    to: '/compatibility',
+    label: tr('navCompatibility'),
+    active: currentPath.startsWith('/compatibility')
+  })
 
   return items
 })
 
 const menuToggleLabel = computed(() => {
   if (mobileMenuOpen.value) {
-    return isZh.value ? '关闭导航菜单' : 'Close navigation menu'
+    return tr('closeMenu')
   }
-  return isZh.value ? '打开导航菜单' : 'Open navigation menu'
+  return tr('openMenu')
 })
 
 function closeMobileMenu(restoreFocus = false): void {
@@ -246,7 +322,7 @@ onBeforeUnmount(() => {
         <button
           type="button"
           data-testid="public-cmdk-trigger"
-          :aria-label="isZh ? '搜索模型与页面 (⌘K)' : 'Search models and routes (⌘K)'"
+          :aria-label="tr('searchAria')"
           class="oh-focus-ring inline-flex h-8 w-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-oh-md border border-oh-default bg-oh-surface px-0 text-xs text-oh-muted transition-colors hover:border-oh-strong hover:text-oh-primary sm:w-auto sm:px-2 md:px-2.5"
           @click="openSearch"
         >
@@ -262,10 +338,10 @@ onBeforeUnmount(() => {
             <path stroke-linecap="round" d="m10.5 10.5 3 3" />
           </svg>
           <span class="hidden whitespace-nowrap md:inline xl:hidden">
-            {{ isZh ? '搜索模型或命令…' : 'Search…' }}
+            {{ tr('searchMedium') }}
           </span>
           <span class="hidden whitespace-nowrap xl:inline">
-            {{ isZh ? '搜索' : 'Search' }}
+            {{ tr('searchShort') }}
           </span>
           <kbd
             class="hidden rounded-oh-xs border border-oh-subtle bg-oh-subtle px-1 py-0.5 font-mono text-[10px] text-oh-muted sm:inline"
@@ -281,8 +357,8 @@ onBeforeUnmount(() => {
         <button
           type="button"
           data-testid="public-theme-toggle"
-          :aria-label="isDark ? t('home.switchToLight') : t('home.switchToDark')"
-          :title="isDark ? t('home.switchToLight') : t('home.switchToDark')"
+          :aria-label="isDark ? tr('switchToLight') : tr('switchToDark')"
+          :title="isDark ? tr('switchToLight') : tr('switchToDark')"
           class="oh-focus-ring inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-oh-md border border-oh-default bg-oh-surface text-oh-secondary transition-colors hover:border-oh-strong hover:text-oh-primary"
           @click="toggleDarkMode()"
         >
@@ -323,8 +399,8 @@ onBeforeUnmount(() => {
             :to="consolePath"
             class="oh-focus-ring inline-flex h-8 shrink-0 items-center whitespace-nowrap rounded-oh-md border border-transparent bg-oh-accent px-2.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-oh-accent-ink transition-colors hover:bg-oh-accent-hover sm:px-3"
           >
-            <span class="sm:hidden">{{ isZh ? '控制台 →' : 'CONSOLE →' }}</span>
-            <span class="hidden sm:inline">{{ isZh ? '进入控制台 →' : 'CONSOLE →' }}</span>
+            <span class="sm:hidden">{{ tr('consoleShort') }}</span>
+            <span class="hidden sm:inline">{{ tr('consoleLong') }}</span>
           </router-link>
         </template>
         <template v-else>
@@ -333,14 +409,14 @@ onBeforeUnmount(() => {
             to="/login"
             class="oh-focus-ring inline-flex h-8 shrink-0 items-center whitespace-nowrap rounded-oh-md border border-oh-default bg-oh-surface px-2.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-oh-primary transition-colors hover:bg-oh-hover"
           >
-            {{ isZh ? '登录' : 'SIGN IN' }}
+            {{ tr('signIn') }}
           </router-link>
           <router-link
             v-if="registrationEnabled && route.path !== '/register'"
             to="/register"
             class="oh-focus-ring hidden h-8 shrink-0 items-center whitespace-nowrap rounded-oh-md border border-transparent bg-oh-accent px-3 font-mono text-[11px] font-semibold uppercase tracking-wider text-oh-accent-ink transition-colors hover:bg-oh-accent-hover sm:inline-flex"
           >
-            {{ isZh ? '注册' : 'GET STARTED' }}
+            {{ tr('getStarted') }}
           </router-link>
         </template>
 
@@ -396,7 +472,7 @@ onBeforeUnmount(() => {
     >
       <div class="mx-auto w-full max-w-[1560px] px-3.5 py-3 sm:px-6 lg:px-8">
         <nav
-          :aria-label="isZh ? '移动端公共导航' : 'Mobile public navigation'"
+          :aria-label="tr('mobileNavAria')"
           data-testid="public-mobile-nav-list"
           class="grid gap-1 sm:grid-cols-2"
         >
@@ -440,7 +516,7 @@ onBeforeUnmount(() => {
             class="oh-focus-ring ml-auto inline-flex h-8 items-center whitespace-nowrap rounded-oh-md border border-transparent bg-oh-accent px-3 font-mono text-[11px] font-semibold uppercase tracking-wider text-oh-accent-ink transition-colors hover:bg-oh-accent-hover"
             @click="closeMobileMenu()"
           >
-            {{ isZh ? '注册' : 'GET STARTED' }}
+            {{ tr('getStarted') }}
           </router-link>
         </div>
       </div>

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"net/http"
 	"os"
 	"time"
 
@@ -13,14 +14,22 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/antigravity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/cursor"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/geminicli"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/xai"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
-func ProvideCursorGatewayService(sessions *CursorSessionProvider, settings SettingRepository, redisClient *redis.Client) *CursorGatewayService {
+func ProvideContentModerationService(settings SettingRepository, repo ContentModerationRepository, hashes ContentModerationHashCache, groups GroupRepository, users UserRepository, proxies ProxyRepository, invalidator APIKeyAuthCacheInvalidator, email *EmailService, cfg *config.Config) *ContentModerationService {
+	s := NewContentModerationService(settings, repo, hashes, groups, users, proxies, invalidator, email)
+	s.privateHosts = privateUpstreamHosts(cfg)
+	return s
+}
+
+func ProvideCursorGatewayService(sessions *CursorSessionProvider, settings SettingRepository, redisClient *redis.Client, cfg *config.Config) *CursorGatewayService {
 	gateway := NewCursorGatewayService(sessions, settings)
+	gateway.relayClient.Transport = httpclient.NewUpstreamTransport(&http.Transport{Proxy: http.ProxyFromEnvironment}, privateUpstreamHosts(cfg))
 	if redisClient != nil {
 		gateway.toolStore = cursor.NewRedisToolIdentityStore(redisClient)
 	}
@@ -55,8 +64,15 @@ func ProvidePricingService(cfg *config.Config, remoteClient PricingRemoteClient,
 }
 
 // ProvideUpdateService creates UpdateService with BuildInfo
-func ProvideUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, buildInfo BuildInfo) *UpdateService {
-	return NewUpdateService(cache, githubClient, buildInfo.Version, buildInfo.BuildType)
+func ProvideUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, buildInfo BuildInfo, db *sql.DB, cfg *config.Config) *UpdateService {
+	service := NewUpdateService(cache, githubClient, buildInfo.Version, buildInfo.BuildType)
+	service.backupKey = []byte(cfg.Totp.EncryptionKey)
+	service.readRollbackFloor = func(ctx context.Context) (string, error) {
+		var floor string
+		err := db.QueryRowContext(ctx, "SELECT minimum_rollback_version FROM release_schema_compatibility WHERE singleton").Scan(&floor)
+		return floor, err
+	}
+	return service
 }
 
 // ProvideEmailQueueService creates EmailQueueService with default worker count
@@ -978,7 +994,7 @@ var ProviderSet = wire.NewSet(
 	wire.Bind(new(ChannelCacheInvalidator), new(*ChannelService)),
 	NewModelPricingResolver,
 	NewModelPlazaService,
-	NewContentModerationService,
+	ProvideContentModerationService,
 	NewAffiliateService,
 	ProvidePaymentConfigService,
 	ProvidePaymentService,

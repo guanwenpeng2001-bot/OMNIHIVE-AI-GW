@@ -1338,3 +1338,23 @@ func TestBackupService_StartRestore_SplitParts(t *testing.T) {
 	require.Equal(t, "completed", final.RestoreStatus)
 	require.Equal(t, dumpContent, dumper.restored)
 }
+
+func TestBackupScheduleDefaultRetention(t *testing.T) {
+	repo := newMockSettingRepo()
+	svc := newTestBackupService(repo, &mockDumper{}, newMockObjectStore())
+	cfg, err := svc.GetSchedule(t.Context())
+	require.NoError(t, err)
+	require.False(t, cfg.Enabled)
+	require.Equal(t, 14, cfg.RetainDays)
+	for _, test := range []struct {
+		body string
+		days int
+	}{
+		{`{"enabled":true,"cron_expr":"0 2 * * *"}`, 14},
+		{`{"enabled":true,"cron_expr":"0 2 * * *","retain_days":0}`, 0},
+	} {
+		var input BackupScheduleConfig
+		require.NoError(t, json.Unmarshal([]byte(test.body), &input))
+		require.Equal(t, test.days, input.RetainDays)
+	}
+}

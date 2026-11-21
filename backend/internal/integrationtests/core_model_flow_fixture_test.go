@@ -152,6 +152,7 @@ func newCoreFlowFixture(t *testing.T) *coreFlowFixture {
 	cfg := &config.Config{}
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 	cfg.Security.URLAllowlist.AllowPrivateHosts = true
+	cfg.Security.URLAllowlist.UpstreamHosts = []string{"127.0.0.1"}
 	cfg.Database.MaxOpenConns = 8
 	cfg.APIKeyAuth.L1Size = 32
 	cfg.APIKeyAuth.L1TTLSeconds = 60
@@ -178,7 +179,7 @@ func newCoreFlowFixture(t *testing.T) *coreFlowFixture {
 	cache := repository.NewGatewayCache(redisClient)
 	openAI := service.ProvideOpenAIGatewayService(accounts, usage, billingRepo, f.users, nil, rates, cache, cfg, nil, concurrency, billing, nil, billingCache, f.upstream, nil, nil, nil, pricing, nil, nil, nil, nil, settlement)
 	gateway := service.NewGatewayService(accounts, groups, usage, billingRepo, f.users, nil, rates, cache, cfg, nil, concurrency, billing, nil, billingCache, nil, f.upstream, nil, nil, nil, nil, nil, nil, nil, nil, pricing, nil, nil, nil)
-	adminService := service.NewAdminService(cfg, f.users, usage, repository.NewAdminGroupRepository(client, db), repository.NewAdminAccountRepository(client, db, nil), nil, keys, nil, rates, nil, billingCache, nil, nil, keyService, client, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminService := service.NewAdminService(cfg, f.users, usage, repository.NewAdminGroupRepository(client, db), repository.ProvideAdminAccountRepositoryWithSecrets(client, db, nil, testutil.CredentialEncryptor(t), nil), nil, keys, nil, rates, nil, billingCache, nil, nil, keyService, client, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	f.discovery = service.NewAccountTestService(accounts, nil, nil, nil, nil, f.upstream, cfg, nil)
 	// Exercise the optional scheduled refresh deterministically below using the
 	// same service entry point. Avoid the global import-probe scheduler outliving
@@ -216,6 +217,8 @@ func newCoreFlowFixture(t *testing.T) *coreFlowFixture {
 			_, err := db.ExecContext(context.Background(), statement, f.userID, f.otherUserID)
 			require.NoError(t, err)
 		}
+		_, err = db.ExecContext(context.Background(), `DELETE FROM credential_secrets WHERE account_id=$1`, f.accountID)
+		require.NoError(t, err)
 		_, err = db.ExecContext(context.Background(), `DELETE FROM accounts WHERE id=$1`, f.accountID)
 		require.NoError(t, err)
 		_, err = db.ExecContext(context.Background(), `DELETE FROM groups WHERE id=$1`, f.groupID)

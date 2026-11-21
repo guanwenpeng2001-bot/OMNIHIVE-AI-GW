@@ -39,6 +39,9 @@ func (cache *persistentTotpCache) DeleteSetupSession(context.Context, int64) err
 	cache.deleted = true
 	return nil
 }
+func (cache *persistentTotpCache) ConsumeCodeTimeStep(context.Context, int64, int64, time.Duration) (bool, error) {
+	return true, nil
+}
 
 func TestTotpSetupRequiresPersistentKeyBeforeSaving(t *testing.T) {
 	for _, configured := range []bool{false, true} {

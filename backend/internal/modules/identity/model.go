@@ -43,6 +43,12 @@ type Key struct {
 	Version    int64   `json:"version,string"`
 }
 
+type KeyGroup struct {
+	ID       int64  `json:"id,string"`
+	Name     string `json:"name"`
+	Platform string `json:"platform"`
+}
+
 type ModelAccess struct {
 	Mode string   `json:"mode"`
 	IDs  []string `json:"ids"`
@@ -70,7 +76,7 @@ func (p *KeyPolicy) Allows(action string, models []string) bool {
 	if !slices.Contains(p.Actions, action) {
 		return false
 	}
-	if action == "usage.read" || action == "tasks.read" {
+	if action == "models.read" || action == "usage.read" || action == "tasks.read" {
 		return true
 	}
 	switch p.Mode {

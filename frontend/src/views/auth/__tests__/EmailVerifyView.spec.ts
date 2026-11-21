@@ -899,4 +899,51 @@ describe('EmailVerifyView', () => {
       tencent_captcha_randstr: undefined,
     }))
   })
+
+  it('forwards login agreement acceptance and revision from registerDraft to authStore.register', async () => {
+    sessionStorage.setItem('register_data', JSON.stringify({
+      email: 'agreed@example.com',
+      password: 'test-pass-123',
+      login_agreement_accepted: true,
+      login_agreement_revision: 'rev-email-1',
+    }))
+    getPublicSettingsMock.mockResolvedValueOnce({
+      turnstile_enabled: false,
+      turnstile_site_key: '',
+      site_name: 'OmniHive',
+      registration_email_suffix_whitelist: [],
+      login_agreement_enabled: true,
+      login_agreement_revision: 'rev-email-1',
+    })
+    sendVerifyCodeMock.mockResolvedValueOnce({ countdown: 60 })
+    registerMock.mockResolvedValueOnce({})
+
+    const wrapper = mount(EmailVerifyView, {
+      global: {
+        stubs: {
+          AuthLayout: { template: '<div><slot /><slot name="footer" /></div>' },
+          Icon: true,
+          TurnstileWidget: {
+            template: '<span />',
+            methods: {
+              reset: createTurnstileResetMock,
+            },
+          },
+          transition: false,
+        },
+      },
+    })
+
+    await flushPromises()
+    await wrapper.get('#code').setValue('123456')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(registerMock).toHaveBeenCalledWith(expect.objectContaining({
+      email: 'agreed@example.com',
+      verify_code: '123456',
+      login_agreement_accepted: true,
+      login_agreement_revision: 'rev-email-1',
+    }))
+  })
 })

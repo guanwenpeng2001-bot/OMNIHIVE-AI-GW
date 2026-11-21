@@ -3,6 +3,7 @@ package apicompat
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -82,44 +83,45 @@ func AnthropicToChatCompletionsRequest(req *AnthropicRequest) (*ChatCompletionsR
 
 	if req.MaxTokens > 0 {
 		v := req.MaxTokens
-		out.MaxCompletionTokens = &v
+		out.MaxTokens = &v
 	}
 
-	// Tools: Anthropic input_schema is a JSON Schema, directly usable as Chat
-	// function parameters. Server tools (web_search_*) have no Chat Completions
-	// equivalent and are dropped (mirrors responsesToolsToChatTools).
-	if len(req.Tools) > 0 {
-		tools := anthropicToolsToChatTools(req.Tools)
-		if len(tools) > 0 {
-			out.Tools = tools
+	declared := make(map[string]bool, len(req.Tools))
+	for i, tool := range req.Tools {
+		path := fmt.Sprintf("tools[%d].", i)
+		switch {
+		case tool.Type != "" && tool.Type != "custom":
+			return nil, &ChatToolCapabilityError{path + "type", "unsupported tool type " + tool.Type}
+		case tool.unmappedField != "":
+			return nil, &ChatToolCapabilityError{path + tool.unmappedField, "unsupported tool option"}
+		case tool.CacheControl != nil:
+			return nil, &ChatToolCapabilityError{path + "cache_control", "cache control is unavailable"}
+		case !chatFunctionName.MatchString(tool.Name) || declared[tool.Name]:
+			return nil, &ChatToolCapabilityError{path + "name", "expected a unique Chat Completions function name"}
 		}
-	}
-
-	// tool_choice is only forwarded when tools survived the conversion
-	// (upstream rejects tool_choice without tools), and a named choice only when
-	// it points at a declared tool — mirroring responsesToolChoiceToChatToolChoice,
-	// chat upstreams 400 on tool_choice referencing an unknown tool.
-	if len(out.Tools) > 0 && len(req.ToolChoice) > 0 {
-		declared := make(map[string]bool, len(out.Tools))
-		for _, tool := range out.Tools {
-			if tool.Function != nil {
-				declared[tool.Function.Name] = true
+		if len(tool.InputSchema) > 0 {
+			var schema map[string]json.RawMessage
+			if json.Unmarshal(tool.InputSchema, &schema) != nil || schema == nil {
+				return nil, &ChatToolCapabilityError{path + "input_schema", "expected a JSON schema object"}
 			}
 		}
-		tc, err := convertAnthropicToolChoiceToChat(req.ToolChoice, declared)
+		declared[tool.Name] = true
+		strict := tool.Strict != nil && *tool.Strict
+		out.Tools = append(out.Tools, ChatTool{Type: "function", Function: &ChatFunction{
+			Name: tool.Name, Description: tool.Description, Parameters: normalizeToolParameters(tool.InputSchema), Strict: &strict,
+		}})
+	}
+	parallel := true
+	if len(req.ToolChoice) > 0 {
+		out.ToolChoice, err = convertAnthropicToolChoiceToChat(req.ToolChoice, declared, &parallel)
 		if err != nil {
-			return nil, fmt.Errorf("convert tool_choice: %w", err)
-		}
-		if len(tc) > 0 {
-			out.ToolChoice = tc
+			return nil, err
 		}
 	}
+	out.ParallelToolCalls = &parallel
 
 	// Match the Responses bridge, including an explicit thinking disable.
 	out.ReasoningEffort = anthropicReasoningEffort(req)
-
-	parallelToolCalls := true
-	out.ParallelToolCalls = &parallelToolCalls
 
 	return out, nil
 }
@@ -347,65 +349,59 @@ func anthropicThinkingToReasoningContent(blocks []AnthropicContentBlock, hasTool
 	return strings.Join(parts, "\n")
 }
 
-// anthropicToolsToChatTools maps Anthropic tool definitions to Chat Completions
-// function tools. Server-side tools (web_search_*) are dropped — they have no
-// Chat Completions equivalent.
-func anthropicToolsToChatTools(tools []AnthropicTool) []ChatTool {
-	var out []ChatTool
-	for _, t := range tools {
-		if strings.HasPrefix(t.Type, "web_search") {
-			continue
+var chatFunctionName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// ChatToolCapabilityError identifies the exact input field that the bridge cannot represent.
+type ChatToolCapabilityError struct{ Field, Reason string }
+
+func (e *ChatToolCapabilityError) Error() string { return e.Field + ": " + e.Reason }
+
+func convertAnthropicToolChoiceToChat(raw json.RawMessage, declared map[string]bool, parallel *bool) (json.RawMessage, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
+		return nil, &ChatToolCapabilityError{"tool_choice", "expected an object"}
+	}
+	var kind string
+	if json.Unmarshal(fields["type"], &kind) != nil {
+		return nil, &ChatToolCapabilityError{"tool_choice.type", "expected a tool choice type"}
+	}
+	delete(fields, "type")
+	if v, ok := fields["disable_parallel_tool_use"]; ok {
+		var disabled *bool
+		if json.Unmarshal(v, &disabled) != nil || disabled == nil {
+			return nil, &ChatToolCapabilityError{"tool_choice.disable_parallel_tool_use", "expected a boolean"}
 		}
-		out = append(out, ChatTool{
-			Type: "function",
-			Function: &ChatFunction{
-				Name:        t.Name,
-				Description: t.Description,
-				Parameters:  normalizeToolParameters(t.InputSchema),
-				Strict:      boolPtr(false),
-			},
-		})
+		*parallel = !*disabled
+		delete(fields, "disable_parallel_tool_use")
 	}
-	return out
-}
-
-// convertAnthropicToolChoiceToChat maps Anthropic tool_choice to Chat
-// Completions tool_choice. A nil result means the choice is dropped: like the
-// double-conversion path (responsesToolChoiceToChatToolChoice), a named choice
-// pointing at an undeclared tool or an unknown choice type is not forwarded,
-// because chat upstreams reject it.
-//
-//	{"type":"auto"}            → "auto"
-//	{"type":"any"}             → "required"
-//	{"type":"none"}            → "none"
-//	{"type":"tool","name":"X"} → {"type":"function","function":{"name":"X"}} (X declared)
-func convertAnthropicToolChoiceToChat(raw json.RawMessage, declared map[string]bool) (json.RawMessage, error) {
-	var tc struct {
-		Type string `json:"type"`
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal(raw, &tc); err != nil {
-		return nil, err
-	}
-
-	switch tc.Type {
-	case "auto":
-		return json.Marshal("auto")
+	var choice any
+	switch kind {
+	case "auto", "none":
+		choice = kind
 	case "any":
-		return json.Marshal("required")
-	case "none":
-		return json.Marshal("none")
+		choice = "required"
 	case "tool":
-		if tc.Name == "" || !declared[tc.Name] {
-			return nil, nil
+		var name string
+		if json.Unmarshal(fields["name"], &name) != nil || !declared[name] {
+			return nil, &ChatToolCapabilityError{"tool_choice.name", "expected a declared function tool"}
 		}
-		return json.Marshal(map[string]any{
-			"type":     "function",
-			"function": map[string]string{"name": tc.Name},
-		})
+		delete(fields, "name")
+		choice = map[string]any{"type": "function", "function": map[string]string{"name": name}}
 	default:
-		return nil, nil
+		return nil, &ChatToolCapabilityError{"tool_choice.type", "unsupported tool choice type"}
 	}
+	if len(fields) > 0 {
+		var keys []string
+		for k := range fields {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		return nil, &ChatToolCapabilityError{"tool_choice." + keys[0], "unsupported tool choice option"}
+	}
+	if len(declared) == 0 {
+		return nil, &ChatToolCapabilityError{"tool_choice.type", "tool_choice requires declared tools"}
+	}
+	return json.Marshal(choice)
 }
 
 // joinResponsesContentPartText concatenates the text of input_text parts. Used

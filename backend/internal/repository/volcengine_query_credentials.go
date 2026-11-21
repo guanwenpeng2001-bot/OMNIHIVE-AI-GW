@@ -16,9 +16,9 @@ func cloudQuotaInvalidationSQL(credentialsExpression string) string {
 	return "CASE WHEN platform IN ('volcengine','hunyuan','byteplus') AND credentials IS DISTINCT FROM " + credentialsExpression + " THEN " + cloudQuotaSnapshotKeysSQL + " ELSE ARRAY[]::text[] END"
 }
 
-func hasManagementQuerySecrets(credentials map[string]any) bool {
+func hasCredentialSecrets(credentials map[string]any) bool {
 	for field := range credentials {
-		if service.IsManagementQuerySecret(field) {
+		if service.IsSensitiveCredentialKey(field) {
 			return true
 		}
 	}
@@ -36,11 +36,11 @@ func createManagementQueryReference(ctx context.Context, database credentialSQL,
 		return inline, nil
 	}
 	metadata := service.CredentialSecret{Reference: uuid.NewString(), WorkspaceID: workspaceID, AccountID: accountID, Version: 1, UpdatedAt: time.Now().UTC()}
-	ciphertext, err := service.EncryptCredentialSecret(encryptor, metadata, secrets)
+	ciphertext, err := service.EncryptVerifiedCredential(ctx, encryptor, metadata, secrets)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := database.ExecContext(ctx, `INSERT INTO credential_secrets(reference,workspace_id,account_id,version,ciphertext,updated_at) VALUES($1,$2,$3,1,$4,$5)`, metadata.Reference, workspaceID, accountID, ciphertext, metadata.UpdatedAt); err != nil {
+	if _, err := database.ExecContext(ctx, `INSERT INTO credential_secrets(reference,workspace_id,account_id,version,ciphertext,updated_at,api_key_digest) VALUES($1,$2,$3,1,$4,$5,$6)`, metadata.Reference, workspaceID, accountID, ciphertext, metadata.UpdatedAt, service.AccountAPIKeyDigest(secrets)); err != nil {
 		return nil, err
 	}
 	inline[service.CredentialSecretReferenceKey], inline[service.CredentialSecretVersionKey] = metadata.Reference, metadata.Version
@@ -84,7 +84,7 @@ func (r *accountRepository) createAccountWithQuerySecrets(ctx context.Context, c
 			return err
 		}
 	}
-	if !staged && !hasManagementQuerySecrets(account.Credentials) {
+	if !staged && !hasCredentialSecrets(account.Credentials) {
 		return createAccountRecord(ctx, client, account)
 	}
 	if r.credentialEncryptor == nil {

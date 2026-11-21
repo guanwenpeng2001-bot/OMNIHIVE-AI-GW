@@ -25,7 +25,10 @@ func NewAuditLogRepository(db *sql.DB) service.AuditLogRepository {
 
 const auditLogInsertColumns = `created_at, actor_user_id, actor_email, actor_role, auth_method,
 credential_masked, action, method, path, request_id, client_ip, user_agent,
-request_body, status_code, latency_ms, extra`
+	request_body, status_code, latency_ms, extra, project_id, resource_id`
+
+const auditLogInsertSQL = `INSERT INTO audit_logs (` + auditLogInsertColumns + `)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`
 
 func auditLogInsertValues(log *service.AuditLog) []any {
 	createdAt := log.CreatedAt
@@ -54,7 +57,7 @@ func auditLogInsertValues(log *service.AuditLog) []any {
 		log.RequestBody,
 		log.StatusCode,
 		log.LatencyMs,
-		extraJSON,
+		extraJSON, nullInt64Ptr(log.ProjectID), truncateString(log.ResourceID, 256),
 	}
 }
 
@@ -74,7 +77,7 @@ func (r *auditLogRepository) BatchInsert(ctx context.Context, logs []*service.Au
 		"audit_logs",
 		"created_at", "actor_user_id", "actor_email", "actor_role", "auth_method",
 		"credential_masked", "action", "method", "path", "request_id", "client_ip", "user_agent",
-		"request_body", "status_code", "latency_ms", "extra",
+		"request_body", "status_code", "latency_ms", "extra", "project_id", "resource_id",
 	))
 	if err != nil {
 		_ = tx.Rollback()
@@ -116,9 +119,7 @@ func (r *auditLogRepository) Insert(ctx context.Context, log *service.AuditLog) 
 	if log == nil {
 		return fmt.Errorf("nil audit log")
 	}
-	query := `INSERT INTO audit_logs (` + auditLogInsertColumns + `)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`
-	_, err := r.db.ExecContext(ctx, query, auditLogInsertValues(log)...)
+	_, err := r.db.ExecContext(ctx, auditLogInsertSQL, auditLogInsertValues(log)...)
 	return err
 }
 
@@ -192,12 +193,13 @@ const auditLogSelectColumns = `
   COALESCE(l.request_body, ''),
   l.status_code,
   l.latency_ms,
-  COALESCE(l.extra::text, '{}')`
+  COALESCE(l.extra::text, '{}'), l.project_id, COALESCE(l.resource_id, '')`
 
 func scanAuditLogRow(scan func(dest ...any) error) (*service.AuditLog, error) {
 	item := &service.AuditLog{}
 	var actorUserID sql.NullInt64
 	var extraRaw string
+	var projectID sql.NullInt64
 	if err := scan(
 		&item.ID,
 		&item.CreatedAt,
@@ -215,13 +217,16 @@ func scanAuditLogRow(scan func(dest ...any) error) (*service.AuditLog, error) {
 		&item.RequestBody,
 		&item.StatusCode,
 		&item.LatencyMs,
-		&extraRaw,
+		&extraRaw, &projectID, &item.ResourceID,
 	); err != nil {
 		return nil, err
 	}
 	if actorUserID.Valid {
 		v := actorUserID.Int64
 		item.ActorUserID = &v
+	}
+	if projectID.Valid {
+		item.ProjectID = &projectID.Int64
 	}
 	extraRaw = strings.TrimSpace(extraRaw)
 	if extraRaw != "" && extraRaw != "null" && extraRaw != "{}" {
@@ -346,9 +351,7 @@ func (r *auditLogRepository) ClearWithTrace(ctx context.Context, trace *service.
 		trace.Extra = map[string]any{}
 	}
 	trace.Extra["deleted_rows"] = deleted
-	query := `INSERT INTO audit_logs (` + auditLogInsertColumns + `)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`
-	if _, err := tx.ExecContext(ctx, query, auditLogInsertValues(trace)...); err != nil {
+	if _, err := tx.ExecContext(ctx, auditLogInsertSQL, auditLogInsertValues(trace)...); err != nil {
 		return 0, fmt.Errorf("persist audit clear trace: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

@@ -318,15 +318,15 @@ describe('configuration manual', () => {
     expect(guide().text()).toBe('Guide')
   })
 
-  it('registers a protected non-admin route and applies the real authentication guard', async () => {
+  it('registers /help as a public documentation route accessible with or without authentication', async () => {
     await import('@/router')
     const help = routerHarness.options!.routes.find(route => route.path === '/help')!
-    expect(help.meta).toMatchObject({ requiresAuth: true, requiresAdmin: false, titleKey: 'helpGuide.title' })
+    expect(help.meta).toMatchObject({ requiresAuth: false, shellTier: 'public', titleKey: 'helpGuide.title' })
     const to = { path: '/help', fullPath: '/help', name: 'HelpGuide', meta: help.meta, params: {}, query: {}, hash: '', matched: [], redirectedFrom: undefined }
     const next = vi.fn()
     authStore.isAuthenticated = false
     await routerHarness.guard!(to, to, next)
-    expect(next).toHaveBeenCalledWith({ path: '/login', query: { redirect: '/help' } })
+    expect(next).toHaveBeenCalledWith()
     authStore.isAuthenticated = true
     authStore.isSimpleMode = true
     next.mockClear()

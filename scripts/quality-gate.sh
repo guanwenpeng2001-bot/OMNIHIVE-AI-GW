@@ -43,7 +43,9 @@ Options:
   -h, --help        this text
 
 Environment:
-  QUALITY_GATE_DATABASE_DSN  disposable PostgreSQL URL containing /job_test
+  QUALITY_GATE_DATABASE_DSN  disposable PostgreSQL URL containing /job_test;
+                             the server must also provide stats_test,
+                             billing_audit_test and backup_data_test
   QUALITY_GATE_STATS_DSN     disposable PostgreSQL URL containing /stats_test
   QUALITY_GATE_REDIS_ADDR    disposable Redis host:port on loopback
   QUALITY_GATE_PG_PORT       isolated PostgreSQL port (default 55480)
@@ -274,7 +276,7 @@ start_postgres() {
   "${PG_BIN}/initdb" -D "$PG_DATA" -U postgres --auth=trust --no-instructions >"${PG_TEMP}/initdb.log" 2>&1
   "${PG_BIN}/pg_ctl" -D "$PG_DATA" -o "-c listen_addresses=127.0.0.1 -c port=${PG_PORT} -c unix_socket_directories=${PG_SOCKET}" -l "${PG_TEMP}/postgres.log" -w start >/dev/null
   "${PG_BIN}/psql" -h 127.0.0.1 -p "$PG_PORT" -U postgres -v ON_ERROR_STOP=1 -c "ALTER USER postgres PASSWORD 'quality_gate'" >/dev/null
-  for database in job_test stats_test backup_data_test; do
+  for database in job_test stats_test billing_audit_test backup_data_test be09_rehearsal_test be09_journal_test fix3_batch_test model_access_test ops_billing_backlog_test scheduler_recovery_test scheduler_resources_test prompt_audit_test; do
     "${PG_BIN}/psql" -h 127.0.0.1 -p "$PG_PORT" -U postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE ${database}" >/dev/null
   done
   local pg_password="quality_gate"
@@ -336,7 +338,7 @@ stop_services() {
 reset_test_databases() {
   [[ $PG_EXTERNAL -eq 1 || -z "$PG_BIN" ]] && return 0
   local database
-  for database in job_test stats_test; do
+  for database in job_test stats_test model_access_test ops_billing_backlog_test scheduler_recovery_test scheduler_resources_test prompt_audit_test; do
     "${PG_BIN}/psql" -h 127.0.0.1 -p "$PG_PORT" -U postgres -v ON_ERROR_STOP=1 \
       -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='${database}' AND pid<>pg_backend_pid()" \
       -c "DROP DATABASE IF EXISTS ${database} WITH (FORCE)" \
@@ -374,6 +376,9 @@ run_stage() {
   printf '%-16s %-4s %6ss  %s\n' "$name" "$status" "$duration" "${LOG_DIR}/${name}.log" | tee -a "$SUMMARY"
   if [[ "$status" == FAIL ]]; then
     echo "----- ${name} failure tail -----" >&2
+    if [[ "$name" == smoke && -s "${LOG_DIR}/smoke-failures.log" ]]; then
+      cat "${LOG_DIR}/smoke-failures.log" >&2
+    fi
     tail -n 40 "${LOG_DIR}/${name}.log" >&2 || true
     echo "-------------------------------" >&2
   fi
@@ -390,16 +395,41 @@ stage_backend() {
   go vet ./...
   echo "+ go test -count=1 ./..."
   go test -count=1 ./...
-  echo "+ go test -tags=unit -count=1 ./..."
-  go test -tags=unit -count=1 ./...
 
   ensure_services
-  echo "+ go test -p 1 -tags=integration -count=1 ./..."
-  export SUB2API_TEST_EXTERNAL_SERVICES=1
   export UPSTREAM_JOB_TEST_DSN="$PG_DSN"
   export NEW_PLATFORMS_TEST_POSTGRES_DSN="$PG_DSN"
   export USAGE_STATS_TEST_DSN="$STATS_DSN"
   export CATALOG_SCOPE_TEST_DSN="$PG_DSN"
+  export CATALOG_EVENT_TEST_DSN="$PG_DSN"
+  export WORKSPACE_TEST_DSN="$PG_DSN"
+  export CREDENTIAL_DRAFT_TEST_DSN="$PG_DSN"
+  export CREDENTIAL_SECRET_TEST_DSN="$PG_DSN"
+  export ACCOUNT_EXTRA_TEST_DSN="$PG_DSN"
+  export ACCOUNT_WORKFLOW_TEST_DSN="$PG_DSN"
+  export HOSTED_IDENTITY_TEST_DSN="$PG_DSN"
+  export USER_BILLING_TIMELINE_TEST_DSN="$PG_DSN"
+  export API_KEY_CREDENTIAL_TEST_DSN="$PG_DSN"
+  export OPENCODE_QUOTA_TEST_DSN="$PG_DSN"
+  export CURSOR_TEST_POSTGRES_DSN="$PG_DSN"
+  export CURSOR_MONITOR_TEST_POSTGRES_DSN="$PG_DSN"
+  export COMPATIBLE_PROVIDER_TEST_POSTGRES_DSN="$PG_DSN"
+  export QUOTES_POSTGRES_DSN="$PG_DSN"
+  # These suites compare the raw query string, so keep it to sslmode=disable.
+  local base_pg_dsn="${PG_DSN%%&*}"
+  export PROMPT_AUDIT_TEST_POSTGRES_DSN="${base_pg_dsn/\/job_test/\/prompt_audit_test}"
+  export BE09_TEST_ISOLATED_DSN="${base_pg_dsn/\/job_test/\/be09_rehearsal_test}"
+  export BE09_TEST_JOURNAL_DSN="${base_pg_dsn/\/job_test/\/be09_journal_test}"
+  export MIGRATION_INTEGRATION_TEST_DSN="$PG_DSN"
+  export RETIREMENT_INTEGRATION_TEST_DSN="${base_pg_dsn}"
+  export BACKUP_DATA_TEST_DSN="${base_pg_dsn/\/job_test/\/backup_data_test}"
+  export UPSTREAM_BILLING_AUDIT_DSN="${PG_DSN/\/job_test/\/billing_audit_test}"
+  export BATCH_SUBMIT_TEST_DSN="${base_pg_dsn/\/job_test/\/fix3_batch_test}"
+  export MODEL_ACCESS_TEST_DSN="${base_pg_dsn/\/job_test/\/model_access_test}"
+  local base_pg_url="${base_pg_dsn%%\?*}"
+  export OPS_BILLING_BACKLOG_TEST_DSN="${base_pg_url/\/job_test/\/ops_billing_backlog_test}"
+  export SCHEDULER_RECOVERY_TEST_DSN="${base_pg_dsn/\/job_test/\/scheduler_recovery_test}"
+  export SCHEDULER_RESOURCES_TEST_DSN="${base_pg_dsn/\/job_test/\/scheduler_resources_test}"
   export AFFINITY_REDIS_TEST_ADDR="$REDIS_ADDR"
   export ACCOUNTING_TEST_REDIS_ADDR="$REDIS_ADDR"
   export CURSOR_TEST_REDIS_ADDR="$REDIS_ADDR"
@@ -407,10 +437,19 @@ stage_backend() {
   export SECURITY_REDIS_TEST_ADDR="$REDIS_ADDR"
   export PROMPT_AUDIT_TEST_REDIS_ADDR="$REDIS_ADDR"
   export SCHEDULER_RESOURCES_REDIS_ADDR="$REDIS_ADDR"
+  export QUOTES_REDIS_ADDR="$REDIS_ADDR"
   export TEST_REDIS_URL="redis://${REDIS_ADDR}/0"
 
+  echo "+ go-test-strict.sh -tags=unit -p 1 -count=1 ./..."
+  GO_TEST_STRICT_PROFILE=local "${ROOT}/scripts/go-test-strict.sh" \
+    -tags=unit -p 1 -count=1 ./...
+
+  export SUB2API_TEST_EXTERNAL_SERVICES=1
+  export OMNIHIVE_TEST_EXTERNAL_SERVICES=1
+  echo "+ go-test-strict.sh -p 1 -tags=integration -count=1 ./..."
   if [[ $PG_EXTERNAL -eq 1 ]]; then
-    go test -p 1 -tags=integration -count=1 ./...
+    GO_TEST_STRICT_PROFILE=local,integration,local-integration "${ROOT}/scripts/go-test-strict.sh" \
+      -p 1 -tags=integration -count=1 ./...
     return
   fi
 
@@ -423,11 +462,13 @@ stage_backend() {
       *) filtered+=("$pkg") ;;
     esac
   done
-  go test -p 1 -tags=integration -count=1 "${filtered[@]}" || status=1
+  GO_TEST_STRICT_PROFILE=local,integration,local-integration "${ROOT}/scripts/go-test-strict.sh" \
+    -p 1 -tags=integration -count=1 "${filtered[@]}" || status=1
   for pkg in ./internal/control/status ./internal/repository; do
     echo "+ reset disposable databases before ${pkg}"
     reset_test_databases
-    go test -p 1 -tags=integration -count=1 "$pkg" || status=1
+    GO_TEST_STRICT_PROFILE=local,integration,local-integration "${ROOT}/scripts/go-test-strict.sh" \
+      -p 1 -tags=integration -count=1 "$pkg" || status=1
   done
   return "$status"
 }
@@ -471,12 +512,19 @@ stage_contracts() {
   done < <(find contracts/protocol contracts/api -type f -name '*.json' -print0 | sort -z)
   echo "validated ${count} protocol and API JSON fixtures"
   cd "${ROOT}/backend"
-  echo "+ go test -tags=unit -run '^TestProtocolDecisionFixtures$' ./internal/server/middleware"
-  go test -tags=unit -count=1 -run '^TestProtocolDecisionFixtures$' ./internal/server/middleware
-  echo "+ go test -run '^(TestAttemptDecisionsAcrossGatewayLoops|TestWebSocketFirstOutputAttemptFixtures)$' ./internal/handler"
-  go test -count=1 -run '^(TestAttemptDecisionsAcrossGatewayLoops|TestWebSocketFirstOutputAttemptFixtures)$' ./internal/handler
-  echo "+ go test ./internal/gateway/execution/journal ./internal/core/money"
-  go test -count=1 ./internal/gateway/execution/journal ./internal/core/money
+  # openai_gateway_handler_attempt_test.go is //go:build unit; without the tag
+  # the -run below silently matched nothing.
+  echo "+ go-test-strict.sh -tags=unit -run '^TestProtocolDecisionFixtures$' ./internal/server/middleware"
+  GO_TEST_STRICT_PROFILE=contracts "${ROOT}/scripts/go-test-strict.sh" \
+    -tags=unit -count=1 -run '^TestProtocolDecisionFixtures$' ./internal/server/middleware
+  echo "+ go-test-strict.sh -tags=unit -run '^(TestAttemptDecisionsAcrossGatewayLoops|TestWebSocketFirstOutputAttemptFixtures)$' ./internal/handler"
+  GO_TEST_STRICT_PROFILE=contracts "${ROOT}/scripts/go-test-strict.sh" \
+    -tags=unit -count=1 \
+    -run '^(TestAttemptDecisionsAcrossGatewayLoops|TestWebSocketFirstOutputAttemptFixtures)$' \
+    ./internal/handler
+  echo "+ go-test-strict.sh ./internal/gateway/execution/journal ./internal/core/money"
+  GO_TEST_STRICT_PROFILE=contracts "${ROOT}/scripts/go-test-strict.sh" \
+    -count=1 ./internal/gateway/execution/journal ./internal/core/money
 }
 
 stage_generated_drift() {
@@ -693,6 +741,7 @@ EOF
   export QUOTES_POSTGRES_DSN="$PG_DSN"
   export QUOTES_REDIS_ADDR="$REDIS_ADDR"
   export MIGRATION_INTEGRATION_TEST_DSN="${PG_DSN/&TimeZone=UTC/}"
+  export RETIREMENT_INTEGRATION_TEST_DSN="${PG_DSN/&TimeZone=UTC/}"
   if [[ $PG_EXTERNAL -eq 0 ]]; then
     reset_test_databases
   fi
@@ -714,8 +763,14 @@ EOF
     fi
     if [[ ! -x "$script" ]]; then chmod +x "$script"; fi
     echo "+ bash ${script}"
-    if ! bash "$script"; then
+    local script_log
+    script_log="${LOG_DIR}/smoke-$(basename "$(dirname "$script")").log"
+    if ! bash "$script" 2>&1 | tee "$script_log"; then
       echo "smoke failed: ${script}" >&2
+      {
+        echo "smoke failed: ${script}"
+        tail -n 25 "$script_log" | sed 's/^/  | /'
+      } >>"${LOG_DIR}/smoke-failures.log"
       failed=1
     fi
   done < <(find contracts/migrations -mindepth 2 -maxdepth 2 -name smoke.sh -print0 | sort -z)

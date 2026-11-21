@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	pg "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/playground"
 	"github.com/stretchr/testify/require"
 )
@@ -84,4 +85,36 @@ func TestNativeMalformedBounds(t *testing.T) {
 	_, found := h.previews.Load("run")
 	require.True(t, found)
 	require.Eventually(t, func() bool { _, ok := h.previews.Load("run"); return !ok }, time.Second, time.Millisecond)
+}
+
+func TestSelectModelMatchesCanonicalIDOrUnambiguousSlug(t *testing.T) {
+	snap := catalog.Snapshot{
+		Details: []catalog.Detail{
+			{
+				Model:   catalog.Summary{ID: "m_11111111111111111111111111111111", Model: "auto/gemini-3.8-flash", Provider: "openai", AccessState: "allowed", RouteState: "eligible"},
+				Aliases: []string{"gemini-3.8-flash"},
+			},
+			{
+				Model: catalog.Summary{ID: "m_22222222222222222222222222222222", Model: "shared-slug", Provider: "openai", AccessState: "allowed", RouteState: "eligible"},
+			},
+			{
+				Model: catalog.Summary{ID: "m_33333333333333333333333333333333", Model: "shared-slug", Provider: "anthropic", AccessState: "allowed", RouteState: "eligible"},
+			},
+		},
+	}
+
+	byID, err := selectModel(snap, "m_22222222222222222222222222222222", false)
+	require.NoError(t, err)
+	require.Equal(t, "openai", byID.Model.Provider)
+
+	bySlug, err := selectModel(snap, "auto/gemini-3.8-flash", false)
+	require.NoError(t, err)
+	require.Equal(t, "m_11111111111111111111111111111111", bySlug.Model.ID)
+
+	byAlias, err := selectModel(snap, "gemini-3.8-flash", false)
+	require.NoError(t, err)
+	require.Equal(t, "m_11111111111111111111111111111111", byAlias.Model.ID)
+
+	_, err = selectModel(snap, "shared-slug", false)
+	require.ErrorIs(t, err, unavailableModel)
 }

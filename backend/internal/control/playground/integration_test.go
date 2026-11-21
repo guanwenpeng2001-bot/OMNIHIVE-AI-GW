@@ -63,6 +63,7 @@ func TestPaidPlayground(t *testing.T) {
 	p := id("SELECT id FROM projects WHERE workspace_id=$1 AND is_default", w)
 	exec("INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'admin'),($1,$3,'admin')", w, actor, other)
 	group := id("INSERT INTO groups(name,workspace_id,platform) VALUES($1,$2,'openai') RETURNING id", uuid.NewString(), w)
+	exec(`UPDATE groups SET model_pricing='[{"platform":"openai","models":["model-a"],"billing_mode":"token","input_price":0.000001,"output_price":0.000002}]' WHERE id=$1`, group)
 	key := id("INSERT INTO api_keys(workspace_id,user_id,group_id,name,budget_period_mode,budget_period_seconds,budget_limit) VALUES($1,$2,$3,'playground','duration',86400,5) RETURNING id", w, actor, group)
 	exec("INSERT INTO api_key_credentials(workspace_id,api_key_id,credential_digest) VALUES($1,$2,$3)", w, key, service.APIKeyCredentialDigest(uuid.NewString()))
 	account := id("INSERT INTO accounts(name,workspace_id,platform,type) VALUES('endpoint',$1,'openai','apikey') RETURNING id", w)
@@ -79,7 +80,7 @@ func TestPaidPlayground(t *testing.T) {
 	cfg := &config.Config{}
 	repo := repository.NewUsageSettlementReceiptRepository(db)
 	financial := service.NewUsageSettlementService(repo, nil, nil)
-	plans := service.ProvideGatewayService(nil, nil, nil, nil, nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, financial)
+	plans := service.ProvideGatewayService(nil, nil, nil, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(nil, nil), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, financial)
 	keys := service.NewAPIKeyService(repository.NewAPIKeyRepository(ent, db), nil, nil, nil, nil, nil, cfg)
 	queue := "playground/" + uuid.NewString()
 	settle := func(request string) error {

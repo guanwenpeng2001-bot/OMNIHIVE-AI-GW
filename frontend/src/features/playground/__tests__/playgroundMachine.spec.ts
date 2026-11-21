@@ -7,6 +7,7 @@ import {
   resolveCatalogQuoteModelId
 } from '../costEstimate'
 import { createPlaygroundRunController, type PlaygroundApiAdapter } from '../runMachine'
+import { normalizePlaygroundError } from '../errors'
 import { PlaygroundSseParser } from '../sseParser'
 import type { PlaygroundSideConfig, PlaygroundSummary } from '../types'
 
@@ -360,8 +361,8 @@ describe('Playground SSE state machine, stop, reconnect, and cost confirmation',
         source: 'published',
         estimated_charge: { currency: 'USD', amount: '0.01500000' },
         components: [
-          { kind: 'input', quantity: '20', raw_amount: '0.00005000', numerator: '2.50', denominator: '1000000' },
-          { kind: 'output', quantity: '1000', raw_amount: '0.01495000', numerator: '14.95', denominator: '1000000' }
+          { kind: 'input', quantity: '20', raw_amount: '0.00005000', numerator: '50', denominator: '1000000' },
+          { kind: 'output', quantity: '1000', raw_amount: '0.01495000', numerator: '14950', denominator: '1000000' }
         ],
         rounding_adjustment: null,
         effective_scope: { workspace_id: '1', project_id: '2', scope_version: '4' }
@@ -373,7 +374,7 @@ describe('Playground SSE state machine, stop, reconnect, and cost confirmation',
     expect(priced.maxTotalCost).toBe('0.01500000')
     expect(priced.priceVersion).toBe('pv_2026_11')
     expect(priced.fundingSource).toBe('wallet')
-    expect(priced.inputRate?.amount).toBe('2.50')
+    expect(priced.inputRate?.amount).toBe('2.5')
     expect(priced.outputRate?.amount).toBe('14.95')
 
     const unpriced = applyAuthoritativeQuoteToEstimate(base, {
@@ -388,5 +389,53 @@ describe('Playground SSE state machine, stop, reconnect, and cost confirmation',
     expect(unpriced.quoteState).toBe('unpriced')
     expect(unpriced.rateKnown).toBe(false)
     expect(unpriced.maxTotalCost).toBeNull()
+  })
+})
+
+describe('Playground error normalization (PG-1)', () => {
+  it('surfaces explicit non-owned key 404 guidance in English and Chinese', () => {
+    const err = {
+      status: 404,
+      reason: 'NOT_FOUND',
+      message: 'Resource not found.'
+    }
+
+    const enNotice = normalizePlaygroundError(err, {
+      isZh: false,
+      isNonOwnedKey: true
+    })
+    expect(enNotice.kind).toBe('error')
+    expect(enNotice.title).toContain('404')
+    expect(enNotice.message).toContain('keys.act_as')
+    expect(enNotice.requiredGrant).toBe('keys.act_as')
+    expect(enNotice.retryable).toBe(false)
+
+    const zhNotice = normalizePlaygroundError(err, {
+      isZh: true,
+      isNonOwnedKey: true
+    })
+    expect(zhNotice.title).toContain('404')
+    expect(zhNotice.message).toContain('keys.act_as')
+    expect(zhNotice.message).toContain('付费人')
+  })
+
+  it('normalizes 422 NO_ELIGIBLE_ENDPOINT into actionable guidance in English and Chinese (PG-2)', () => {
+    const err = {
+      status: 422,
+      reason: 'NO_ELIGIBLE_ENDPOINT',
+      message: 'No verified endpoint supports this call in the selected scope.'
+    }
+
+    const enNotice = normalizePlaygroundError(err, { isZh: false })
+    expect(enNotice.kind).toBe('error')
+    expect(enNotice.reason).toBe('NO_ELIGIBLE_ENDPOINT')
+    expect(enNotice.code).toBe('NO_ELIGIBLE_ENDPOINT')
+    expect(enNotice.message).toContain('/byok')
+    expect(enNotice.retryable).toBe(false)
+
+    const zhNotice = normalizePlaygroundError(err, { isZh: true })
+    expect(zhNotice.reason).toBe('NO_ELIGIBLE_ENDPOINT')
+    expect(zhNotice.message).toContain('/byok')
+    expect(zhNotice.message).toContain('已发布模型')
   })
 })

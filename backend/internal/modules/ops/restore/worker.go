@@ -12,16 +12,21 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/restoregate"
 )
 
 const ttl = 45 * time.Second
 
 func (s *Service) claim(ctx context.Context) (lease, error) {
 	var l lease
-	// Once a target transaction may have started, only an operator can reconcile an expired owner.
-	_, err := s.Journal.ExecContext(ctx, `UPDATE restore_journal.operations SET state='unknown', owner=NULL, lease_until=NULL,
- report=jsonb_build_object('reason','RESTORE_REVIEW_REQUIRED','source_digest',(SELECT digest FROM restore_journal.previews WHERE id=preview_id)),updated_at=clock_timestamp()
- WHERE state='running' AND lease_until<=clock_timestamp() AND stage IN ('applying','verify_counts')`)
+	// tx_apply and tx_verify still require a live lease before COMMIT can
+	// be sent. A lost acknowledgement after that fence needs reconciliation.
+	_, err := s.Journal.ExecContext(ctx, `UPDATE restore_journal.operations SET state='failed',
+ stage=CASE WHEN stage IN ('tx_apply','tx_verify') THEN 'rolled_back' ELSE 'manual_recovery' END,
+ owner=NULL, lease_until=NULL,
+ report=coalesce(report,'{}') || jsonb_build_object('reason',CASE WHEN stage IN ('tx_apply','tx_verify') THEN 'TRANSACTION_ABORTED' ELSE coalesce(report->>'reason','RESTORE_REVIEW_REQUIRED') END,'source_digest',(SELECT digest FROM restore_journal.previews WHERE id=preview_id)),updated_at=clock_timestamp()
+ WHERE (state='running' AND lease_until<=clock_timestamp() AND stage IN ('applying','verify_counts','tx_apply','tx_verify','committing'))
+ OR state='unknown'`)
 	if err != nil {
 		return l, err
 	}
@@ -78,14 +83,16 @@ func (s *Service) stage(ctx context.Context, l *lease, to string, snapshot *Snap
 func (s *Service) finish(ctx context.Context, l lease, counts map[string]string, reason string) error {
 	state, stage := "failed", l.Stage
 	if reason == "" {
-		if l.Stage != "verify_counts" || len(counts) == 0 || !maps.Equal(counts, l.Evidence) {
+		if l.Stage != "committing" || len(counts) == 0 || !maps.Equal(counts, l.Evidence) {
 			return errors.New("restore verification evidence missing")
 		}
 		state, stage = "succeeded", "verified"
-	} else if l.Stage == "applying" || (l.Stage == "verify_counts" && l.Target == Production) {
-		state = "unknown"
+	} else if l.Stage == "committing" {
+		stage = "manual_recovery"
+	} else if l.Stage == "tx_apply" || l.Stage == "tx_verify" {
+		stage = "rolled_back"
 	}
-	report, _ := json.Marshal(Report{Digest: l.Digest, Counts: reportCounts(counts), Reason: reason})
+	report, _ := json.Marshal(Report{Digest: l.Digest, Counts: reportCounts(counts), Reason: reason, Detail: l.diagnostic})
 	return changed(s.Journal.ExecContext(ctx, `UPDATE restore_journal.operations SET state=$5,stage=$6,owner=NULL,lease_until=NULL,report=$7,updated_at=clock_timestamp()`+fence+` AND stage=$4`, l.ID, l.Generation, l.Owner, l.Stage, state, stage, string(report)))
 }
 
@@ -151,42 +158,66 @@ func (s *Service) apply(ctx context.Context, l *lease) (map[string]string, strin
 	if _, err = script.Seek(0, io.SeekStart); err != nil {
 		return nil, "STAGING_UNAVAILABLE"
 	}
+	checks, err := os.CreateTemp("", "omnihive-check-*.sql")
+	if err != nil {
+		return nil, "STAGING_UNAVAILABLE"
+	}
+	defer os.Remove(checks.Name())
+	err = errors.Join(writeVerification(script, checks), checks.Close())
+	if err != nil {
+		return nil, "VERIFICATION_UNAVAILABLE"
+	}
 	if err = s.stage(ctx, l, "snapshot", nil); err != nil {
 		return nil, "JOURNAL_UNAVAILABLE"
 	}
-	dump, err := target.Database.Dump(ctx)
-	if err != nil {
-		return nil, "SNAPSHOT_FAILED"
-	}
-	snapshot, err := s.Archives.Snapshot(ctx, fmt.Sprintf("%s/%d", l.ID, l.Generation), dump)
-	if err != nil || snapshot.Key == "" || !digestFormat.MatchString(snapshot.Digest) {
-		return nil, "SNAPSHOT_FAILED"
-	}
-	if err = s.authorize(ctx, l.Actor, ExecuteAction); err != nil {
-		return nil, "ACTION_DENIED"
-	}
 	if l.Target == Production {
-		if err = s.RequireStepUp(ctx, l.Actor); err != nil {
-			return nil, "STEP_UP_REQUIRED"
+		if err = s.drainRequests(ctx); err != nil {
+			return nil, "MAINTENANCE_UNAVAILABLE"
 		}
 	}
-	if err = s.stage(ctx, l, "applying", &snapshot); err != nil {
-		return nil, "JOURNAL_UNAVAILABLE"
+	reason := "APPLY_FAILED"
+	locked := func() error {
+		ctx := restoregate.SnapshotContext(ctx)
+		dump, err := target.Database.Dump(ctx)
+		if err != nil {
+			reason = "SNAPSHOT_FAILED"
+			return err
+		}
+		snapshot, err := s.Archives.Snapshot(ctx, fmt.Sprintf("%s/%d", l.ID, l.Generation), dump)
+		if err != nil || snapshot.Key == "" || !digestFormat.MatchString(snapshot.Digest) {
+			reason = "SNAPSHOT_FAILED"
+			return errors.New(reason)
+		}
+		if err = s.authorize(ctx, l.Actor, ExecuteAction); err != nil {
+			reason = "ACTION_DENIED"
+			return err
+		}
+		if l.Target == Production {
+			if err = s.RequireStepUp(ctx, l.Actor); err != nil {
+				reason = "STEP_UP_REQUIRED"
+				return err
+			}
+		}
+		return s.stage(ctx, l, "tx_apply", &snapshot)
 	}
-	if err = target.Database.Restore(ctx, script); err != nil {
-		return nil, "APPLY_UNCONFIRMED"
+	applied := func() error {
+		reason = "VERIFICATION_FAILED"
+		return s.stage(ctx, l, "tx_verify", nil)
 	}
-	if err = s.stage(ctx, l, "verify_counts", nil); err != nil {
-		return nil, "JOURNAL_UNAVAILABLE"
+	verified := func() error {
+		reason = "COMMIT_UNCONFIRMED"
+		return s.stage(ctx, l, "committing", nil)
 	}
-	restored, err := target.Database.Dump(ctx)
-	if err != nil {
-		return nil, "VERIFICATION_FAILED"
+	if err = target.Database.RestoreChecked(ctx, script.Name(), checks.Name(), locked, applied, verified); err != nil {
+		var pgErr restoregate.PostgresError
+		if errors.As(err, &pgErr) {
+			l.diagnostic = pgErr.Error()
+		}
+		var lockErr restoregate.LockError
+		if errors.As(err, &lockErr) {
+			return nil, lockErr.Error()
+		}
+		return nil, reason
 	}
-	counts, err := inspectSQL(ctx, restored)
-	err = errors.Join(err, restored.Close())
-	if err != nil || !maps.Equal(counts, l.Evidence) {
-		return counts, "VERIFICATION_FAILED"
-	}
-	return counts, ""
+	return expected, ""
 }

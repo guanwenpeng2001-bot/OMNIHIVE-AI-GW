@@ -16,11 +16,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/openai"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/urlvalidator"
 	modelpricing "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/resources/model-pricing"
 	"go.uber.org/zap"
@@ -205,6 +205,8 @@ type PricingService struct {
 	remoteClient     PricingRemoteClient
 	mu               sync.RWMutex
 	pricingData      map[string]*LiteLLMModelPricing
+	pricingRevision  uint64
+	baseNameIndex    atomic.Pointer[pricingBaseNameIndex]
 	registry         *ModelRegistry
 	registrySnapshot *ModelRegistrySnapshot
 	lastUpdated      time.Time
@@ -216,6 +218,31 @@ type PricingService struct {
 	// 停止信号
 	stopCh chan struct{}
 	wg     sync.WaitGroup
+}
+
+type pricingBaseNameIndex struct {
+	revision uint64
+	byName   map[string][]*LiteLLMModelPricing
+}
+
+func (s *PricingService) rebuildBaseNameIndex() {
+	if s.pricingData == nil {
+		s.pricingRevision++
+		s.baseNameIndex.Store(nil)
+		return
+	}
+	s.pricingRevision++
+	index := &pricingBaseNameIndex{revision: s.pricingRevision, byName: make(map[string][]*LiteLLMModelPricing, len(s.pricingData))}
+	for key, pricing := range s.pricingData {
+		keyBase := s.extractBaseName(strings.ToLower(key))
+		index.byName[keyBase] = append(index.byName[keyBase], pricing)
+	}
+	s.baseNameIndex.Store(index)
+}
+
+func (s *PricingService) replacePricingData(data map[string]*LiteLLMModelPricing) {
+	s.pricingData = data
+	s.rebuildBaseNameIndex()
 }
 
 // NewPricingService 创建价格服务
@@ -508,7 +535,7 @@ func (s *PricingService) reloadCustomPricingLayers() error {
 	s.mu.Lock()
 	warnDroppedLongContextLadders(s.pricingData, data)
 	warnDroppedCacheBasePrices(s.pricingData, data)
-	s.pricingData = data
+	s.replacePricingData(data)
 	s.customFilesHash = fingerprint
 	s.mu.Unlock()
 
@@ -578,7 +605,7 @@ func (s *PricingService) downloadPricingData() error {
 	s.mu.Lock()
 	warnDroppedLongContextLadders(s.pricingData, data)
 	warnDroppedCacheBasePrices(s.pricingData, data)
-	s.pricingData = data
+	s.replacePricingData(data)
 	s.lastUpdated = time.Now()
 	s.localHash = syncHash
 	s.customFilesHash = customFilesHash
@@ -1045,7 +1072,7 @@ func (s *PricingService) loadPricingData(filePath string) error {
 	s.mu.Lock()
 	warnDroppedLongContextLadders(s.pricingData, pricingData)
 	warnDroppedCacheBasePrices(s.pricingData, pricingData)
-	s.pricingData = pricingData
+	s.replacePricingData(pricingData)
 	s.localHash = hashStr
 	s.customFilesHash = customFilesHash
 
@@ -1211,16 +1238,9 @@ func (s *PricingService) fetchRemoteHash() (string, error) {
 }
 
 func (s *PricingService) validatePricingURL(raw string) (string, error) {
-	if s.cfg != nil && !s.cfg.Security.URLAllowlist.Enabled {
-		normalized, err := urlvalidator.ValidateURLFormat(raw, s.cfg.Security.URLAllowlist.AllowInsecureHTTP)
-		if err != nil {
-			return "", fmt.Errorf("invalid pricing url: %w", err)
-		}
-		return normalized, nil
-	}
-	normalized, err := urlvalidator.ValidateHTTPSURL(raw, urlvalidator.ValidationOptions{
+	normalized, err := urlvalidator.ValidateHTTPURL(raw, s.cfg != nil && s.cfg.Security.URLAllowlist.AllowInsecureHTTP, urlvalidator.ValidationOptions{
 		AllowedHosts:     s.cfg.Security.URLAllowlist.PricingHosts,
-		RequireAllowlist: true,
+		RequireAllowlist: s.cfg != nil && s.cfg.Security.URLAllowlist.Enabled,
 		AllowPrivate:     s.cfg.Security.URLAllowlist.AllowPrivateHosts,
 	})
 	if err != nil {
@@ -1254,7 +1274,9 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 
 	// 5. OpenAI 模型回退策略
 	if strings.HasPrefix(lookupCandidates[0], "gpt-") {
-		return s.matchOpenAIModel(lookupCandidates[0])
+		if pricing := s.matchOpenAIModel(lookupCandidates[0]); pricing != nil {
+			return pricing
+		}
 	}
 
 	return nil
@@ -1291,13 +1313,18 @@ func (s *PricingService) lookupIdentifiedModelPricingLocked(lookupCandidates []s
 	// 3. 尝试模糊匹配（去掉版本号后缀）
 	// claude-opus-4-5-20251101 -> claude-opus-4.5
 	baseName := s.extractBaseName(lookupCandidates[0])
+	index := s.baseNameIndex.Load()
+	if index != nil && index.revision == s.pricingRevision {
+		if matches := index.byName[baseName]; len(matches) > 0 {
+			return matches[0]
+		}
+		return nil
+	}
 	for key, pricing := range s.pricingData {
-		keyBase := s.extractBaseName(strings.ToLower(key))
-		if keyBase == baseName {
+		if s.extractBaseName(strings.ToLower(key)) == baseName {
 			return pricing
 		}
 	}
-
 	return nil
 }
 
@@ -1414,21 +1441,50 @@ func lastSegment(model string) string {
 
 // extractBaseName 提取基础模型名称（去掉日期版本号）
 func (s *PricingService) extractBaseName(model string) string {
-	// 移除日期后缀 (如 -20251101, -20241022)
-	parts := strings.Split(model, "-")
-	result := make([]string, 0, len(parts))
-	for _, part := range parts {
-		// 跳过看起来像日期的部分（8位数字）
-		if len(part) == 8 && isNumeric(part) {
-			continue
+	start := 0
+	for start <= len(model) {
+		end := strings.IndexByte(model[start:], '-')
+		if end < 0 {
+			end = len(model)
+		} else {
+			end += start
 		}
-		// 跳过版本号（如 v1:0）
-		if strings.Contains(part, ":") {
-			continue
+		part := model[start:end]
+		if (len(part) == 8 && isNumeric(part)) || strings.Contains(part, ":") {
+			break
 		}
-		result = append(result, part)
+		if end == len(model) {
+			return model
+		}
+		start = end + 1
 	}
-	return strings.Join(result, "-")
+	var result strings.Builder
+	result.Grow(len(model))
+	first := true
+	start = 0
+	for start <= len(model) {
+		end := strings.IndexByte(model[start:], '-')
+		if end < 0 {
+			end = len(model)
+		} else {
+			end += start
+		}
+		part := model[start:end]
+		if len(part) != 8 || !isNumeric(part) {
+			if !strings.Contains(part, ":") {
+				if !first {
+					result.WriteByte('-')
+				}
+				first = false
+				result.WriteString(part)
+			}
+		}
+		if end == len(model) {
+			break
+		}
+		start = end + 1
+	}
+	return result.String()
 }
 
 // matchByModelFamily 基于模型系列匹配
@@ -1550,7 +1606,7 @@ func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
 // 3. gpt-5.2-20251222 -> gpt-5.2（去掉日期版本号）
 // 4. gpt-5.3-codex -> gpt-5.2-codex
 // 5. gpt-5.4* -> 业务静态兜底价
-// 6. 最终回退到 DefaultTestModel (gpt-5.1-codex)
+// 未识别的名字不回退到任何默认模型价格。
 func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 	if strings.HasPrefix(model, "gpt-5.3-codex-spark") {
 		if pricing, ok := s.pricingData["gpt-5.1-codex"]; ok {
@@ -1644,13 +1700,8 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 		return nil
 	}
 
-	// 最终回退到 DefaultTestModel
-	defaultModel := strings.ToLower(openai.DefaultTestModel)
-	if pricing, ok := s.pricingData[defaultModel]; ok {
-		logger.LegacyPrintf("service.pricing", "[Pricing] OpenAI fallback to default model %s -> %s", model, defaultModel)
-		return pricing
-	}
-
+	// An unrecognised name has no price. Billing it at the default test
+	// model's rate would charge a guessed price; it stays unpriced instead.
 	return nil
 }
 

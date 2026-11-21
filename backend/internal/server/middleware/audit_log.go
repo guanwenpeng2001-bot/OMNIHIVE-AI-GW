@@ -3,6 +3,7 @@ package middleware
 import (
 	"bytes"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -62,6 +63,7 @@ var auditExtraAllowedKeys = map[string]struct{}{
 	"workspace_id": {}, "project_id": {}, "run_id": {}, "run_request_id": {},
 	"admission": {}, "outcome": {}, "settlement_state": {}, "raw_events_requested": {},
 	"text_preview_requested": {}, "text_preview_served": {},
+	"reason": {},
 }
 
 // SetAuditExtra adds allowlisted, scalar details to the current audit entry.
@@ -242,6 +244,7 @@ func NewAuditLogMiddleware(auditService *service.AuditLogService) AuditLogMiddle
 			if playground {
 				bodyRedacted = "<private body omitted>"
 			}
+			submittedDiff = submittedFieldDiff(routeKey)
 		} else if c.Request.Body != nil && c.Request.Method != "GET" {
 			orig := c.Request.Body
 			raw, err := io.ReadAll(io.LimitReader(orig, service.AuditRequestBodyCaptureLimit+1))
@@ -362,9 +365,25 @@ func NewAuditLogMiddleware(auditService *service.AuditLogService) AuditLogMiddle
 		if len(extra) > 0 {
 			entry.Extra = extra
 		}
+		if params, ok := extra["params"].(map[string]string); ok {
+			entry.ResourceID = params["id"]
+			if entry.ResourceID == "" {
+				entry.ResourceID = params["credential_id"]
+			}
+			if id, err := strconv.ParseInt(params["project_id"], 10, 64); err == nil && id > 0 {
+				entry.ProjectID = &id
+			}
+		}
 
 		auditService.Record(entry)
 	})
+}
+
+func submittedFieldDiff(routeKey string) []service.ConfigurationFieldDiff {
+	if strings.Contains(routeKey, "/credential") || strings.Contains(routeKey, "/rotations") {
+		return []service.ConfigurationFieldDiff{{Field: "credential", Operation: "submitted", After: "changed"}}
+	}
+	return nil
 }
 
 // restoredBody 把审计中间件按上限读出的前缀与未读完的原始 body 拼接回填，

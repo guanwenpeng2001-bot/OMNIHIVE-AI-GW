@@ -204,6 +204,9 @@
           <section v-show="!onboardingHidden" id="getStarted" class="card p-4" :aria-label="isZh ? '开始使用' : 'Get Started'">
             <div class="flex items-center justify-between"><h2 class="font-semibold">{{ isZh ? '开始使用' : 'Get Started' }}</h2><button type="button" class="btn btn-ghost btn-sm" @click="toggleOnboardingVisibility">{{ isZh ? '隐藏' : 'Hide' }}</button></div>
             <p class="mt-1 text-sm opacity-60">{{ isZh ? `${completedStepCount} / 3 已完成` : `${completedStepCount} / 3 Completed` }}</p>
+            <p v-if="onboardingSyncUnavailable" role="status" data-testid="onboarding-sync-unavailable" class="mt-1 text-xs text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+              {{ isZh ? '引导进度云端同步暂不可用' : 'Onboarding progress sync unavailable' }}
+            </p>
             <div class="meter mt-2" role="progressbar" :aria-label="isZh ? '上手进度' : 'Onboarding progress'" :aria-valuenow="completedStepCount" :aria-valuemin="0" :aria-valuemax="3"><span :style="{ width: onboardingProgressPct + '%' }" /></div>
             <div class="oh-onboarding-hero mt-3 rounded-xl p-4">
               <div class="mb-2 font-mono text-xs opacity-50">ONBOARDING</div>
@@ -285,7 +288,7 @@
 import { ref, computed, onMounted, onUnmounted, getCurrentInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { resolveReportTimeZone, formatReportDateInput, formatDateTimeWithZone } from '@/utils/format'
-import type { OnboardingDTO, UpdateOnboardingPayload, UserAuditEventDTO } from '@/api/mcp'
+import type { OnboardingDTO, UpdateOnboardingPayload } from '@/api/mcp'
 import ReportTimeContext from '@/components/charts/ReportTimeContext.vue'
 import Select from '@/components/common/Select.vue'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
@@ -403,6 +406,7 @@ const activeStepIndex = ref(0)
 const onboardingHidden = ref(false)
 const manualDoneSteps = ref<Array<boolean | null>>([null, null, null])
 const onboarding = ref<OnboardingDTO | null>(null)
+const onboardingSyncUnavailable = ref(false)
 let onboardingRevision = 0
 let onboardingSave = Promise.resolve()
 const currentStep = computed(() => onboardingSteps.value[activeStepIndex.value] ?? onboardingSteps.value[0]!)
@@ -426,7 +430,12 @@ const persistOnboarding = (payload: UpdateOnboardingPayload) => {
     const { mcpAPI } = await import('@/api/mcp')
     if (auditController.signal.aborted || authStore.user?.id !== userId) return
     await mcpAPI.updateOnboarding(payload)
-  }).catch(() => undefined)
+    onboardingSyncUnavailable.value = false
+  }).catch(() => {
+    if (!auditController.signal.aborted && authStore.user?.id === userId) {
+      onboardingSyncUnavailable.value = true
+    }
+  })
 }
 const toggleStepManualDone = (index: number) => {
   const completed = !isStepCompleted(index)
@@ -462,11 +471,11 @@ const loadPersonalSecurity = async () => {
   if (!userId) return
   auditLoading.value = true
   auditError.value = false
+  auditPreview.value = []
   try {
-    const { apiClient } = await import('@/api/client')
-    const { data } = await apiClient.get<UserAuditEventDTO[]>('/user/audit-logs', { signal: auditController.signal })
+    const { mcpAPI } = await import('@/api/mcp')
+    const data = await mcpAPI.listUserAuditLogs({ signal: auditController.signal })
     if (auditController.signal.aborted || authStore.user?.id !== userId) return
-    if (!Array.isArray(data)) throw new Error('Invalid audit response')
     const titles: Record<string, string> = {
       'mcp.grant.created': isZh.value ? '授权 MCP 客户端' : 'Authorized MCP Client',
       'mcp.grant.revoked': isZh.value ? '撤销 MCP 授权' : 'Revoked MCP Grant',
@@ -480,7 +489,10 @@ const loadPersonalSecurity = async () => {
       createdAt: event.created_at
     }))
   } catch {
-    if (!auditController.signal.aborted) auditError.value = true
+    if (!auditController.signal.aborted) {
+      auditPreview.value = []
+      auditError.value = true
+    }
   } finally {
     if (!auditController.signal.aborted) auditLoading.value = false
   }
@@ -495,8 +507,13 @@ const loadOnboarding = async () => {
     const state = await mcpAPI.getOnboarding()
     if (auditController.signal.aborted || authStore.user?.id !== userId) return
     onboarding.value = state
+    onboardingSyncUnavailable.value = false
     if (revision === onboardingRevision) onboardingHidden.value = state.hidden
   } catch {
+    if (!auditController.signal.aborted && authStore.user?.id === userId) {
+      onboarding.value = null
+      onboardingSyncUnavailable.value = true
+    }
     return
   }
 }

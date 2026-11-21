@@ -53,7 +53,11 @@ func WorkspaceResources(workspaces *service.WorkspaceService) gin.HandlerFunc {
 		if identifier := ctx.Param("id"); identifier != "" && resource != "" {
 			parsed, err := strconv.ParseInt(identifier, 10, 64)
 			if err != nil || parsed <= 0 {
-				response.ErrorFrom(ctx, service.ErrWorkspaceNotFound)
+				if resource == "groups" {
+					response.ErrorFrom(ctx, service.ErrGroupNotFound)
+				} else {
+					response.ErrorFrom(ctx, service.ErrWorkspaceNotFound)
+				}
 				ctx.Abort()
 				return
 			}

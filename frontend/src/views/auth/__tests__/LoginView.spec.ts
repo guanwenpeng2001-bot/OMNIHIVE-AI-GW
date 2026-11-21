@@ -115,4 +115,23 @@ describe('LoginView registration entry', () => {
 
     expect(wrapper.text()).not.toContain('auth.signUp')
   })
+
+  it('disables sign-in and surfaces retry control when public settings fail to load', async () => {
+    getPublicSettingsMock
+      .mockRejectedValueOnce(new Error('settings unavailable'))
+      .mockResolvedValueOnce(publicSettings)
+
+    const wrapper = mountLogin()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="login-settings-error"]').exists()).toBe(true)
+    expect(wrapper.get('#email').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+
+    await wrapper.get('[data-testid="login-settings-retry"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="login-settings-error"]').exists()).toBe(false)
+    expect(wrapper.get('#email').attributes('disabled')).toBeUndefined()
+  })
 })

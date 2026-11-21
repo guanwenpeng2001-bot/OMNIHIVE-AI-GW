@@ -44,7 +44,7 @@ func TestPromptServiceHasExplicitIdempotentLifecycle(t *testing.T) {
 		config,
 		NewPostgreSQLRepository(nil),
 		NewRedisPayloadStore(nil),
-		NewOpenAICompatibleScanner(),
+		localScanner(),
 		NewAtomicMetrics(),
 	)
 

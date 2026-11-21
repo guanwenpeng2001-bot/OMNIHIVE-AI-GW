@@ -27,6 +27,8 @@ services:
     image: ghcr.io/guanwenpeng2001-bot/omnihive-ai-gw:latest
     container_name: omnihive
     restart: unless-stopped
+    # main.go grants shutdownApplication 20s; keep 10s for transport cleanup.
+    stop_grace_period: 30s
     security_opt:
       - no-new-privileges:true
     ulimits:
@@ -34,7 +36,8 @@ services:
         soft: 100000
         hard: 100000
     ports:
-      - "${BIND_HOST:-0.0.0.0}:${SERVER_PORT:-8080}:8080"
+      # Publish only to loopback by default; expose HTTPS through Caddy.
+      - "${BIND_HOST:-127.0.0.1}:${SERVER_PORT:-8080}:8080"
     volumes:
       # Local directory mapping for easy migration
       - ./data:/app/data:Z
@@ -64,7 +67,7 @@ services:
       - SERVER_H2C_MAX_READ_FRAME_SIZE=${SERVER_H2C_MAX_READ_FRAME_SIZE:-1048576}
       - SERVER_H2C_MAX_UPLOAD_BUFFER_PER_CONNECTION=${SERVER_H2C_MAX_UPLOAD_BUFFER_PER_CONNECTION:-2097152}
       - SERVER_H2C_MAX_UPLOAD_BUFFER_PER_STREAM=${SERVER_H2C_MAX_UPLOAD_BUFFER_PER_STREAM:-524288}
-      - SECURITY_TRUST_FORWARDED_IP_FOR_API_KEY_ACL=${SECURITY_TRUST_FORWARDED_IP_FOR_API_KEY_ACL:-true}
+      - SERVER_TRUSTED_PROXIES
       - SERVER_MODE=${SERVER_MODE:-release}
       - ENABLE_SERVER_TIMING=${ENABLE_SERVER_TIMING:-false}
       - RUN_MODE=${RUN_MODE:-standard}
@@ -79,8 +82,8 @@ services:
       - DATABASE_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       - DATABASE_DBNAME=${POSTGRES_DB:-omnihive}
       - DATABASE_SSLMODE=disable
-      - DATABASE_MAX_OPEN_CONNS=${DATABASE_MAX_OPEN_CONNS:-256}
-      - DATABASE_MAX_IDLE_CONNS=${DATABASE_MAX_IDLE_CONNS:-128}
+      - DATABASE_MAX_OPEN_CONNS=${DATABASE_MAX_OPEN_CONNS:-32}
+      - DATABASE_MAX_IDLE_CONNS=${DATABASE_MAX_IDLE_CONNS:-8}
       - DATABASE_CONN_MAX_LIFETIME_MINUTES=${DATABASE_CONN_MAX_LIFETIME_MINUTES:-30}
       - DATABASE_CONN_MAX_IDLE_TIME_MINUTES=${DATABASE_CONN_MAX_IDLE_TIME_MINUTES:-5}
 
@@ -110,6 +113,7 @@ services:
       # will be generated on each startup.
       # Generate a secure secret: openssl rand -hex 32
       - JWT_SECRET=${JWT_SECRET:-}
+      - JWT_ROTATE=${JWT_ROTATE:-false}
       - JWT_EXPIRE_HOUR=${JWT_EXPIRE_HOUR:-24}
 
       # =======================================================================
@@ -158,9 +162,9 @@ services:
       # Enable URL allowlist validation (false to skip allowlist checks)
       - SECURITY_URL_ALLOWLIST_ENABLED=${SECURITY_URL_ALLOWLIST_ENABLED:-false}
       # Allow insecure HTTP URLs when allowlist is disabled (default: true; set to false to require https)
-      - SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP=${SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP:-true}
+      - SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP=${SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP:-false}
       # Allow private IP addresses for upstream/pricing/CRS (default: true; set to false to block private hosts)
-      - SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS=${SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS:-true}
+      - SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS=${SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS:-false}
       # Upstream hosts whitelist (comma-separated, only used when enabled=true)
       - SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS=${SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS:-}
 

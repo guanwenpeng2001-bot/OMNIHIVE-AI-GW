@@ -173,7 +173,7 @@ func authenticateKey(c *gin.Context, secret string, keys *service.APIKeyService,
 			MarkIngressRejected(c, IngressRejectAPIKeyAuthOverloaded)
 			abort(503, "API_KEY_AUTH_OVERLOADED", "API key authentication is temporarily unavailable")
 		default:
-			abort(500, "INTERNAL_ERROR", "Failed to validate API key")
+			abort(503, "API_KEY_AUTH_UNAVAILABLE", "API key authentication is temporarily unavailable")
 		}
 		return
 	}
@@ -183,6 +183,9 @@ func authenticateKey(c *gin.Context, secret string, keys *service.APIKeyService,
 		w = domain.DefaultWorkspaceID
 	}
 	ctx = domain.WithWorkspaceScope(ctx, w)
+	if policy != nil {
+		ctx = WithProjectKeyModelAccess(ctx, policy)
+	}
 	if scopes != nil {
 		var a scope.Authorized
 		if policy != nil {
@@ -257,7 +260,7 @@ func authenticateKey(c *gin.Context, secret string, keys *service.APIKeyService,
 			}
 		} else {
 			var models []string
-			if policy.Mode == "allow_list" && action != "" && action != "usage.read" && action != "tasks.read" {
+			if policy.Mode == "allow_list" && action != "" && action != "models.read" && action != "usage.read" && action != "tasks.read" {
 				if m := groupModelAllowlistModelFromParams(c); m != "" {
 					models = []string{m}
 				} else {
@@ -269,7 +272,11 @@ func authenticateKey(c *gin.Context, secret string, keys *service.APIKeyService,
 				}
 			}
 			if !policy.Allows(action, models) {
-				abort(403, "ACTION_DENIED", "Access denied")
+				message := "Access denied"
+				if action == "models.read" || (action == "" && (path == "/v1/models" || path == "/models" || strings.HasPrefix(path, "/v1/models/") || strings.HasPrefix(path, "/models/"))) {
+					message = "Access denied; grant the models.read action to this project key"
+				}
+				abort(403, "ACTION_DENIED", message)
 				return
 			}
 		}
@@ -302,6 +309,10 @@ func projectKeyAction(c *gin.Context) string {
 		switch path {
 		case "/v1/usage", "/v1/sub2api/billing":
 			return "usage.read"
+		case "/v1/models", "/models", "/v1/models/:model", "/models/:model", "/v1/models/catalog", "/models/catalog", "/v1/models/catalog/:model", "/models/catalog/:model", "/backend-api/codex/models":
+			return "models.read"
+		case "/v1beta/models", "/v1beta/models/:model", "/antigravity/v1/models", "/antigravity/v1beta/models", "/antigravity/v1beta/models/:model":
+			return "models.read"
 		case "/v1/images/tasks/:task_id", "/images/tasks/:task_id", "/api/v1/tasks/:task_id", "/api/v1/tasks/:request_id":
 			return "tasks.read"
 		case "/v1/responses", "/responses", "/backend-api/codex/responses":
@@ -323,6 +334,21 @@ func projectKeyAction(c *gin.Context) string {
 		}
 	}
 	return ""
+}
+
+func WithProjectKeyModelAccess(ctx context.Context, policy *identity.KeyPolicy) context.Context {
+	if policy == nil {
+		return ctx
+	}
+	ctx = service.WithProjectKeyModelPolicy(ctx, policy.Platform)
+	switch policy.Mode {
+	case "inherit":
+		return service.WithVisibleModelKeyPolicy(ctx, nil)
+	case "allow_list":
+		return service.WithVisibleModelKeyPolicy(ctx, policy.Models)
+	default:
+		return service.WithVisibleModelKeyPolicy(ctx, []string{})
+	}
 }
 
 func AllowsProjectKeyModels(c *gin.Context, action string, models []string) bool {

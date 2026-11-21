@@ -3,11 +3,14 @@ package repository
 import (
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
@@ -23,6 +26,10 @@ func (s *ProxyProbeServiceSuite) SetupTest() {
 	s.ctx = context.Background()
 	s.prober = &proxyProbeService{
 		allowPrivateHosts: true,
+		privateHosts: []string{
+			"127.0.0.1", "www.gstatic.com", "ip-api.com", "api64.ipify.org",
+			"ipwho.is", "ipapi.co", "chatgpt.com",
+		},
 	}
 }
 
@@ -51,8 +58,11 @@ func (s *ProxyProbeServiceSuite) TestProbeProxy_UnsupportedProxyScheme() {
 
 func (s *ProxyProbeServiceSuite) TestProbeProxy_Success_IPAPI() {
 	s.setupProxyServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 检查是否是 ip-api 请求
-		if strings.Contains(r.RequestURI, "ip-api.com") {
+		if r.URL.Path == "/generate_204" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.URL.Path == "/json/" {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"status":"success","query":"1.2.3.4","city":"c","regionName":"r","country":"cc","countryCode":"CC"}`)
 			return
@@ -61,7 +71,10 @@ func (s *ProxyProbeServiceSuite) TestProbeProxy_Success_IPAPI() {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 
-	info, latencyMs, err := s.prober.ProbeProxy(s.ctx, s.proxySrv.URL)
+	ctx := httpclient.WithPublicIPLookup(s.ctx, func(context.Context, string, string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("93.184.216.34")}, nil
+	})
+	info, latencyMs, err := s.prober.probeWithClient(ctx, s.localProxyClient(), proxyLatencyTestURL)
 	require.NoError(s.T(), err, "ProbeProxy")
 	require.GreaterOrEqual(s.T(), latencyMs, int64(0), "unexpected latency")
 	require.Equal(s.T(), "1.2.3.4", info.IP)
@@ -73,13 +86,17 @@ func (s *ProxyProbeServiceSuite) TestProbeProxy_Success_IPAPI() {
 
 func (s *ProxyProbeServiceSuite) TestProbeProxy_Success_IPifyFallback() {
 	s.setupProxyServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/generate_204" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		// ip-api 失败
-		if strings.Contains(r.RequestURI, "ip-api.com") {
+		if r.URL.Path == "/json/" {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
 		// ipify 成功
-		if strings.Contains(r.RequestURI, "api64.ipify.org") {
+		if r.URL.Query().Get("format") == "json" {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"ip": "5.6.7.8"}`)
 			return
@@ -87,10 +104,24 @@ func (s *ProxyProbeServiceSuite) TestProbeProxy_Success_IPifyFallback() {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 
-	info, latencyMs, err := s.prober.ProbeProxy(s.ctx, s.proxySrv.URL)
+	ctx := httpclient.WithPublicIPLookup(s.ctx, func(context.Context, string, string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("93.184.216.34")}, nil
+	})
+	info, latencyMs, err := s.prober.probeWithClient(ctx, s.localProxyClient(), proxyLatencyTestURL)
 	require.NoError(s.T(), err, "ProbeProxy should fallback to ipify")
 	require.GreaterOrEqual(s.T(), latencyMs, int64(0), "unexpected latency")
 	require.Equal(s.T(), "5.6.7.8", info.IP)
+}
+
+func (s *ProxyProbeServiceSuite) localProxyClient() *http.Client {
+	proxyURL, err := url.Parse(s.proxySrv.URL)
+	require.NoError(s.T(), err)
+	return &http.Client{Transport: httpclient.NewUpstreamTransport(&http.Transport{
+		Proxy: http.ProxyURL(proxyURL),
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, s.proxySrv.Listener.Addr().String())
+		},
+	}, s.prober.privateHosts)}
 }
 
 func (s *ProxyProbeServiceSuite) TestProbeProxy_AllFailed() {

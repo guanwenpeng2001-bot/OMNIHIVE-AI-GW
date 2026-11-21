@@ -21,7 +21,7 @@ func resetViperWithJWTSecret(t *testing.T) {
 	t.Cleanup(viper.Reset)
 	t.Setenv("CONFIG_FILE", "")
 	t.Setenv("DATA_DIR", "")
-	t.Setenv("JWT_SECRET", strings.Repeat("x", 32))
+	t.Setenv("JWT_SECRET", "test-config-key-with-distinct-bytes-for-validation")
 }
 
 func TestLoadDatabaseName(t *testing.T) {
@@ -65,6 +65,13 @@ func TestLoadDefaultModelsListReadMaxBytes(t *testing.T) {
 	cfg, err := Load()
 	require.NoError(t, err)
 	require.Equal(t, DefaultModelsListReadMaxBytes, cfg.Gateway.ModelsListReadMaxBytes)
+}
+
+func TestLoadDisablesUpstreamErrorBodyLoggingByDefault(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.False(t, cfg.Gateway.LogUpstreamErrorBody)
 }
 
 func TestLoadTimezonePrecedence(t *testing.T) {
@@ -133,7 +140,7 @@ func TestLoadHTTPIngressSafetyDefaults(t *testing.T) {
 	require.Equal(t, 64*1024, cfg.Server.MaxHeaderBytes)
 	require.Empty(t, cfg.Server.TrustedProxies)
 	require.False(t, cfg.Server.TrustedProxiesConfigured)
-	require.True(t, cfg.TrustForwardedIPForAPIKeyACL())
+	require.False(t, cfg.TrustForwardedIPForAPIKeyACL())
 	require.Equal(t, int64(32*1024*1024), cfg.Gateway.TextMaxBodySize)
 	require.True(t, cfg.APIKeyAuth.InvalidAbuse.Enabled)
 	require.Equal(t, 120, cfg.APIKeyAuth.InvalidAbuse.Threshold)
@@ -847,11 +854,11 @@ func TestLoadDefaultSecurityToggles(t *testing.T) {
 	if cfg.Security.URLAllowlist.Enabled {
 		t.Fatalf("URLAllowlist.Enabled = true, want false")
 	}
-	if !cfg.Security.URLAllowlist.AllowInsecureHTTP {
-		t.Fatalf("URLAllowlist.AllowInsecureHTTP = false, want true")
+	if cfg.Security.URLAllowlist.AllowInsecureHTTP {
+		t.Fatalf("URLAllowlist.AllowInsecureHTTP = true, want false")
 	}
-	if !cfg.Security.URLAllowlist.AllowPrivateHosts {
-		t.Fatalf("URLAllowlist.AllowPrivateHosts = false, want true")
+	if cfg.Security.URLAllowlist.AllowPrivateHosts {
+		t.Fatalf("URLAllowlist.AllowPrivateHosts = true, want false")
 	}
 	if !cfg.Security.ResponseHeaders.Enabled {
 		t.Fatalf("ResponseHeaders.Enabled = false, want true")
@@ -1587,8 +1594,8 @@ func TestValidateJWTSecret_UTF8Bytes(t *testing.T) {
 		t.Fatalf("Validate() error = %v", err)
 	}
 
-	// 32 bytes OK.
-	cfg.JWT.Secret = strings.Repeat("a", 32)
+	// 32 distinct bytes OK.
+	cfg.JWT.Secret = strings.Join([]string{"abcdefgh", "ijklmnop", "qrstuvwx", "yzABCDEF"}, "")
 	err = cfg.Validate()
 	if err != nil {
 		t.Fatalf("Validate() should accept 32-byte secret: %v", err)
@@ -2665,5 +2672,34 @@ func TestLoad_DefaultGatewayImageStreamConfig(t *testing.T) {
 	}
 	if cfg.Gateway.ImageStreamDataIntervalTimeout <= cfg.Gateway.StreamDataIntervalTimeout {
 		t.Fatalf("image stream timeout = %d, want greater than ordinary stream timeout %d", cfg.Gateway.ImageStreamDataIntervalTimeout, cfg.Gateway.StreamDataIntervalTimeout)
+	}
+}
+
+func TestDefaultDatabasePoolBudget(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	setDefaults()
+	require.Equal(t, 32, viper.GetInt("database.max_open_conns"))
+	require.Equal(t, 8, viper.GetInt("database.max_idle_conns"))
+}
+
+func TestProbeHTTPRequiresExactAllowlistEntry(t *testing.T) {
+	policy := URLAllowlistConfig{Enabled: true, AllowInsecureHTTP: true, UpstreamHosts: []string{"mock.example:8090", "*.test.example"}}
+	_, err := policy.ValidateProbeURL("http://mock.example:8090")
+	require.NoError(t, err)
+	for _, endpoint := range []string{"http://other.example", "http://sub.test.example", "http://127.0.0.1"} {
+		_, err := policy.ValidateProbeURL(endpoint)
+		require.Error(t, err)
+	}
+	_, err = policy.ValidateProbeURL("https://sub.test.example")
+	require.NoError(t, err)
+}
+
+func TestReleaseRejectsExampleJWT(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("SERVER_MODE", "release")
+	for _, weak := range []string{"change-this-to-a-secure-random-string", strings.Repeat("a", 64), strings.Repeat("12345678", 8)} {
+		t.Setenv("JWT_SECRET", weak)
+		_, err := LoadForBootstrap()
+		require.ErrorContains(t, err, "jwt.secret")
 	}
 }

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Fails on sub2api identifiers that are neither legal attribution nor an
-# explicitly persisted compatibility key. See scripts/sub2api-allowlist.txt.
+# explicitly persisted compatibility key. See contracts/identity/IDENTITY_ALLOWLIST.md.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -87,7 +87,53 @@ if violations:
 print(f"independence: {checked} existing sub2api identifier line(s) covered by the allowlist")
 PY
 
-matches="$(git grep -inI 'sub2api' -- "${paths[@]}" "${exclude[@]}" || true)"
+matches=""
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  set +e
+  matches="$(git grep -inI 'sub2api' -- "${paths[@]}" "${exclude[@]}")"
+  git_status=$?
+  set -e
+  case "$git_status" in
+    0) ;; # matches found
+    1) matches="" ;; # no matches: pass
+    *)
+      echo "independence: git grep failed with exit ${git_status}" >&2
+      exit "$git_status"
+      ;;
+  esac
+else
+  # Exported snapshots (for example /tmp/omnihive-accept/baseline) have no
+  # .git directory. Fall back to ripgrep over the same protected file set and
+  # honour the same exclusions; a real scanner error is fatal instead of being
+  # reported as "no identifiers found".
+  require_command rg
+  set +e
+  matches="$(rg -inI --no-heading --with-filename 'sub2api' \
+    -g '!backend/migrations/**' \
+    -g '!backend/pkg/pluginapi/v1/*.pb.go' \
+    -g '!frontend/pnpm-lock.yaml' \
+    -g '!**/node_modules/**' \
+    -g '!docs/**' \
+    -g '!**/*_test.go' \
+    -g '!**/__tests__/**' \
+    -g '!**/*.spec.ts' \
+    -g '!**/*.snap' \
+    -g '!contracts/**' \
+    -g '!scripts/independence-check.sh' \
+    -g '!scripts/quality-gate.sh' \
+    -- "${paths[@]}")"
+  rg_status=$?
+  set -e
+  case "$rg_status" in
+    0) ;; # matches found
+    1) matches="" ;; # no matches: pass
+    *)
+      echo "independence: ripgrep failed with exit ${rg_status}" >&2
+      exit "$rg_status"
+      ;;
+  esac
+fi
+
 if [[ -z "$matches" ]]; then
   echo "independence: no sub2api identifiers found in the protected scan"
   exit 0

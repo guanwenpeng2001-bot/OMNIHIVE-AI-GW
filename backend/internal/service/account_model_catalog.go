@@ -232,12 +232,14 @@ func AdvanceAccountModelCatalogRevisionsForUpdate(current, incoming *Account, co
 	for _, key := range AccountCatalogIdentityCredentialFields() {
 		identityChanged = identityChanged || !reflect.DeepEqual(current.Credentials[key], incoming.Credentials[key])
 	}
+	versionChanged := CredentialVersion(current.Credentials) != CredentialVersion(incoming.Credentials)
+	identityChanged = identityChanged || (versionChanged && incoming.Type != AccountTypeOAuth)
 	legacyPolicyChanged := identityChanged || !reflect.DeepEqual(current.ProxyID, incoming.ProxyID)
 	stableSubject := false
 	for _, key := range []string{"chatgpt_account_id", "chatgpt_user_id", "sub", "account_id", "user_id"} {
 		stableSubject = stableSubject || (current.GetCredential(key) != "" && current.GetCredential(key) == incoming.GetCredential(key))
 	}
-	if (configurationOnly || !stableSubject) && !reflect.DeepEqual(current.Credentials["access_token"], incoming.Credentials["access_token"]) {
+	if (configurationOnly || !stableSubject) && (versionChanged || !reflect.DeepEqual(current.Credentials["access_token"], incoming.Credentials["access_token"])) {
 		identityChanged = true
 	}
 	rulesChanged := identityChanged || !reflect.DeepEqual(current.ProxyID, incoming.ProxyID)
@@ -440,7 +442,7 @@ func accountCatalogModelEndpoints(account *Account, modelID string, metadata Ups
 			method = CompositeRouteEndpointChatCompletions
 		}
 		switch method {
-		case "speech", "transcriptions", "voice", "rerank":
+		case "speech", "transcriptions", "audio_translations", "voice", "rerank":
 			if platformActionAdapterBound(account, chatOnlyCatalogEndpointAction(method)) {
 				endpoints = append(endpoints, method)
 			}
@@ -638,6 +640,8 @@ func chatOnlyCatalogEndpointAction(endpoint string) string {
 		return "audio.tts"
 	case "transcriptions":
 		return "audio.stt"
+	case "audio_translations":
+		return "audio.translate"
 	default:
 		return ""
 	}

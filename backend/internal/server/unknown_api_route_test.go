@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	paymentshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/payments"
@@ -27,19 +28,25 @@ func TestProductionRouterUnknownAPIRequestsNeverUseSPAFallback(t *testing.T) {
 	auth := func(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "test authentication required"})
 	}
+	// Billable gateway routes fail closed without an execution journal store.
+	// Production always wires a database; an expectation-free sqlmock keeps
+	// the store present so authentication is what aborts these requests.
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
 	router := server.SetupRouter(gin.New(), &handler.Handlers{Admin: &handler.AdminHandlers{}},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, paymentshttp.Handler{}, nil, nil, nil, nil, nil, nil,
 		middleware.JWTAuthMiddleware(auth), middleware.OptionalJWTAuthMiddleware(pass),
 		middleware.AdminAuthMiddleware(pass), middleware.APIKeyAuthMiddleware(auth),
 		middleware.AuditLogMiddleware(pass), middleware.StepUpAuthMiddleware(pass),
-		nil, nil, nil, settings, nil, cfg, nil, nil)
+		nil, nil, nil, settings, nil, cfg, nil, db)
 	registered := make(map[string]bool)
 	for _, route := range router.Routes() {
 		registered[route.Method+" "+route.Path] = true
 	}
 	for _, path := range []string{"/api/v2/public/models", "/api/v2/workspaces/:workspace_id/projects/:project_id/models"} {
 		require.Contains(t, registered, "GET "+path)
-		require.Contains(t, registered, "GET "+path+"/:id")
+		require.Contains(t, registered, "GET "+path+"/*id")
 		require.Contains(t, registered, "POST "+path+"/compare")
 	}
 	const taskPath = "/api/v2/workspaces/:workspace_id/projects/:project_id/tasks"

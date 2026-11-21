@@ -20,6 +20,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/attempt"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ip"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
@@ -763,6 +764,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			attemptPlatform,
 		)
 		if err != nil {
+			if errors.Is(err, policy.NativePolicyDenied) {
+				h.handleStreamingAwareErrorWithCode(c, policy.NativePolicyDenied.Status, "permission_error", policy.NativePolicyDenied.Reason, policy.NativePolicyDenied.Message, streamStarted, false)
+				return
+			}
 			if failoverClientGone(c) {
 				reqLog.Info("openai.account_select_aborted_client_disconnected", zap.Error(err))
 				return
@@ -918,7 +923,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			if res == nil || undeliveredReplacement {
 				return
 			}
-			if err != nil && res.Stream {
+			if err != nil && res.Stream && !res.UsageIncomplete {
 				res.ClientDisconnect = true
 			}
 			stampOpenAIRequestedReasoningEffort(res, c)
@@ -1398,6 +1403,10 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			requestPlatform,
 		)
 		if err != nil {
+			if errors.Is(err, policy.NativePolicyDenied) {
+				h.anthropicStreamingAwareError(c, policy.NativePolicyDenied.Status, "permission_error", policy.NativePolicyDenied.Reason+": "+policy.NativePolicyDenied.Message, streamStarted)
+				return
+			}
 			if failoverClientGone(c) {
 				reqLog.Info("openai_messages.account_select_aborted_client_disconnected", zap.Error(err))
 				return
@@ -1498,7 +1507,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			if res == nil {
 				return
 			}
-			if err != nil && res.Stream {
+			if err != nil && res.Stream && !res.UsageIncomplete {
 				res.ClientDisconnect = true
 			}
 			stampOpenAIRequestedReasoningEffort(res, c)
@@ -2597,6 +2606,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	if apiKey.GroupID != nil {
 		wsSpec.BillingGroupID = *apiKey.GroupID
 	}
+	if !checkSharedBody(firstMessage) {
+		_ = closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "Tenant funding requires an authorized BYOK dispatch.")
+		return
+	}
 	ctx, firstPlan := h.gatewayService.CaptureRequestTurn(ctx, wsSpec)
 	if _, err := firstPlan.AdmittedExecution(); err != nil {
 		_ = closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "Execution admission unavailable")
@@ -2756,6 +2769,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			requestPlatform,
 		)
 		if err != nil {
+			if errors.Is(err, policy.NativePolicyDenied) {
+				_ = closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, policy.NativePolicyDenied.Reason+": "+policy.NativePolicyDenied.Message)
+				return
+			}
 			reqLog.Warn("openai.websocket_account_select_failed",
 				zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
 				zap.Int("excluded_account_count", len(attempts.FailedAccountIDs)),
@@ -2913,6 +2930,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			ReasoningEffortMappings:     reasoningEffortMappings,
 			TurnStarted:                 recordTurnStart,
 			BeforeRequest: func(turn int, payload []byte, originalModel string) error {
+				if !checkSharedBody(payload) {
+					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "Tenant funding requires an authorized BYOK dispatch.", errors.New("shared funding rejected"))
+				}
 				if absolute := turnBase + turn; absolute > logicalTurn {
 					logicalTurn = absolute
 					service.BeginAttemptStreamTurn(ctx, logicalTurn)

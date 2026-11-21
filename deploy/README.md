@@ -53,10 +53,10 @@ Use the automated preparation script for the easiest setup:
 
 ```bash
 # Download and run the preparation script
-curl -sSL --globoff 'https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/main/deploy/docker-deploy.sh' | bash
+curl -fsSL --globoff 'https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/v0.2.4/deploy/docker-deploy.sh' | bash
 
 # Or download first, then run
-curl -sSL --globoff 'https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/main/deploy/docker-deploy.sh' -o docker-deploy.sh
+curl -fsSL --globoff 'https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/v0.2.4/deploy/docker-deploy.sh' -o docker-deploy.sh
 chmod +x docker-deploy.sh
 ./docker-deploy.sh
 ```
@@ -67,6 +67,11 @@ chmod +x docker-deploy.sh
 - Creates `.env` file with generated secrets
 - Creates necessary data directories (data/, postgres_data/, redis_data/)
 - **Displays generated credentials** (POSTGRES_PASSWORD, JWT_SECRET, etc.)
+
+The script defaults to release tag `v0.2.4`; set `OMNIHIVE_RELEASE_TAG` to explicitly
+select another release. Downloads fail on HTTP errors and are validated in a temporary
+directory before being moved into place. If either `docker-compose.yml` or `.env` already
+exists, the script exits without overwriting or changing the deployment.
 
 **After running the script:**
 ```bash
@@ -82,6 +87,15 @@ docker compose logs omnihive | grep "admin password"
 # Access Web UI
 # http://localhost:8080
 ```
+
+Production, local and development Compose publish the application only on
+`127.0.0.1` by default. Access it locally at `http://localhost:8080`, or install
+the bundled Caddy configuration on the same host and use `https://your-domain`.
+Do not set `BIND_HOST=0.0.0.0` to bypass the proxy's TLS. The standalone template
+has no bundled reverse proxy and retains its direct binding; if that port is
+reachable by other hosts, you must provide your own TLS reverse proxy or load
+balancer. Existing `.env` files override Compose defaults, so review `BIND_HOST`
+during upgrades rather than assuming an updated template changes a live deployment.
 
 ### Method 2: Manual Deployment
 
@@ -109,7 +123,7 @@ mkdir -p data postgres_data redis_data
 # Start all services using local directory version
 docker compose -f docker-compose.local.yml up -d
 
-# View logs (check for auto-generated admin password)
+# View logs (find the private admin password file path)
 docker compose -f docker-compose.local.yml logs -f omnihive
 
 # Access Web UI
@@ -264,6 +278,15 @@ Container images do not roll back database migrations, so back up PostgreSQL and
 the persisted keys before an upgrade, then verify `/health` and `/ready` after
 the restart.
 
+Before an upgrade, restart or shutdown, remove the instance from the load balancer
+and wait for active connection counts to reach zero. The application makes `/ready`
+fail as soon as draining starts, so Caddy can stop assigning new requests. Only then
+run `docker compose stop omnihive` (or `down`); do not stop PostgreSQL or Redis first.
+The application's shutdown budget is 20 seconds (`backend/cmd/server/main.go`), and
+each Compose template sets `stop_grace_period: 30s` to include 10 seconds of cleanup
+headroom. If `/ready` fails because dependencies are unavailable, restore dependencies
+before draining so in-flight usage receipts can be persisted.
+
 ### Environment Variables
 
 | Variable | Required | Default | Description |
@@ -271,6 +294,7 @@ the restart.
 | `POSTGRES_PASSWORD` | **Yes** | - | PostgreSQL password |
 | `JWT_SECRET` | **Recommended** | *(auto-generated)* | JWT secret (fixed for persistent sessions) |
 | `TOTP_ENCRYPTION_KEY` | **Recommended** | *(auto-generated)* | TOTP encryption key (fixed for persistent 2FA) |
+| `BIND_HOST` | No | `127.0.0.1` | Host address for the Compose port; keep loopback behind Caddy. Standalone defaults to `0.0.0.0` and needs operator-provided TLS if exposed. |
 | `SERVER_PORT` | No | `8080` | Published host port in Compose; application always listens on container port 8080 |
 | `ADMIN_EMAIL` | No | `admin@omnihive.local` | Admin email |
 | `ADMIN_PASSWORD` | No | *(auto-generated)* | Admin password |
@@ -293,7 +317,7 @@ addresses stay fixed; the listed tunables use shell/Compose interpolation. LOG_*
 LinuxDo/OIDC and other backend options in `.env` now reach the application as well.
 `REDIS_MAXCLIENTS` configures the Redis server command, not the application connection pool.
 
-Default application pools match the backend: PostgreSQL open/idle 256/128 and Redis
+Default application pools match the backend: PostgreSQL open/idle 32/8 and Redis
 pool/min-idle 1024/128. The bundled PostgreSQL stock `max_connections=100` is a separate
 server ceiling: budget all replicas and maintenance clients before increasing load,
 and explicitly raise that ceiling or reduce application pools to suit your resources.
@@ -311,6 +335,9 @@ Application container healthchecks use `/health` for liveness. Caddy uses `/read
 sending new traffic when dependencies are unavailable or the process is draining; do not
 use dependency readiness as a restart trigger. See [EDGE_SECURITY.md](./EDGE_SECURITY.md)
 for the unchanged security defaults, forwarded-header trust and outbound endpoint risks.
+The TLS site in `Caddyfile` sets one-year HSTS with `includeSubDomains`, without `preload`.
+Enable it only after every subdomain supports HTTPS; the application retains its other
+security headers, so verify the final HTTPS response after replacing `api.example.com`.
 
 For a source production image use `docker build -f Dockerfile .` from the repository root;
 `deploy/Dockerfile` carries the same runtime section, including `pg_dump` and `psql` from
@@ -714,3 +741,7 @@ gateway:
 **Cipher Suites (TLS 1.2):** `49195`, `49196`, `49199`, `49200` (ECDHE variants)
 
 **Curves:** `29` (X25519), `23` (P-256), `24` (P-384), `25` (P-521)
+
+### Product backups and disaster recovery
+
+Configure a persistent TOTP encryption key and an S3-compatible bucket in the backup administration page. Enable a schedule after testing a manual backup. Production restore also requires a dedicated journal database, a rehearsal database on a separate PostgreSQL cluster and an administrator session with fresh TOTP step-up. The optional Compose overlay, retention settings and cutover procedure are in the [Docker deployment guide](DOCKER.md#product-backups-and-disaster-recovery).

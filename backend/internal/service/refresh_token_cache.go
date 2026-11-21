@@ -77,3 +77,8 @@ type RefreshTokenCache interface {
 	// 用于验证Token家族关系
 	IsTokenInFamily(ctx context.Context, familyID string, tokenHash string) (bool, error)
 }
+
+type SessionFamilyRevocationCache interface {
+	RevokeSessionFamily(ctx context.Context, familyID string, ttl time.Duration) error
+	IsSessionFamilyRevoked(ctx context.Context, familyID string) (bool, error)
+}

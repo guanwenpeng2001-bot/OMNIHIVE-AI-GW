@@ -54,7 +54,7 @@ func (r *Runtime) startLegacy(ctx context.Context, actor int64, backupID, key, s
 		}
 		var active bool
 		err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT FROM restore_journal.legacy_requests WHERE state='pending') OR
-  EXISTS(SELECT FROM restore_journal.operations WHERE state IN ('queued','running','unknown')) OR
+  EXISTS(SELECT FROM restore_journal.operations WHERE (state IN ('queued','running','unknown') OR stage='manual_recovery')) OR
   EXISTS(SELECT FROM restore_journal.backups WHERE review_required)`).Scan(&active)
 		if err != nil {
 			return nil, err
@@ -83,7 +83,7 @@ func (r *Runtime) startLegacy(ctx context.Context, actor int64, backupID, key, s
 	var state, op string
 	var reason sql.NullString
 	var completed sql.NullTime
-	err = r.Journal.QueryRowContext(ctx, `SELECT b.record,coalesce(o.state,r.state),r.id,coalesce(o.report->>'reason',r.reason),o.updated_at FROM restore_journal.legacy_requests r
+	err = r.Journal.QueryRowContext(ctx, `SELECT b.record,CASE WHEN o.stage='manual_recovery' THEN 'unknown' ELSE coalesce(o.state,r.state) END,r.id,coalesce(o.report->>'reason',r.reason),o.updated_at FROM restore_journal.legacy_requests r
  JOIN restore_journal.backups b ON b.id=r.backup_id LEFT JOIN restore_journal.operations o ON o.id=r.production_id WHERE r.id=$1`, id).Scan(&data, &state, &op, &reason, &completed)
 	if err != nil {
 		return nil, err

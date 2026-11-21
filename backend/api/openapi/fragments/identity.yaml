@@ -226,6 +226,103 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/IdentityError'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/key-groups:
+    parameters:
+    - $ref: '#/components/parameters/IdentityWorkspaceID'
+    - $ref: '#/components/parameters/IdentityProjectID'
+    get:
+      operationId: identityKeyGroups
+      summary: List groups eligible for key issuance by the current actor
+      parameters:
+      - $ref: '#/components/parameters/IdentityLimit'
+      - $ref: '#/components/parameters/IdentityCursor'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - code
+                - message
+                - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/IdentityKeyGroupPage'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/groups/{id}:
+    parameters:
+    - $ref: '#/components/parameters/IdentityWorkspaceID'
+    - $ref: '#/components/parameters/IdentityProjectID'
+    - name: id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/IdentityID'
+    put:
+      operationId: identityBindGroup
+      summary: Assign an unused default-project group to this project
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - code
+                - message
+                - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/IdentityGroupBinding'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+    delete:
+      operationId: identityUnbindGroup
+      summary: Return an unused project group to the workspace default project
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - code
+                - message
+                - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/IdentityGroupBinding'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
   /api/v2/workspaces/{workspace_id}/projects/{project_id}/keys:
     parameters:
     - $ref: '#/components/parameters/IdentityWorkspaceID'
@@ -634,6 +731,7 @@ components:
           items:
             type: string
             enum:
+            - models.read
             - text.chat
             - text.embeddings
             - image.generate
@@ -784,6 +882,42 @@ components:
         as_of:
           type: string
           format: date-time
+    IdentityKeyGroupPage:
+      type: object
+      required:
+      - items
+      - next_cursor
+      - as_of
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/IdentityKeyGroup'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+        as_of:
+          type: string
+          format: date-time
+    IdentityKeyGroup:
+      type: object
+      required: [id, name, platform]
+      properties:
+        id:
+          $ref: '#/components/schemas/IdentityID'
+        name:
+          type: string
+        platform:
+          type: string
+    IdentityGroupBinding:
+      type: object
+      required: [group_id, project_id]
+      properties:
+        group_id:
+          $ref: '#/components/schemas/IdentityID'
+        project_id:
+          $ref: '#/components/schemas/IdentityID'
     IdentityKeyPage:
       type: object
       required:

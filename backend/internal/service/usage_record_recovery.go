@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync/atomic"
 )
@@ -55,6 +56,31 @@ func (p *GatewayRequestPlan) persistUsagePanic(ctx context.Context) {
 	if p.settlement == nil || p.State().ReceiptState != "" {
 		return
 	}
+	p.persistUnresolvedUsage(ctx, false)
+}
+
+// ReviewInterruptedStream records delivered SSE output even when the adapter returned no result.
+func (p *GatewayRequestPlan) ReviewInterruptedStream(ctx context.Context) {
+	if p == nil || p.settlement == nil || len(p.Attempts()) == 0 || !p.Record() {
+		return
+	}
+	p.persistUnresolvedUsage(ctx, true)
+}
+
+// ReviewFailedGeneration closes an accepted non-stream attempt whose adapter
+// failed before handing any usage evidence to settlement.
+func (p *GatewayRequestPlan) ReviewFailedGeneration(ctx context.Context) {
+	attempts := p.Attempts()
+	if p.settlement == nil || len(attempts) == 0 {
+		return
+	}
+	last := attempts[len(attempts)-1]
+	if last.Outcome == "transport_response" && last.Status >= 200 && last.Status < 300 && p.Record() {
+		p.persistUnresolvedUsage(ctx, false)
+	}
+}
+
+func (p *GatewayRequestPlan) persistUnresolvedUsage(ctx context.Context, stream bool) {
 	attempts := p.Attempts()
 	if len(attempts) == 0 {
 		return
@@ -64,10 +90,10 @@ func (p *GatewayRequestPlan) persistUsagePanic(ctx context.Context) {
 	receipt := &UsageSettlementReceipt{
 		Key:             UsageSettlementKey{RequestID: requestID, UserID: p.spec.UserID, APIKeyID: p.spec.APIKeyID},
 		Command:         UsageBillingCommand{RequestID: requestID, UserID: p.spec.UserID, APIKeyID: p.spec.APIKeyID, AccountID: accountID, Model: p.spec.Model},
-		Usage:           UsageLog{RequestID: requestID, UserID: p.spec.UserID, APIKeyID: p.spec.APIKeyID, AccountID: accountID, Model: p.spec.Model, PricingState: PricingStateError},
+		Usage:           UsageLog{Stream: stream, InboundEndpoint: optionalTrimmedStringPtr(p.spec.Route), RequestID: requestID, UserID: p.spec.UserID, APIKeyID: p.spec.APIKeyID, AccountID: accountID, Model: p.spec.Model, PricingState: PricingStateError},
 		ResolutionState: "unresolved", CompletionState: "interrupted",
 	}
-	if err := p.settlement.Submit(ctx, receipt, nil); err != nil {
-		slog.Error("usage panic recovery receipt", "request_id", requestID, "failure_category", billingFailureCategory(err))
+	if err := p.settlement.Submit(ctx, receipt, nil); err != nil && !errors.Is(err, ErrUsageSettlementNeedsReview) {
+		slog.Error("unresolved usage receipt", "request_id", requestID, "failure_category", billingFailureCategory(err))
 	}
 }

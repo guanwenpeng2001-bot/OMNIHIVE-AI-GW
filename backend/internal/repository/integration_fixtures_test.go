@@ -73,7 +73,7 @@ func cleanupRepositoryRows(t *testing.T) {
 		"connection_pool_members", "connection_verifications", "connection_events",
 		"connection_operations", "connection_previews", "connection_pools",
 		"provider_connections", "connection_credential_versions", "connection_migration_quarantine",
-		"credential_secrets", "api_key_credentials",
+		"account_secret_backfill", "account_secret_backfill_done", "credential_secrets", "api_key_credentials",
 		"api_key_budget_periods", "api_key_budget_reservations", "api_key_budget_adjustments",
 		"project_key_policies", "user_subscriptions", "user_allowed_groups", "api_keys",
 		"redeem_codes",
@@ -82,7 +82,7 @@ func cleanupRepositoryRows(t *testing.T) {
 		"passkey_credentials", "passkey_user_handles", "user_affiliates",
 		"user_attribute_values", "user_avatars", "user_group_rate_multipliers",
 		"user_platform_quotas", "user_provider_default_grants", "project_grants",
-		"workspace_members", "users",
+		"mcp_grants", "mcp_clients", "registration_agreements", "workspace_members", "users",
 		"scheduled_test_results", "scheduled_test_plans", "account_groups",
 	}
 	for _, table := range tables {

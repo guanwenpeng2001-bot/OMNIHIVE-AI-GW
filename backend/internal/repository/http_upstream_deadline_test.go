@@ -36,7 +36,7 @@ func TestHTTPUpstreamSlowDripStopsAtRequestDeadline(t *testing.T) {
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL, nil)
 	require.NoError(t, err)
-	response, err := NewHTTPUpstream(nil).Do(request, "", 1, 1)
+	response, err := NewHTTPUpstream(loopbackUpstreamConfig()).Do(request, "", 1, 1)
 	require.NoError(t, err)
 	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(response.Body)

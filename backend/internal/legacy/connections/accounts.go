@@ -81,10 +81,10 @@ func ChangeSecret(ctx context.Context, tx *sql.Tx, enc service.SecretEncryptor, 
 	if _, err = tx.ExecContext(ctx, "SELECT set_config('omnihive.connection_writer','v2',true)"); err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, `INSERT INTO credential_secrets(workspace_id,account_id,version,reference,ciphertext,revoked_at)
- VALUES($1,$2,$3,$4,$5,CASE WHEN $6 THEN now() END)
- ON CONFLICT(account_id) DO UPDATE SET version=excluded.version,ciphertext=excluded.ciphertext,revoked_at=excluded.revoked_at,updated_at=now()
- WHERE credential_secrets.reference=excluded.reference AND credential_secrets.version=excluded.version-1`, w, id, m.Version, m.Reference, cipher, values == nil)
+	result, err := tx.ExecContext(ctx, `INSERT INTO credential_secrets(workspace_id,account_id,version,reference,ciphertext,revoked_at,api_key_digest)
+ VALUES($1,$2,$3,$4,$5,CASE WHEN $6 THEN now() END,$7)
+ ON CONFLICT(account_id) DO UPDATE SET version=excluded.version,api_key_digest=excluded.api_key_digest,ciphertext=excluded.ciphertext,revoked_at=excluded.revoked_at,updated_at=now()
+ WHERE credential_secrets.reference=excluded.reference AND credential_secrets.version=excluded.version-1`, w, id, m.Version, m.Reference, cipher, values == nil, service.AccountAPIKeyDigest(values))
 	if err != nil {
 		return err
 	}

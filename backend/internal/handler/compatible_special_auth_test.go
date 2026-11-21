@@ -26,6 +26,7 @@ import (
 func specialAuthHandler(t *testing.T, account service.Account, transport service.HTTPUpstream) (*OpenAIGatewayHandler, *service.Group, *hunyuanSTTReceiptRepository, *cursorRouteUsageRepo) {
 	t.Helper()
 	cfg := compatibleReviewConfig()
+	cfg.Security.URLAllowlist.UpstreamHosts = append(cfg.Security.URLAllowlist.UpstreamHosts, "api.githubcopilot.com", "inference-api.nousresearch.com")
 	accounts := &geminiReviewAccountRepo{openAIWSUsageHandlerAccountRepoStub: openAIWSUsageHandlerAccountRepoStub{account: account}}
 	receipts := newHunyuanSTTReceiptRepository()
 	usage := &cursorRouteUsageRepo{}
@@ -126,7 +127,12 @@ func TestCopilotNousPublicHandlers(t *testing.T) {
 								writer.Header().Set("Content-Type", "application/json")
 							}
 							reply := compatibleReviewReply(domain.APIProtocolChatCompletions, presence, upstreamStream)
-							reply = strings.ReplaceAll(reply, `"content":"delivered"`, `"content":"delivered","tool_calls":[{"index":0,"id":"lookup-call","type":"function","function":{"name":"lookup","arguments":"{}"}}]`)
+							if upstreamStream {
+								// Send the tool block before the text block so the client observes a completed call even when final metering is missing.
+								reply = `data: {"id":"c1","object":"chat.completion.chunk","model":"fixture-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"lookup-call","type":"function","function":{"name":"lookup","arguments":"{}"}}]},"finish_reason":null}]}` + "\n\n" + reply
+							} else {
+								reply = strings.ReplaceAll(reply, `"content":"delivered"`, `"content":"delivered","tool_calls":[{"index":0,"id":"lookup-call","type":"function","function":{"name":"lookup","arguments":"{}"}}]`)
+							}
 							reply = strings.ReplaceAll(reply, `"finish_reason":"stop"`, `"finish_reason":"tool_calls"`)
 							fmt.Fprint(writer, reply)
 						}))
@@ -183,6 +189,9 @@ func TestCopilotNousPublicHandlers(t *testing.T) {
 						}
 						require.Equal(t, 200, rec.Code, rec.Body.String())
 						require.Contains(t, rec.Body.String(), "delivered")
+						if stream && presence == "missing" && strings.HasPrefix(path, "/v1beta/") {
+							require.Contains(t, rec.Body.String(), `"status":"INTERNAL"`)
+						}
 						require.Contains(t, rec.Body.String(), "lookup")
 						require.EqualValues(t, 1, calls.Load())
 						require.Len(t, receipts.receipts, 1)
@@ -252,6 +261,7 @@ func TestCopilotNousSavedProbeAndCatalog(t *testing.T) {
 		}))
 		defer upstream.Close()
 		cfg := compatibleReviewConfig()
+		cfg.Security.URLAllowlist.UpstreamHosts = append(cfg.Security.URLAllowlist.UpstreamHosts, "api.githubcopilot.com", "inference-api.nousresearch.com")
 		account := specialHandlerAccount(platform, upstream.URL+"/v1", "")
 		var transport service.HTTPUpstream = repository.NewHTTPUpstream(cfg)
 		catalogPath := "GET /v1/models"

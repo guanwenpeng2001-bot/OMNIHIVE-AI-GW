@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	ws "github.com/coder/websocket"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
 	"github.com/tidwall/gjson"
 )
 
@@ -63,7 +64,8 @@ func (s *OpenAIGatewayService) OpenQianwenRealtime(ctx context.Context, account 
 	}
 	baseTransport, _ := http.DefaultTransport.(*http.Transport)
 	transport := baseTransport.Clone()
-	defer transport.CloseIdleConnections()
+	pinned := httpclient.NewUpstreamTransport(transport, privateUpstreamHosts(s.cfg))
+	defer pinned.CloseIdleConnections()
 	proxyURL, egressErr := account.EgressProxyURL(ctx)
 	if egressErr != nil {
 		return nil, egressErr
@@ -80,7 +82,7 @@ func (s *OpenAIGatewayService) OpenQianwenRealtime(ctx context.Context, account 
 	// Never allow account header overrides to replace auth or enable a different
 	// handshake; only the documented workspace header is carried through.
 	headers = http.Header{"Authorization": {"Bearer " + credential}, "X-DashScope-WorkSpace": headers.Values("X-DashScope-WorkSpace")}
-	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := &http.Client{Transport: pinned, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	upstream, err := dialQianwenRealtime(ctx, target, model, headers, client)
 	var failure *QianwenRealtimeDialError
 	if errors.As(err, &failure) && failure.StatusCode > 0 && s.rateLimitService != nil {

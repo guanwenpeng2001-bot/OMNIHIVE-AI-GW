@@ -400,6 +400,7 @@ func (h *UserHandler) UpdateBalance(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	middleware.SetAuditExtra(c, map[string]any{"reason": req.Notes})
 
 	idempotencyPayload := struct {
 		UserID int64                `json:"user_id"`

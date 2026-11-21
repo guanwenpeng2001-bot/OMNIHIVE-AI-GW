@@ -158,7 +158,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	balanceNotifyService := service.ProvideBalanceNotifyService(emailService, settingRepository, accountRepository, notificationEmailService)
 	usageSettlementReceiptRepository := repository.NewUsageSettlementReceiptWithQuotaRepository(db)
 	usageRecordWorkerPool := service.NewUsageRecordWorkerPool(cfg)
-	usageSettlementService := provideUsageSettlementService(supervisor, usageSettlementReceiptRepository, usageRecordWorkerPool, billingCacheService, apiKeyService)
+	usageSettlementService := provideUsageSettlementService(supervisor, usageSettlementReceiptRepository, usageRecordWorkerPool, billingCacheService, apiKeyService, db)
 	gatewayService := service.ProvideGatewayService(accountRepository, groupRepository, usageLogRepository, usageBillingRepository, userRepository, userSubscriptionRepository, userGroupRateRepository, gatewayCache, cfg, schedulerSnapshotService, concurrencyService, billingService, rateLimitService, billingCacheService, identityService, httpUpstream, deferredService, claudeTokenProvider, sessionLimitCache, rpmCacheImpl, digestSessionStore, settingService, tlsFingerprintProfileService, channelService, modelPricingResolver, compositeRouteResolver, balanceNotifyService, serviceUserPlatformQuotaRepository, usageSettlementService)
 	modelAccessHandler := handler.NewModelAccessHandler(modelAccessService, gatewayService, apiKeyService)
 	workspaceRepository := repository.NewWorkspaceRepository(db)
@@ -254,7 +254,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	adminUserHandler := admin.NewUserHandler(adminService, concurrencyService, serviceUserPlatformQuotaRepository, billingCache, totpService, userService, settingService)
 	groupCapacityService := service.NewGroupCapacityService(accountRepository, groupRepository, concurrencyService, sessionLimitCache, rpmCacheImpl)
 	groupHandler := admin.NewGroupHandlerWithConfig(adminService, dashboardService, groupCapacityService, cfg)
-	cursorGatewayService := service.ProvideCursorGatewayService(cursorSessionProvider, settingRepository, redisClient)
+	cursorGatewayService := service.ProvideCursorGatewayService(cursorSessionProvider, settingRepository, redisClient, cfg)
 	pluginRepository := repository.NewPluginRepository(db)
 	pluginHostInfo := providePluginHostInfo(buildInfo)
 	pluginManager := service.NewPluginManager(pluginRepository, aesEncryptor, cfg, pluginHostInfo)
@@ -293,7 +293,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	updateCache := repository.NewUpdateCache(redisClient)
 	gitHubReleaseClient := repository.ProvideGitHubReleaseClient(cfg)
 	serviceBuildInfo := provideServiceBuildInfo(buildInfo)
-	updateService := service.ProvideUpdateService(updateCache, gitHubReleaseClient, serviceBuildInfo)
+	updateService := service.ProvideUpdateService(updateCache, gitHubReleaseClient, serviceBuildInfo, db, cfg)
 	idempotencyRepository := repository.NewIdempotencyRepository(client, db)
 	systemOperationLockService := service.ProvideSystemOperationLockService(idempotencyRepository, cfg)
 	systemHandler := handler.ProvideSystemHandler(updateService, systemOperationLockService)
@@ -320,7 +320,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	channelMonitorRequestTemplateHandler := admin.NewChannelMonitorRequestTemplateHandler(channelMonitorRequestTemplateService)
 	contentModerationRepository := repository.NewContentModerationRepository(db)
 	contentModerationHashCache := repository.NewContentModerationHashCache(redisClient)
-	contentModerationService := service.NewContentModerationService(settingRepository, contentModerationRepository, contentModerationHashCache, groupRepository, userRepository, proxyRepository, apiKeyAuthCacheInvalidator, emailService)
+	contentModerationService := service.ProvideContentModerationService(settingRepository, contentModerationRepository, contentModerationHashCache, groupRepository, userRepository, proxyRepository, apiKeyAuthCacheInvalidator, emailService, cfg)
 	contentModerationHandler := admin.NewContentModerationHandler(contentModerationService)
 	configManager := securityaudit.NewConfigManager(db, settingRepository, redisClient, aesEncryptor, cfg)
 	postgreSQLRepository := securityaudit.NewPostgreSQLRepository(db)
@@ -377,10 +377,11 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	batchImageCleanupService := provideBatchImageCleanupService(supervisor, batchImageRepository, accountRepository, cfg)
 	batchImageHandler := handler.ProvideBatchImageHandler(batchImagePublicService, batchImageDownloadService, batchImageCleanupService, openAIGatewayHandler)
 	gatewayResourceHandler := handler.NewGatewayResourceHandler(openAIGatewayHandler, upstreamJobService)
+	mcpGrantStore := repository.NewMCPGrantRepository(db)
 	idempotencyCoordinator := service.ProvideIdempotencyCoordinator(idempotencyRepository, cfg)
 	idempotencyCleanupService := provideIdempotencyCleanupService(supervisor, idempotencyRepository, cfg)
 	openAIQuotaAutoResetService := provideOpenAIQuotaAutoResetService(supervisor, accountRepository, openAIQuotaService, rateLimitService, idempotencyCoordinator, auditLogService, settingService, leaderLockCache)
-	handlers := handler.ProvideHandlers(modelAccessHandler, workspaceHandler, authHandler, userHandler, apiKeyHandler, usageHandler, redeemHandler, subscriptionHandler, announcementHandler, channelMonitorUserHandler, channelTelemetryHandler, adminHandlers, gatewayHandler, openAIGatewayHandler, handlerSettingHandler, totpHandler, passkeyHandler, handlerPaymentHandler, paymentWebhookHandler, availableChannelHandler, modelPlazaHandler, asyncImageHandler, batchImageHandler, gatewayResourceHandler, idempotencyCoordinator, idempotencyCleanupService, openAIQuotaAutoResetService)
+	handlers := handler.ProvideHandlers(modelAccessHandler, workspaceHandler, authHandler, userHandler, apiKeyHandler, usageHandler, redeemHandler, subscriptionHandler, announcementHandler, channelMonitorUserHandler, channelTelemetryHandler, adminHandlers, gatewayHandler, openAIGatewayHandler, handlerSettingHandler, totpHandler, passkeyHandler, handlerPaymentHandler, paymentWebhookHandler, availableChannelHandler, modelPlazaHandler, asyncImageHandler, batchImageHandler, gatewayResourceHandler, usageSettlementService, mcpGrantStore, totpService, idempotencyCoordinator, idempotencyCleanupService, openAIQuotaAutoResetService)
 	postgresStore := postgres.New(db)
 	source := legacy.NewSource(postgresStore, modelPlazaService, settingService, apiKeyService, opsService)
 	reader := catalog.NewReader(source, postgresStore)
@@ -408,7 +409,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	statusHandler := statusHandlerProvider(db, store2, cfg, opsService)
 	byokHandler := byokHandlerProvider(byokStore)
 	observer := auditObserverProvider()
-	auditHandler := auditHandlerProvider(auditStore, observer, cfg)
+	auditHandler := auditHandlerProvider(auditStore, observer, cfg, auditLogService)
 	exportStore, err := observabilityStoreProvider(supervisor, cfg)
 	if err != nil {
 		return nil, err
@@ -533,7 +534,8 @@ func auditStoreProvider(db *sql.DB, access *postgres2.Store) *audit2.Store {
 
 func auditObserverProvider() *audit2.Observer { return audit2.NewObserver() }
 
-func auditHandlerProvider(store *audit2.Store, observer *audit2.Observer, cfg *config.Config) *audit.Handler {
+func auditHandlerProvider(store *audit2.Store, observer *audit2.Observer, cfg *config.Config, auditLogs *service.AuditLogService) *audit.Handler {
+	auditLogs.SetScopedStore(store)
 	return audit.New(store, observer, cfg)
 }
 
@@ -1007,5 +1009,5 @@ var runtimeServiceProviders = wire.NewSet(service.NewStagedAccountImportService,
 	provideOpenAICodexVersionSyncService,
 	provideProxyExpiryService,
 	provideSubscriptionExpiryService, service.ProvideTimingWheelService, provideDashboardAggregationService,
-	provideUsageCleanupService, service.ProvideDeferredService, service.NewAntigravityQuotaFetcher, service.NewGrokQuotaFetcher, service.NewUserAttributeService, service.NewUsageCache, service.NewTotpService, service.NewErrorPassthroughService, service.NewTLSFingerprintProfileService, service.NewPluginManager, service.NewDigestSessionStore, service.ProvideIdempotencyCoordinator, service.ProvideSystemOperationLockService, provideIdempotencyCleanupService, service.ProvideScheduledTestService, provideScheduledTestRunnerService, service.NewGroupCapacityService, service.NewChannelService, wire.Bind(new(service.ChannelCacheInvalidator), new(*service.ChannelService)), service.NewModelPricingResolver, service.NewModelPlazaService, service.NewContentModerationService, service.NewAffiliateService, service.ProvidePaymentConfigService, service.ProvidePaymentService, providePaymentOrderExpiryService, service.ProvideBalanceNotifyService, service.ProvideChannelMonitorService, provideChannelMonitorRunner, service.NewChannelMonitorQuotaFetcher, service.ProvideChannelTelemetryService, provideChannelTelemetryAggregator, service.NewChannelMonitorRequestTemplateService, provideUserPlatformQuotaUsageFlusher,
+	provideUsageCleanupService, service.ProvideDeferredService, service.NewAntigravityQuotaFetcher, service.NewGrokQuotaFetcher, service.NewUserAttributeService, service.NewUsageCache, service.NewTotpService, service.NewErrorPassthroughService, service.NewTLSFingerprintProfileService, service.NewPluginManager, service.NewDigestSessionStore, service.ProvideIdempotencyCoordinator, service.ProvideSystemOperationLockService, provideIdempotencyCleanupService, service.ProvideScheduledTestService, provideScheduledTestRunnerService, service.NewGroupCapacityService, service.NewChannelService, wire.Bind(new(service.ChannelCacheInvalidator), new(*service.ChannelService)), service.NewModelPricingResolver, service.NewModelPlazaService, service.ProvideContentModerationService, service.NewAffiliateService, service.ProvidePaymentConfigService, service.ProvidePaymentService, providePaymentOrderExpiryService, service.ProvideBalanceNotifyService, service.ProvideChannelMonitorService, provideChannelMonitorRunner, service.NewChannelMonitorQuotaFetcher, service.ProvideChannelTelemetryService, provideChannelTelemetryAggregator, service.NewChannelMonitorRequestTemplateService, provideUserPlatformQuotaUsageFlusher,
 )

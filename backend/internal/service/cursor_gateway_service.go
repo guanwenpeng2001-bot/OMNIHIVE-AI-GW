@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/tidwall/gjson"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -17,6 +16,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/apicompat"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/cursor"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
+	"github.com/tidwall/gjson"
 )
 
 type cursorNativeDriver interface {
@@ -89,7 +90,7 @@ type cursorCatalogEntry struct {
 }
 
 func NewCursorGatewayService(sessions *CursorSessionProvider, settings SettingRepository) *CursorGatewayService {
-	return &CursorGatewayService{sessions: sessions, settings: settings, native: cursor.NewClient(), relayClient: &http.Client{Timeout: 5 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, catalog: make(map[string]cursorCatalogEntry)}
+	return &CursorGatewayService{sessions: sessions, settings: settings, native: cursor.NewClient(), relayClient: &http.Client{Transport: httpclient.NewPublicTransport(&http.Transport{Proxy: http.ProxyFromEnvironment}), Timeout: 5 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, catalog: make(map[string]cursorCatalogEntry)}
 }
 
 func cursorFailover(err error) error {

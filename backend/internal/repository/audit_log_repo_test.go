@@ -38,7 +38,7 @@ func TestAuditClearWithTraceTransaction(t *testing.T) {
 						queries := map[string]string{"lock": "LOCK TABLE audit_logs IN ACCESS EXCLUSIVE MODE", "truncate": "TRUNCATE TABLE audit_logs", "insert": "INSERT INTO audit_logs"}
 						e := mock.ExpectExec(queries[step])
 						if step == "insert" {
-							e.WithArgs(sqlmock.AnyArg(), nil, "", "", "", "", service.AuditActionAuditLogClear, "", "", "", "", "", "", 0, 0, `{"deleted_rows":7}`)
+							e.WithArgs(sqlmock.AnyArg(), nil, "", "", "", "", service.AuditActionAuditLogClear, "", "", "", "", "", "", 0, 0, `{"deleted_rows":7}`, nil, "")
 						}
 						if failure == step {
 							e.WillReturnError(cause)

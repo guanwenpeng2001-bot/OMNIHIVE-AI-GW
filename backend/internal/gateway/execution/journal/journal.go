@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -85,6 +86,43 @@ func Register(key string, body []byte) (*Registration, error) {
 		return nil, ErrRegistration
 	}
 	return &Registration{key: sha256.Sum256([]byte(key)), payload: sha256.Sum256(canonical)}, nil
+}
+
+// RegisterBytes fingerprints the exact native bytes of non-JSON inputs such as
+// multipart uploads. The adapter receives the same bytes used for admission.
+func RegisterBytes(key string, body []byte) (*Registration, error) {
+	if key == "" {
+		return nil, nil
+	}
+	if len(key) > 256 {
+		return nil, ErrRegistration
+	}
+	return &Registration{key: sha256.Sum256([]byte(key)), payload: sha256.Sum256(body)}, nil
+}
+
+type registrationKey struct{}
+type ingressRegistration struct {
+	registration *Registration
+	route        string
+}
+
+func WithRegistration(ctx context.Context, r *Registration, route string) context.Context {
+	return context.WithValue(ctx, registrationKey{}, ingressRegistration{r, route})
+}
+
+func RegistrationFrom(ctx context.Context) *Registration {
+	r, _ := ctx.Value(registrationKey{}).(ingressRegistration)
+	return r.registration
+}
+
+// Async image submission captures its own job plan before the native handler
+// runs. A separate downstream job must never reuse its parent's idempotency key.
+func JobRegistrationFrom(ctx context.Context, route string) *Registration {
+	r, _ := ctx.Value(registrationKey{}).(ingressRegistration)
+	if strings.HasSuffix(r.route, "/async") && strings.TrimSuffix(r.route, "/async") == route {
+		return r.registration
+	}
+	return nil
 }
 
 // A keyed request must have an unambiguous representation across the native JSON decoders.
@@ -168,3 +206,22 @@ func Authorize(ctx context.Context, s scope.Authorized, model string) error {
 }
 
 func NewID() string { return uuid.NewString() }
+
+type requiredStoreKey struct{}
+
+// RequireStore marks an authenticated native send path. Keep this intent in
+// the context independently of the adapter's concrete store.
+func RequireStore(ctx context.Context) context.Context {
+	return context.WithValue(ctx, requiredStoreKey{}, true)
+}
+
+// ForAdmission preserves optional journals in internal tools and fixtures.
+// A required missing journal uses the rejecting Postgres admission path, so
+// the physical transport sees an admission error and cannot skip its permit.
+func ForAdmission(ctx context.Context) Store {
+	store := From(ctx)
+	if required, _ := ctx.Value(requiredStoreKey{}).(bool); required && store == nil {
+		return New(nil)
+	}
+	return store
+}

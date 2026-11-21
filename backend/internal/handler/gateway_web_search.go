@@ -78,6 +78,9 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 	}
 
 	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, searchModel, searchLabel, h.maxAccountSwitches)()
+	if c.IsAborted() {
+		return
+	}
 	// Billing eligibility (same as other requests)
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {

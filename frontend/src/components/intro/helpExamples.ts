@@ -49,6 +49,45 @@ response = client.chat.completions.create(
     messages=[{"role": "user", "content": "Hello"}],
 )
 print(response.choices[0].message.content)` },
+      { label: 'Python · Anthropic Messages SDK', code: String.raw`# python -m pip install anthropic
+import os
+from anthropic import Anthropic
+
+client = Anthropic(
+    base_url=${JSON.stringify(root)},
+    api_key=os.environ["OMNIHIVE_API_KEY"],
+)
+message = client.messages.create(
+    model="MESSAGES_MODEL_ID_FROM_LIST",
+    max_tokens=256,
+    messages=[{"role": "user", "content": "Hello"}],
+)
+print(message.content[0].text)` },
+      { label: 'TypeScript · Google Gemini SDK', code: String.raw`// npm install @google/genai
+import { GoogleGenAI } from "@google/genai";
+
+const ai = new GoogleGenAI({
+  apiKey: process.env.OMNIHIVE_API_KEY,
+  httpOptions: { baseUrl: ${JSON.stringify(root)} },
+});
+const response = await ai.models.generateContent({
+  model: "GOOGLE_MODEL_ID_FROM_LIST",
+  contents: "Hello",
+});
+console.log(response.text);` },
+      { label: 'TypeScript · 429 Rate-Limit & Retry-After Backoff', code: String.raw`// Respect conditional Retry-After / RPM headers; avoid blind retries on 504/timeout to prevent duplicate charges.
+async function callWithBackoff(url: string, init: RequestInit, maxAttempts = 3) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await fetch(url, init);
+    if (res.status !== 429 || attempt === maxAttempts) return res;
+    const retryAfterSec = Number(res.headers.get("Retry-After"));
+    const waitMs = Number.isFinite(retryAfterSec) && retryAfterSec > 0
+      ? retryAfterSec * 1000
+      : Math.min(1000 * 2 ** (attempt - 1), 8000);
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+  throw new Error("Exhausted 429 retries");
+}` },
       { label: 'TOML · ~/.codex/config.toml', code: String.raw`model_provider = "omnihive"
 model = "MODEL_ID_FROM_CODEX_LIST"
 

@@ -98,7 +98,13 @@ async function handleCreateAccount(payload: PendingOAuthCreateAccountPayload) {
               tencent_captcha_randstr: payload.tencentCaptchaRandstr
           }
           : {}),
-        invitation_code: payload.invitationCode || undefined
+        invitation_code: payload.invitationCode || undefined,
+        ...(payload.loginAgreementAccepted !== undefined
+          ? {
+              login_agreement_accepted: payload.loginAgreementAccepted,
+              login_agreement_revision: payload.loginAgreementRevision || ''
+            }
+          : {})
       }
     )
 

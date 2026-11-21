@@ -41,10 +41,15 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	os.Exit(testresources.Run(func() int { return runExternalIntegration(m) }, func() int { return runManagedIntegration(m) }))
+	// A preallocated suite database can replace the managed container while
+	// DSN-based migration tests still create their own throwaway databases.
+	if dsn := os.Getenv("REPOSITORY_INTEGRATION_TEST_DSN"); dsn != "" {
+		os.Exit(runExternalIntegration(m, dsn))
+	}
+	os.Exit(testresources.Run(func() int { return runExternalIntegration(m, os.Getenv("UPSTREAM_JOB_TEST_DSN")) }, func() int { return runManagedIntegration(m) }))
 }
 
-func runExternalIntegration(m *testing.M) int {
+func runExternalIntegration(m *testing.M, dsn string) int {
 	ctx := context.Background()
 	if err := timezone.Init("UTC"); err != nil {
 		log.Print(err)
@@ -56,7 +61,7 @@ func runExternalIntegration(m *testing.M) int {
 		return 1
 	}
 	var err error
-	integrationDB, err = testresources.OpenPostgres(ctx, os.Getenv("UPSTREAM_JOB_TEST_DSN"), "job_test")
+	integrationDB, err = testresources.OpenPostgres(ctx, dsn, "job_test")
 	if err != nil {
 		log.Print(err)
 		return 1

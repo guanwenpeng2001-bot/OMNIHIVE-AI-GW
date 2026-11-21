@@ -46,15 +46,10 @@ func grokOperatorPolicyValidator(cfg *config.Config) xai.BaseURLValidator {
 	if cfg == nil {
 		return xai.ValidateBaseURL
 	}
-	if !cfg.Security.URLAllowlist.Enabled {
-		return func(raw string) (string, error) {
-			return urlvalidator.ValidateURLFormat(raw, cfg.Security.URLAllowlist.AllowInsecureHTTP)
-		}
-	}
 	return func(raw string) (string, error) {
-		return urlvalidator.ValidateHTTPSURL(raw, urlvalidator.ValidationOptions{
+		return urlvalidator.ValidateHTTPURL(raw, cfg.Security.URLAllowlist.AllowInsecureHTTP, urlvalidator.ValidationOptions{
 			AllowedHosts:     cfg.Security.URLAllowlist.UpstreamHosts,
-			RequireAllowlist: true,
+			RequireAllowlist: cfg.Security.URLAllowlist.Enabled,
 			AllowPrivate:     cfg.Security.URLAllowlist.AllowPrivateHosts,
 		})
 	}

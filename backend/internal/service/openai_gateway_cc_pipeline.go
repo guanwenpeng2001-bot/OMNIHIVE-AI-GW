@@ -357,9 +357,21 @@ func (s *OpenAIGatewayService) scanCCStream(
 		}
 
 		if u := extractCCStreamUsage(payload); u != nil {
-			if (account.Platform != PlatformMistral && account.Platform != PlatformOpenRouter) || mistralChatUsageKnown([]byte(payload)) {
+			if mistralChatUsageKnown([]byte(payload)) {
 				st.Usage = *u
 				st.UsageKnown = true
+			} else if !st.UsageKnown {
+				// Preserve observed counters for review. Separate partial chunks
+				// do not establish a complete, billable usage report.
+				raw := []byte(payload)
+				if _, ok := openRouterCounter(raw, "usage.prompt_tokens"); ok {
+					st.Usage.InputTokens = u.InputTokens
+				}
+				if _, ok := openRouterCounter(raw, "usage.completion_tokens"); ok {
+					st.Usage.OutputTokens = u.OutputTokens
+				}
+				u.InputTokens, u.OutputTokens = 0, 0
+				mergeOpenAIUsageNonZero(&st.Usage, *u)
 			}
 		}
 
@@ -395,14 +407,15 @@ func (s *OpenAIGatewayService) scanCCStream(
 		}
 		st.Err = err
 	}
+	if st.Err == nil {
+		switch {
+		case !st.SawDone:
+			st.Err = ErrOpenAIUpstreamStreamTruncated
+		case !st.UsageKnown:
+			st.Err = errors.New("upstream chat usage is unknown")
+		}
+	}
 	return st
-}
-
-// logCCStreamMissingDoneSentinel 记录"上游未发 [DONE] 哨兵即结束"的 debug 日志。
-func logCCStreamMissingDoneSentinel(logPrefix, requestID string) {
-	logger.L().Debug(logPrefix+": upstream stream ended without done sentinel",
-		zap.String("request_id", requestID),
-	)
 }
 
 // readCCUpstreamJSONResponse 读取并解析 CC 非流式 JSON 响应，失败时以调用方

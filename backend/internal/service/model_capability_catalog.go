@@ -117,6 +117,24 @@ func (s *ModelCapabilitySnapshot) Len() int {
 	return len(s.records)
 }
 
+// KnowsModel reports whether any profile registers modelID or an alias of it.
+func (s *ModelCapabilitySnapshot) KnowsModel(modelID string) bool {
+	if s == nil || modelID == "" {
+		return false
+	}
+	for _, record := range s.records {
+		if record.ModelID == modelID {
+			return true
+		}
+	}
+	for key := range s.aliases {
+		if _, alias, ok := strings.Cut(key, "\x00"); ok && alias == modelID {
+			return true
+		}
+	}
+	return false
+}
+
 // LookupExact is case-sensitive and scope-preserving. No prefix, date, family,
 // hosted alias or provider is guessed. P1 may add reviewed matching above this API.
 func (s *ModelCapabilitySnapshot) LookupExact(profile, modelID string) (CapabilityRecord, bool) {

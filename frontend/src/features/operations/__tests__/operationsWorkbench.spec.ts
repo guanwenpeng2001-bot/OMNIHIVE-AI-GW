@@ -632,6 +632,9 @@ describe('ScopedAuditView & OperationalSignals Workbench', () => {
       await flushPromises()
 
       // 1. Register verification target
+      expect(wrapper.get('[data-testid="catalog-channel-setup"]').attributes('href')).toBe('/admin/channels/pricing')
+      await wrapper.get('#catalog-rollout-workspace').setValue('2')
+      expect(wrapper.get('[data-testid="catalog-channel-setup"]').attributes('href')).toBe('/workspaces/2/channels/pricing')
       await wrapper.get('#catalog-target-model').setValue('gpt-4o-mini')
       await wrapper.get('#catalog-target-connection-id').setValue('101')
       await wrapper.get('[data-testid="catalog-register-target"]').trigger('submit')
@@ -643,7 +646,7 @@ describe('ScopedAuditView & OperationalSignals Workbench', () => {
           provider: 'openai',
           model: 'gpt-4o-mini',
           connection_id: '101',
-          adapter_version: '2026.1',
+          adapter_version: 'ad_openai_chat_responses_v1',
           action: 'text.chat',
           account_mode: 'api_key',
           protocol: 'openai_chat',

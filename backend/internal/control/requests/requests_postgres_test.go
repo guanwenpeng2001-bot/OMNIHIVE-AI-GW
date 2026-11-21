@@ -101,6 +101,7 @@ func TestRequestsPostgres(t *testing.T) {
 
 	failed := f.execution(f.p, "failure", f.boundary, "terminal", true)
 	f.attempt(failed, 1, f.account, f.boundary.Add(time.Second), "not_sent", "rejected", false)
+	f.exec(`UPDATE gateway_executions SET legacy_id=$2 WHERE request_id=$1`, failed, failed)
 	f.exec(`INSERT INTO ops_error_logs(request_id,api_key_id,user_id,account_id,error_phase,error_type,
 	          error_owner,status_code,upstream_status_code,routing_latency_ms,error_message,created_at)
 	         VALUES ($1,$2,$3,$4,'upstream','rate_limit','provider',502,429,12,'sensitive-body',$5)`,
@@ -246,6 +247,18 @@ func TestRequestsPostgres(t *testing.T) {
 		legacyList := f.call(f.actor, "GET", base+"?outcome=succeeded&model_id=legacy-joined&settlement_state=pending", "", "")
 		require.Equal(t, 200, legacyList.Code, legacyList.Body.String())
 		require.Len(t, array(t, data(t, legacyList)["items"]), 1)
+	})
+	t.Run("ops legacy identifier resolves canonical failed attempt", func(t *testing.T) {
+		base := f.projectURL(f.w, f.p)
+		response := f.call(f.actor, http.MethodGet, base+"/"+failed, "", "")
+		require.Equal(t, 200, response.Code, response.Body.String())
+		view := data(t, response)
+		require.Equal(t, failed, view["client_correlation_id"])
+		attempt := object(t, array(t, view["attempts"])[0])
+		require.Equal(t, strconv.FormatInt(f.account, 10), attempt["connection_id"])
+		require.Equal(t, "own-connection", attempt["connection_name"])
+		require.Equal(t, "accepted", attempt["acceptance"])
+		require.Equal(t, float64(429), attempt["status"])
 	})
 	t.Run("stable seek and half-open time", func(t *testing.T) {
 		base := f.projectURL(f.w, f.p)

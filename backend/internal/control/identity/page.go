@@ -144,3 +144,14 @@ func (h *Handler) workspaces(r request) (any, error) {
 	}
 	return list[gin.H]{Items: items, Next: page.Next, AsOf: page.AsOf}, nil
 }
+func (h *Handler) keyGroups(r request) (any, error) {
+	p, err := h.page(r, "key-groups")
+	if err != nil {
+		return nil, err
+	}
+	rows, err := h.store.KeyGroups(r.Request.Context(), r.actor, r.w, r.p, p)
+	if err != nil {
+		return nil, err
+	}
+	return pageResult(h, r, "key-groups", p, rows, func(x domain.KeyGroup) int64 { return x.ID }), nil
+}

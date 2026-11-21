@@ -61,6 +61,7 @@ type bindPendingOAuthLoginRequest struct {
 }
 
 type createPendingOAuthAccountRequest struct {
+	service.SignupAgreement
 	Email                 string `json:"email" binding:"required,email"`
 	VerifyCode            string `json:"verify_code,omitempty"`
 	Password              string `json:"password" binding:"required,min=6"`
@@ -974,7 +975,7 @@ func (h *AuthHandler) createPendingOAuthAccount(c *gin.Context, provider string)
 	}
 
 	tokenPair, user, err := h.authService.RegisterOAuthEmailAccount(
-		c.Request.Context(),
+		req.Context(c.Request.Context()),
 		email,
 		req.Password,
 		strings.TrimSpace(req.VerifyCode),
