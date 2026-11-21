@@ -15,6 +15,8 @@ services:
     image: ghcr.io/guanwenpeng2001-bot/omnihive-ai-gw:latest
     container_name: omnihive
     restart: unless-stopped
+    # main.go grants shutdownApplication 20s; keep 10s for transport cleanup.
+    stop_grace_period: 30s
     security_opt:
       - no-new-privileges:true
     ulimits:

@@ -83,6 +83,7 @@ test-shell:
 	@bash -n deploy/apple-container.sh
 	@bash deploy/tests/apple-container-test.sh
 	@sh deploy/tests/docker-compose-security-test.sh
+	@python3 deploy/tests/docker-compose-lifecycle-test.py
 	@sh deploy/tests/docker-compose-gateway-env-test.sh
 	@sh deploy/tests/docker-runtime-resources-test.sh
 	@sh deploy/test-caddyfile-cache.sh

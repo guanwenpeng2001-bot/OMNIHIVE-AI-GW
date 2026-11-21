@@ -264,6 +264,15 @@ Container images do not roll back database migrations, so back up PostgreSQL and
 the persisted keys before an upgrade, then verify `/health` and `/ready` after
 the restart.
 
+Before an upgrade, restart or shutdown, remove the instance from the load balancer
+and wait for active connection counts to reach zero. The application makes `/ready`
+fail as soon as draining starts, so Caddy can stop assigning new requests. Only then
+run `docker compose stop omnihive` (or `down`); do not stop PostgreSQL or Redis first.
+The application's shutdown budget is 20 seconds (`backend/cmd/server/main.go`), and
+each Compose template sets `stop_grace_period: 30s` to include 10 seconds of cleanup
+headroom. If `/ready` fails because dependencies are unavailable, restore dependencies
+before draining so in-flight usage receipts can be persisted.
+
 ### Environment Variables
 
 | Variable | Required | Default | Description |
