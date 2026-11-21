@@ -28,7 +28,7 @@ export default {
   playgroundErrors: {
     noEligibleEndpointHint: 'Check model catalog publication, connection verification, or switch protocol/model.',
     gotoByokAction: 'Verify Connections (BYOK)',
-    gotoAdminCatalogAction: 'Open Model Catalog & Pricing',
+    gotoAdminCatalogAction: 'Open catalog verification (Ops)',
   },
   playgroundDiagnostics: {
     title: 'Diagnostics Inspector',

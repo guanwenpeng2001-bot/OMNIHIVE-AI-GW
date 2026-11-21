@@ -266,7 +266,7 @@ function triggerToolResponse(tc: PlaygroundToolCallView): void {
             :data-testid="`playground-goto-admin-catalog-${sideKey}`"
             variant="outline-accent"
             size="xs"
-            @click="emit('navigate', '/admin/channels/pricing')"
+            @click="emit('navigate', '/admin/ops')"
           >
             {{ t('playgroundErrors.gotoAdminCatalogAction') }}
           </Button>

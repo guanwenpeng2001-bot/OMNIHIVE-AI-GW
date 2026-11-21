@@ -219,6 +219,6 @@ describe('PlaygroundRunPane NO_ELIGIBLE_ENDPOINT guidance (PG-2)', () => {
     })
 
     await adminWrapper.get('[data-testid="playground-goto-admin-catalog-A"]').trigger('click')
-    expect(adminWrapper.emitted('navigate')).toEqual([['/admin/channels/pricing']])
+    expect(adminWrapper.emitted('navigate')).toEqual([['/admin/ops']])
   })
 })

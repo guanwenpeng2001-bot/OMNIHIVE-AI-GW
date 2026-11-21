@@ -28,7 +28,7 @@ export default {
   playgroundErrors: {
     noEligibleEndpointHint: '请检查模型是否已发布到目录、连接是否已验证，或切换协议/模型。',
     gotoByokAction: '前往 BYOK 验证连接 (/byok)',
-    gotoAdminCatalogAction: '前往运营目录验证页 (/admin/channels/pricing)',
+    gotoAdminCatalogAction: '前往运营目录验证与发布',
   },
   playgroundDiagnostics: {
     title: '诊断检查器',
