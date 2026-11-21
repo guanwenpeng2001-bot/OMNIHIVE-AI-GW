@@ -16,6 +16,8 @@ func TestGatewayBudgetExtractsMediaUnits(t *testing.T) {
 		want                  service.BudgetMeter
 	}{
 		{"images", "/v1/images/generations", `{"n":3,"size":"2048x2048","quality":"high"}`, service.BudgetMeter{Unit: "image", Count: 3, Numerator: 1, Denominator: 1, Size: "2048x2048", Quality: "high"}},
+		{"images", "/v1/images/generations", `{"size":"3840x2160"}`, service.BudgetMeter{Unit: "image", Count: 1, Numerator: 1, Denominator: 1, Size: "3840x2160"}},
+		{"images", "/v1/images/edits", `{"resolution":"4k","size":"3840x2160"}`, service.BudgetMeter{Unit: "image", Count: 1, Numerator: 1, Denominator: 1, Size: "3840x2160"}},
 		{"audio", "/v1/audio/speech", `{"input":"猫🐝ab"}`, service.BudgetMeter{Unit: "character", Count: 1, Numerator: 4, Denominator: 1}},
 		{"media", "/v1/videos", `{"duration":8,"resolution":"720p","n":2}`, service.BudgetMeter{Unit: "video_second", Count: 2, Numerator: 8, Denominator: 1, Size: "720p"}},
 		{"audio", "/v1/audio/transcriptions", `{"duration_seconds":1,"audio_url":"https://example.test/long"}`, service.BudgetMeter{Unit: "second", Count: 1}},

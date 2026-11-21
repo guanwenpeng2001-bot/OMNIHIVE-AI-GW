@@ -115,16 +115,20 @@ func requestMediaMeter(spec service.GatewayRequestSpec, body []byte, contentType
 		meter.Unit = "image"
 		meter.Size = field("size", "resolution", "parameters.size")
 		meter.Quality = field("quality", "parameters.quality")
-		if strings.HasSuffix(route, "/images/generations") || strings.HasSuffix(route, "/images/edits") {
-			resolution, err := service.GrokImagineImageResolutionBound(body)
-			if err != nil {
-				meter.Numerator = 0
-			} else {
-				meter.Size = resolution
-			}
+		if !imageSizeAliasesAgree(field("size"), field("resolution")) {
+			meter.Numerator = 0
 		}
 	}
 	return meter
+}
+
+// imageSizeAliasesAgree rejects a request whose size and resolution spellings
+// name different billing tiers; adapters forward one or the other, so the hold
+// must not be priced from the spelling that is not sent.
+func imageSizeAliasesAgree(size, resolution string) bool {
+	sizeTier, sizeKnown := service.ClassifyImageBillingTier(size)
+	resolutionTier, resolutionKnown := service.ClassifyImageBillingTier(resolution)
+	return !sizeKnown || !resolutionKnown || sizeTier == resolutionTier
 }
 
 // A PCM WAV has an exact byte-to-frame conversion. A compressed upload or a
