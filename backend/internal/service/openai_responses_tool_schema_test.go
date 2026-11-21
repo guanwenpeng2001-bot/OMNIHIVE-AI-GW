@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"testing"
 
@@ -593,7 +594,9 @@ func TestSanitizeOpenAIResponsesToolParameterTypes_RewriteCountIndependentOfHits
 	// behind by other service tests so only the rewrite is measured.
 	const child = "OMNIHIVE_TEST_SCHEMA_ALLOC_CHILD"
 	if os.Getenv(child) != "1" {
-		cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^"+t.Name()+"$", "-test.v")
+		executable, err := os.Executable()
+		require.NoError(t, err)
+		cmd := exec.CommandContext(t.Context(), executable, "-test.run=^"+regexp.QuoteMeta(t.Name())+"$", "-test.v")
 		cmd.Env = append(os.Environ(), child+"=1")
 		output, err := cmd.CombinedOutput()
 		require.NoError(t, err, "%s", output)
