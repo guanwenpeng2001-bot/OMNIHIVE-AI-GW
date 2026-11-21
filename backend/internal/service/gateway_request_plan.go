@@ -128,7 +128,12 @@ func (p *GatewayRequestPlan) ModelRegistrySnapshot() *ModelRegistrySnapshot {
 	return p.registrySnapshot
 }
 
-func (p *GatewayRequestPlan) Snapshot() GatewayRequestSpec { return p.spec }
+func (p *GatewayRequestPlan) Snapshot() GatewayRequestSpec {
+	if p == nil {
+		return GatewayRequestSpec{}
+	}
+	return p.spec
+}
 
 // Attempts reports the existing ingress root budget; a plan never creates a
 // second allowance for adapter changes, account switches or detached work.
