@@ -423,6 +423,7 @@
                 type="checkbox"
                 class="h-3.5 w-3.5 rounded border-[var(--border)] text-amber-600 focus:ring-amber-500"
                 :checked="selectedKeyIds.has(row.id)"
+                :aria-label="isZh ? `选择密钥 ${value}` : `Select key ${value}`"
                 @change="toggleKeySelection(row.id, ($event.target as HTMLInputElement).checked)"
               />
               <span class="font-semibold text-[var(--foreground)]">{{ value }}</span>
