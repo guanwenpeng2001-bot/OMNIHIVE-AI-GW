@@ -598,6 +598,29 @@
       </div>
     </template>
 
+    <!-- WorkBuddy credits snapshot -->
+    <template v-else-if="account.platform === 'workbuddy' && workbuddyUsageSnapshot">
+      <div class="space-y-1" data-testid="workbuddy-usage">
+        <UsageProgressBar
+          :label="t('admin.accounts.workbuddy.usage.baseCredits')"
+          :utilization="workbuddyBaseUtilization"
+          :resets-at="workbuddyUsageSnapshot.base_reset_at ?? null"
+          label-width="auto"
+          color="emerald"
+        />
+        <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
+          <span data-testid="workbuddy-base-credits">
+            {{ t('admin.accounts.workbuddy.usage.baseCredits') }}:
+            {{ formatWorkBuddyCredit(workbuddyUsageSnapshot.base_remaining) }} / {{ formatWorkBuddyCredit(workbuddyUsageSnapshot.base_total) }}
+          </span>
+          <span v-if="showWorkBuddyExtraCredits" data-testid="workbuddy-extra-credits">
+            {{ t('admin.accounts.workbuddy.usage.extraCredits') }}:
+            {{ formatWorkBuddyCredit(workbuddyUsageSnapshot.extra_remaining) }} / {{ formatWorkBuddyCredit(workbuddyUsageSnapshot.extra_total) }}
+          </span>
+        </div>
+      </div>
+    </template>
+
     <!-- Other accounts: no usage window -->
     <template v-else>
       <div class="text-xs text-gray-400">-</div>
@@ -690,7 +713,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
-import type { Account, AccountUsageInfo, GeminiCredentials, WindowStats } from '@/types'
+import type { Account, AccountUsageInfo, GeminiCredentials, WindowStats, WorkBuddyUsageSnapshot } from '@/types'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { enqueueUsageRequest } from '@/utils/usageLoadQueue'
 import { formatCompactNumber } from '@/utils/format'
@@ -789,6 +812,7 @@ const showUsageWindows = computed(() => {
   if (props.account.platform === 'openrouter') return props.account.type === 'apikey'
   if (hasNoUpstreamUsageApi.value) return false
   if (props.account.platform === 'cursor') return props.account.type !== 'upstream'
+  if (props.account.platform === 'workbuddy') return Boolean(workbuddyUsageSnapshot.value)
   // Gemini: we can always compute local usage windows from DB logs (simulated quotas).
   if (props.account.platform === 'gemini') return true
   // CN providers: apikey 账号也有滚动用量窗口（coding plan）或余额（payg），
@@ -811,6 +835,7 @@ const showUsageWindows = computed(() => {
 const shouldFetchUsage = computed(() => {
   if (props.account.platform === 'openrouter') return props.account.type === 'apikey'
   if (props.account.platform === 'cursor') return props.account.type !== 'upstream'
+  if (props.account.platform === 'workbuddy') return true
   if (props.account.platform === 'anthropic') {
     return props.account.type === 'oauth' || props.account.type === 'setup-token'
   }
@@ -847,6 +872,33 @@ const localUsageExplanation = computed(() => {
 })
 
 const isBatchManaged = computed(() => typeof props.requestBatchedUsage === 'function')
+
+const workbuddyUsageSnapshot = computed<WorkBuddyUsageSnapshot | null>(() => {
+  if (props.account.platform !== 'workbuddy') return null
+  const snapshot = usageInfo.value?.workbuddy_usage_snapshot ?? props.account.extra?.workbuddy_usage_snapshot
+  if (!snapshot || typeof snapshot !== 'object') return null
+  return snapshot as WorkBuddyUsageSnapshot
+})
+
+const workbuddyBaseUtilization = computed(() => {
+  const snapshot = workbuddyUsageSnapshot.value
+  if (!snapshot || snapshot.base_total <= 0) return 0
+  const used = Number.isFinite(snapshot.base_used)
+    ? snapshot.base_used
+    : Math.max(0, snapshot.base_total - snapshot.base_remaining)
+  return Math.min(100, Math.max(0, Math.round((used / snapshot.base_total) * 100)))
+})
+
+const showWorkBuddyExtraCredits = computed(() => {
+  const snapshot = workbuddyUsageSnapshot.value
+  if (!snapshot) return false
+  return (snapshot.extra_total ?? 0) > 0 || (snapshot.extra_remaining ?? 0) > 0 || (snapshot.extra_used ?? 0) > 0
+})
+
+const formatWorkBuddyCredit = (value: number | null | undefined): string => {
+  if (value == null || !Number.isFinite(value)) return '0'
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)))
+}
 
 const showGeminiTodayStats = computed(() => {
   return props.account.platform === 'gemini' && props.account.type === 'service_account'

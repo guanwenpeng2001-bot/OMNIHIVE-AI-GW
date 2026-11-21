@@ -485,6 +485,66 @@
         </div>
       </div>
 
+      <!-- Account Type Selection (WorkBuddy) -->
+      <div v-if="form.platform === 'workbuddy'">
+        <label class="input-label">{{ t('admin.accounts.supplier.authenticationMethod') }}</label>
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.supplier.authenticationMethod')" @keydown="navigateAccountChoices">
+          <button
+            type="button"
+            data-testid="workbuddy-account-type-oauth"
+            @click="accountCategory = 'oauth-based'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'oauth-based'
+                ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
+                : 'hover:border-emerald-300 border-[var(--border)] dark:hover:border-emerald-700'
+            ]" role="radio" :aria-checked="accountCategory === 'oauth-based'" :tabindex="accountCategory === 'oauth-based' ? 0 : -1"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'oauth-based'
+                  ? 'bg-emerald-500 text-white'
+                  : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
+              ]"
+            >
+              <PlatformIcon platform="workbuddy" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">OAuth</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.types.workbuddyOauth') }}</span>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            data-testid="workbuddy-account-type-api-key"
+            @click="accountCategory = 'apikey'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'apikey'
+                ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
+                : 'hover:border-emerald-300 border-[var(--border)] dark:hover:border-emerald-700'
+            ]" role="radio" :aria-checked="accountCategory === 'apikey'" :tabindex="accountCategory === 'apikey' ? 0 : -1"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'apikey'
+                  ? 'bg-emerald-500 text-white'
+                  : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
+              ]"
+            >
+              <Icon name="key" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">API Key</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.types.workbuddyApikey') }}</span>
+            </div>
+          </button>
+        </div>
+      </div>
+
       <!-- OpenCode Zen vs Go：该平台唯一的一级账号入口 -->
       <div v-if="isOpenCodeGoPlatform" data-tour="account-form-type">
         <label class="input-label">{{ t('admin.accounts.supplier.planType') }}</label>
@@ -649,6 +709,19 @@
         <Toggle v-model="upstreamBillingAutoProbeEnabled" data-testid="upstream-billing-auto-probe" :aria-label="t('admin.accounts.upstreamBilling.autoProbe')" />
       </div>
       <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto' && !validateModelRestrictions('combined', allowedModels, modelMappings).length" :client-version="cursorClientVersion" :account="{ ...form, platform: 'cursor', type: 'oauth', credentials: { model_mapping: buildModelMappingObject('combined', allowedModels, modelMappings) }, auto_pause_on_expired: autoPauseOnExpired }" @busy="cursorAuthorizing = $event" @draft="stageCursorAuthorization" />
+
+      <WorkBuddyAuthFields
+        v-if="form.platform === 'workbuddy'"
+        :mode="accountCategory === 'oauth-based' ? 'oauth' : 'apikey'"
+        :proxy-id="form.proxy_id"
+        :proxy-group-id="form.proxy_group_id"
+        v-model:site="workbuddySite"
+        v-model:oauth-credentials="workbuddyOAuthCredentials"
+        v-model:api-key="apiKeyValue"
+        v-model:base-url="apiKeyBaseUrl"
+        @busy="workbuddyAuthorizing = $event"
+        @suggested-name="onWorkBuddySuggestedName"
+      />
 
       <UsageQueryCredentialFields v-if="supportsUsageQuery(form.platform)" v-model="usageCredentials" :platform="form.platform" class="mt-4" />
       <VolcengineQuotaFields v-if="showByteplusQuotaFields" v-model="byteplusCredentials" provider="byteplus" class="mt-4" />
@@ -1338,7 +1411,7 @@
       </div>
 
       <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
-      <div v-if="!supplierSelectionIncomplete && form.type === 'apikey' && form.platform !== 'antigravity' && form.platform !== 'cursor'" class="space-y-4">
+      <div v-if="!supplierSelectionIncomplete && form.type === 'apikey' && form.platform !== 'antigravity' && form.platform !== 'cursor' && form.platform !== 'workbuddy'" class="space-y-4">
         <CompatibleProviderFields v-if="selectedCompatibleProvider" :provider="selectedCompatibleProvider" v-model="compatibleDraft" @reset-secret="apiKeyValue = ''" />
         <div v-else-if="!isMultiProtocolPlatform || apiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
@@ -3136,7 +3209,7 @@
         <button
           type="submit"
           form="create-account-form"
-          :disabled="submitting || supplierSelectionIncomplete"
+          :disabled="submitting || supplierSelectionIncomplete || workbuddyAuthorizing"
           class="btn btn-primary"
           data-tour="account-form-submit"
         >
@@ -3466,13 +3539,15 @@ import { usePlatformModelPresets } from '@/composables/usePlatformModelPresets'
 import BedrockRegionSelect from './BedrockRegionSelect.vue'
 import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
+import WorkBuddyAuthFields from './WorkBuddyAuthFields.vue'
 import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
 import VolcengineQuotaFields from './VolcengineQuotaFields.vue'
 import TencentQuotaFields from './TencentQuotaFields.vue'
 import { byteplusQuotaDraft, byteplusQuotaProfile, applyByteplusQuotaCredentials, tencentQuotaDraft, tencentQuotaProfile, applyTencentQuotaCredentials } from './credentialsBuilder'
 import UsageQueryCredentialFields from './UsageQueryCredentialFields.vue'
 import { usageQueryDraft, supportsUsageQuery, applyUsageQueryCredentials } from './credentialsBuilder'
-import { volcengineQuotaDraft, volcengineQuotaProfile, applyVolcengineQuotaCredentials, buildCursorCredentials, resolveCursorRelayProtocol } from './credentialsBuilder'
+import { volcengineQuotaDraft, volcengineQuotaProfile, applyVolcengineQuotaCredentials, buildCursorCredentials, resolveCursorRelayProtocol, buildWorkBuddyCredentials, extractWorkBuddyOAuthDraft, type WorkBuddyOAuthDraft } from './credentialsBuilder'
+import type { WorkBuddySite } from '@/api/admin/workbuddy'
 import { ref, reactive, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { platformSelectionClass, platformSelectionIconClass } from '@/utils/platformColors'
@@ -4457,6 +4532,14 @@ watch(cursorKeyMode, (mode) => {
 const cursorAutoCredentials = ref<Record<string, string>>({})
 const cursorAuthorizing = ref(false)
 const cursorClientVersion = ref('')
+const workbuddySite = ref<WorkBuddySite>('cn')
+const workbuddyAuthorizing = ref(false)
+const workbuddyOAuthCredentials = ref<WorkBuddyOAuthDraft>(extractWorkBuddyOAuthDraft(undefined, 'cn'))
+const onWorkBuddySuggestedName = (suggestedName: string) => {
+  if (!form.name.trim() && suggestedName.trim()) {
+    form.name = suggestedName.trim()
+  }
+}
 const form = reactive({
   tpm_limit: 0,
   name: '',
@@ -4476,7 +4559,7 @@ const form = reactive({
 
 // Helper to check if current type needs OAuth flow（公共两步 OAuth；Cursor 专用授权不走这里）
 const isOAuthFlow = computed(() => {
-  if (form.platform === 'cursor') return false
+  if (form.platform === 'cursor' || form.platform === 'workbuddy') return false
   // Antigravity upstream 类型不需要 OAuth 流程
   if (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream') {
     return false
@@ -4518,7 +4601,7 @@ const canExchangeCode = computed(() => {
   return authCode.trim() && oauth.sessionId.value && !oauth.loading.value
 })
 
-const modelCandidateIdentity = computed(() => ({ host: selectedCompatibleProvider.value ? String(compatibleDraft.value.base_url || '') : form.platform === 'antigravity' && antigravityAccountType.value === 'upstream' ? upstreamBaseUrl.value : apiKeyBaseUrl.value, type: form.type, profile: String(form.credentials.provider_profile ?? ''), region: form.type === 'bedrock' ? bedrockRegion.value : vertexLocation.value, mode: selectedCompatibleProvider.value ? compatibleMode(selectedCompatibleProvider.value, compatibleDraft.value.account_mode)?.mode : currentOpenCodeOrCNMode() }))
+const modelCandidateIdentity = computed(() => ({ host: selectedCompatibleProvider.value ? String(compatibleDraft.value.base_url || '') : form.platform === 'antigravity' && antigravityAccountType.value === 'upstream' ? upstreamBaseUrl.value : apiKeyBaseUrl.value, type: form.type, profile: form.platform === 'workbuddy' ? `workbuddy-${workbuddySite.value}` : String(form.credentials.provider_profile ?? ''), region: form.type === 'bedrock' ? bedrockRegion.value : vertexLocation.value, mode: selectedCompatibleProvider.value ? compatibleMode(selectedCompatibleProvider.value, compatibleDraft.value.account_mode)?.mode : currentOpenCodeOrCNMode() }))
 
 const { presets: platformPresets, error: presetError, reload: reloadPresets } = usePlatformModelPresets(
   () => [form.platform], modelCandidateIdentity, () => props.show
@@ -4620,13 +4703,21 @@ watch(
       apiKeyBaseUrl.value = defaultCNBaseUrl(newPlatform, mode, apiProtocol.value)
     } else {
       apiKeyBaseUrl.value =
-        CHAT_PLATFORM_BASE_URLS[newPlatform] ?? (newPlatform === 'cursor' ? '' : (newPlatform === 'openai')
+        CHAT_PLATFORM_BASE_URLS[newPlatform] ?? ((newPlatform === 'cursor' || newPlatform === 'workbuddy') ? '' : (newPlatform === 'openai')
           ? 'https://api.openai.com'
           : newPlatform === 'gemini'
             ? 'https://generativelanguage.googleapis.com'
             : newPlatform === 'grok'
               ? 'https://api.x.ai/v1'
               : 'https://api.anthropic.com')
+    }
+    if (newPlatform === 'workbuddy') {
+      accountCategory.value = 'oauth-based'
+      workbuddySite.value = 'cn'
+      workbuddyAuthorizing.value = false
+      workbuddyOAuthCredentials.value = extractWorkBuddyOAuthDraft(undefined, 'cn')
+      apiKeyValue.value = ''
+      apiKeyBaseUrl.value = ''
     }
     // Clear model-related settings
     allowedModels.value = []
@@ -5063,6 +5154,9 @@ const resetForm = () => {
   cursorAutoCredentials.value = {}
   cursorClientVersion.value = ''
   cursorAuthorizing.value = false
+  workbuddySite.value = 'cn'
+  workbuddyAuthorizing.value = false
+  workbuddyOAuthCredentials.value = extractWorkBuddyOAuthDraft(undefined, 'cn')
   step.value = 1
   form.name = ''
   form.notes = ''
@@ -5399,6 +5493,42 @@ const handleSubmit = async () => {
       applyHeaderOverride(credentials, headerOverrideEnabled.value, headerOverrideRows.value, 'create')
     }
     await createAccountAndFinish('cursor', form.type, credentials)
+    return
+  }
+  if (form.platform === 'workbuddy') {
+    if (workbuddyAuthorizing.value) return
+    if (!form.name.trim()) {
+      appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+      return
+    }
+    const mode = accountCategory.value === 'oauth-based' ? 'oauth' : 'apikey'
+    if (mode === 'oauth' && !workbuddyOAuthCredentials.value.access_token.trim()) {
+      appStore.showError(t('admin.accounts.workbuddy.oauth.accessTokenRequired'))
+      return
+    }
+    if (mode === 'apikey' && !apiKeyValue.value.trim()) {
+      focusAccountCredentialField('create-account-form', 'apiKeyValue')
+      appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
+      return
+    }
+    const credentials = buildWorkBuddyCredentials({
+      mode,
+      site: workbuddySite.value,
+      oauthCredentials: workbuddyOAuthCredentials.value,
+      apiKey: apiKeyValue.value,
+      baseUrl: apiKeyBaseUrl.value
+    })
+    const mapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
+    if (mapping) credentials.model_mapping = mapping
+    if (mode === 'apikey' && headerOverrideEnabled.value) {
+      const headerError = validateHeaderOverrideRows(headerOverrideRows.value)
+      if (headerError) {
+        appStore.showError(t(`admin.accounts.headerOverride.${headerError}`))
+        return
+      }
+      applyHeaderOverride(credentials, headerOverrideEnabled.value, headerOverrideRows.value, 'create')
+    }
+    await createAccountAndFinish('workbuddy', mode as AccountType, credentials)
     return
   }
   // For OAuth-based type, handle OAuth flow (goes to step 2)

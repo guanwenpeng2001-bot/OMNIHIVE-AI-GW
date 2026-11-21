@@ -3,6 +3,14 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { adminAPI } from '@/api/admin'
+import {
+  defaultWorkBuddyBaseUrl,
+  defaultWorkBuddyDomain,
+  WORKBUDDY_SITES,
+  type WorkBuddyOAuthCredentials,
+  type WorkBuddySite
+} from '@/api/admin/workbuddy'
+import WorkBuddyAuthFields from '@/components/account/WorkBuddyAuthFields.vue'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import {
   Badge,
@@ -67,6 +75,7 @@ const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const i18n = useI18n()
+const { t } = i18n
 const isZh = computed(() => String(i18n.locale?.value || '').toLowerCase().startsWith('zh'))
 
 const connectionIdParam = computed(() => {
@@ -334,6 +343,12 @@ const proxyOptions = computed(() => {
 })
 
 const supportsOAuth = computed(() => isOAuthWorkflowSupported(selectedSchema.value, state.authType))
+const isWorkBuddy = computed(() => state.provider.trim().toLowerCase() === 'workbuddy')
+const isWorkBuddyOAuth = computed(() => isWorkBuddy.value && state.authType.trim().toLowerCase() === 'oauth')
+const workbuddyNumericProxyId = computed<number | null>(() => {
+  const parsed = Number(state.networkPolicyId.trim())
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+})
 const supportsHeaderOverrides = computed(() =>
   isHeaderOverrideSupported(state.provider, state.authType)
 )
@@ -477,6 +492,19 @@ function selectProviderSchema(schema: ConnectionSchema) {
   if (!state.endpoint || (prevMetaEn && state.endpoint === prevDefaultEndpoint)) {
     state.endpoint = nextMeta.defaultEndpoint
   }
+  if (schema.provider === 'workbuddy') {
+    state.workbuddySite = 'cn'
+    state.workbuddyOAuth = {
+      access_token: '',
+      refresh_token: '',
+      uid: '',
+      domain: defaultWorkBuddyDomain('cn'),
+      expires_at: ''
+    }
+    if (!state.endpoint.trim()) {
+      state.endpoint = defaultWorkBuddyBaseUrl('cn')
+    }
+  }
   if (!state.name || prevAutoNames.has(state.name)) {
     const candidateName = `${nextMeta.label} (${getAuthModeLabel(state.authType, isZh.value)})`
     state.name =
@@ -506,6 +534,60 @@ function handleEndpointChange(value: string | number) {
   endpointNormalizationHint.value = ''
   Object.assign(state, invalidateVerification(state))
 }
+
+function handleWorkBuddySiteChange(nextSite: WorkBuddySite) {
+  const prevSite = state.workbuddySite
+  if (prevSite === nextSite) return
+  state.workbuddySite = nextSite
+  const prevUrl = defaultWorkBuddyBaseUrl(prevSite)
+  const nextUrl = defaultWorkBuddyBaseUrl(nextSite)
+  const currentEndpoint = state.endpoint.trim().replace(/\/+$/, '')
+  if (!currentEndpoint || currentEndpoint === prevUrl) {
+    state.endpoint = nextUrl
+    endpointNormalizationHint.value = ''
+    Object.assign(state, invalidateVerification(state))
+  }
+  const prevDomain = defaultWorkBuddyDomain(prevSite)
+  if (!state.workbuddyOAuth.domain.trim() || state.workbuddyOAuth.domain.trim() === prevDomain) {
+    state.workbuddyOAuth = {
+      ...state.workbuddyOAuth,
+      domain: defaultWorkBuddyDomain(nextSite)
+    }
+  }
+}
+
+function handleWorkBuddySuggestedName(suggestedName: string) {
+  const trimmed = suggestedName.trim()
+  if (!trimmed) return
+  const autoEn = `${getProviderDisplayMeta('workbuddy', false).label} (${getAuthModeLabel(state.authType, false)})`
+  const autoZh = `${getProviderDisplayMeta('workbuddy', true).label} (${getAuthModeLabel(state.authType, true)})`
+  if (!state.name.trim() || state.name === autoEn || state.name === autoZh) {
+    state.name = trimmed.slice(0, 100)
+  }
+}
+
+function handleWorkBuddyOAuthCompleted(payload: {
+  site: WorkBuddySite
+  accountName?: string
+  credentials: WorkBuddyOAuthCredentials
+}) {
+  handleWorkBuddySiteChange(payload.site)
+  state.credentialSecret = payload.credentials.access_token || ''
+  state.credentialRefreshToken = payload.credentials.refresh_token || ''
+}
+
+watch(
+  () => [state.workbuddyOAuth.access_token, state.workbuddyOAuth.refresh_token] as const,
+  ([accessToken, refreshToken]) => {
+    if (!isWorkBuddyOAuth.value) return
+    if (state.credentialSecret !== accessToken) {
+      state.credentialSecret = accessToken
+    }
+    if (state.credentialRefreshToken !== refreshToken) {
+      state.credentialRefreshToken = refreshToken
+    }
+  }
+)
 
 function normalizeStepOneInputs() {
   state.name = state.name.trim()
@@ -1435,6 +1517,44 @@ function formatEventType(type: string): string {
                 />
               </div>
 
+              <div v-if="isWorkBuddy" class="space-y-2 rounded-oh-md border border-oh-default bg-oh-subtle/30 p-3.5">
+                <label class="block text-xs font-semibold text-oh-fg">
+                  {{ t('admin.accounts.workbuddy.siteLabel') }}
+                </label>
+                <p class="text-[11px] text-oh-muted">
+                  {{ t('admin.accounts.workbuddy.siteHint') }}
+                </p>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.workbuddy.siteLabel')">
+                  <button
+                    v-for="siteKey in (['cn', 'global'] as const)"
+                    :key="siteKey"
+                    type="button"
+                    role="radio"
+                    :aria-checked="state.workbuddySite === siteKey"
+                    :data-testid="`wizard-workbuddy-site-${siteKey}`"
+                    class="flex items-center justify-between gap-2 rounded-oh-md border px-3 py-2 text-left transition-colors"
+                    :class="
+                      state.workbuddySite === siteKey
+                        ? 'border-emerald-500 bg-emerald-500/10 text-oh-fg ring-1 ring-emerald-500/40'
+                        : 'border-oh-default bg-oh-surface hover:border-oh-strong text-oh-muted'
+                    "
+                    @click="handleWorkBuddySiteChange(siteKey)"
+                  >
+                    <div class="min-w-0">
+                      <div class="text-xs font-semibold text-oh-fg">
+                        {{ t(`admin.accounts.workbuddy.sites.${siteKey}.label`) }}
+                      </div>
+                      <div class="truncate font-mono text-[11px] text-oh-muted">
+                        {{ WORKBUDDY_SITES[siteKey].hostLabel }}
+                      </div>
+                    </div>
+                    <Badge :tone="state.workbuddySite === siteKey ? 'success' : 'neutral'" variant="subtle">
+                      {{ t(`admin.accounts.workbuddy.siteShort.${siteKey}`) }}
+                    </Badge>
+                  </button>
+                </div>
+              </div>
+
               <div class="rounded-oh-md border border-oh-default bg-oh-subtle/30 px-3.5 py-2.5 space-y-2.5">
                 <div class="flex flex-wrap items-center justify-between gap-2">
                   <button
@@ -1569,7 +1689,20 @@ function formatEventType(type: string): string {
                 {{ stepValidation.reason }}
               </div>
 
-              <div v-if="state.credentialMode === 'set'" class="space-y-3">
+              <div v-if="isWorkBuddy && state.credentialMode === 'set'" class="space-y-4">
+                <WorkBuddyAuthFields
+                  :mode="isWorkBuddyOAuth ? 'oauth' : 'apikey'"
+                  :proxy-id="workbuddyNumericProxyId"
+                  :hide-api-key-fields="!isWorkBuddyOAuth"
+                  :site="state.workbuddySite"
+                  v-model:oauth-credentials="state.workbuddyOAuth"
+                  @update:site="handleWorkBuddySiteChange"
+                  @suggested-name="handleWorkBuddySuggestedName"
+                  @oauth-completed="handleWorkBuddyOAuthCompleted"
+                />
+              </div>
+
+              <div v-if="state.credentialMode === 'set' && !isWorkBuddyOAuth" class="space-y-3">
                 <Input
                   v-model="state.credentialSecret"
                   type="password"
@@ -1592,7 +1725,7 @@ function formatEventType(type: string): string {
               </div>
 
               <div
-                v-if="supportsOAuth"
+                v-if="supportsOAuth && !isWorkBuddyOAuth"
                 class="rounded-oh-md border border-oh-default bg-oh-subtle/40 p-4 space-y-3"
               >
                 <div class="flex items-center justify-between">

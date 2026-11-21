@@ -247,6 +247,18 @@
       </div>
       <CursorKeyFields v-if="account.platform === 'cursor'" editing :mode="cursorKeyMode" v-model:auto-credentials="cursorAutoCredentials" v-model:api-key="editApiKey" v-model:base-url="editBaseUrl" v-model:client-version="cursorClientVersion" />
       <CursorBrowserAuthorization v-if="account.platform === 'cursor' && cursorKeyMode === 'auto'" :account-id="account.id" :client-version="cursorClientVersion" @busy="cursorAuthorizing = $event" @draft="cursorCredentialDraft = $event" />
+      <WorkBuddyAuthFields
+        v-if="account.platform === 'workbuddy'"
+        editing
+        :mode="account.type === 'oauth' ? 'oauth' : 'apikey'"
+        :proxy-id="form.proxy_id"
+        :proxy-group-id="form.proxy_group_id"
+        v-model:site="workbuddySite"
+        v-model:oauth-credentials="workbuddyOAuthCredentials"
+        v-model:api-key="editApiKey"
+        v-model:base-url="editBaseUrl"
+        @busy="workbuddyAuthorizing = $event"
+      />
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey' && account.platform !== 'cursor'" class="space-y-4">
         <div v-if="selectedSupplier" class="space-y-3" data-testid="edit-supplier">
@@ -254,7 +266,7 @@
           <SupplierVariantCards :supplier="selectedSupplier" :model-value="selectedSupplier.members.find(member => member.platform === account?.platform)?.selection ?? {}" locked />
         </div>
         <CompatibleProviderFields v-if="selectedCompatibleProvider" :provider="selectedCompatibleProvider" v-model="compatibleDraft" @reset-secret="editApiKey = ''" />
-        <div v-else-if="!isProtocolApiKeyAccount || editApiProtocol !== 'adaptive'">
+        <div v-else-if="account.platform !== 'workbuddy' && (!isProtocolApiKeyAccount || editApiProtocol !== 'adaptive')">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
             v-model="editBaseUrl" data-account-field="editBaseUrl"
@@ -278,7 +290,7 @@
             @select="onCnPresetSelect"
           />
         </div>
-        <div v-else>
+        <div v-else-if="account.platform !== 'workbuddy'">
           <label class="input-label">{{ t('admin.accounts.cnProviders.apiProtocol.endpoints') }}</label>
           <div class="mt-2 space-y-3">
             <div v-for="item in editAdaptiveProtocolOptions" :key="item.value">
@@ -451,7 +463,7 @@
           </div>
           <p class="input-hint mt-2">{{ t('admin.accounts.cnProviders.zhipuTeam.hint') }}</p>
         </div>
-        <div>
+        <div v-if="account.platform !== 'workbuddy'">
           <label class="input-label">{{ t('admin.accounts.apiKey') }}</label>
           <input
             v-model="editApiKey" data-account-field="editApiKey"
@@ -2546,6 +2558,7 @@ import QianwenPricingPanel from './QianwenPricingPanel.vue'
 import BedrockRegionSelect from './BedrockRegionSelect.vue'
 import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
+import WorkBuddyAuthFields from './WorkBuddyAuthFields.vue'
 import { extractApiErrorCode, extractApiErrorStatus, extractApiErrorMetadata, extractApiErrorMessage } from '@/utils/apiError'
 import CompatibleProviderFields from './CompatibleProviderFields.vue'
 import SupplierVariantCards from './SupplierVariantCards.vue'
@@ -2557,7 +2570,8 @@ import TencentQuotaFields from './TencentQuotaFields.vue'
 import { byteplusQuotaDraft, byteplusQuotaProfile, applyByteplusQuotaCredentials, tencentQuotaDraft, tencentQuotaProfile, applyTencentQuotaCredentials } from './credentialsBuilder'
 import UsageQueryCredentialFields from './UsageQueryCredentialFields.vue'
 import { usageQueryDraft, supportsUsageQuery, applyUsageQueryCredentials } from './credentialsBuilder'
-import { volcengineQuotaDraft, volcengineQuotaProfile, applyVolcengineQuotaCredentials, buildCursorCredentials, resolveCursorRelayProtocol } from './credentialsBuilder'
+import { volcengineQuotaDraft, volcengineQuotaProfile, applyVolcengineQuotaCredentials, buildCursorCredentials, resolveCursorRelayProtocol, buildWorkBuddyCredentials, extractWorkBuddyOAuthDraft, extractWorkBuddySite, type WorkBuddyOAuthDraft } from './credentialsBuilder'
+import type { WorkBuddySite } from '@/api/admin/workbuddy'
 import { ref, reactive, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { platformSelectionClass, platformSelectionIconClass } from '@/utils/platformColors'
@@ -2866,6 +2880,9 @@ const cursorAutoCredentials = ref<Record<string, string>>({})
 const cursorAuthorizing = ref(false)
 const cursorClientVersion = ref('')
 const cursorCredentialDraft = ref<AccountCredentialDraft | null>(null)
+const workbuddySite = ref<WorkBuddySite>('cn')
+const workbuddyAuthorizing = ref(false)
+const workbuddyOAuthCredentials = ref<WorkBuddyOAuthDraft>(extractWorkBuddyOAuthDraft(undefined, 'cn'))
 const isCursorRelay = computed(() => props.account?.platform === 'cursor' && cursorKeyMode.value === 'relay')
 // 只读回显用的原始协议值（非法值只在提示文案里展示，不参与构造）。
 const cursorStoredRelayProtocol = computed(() => props.account?.credentials?.api_protocol)
@@ -3115,7 +3132,7 @@ const editVertexLocation = ref('us-central1')
 const modelCandidateIdentity = computed(() => ({
   host: selectedCompatibleProvider.value ? String(compatibleDraft.value.base_url || '') : editBaseUrl.value,
   type: props.account?.type,
-  profile: String(props.account?.credentials?.provider_profile || ''),
+  profile: props.account?.platform === 'workbuddy' ? `workbuddy-${workbuddySite.value}` : String(props.account?.credentials?.provider_profile || ''),
   region: props.account?.type === 'bedrock' ? editBedrockRegion.value
     : props.account?.type === 'service_account' ? editVertexLocation.value : '',
   mode: selectedCompatibleProvider.value ? compatibleMode(selectedCompatibleProvider.value, compatibleDraft.value.account_mode)?.mode : currentOpenCodeOrCNMode()
@@ -3570,6 +3587,7 @@ const tempUnschedPresets = computed(() => [
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
   if (selectedCompatibleProvider.value) return ''
+  if (props.account?.platform === 'workbuddy') return ''
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
@@ -3755,6 +3773,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   }
   cursorAutoCredentials.value = { machine_id: String(newAccount.credentials?.machine_id || ''), mac_machine_id: String(newAccount.credentials?.mac_machine_id || '') }
   cursorClientVersion.value = String(newAccount.credentials?.client_version || '')
+  if (newAccount.platform === 'workbuddy') {
+    workbuddySite.value = extractWorkBuddySite(newAccount.credentials, newAccount.extra)
+    workbuddyOAuthCredentials.value = extractWorkBuddyOAuthDraft(newAccount.credentials, workbuddySite.value)
+    workbuddyAuthorizing.value = false
+  }
   form.tpm_limit = newAccount.tpm_limit ?? 0
   form.concurrency = newAccount.concurrency
   form.load_factor = newAccount.load_factor ?? null
@@ -4029,7 +4052,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       }
     }
     const platformDefaultUrl =
-      newAccount.platform === 'openai'
+      newAccount.platform === 'workbuddy'
+        ? ''
+        : newAccount.platform === 'openai'
         ? 'https://api.openai.com'
         : newAccount.platform === 'gemini'
           ? 'https://generativelanguage.googleapis.com'
@@ -4694,6 +4719,21 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
         ...currentCredentials,
         base_url: newBaseUrl
       }
+      if (props.account.platform === 'workbuddy') {
+        Object.assign(
+          newCredentials,
+          buildWorkBuddyCredentials({
+            mode: 'apikey',
+            site: workbuddySite.value,
+            apiKey: editApiKey.value,
+            baseUrl: editBaseUrl.value,
+            existing: currentCredentials
+          })
+        )
+        if (!editBaseUrl.value.trim()) {
+          delete newCredentials.base_url
+        }
+      }
       if (selectedCompatibleProvider.value) {
         delete newCredentials.base_url
         Object.assign(newCredentials, compatibleDraft.value)
@@ -4972,6 +5012,25 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
         return
       }
 
+      updatePayload.credentials = newCredentials
+    }
+
+    if (props.account.platform === 'workbuddy' && props.account.type === 'oauth') {
+      const currentCredentials =
+        (updatePayload.credentials as Record<string, unknown>) ||
+        ((props.account.credentials as Record<string, unknown>) || {})
+      const newCredentials = buildWorkBuddyCredentials({
+        mode: 'oauth',
+        site: workbuddySite.value,
+        oauthCredentials: workbuddyOAuthCredentials.value,
+        existing: currentCredentials
+      })
+      const modelMapping = buildModelRestrictionMapping()
+      if (modelMapping) {
+        newCredentials.model_mapping = modelMapping
+      } else {
+        delete newCredentials.model_mapping
+      }
       updatePayload.credentials = newCredentials
     }
 

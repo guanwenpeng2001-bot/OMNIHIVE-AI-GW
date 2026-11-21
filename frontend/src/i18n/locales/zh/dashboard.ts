@@ -670,7 +670,8 @@ export default {
       commandcode: 'Command Code',
       minimax: 'MiniMax',
       cursor: 'Cursor',
-      opencode_go: 'OpenCode'
+      opencode_go: 'OpenCode',
+      workbuddy: 'WorkBuddy'
     },
     // 检查模式（监控条目的工作方式）
     checkMode: {

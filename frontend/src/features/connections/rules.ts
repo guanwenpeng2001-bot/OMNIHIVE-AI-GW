@@ -175,7 +175,8 @@ export const FEATURED_PROVIDER_IDS: readonly string[] = [
   'siliconflow_cn',
   'grok',
   'openrouter',
-  'minimax'
+  'minimax',
+  'workbuddy'
 ]
 
 const PROVIDER_CATALOG: Record<string, ProviderCatalogEntry> = {
@@ -680,6 +681,15 @@ const PROVIDER_CATALOG: Record<string, ProviderCatalogEntry> = {
     defaultEndpoint: '',
     category: 'compatible'
   },
+  workbuddy: {
+    labelEn: 'WorkBuddy',
+    labelZh: 'WorkBuddy',
+    protocolEn: 'OAuth · API Key (CN / Global)',
+    protocolZh: 'OAuth · API Key（国内站 / 国际站）',
+    defaultEndpoint: 'https://copilot.tencent.com',
+    category: 'domestic',
+    featured: true
+  },
   compatible: {
     labelEn: 'OpenAI / Claude Compatible',
     labelZh: 'OpenAI / Claude 兼容网关',
@@ -1016,8 +1026,13 @@ const API_KEY_HEADER_OVERRIDE_PROVIDERS = new Set([
   'minimax',
   'opencode_go',
   'qianwen',
-  'commandcode'
+  'commandcode',
+  'workbuddy'
 ])
+
+export function inferWorkBuddySiteFromEndpoint(endpoint: string): 'cn' | 'global' {
+  return endpoint.trim().toLowerCase().includes('workbuddy.ai') ? 'global' : 'cn'
+}
 
 export function isHeaderOverrideSupported(provider: string, authType: string): boolean {
   const normalizedProvider = provider.trim().toLowerCase()

@@ -483,6 +483,7 @@
                   show-aws-suffix
                   :auth-mode="getOpenAIAuthMode(row)"
                   :plan-type="getAccountPlanType(row)"
+                  :site="getWorkBuddySite(row)"
                   :privacy-mode="row.extra?.privacy_mode || row.parent_privacy_mode"
                   :subscription-expires-at="row.credentials?.subscription_expires_at || row.parent_subscription_expires_at" />
                 <span
@@ -798,6 +799,7 @@ const ErrorPassthroughRulesModal = lazyAccountDialog(() => import('@/components/
 const TLSFingerprintProfilesModal = lazyAccountDialog(() => import('@/components/admin/TLSFingerprintProfilesModal.vue'))
 import { fetchAllAccountIds } from '@/utils/accountSelection'
 import { buildGrokUsageRefreshKey, buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
+import { normalizeWorkBuddySite } from '@/api/admin/workbuddy'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 import { extractApiErrorCode, extractApiErrorMessage, extractApiErrorStatus } from '@/utils/apiError'
@@ -1113,6 +1115,7 @@ const buildDefaultTodayStats = (): WindowStats => ({
 const accountSupportsBatchUsage = (account: Account) => {
   if (account.platform === 'openrouter') return account.type === 'apikey'
   if (account.platform === 'cursor') return account.type !== 'upstream'
+  if (account.platform === 'workbuddy') return true
   if (account.platform === 'anthropic') {
     return account.type === 'oauth' || account.type === 'setup-token'
   }
@@ -2095,7 +2098,23 @@ function getAccountPlanType(row: AccountListItem): string | undefined {
       row.parent_plan_type
     )
   }
+  if (row.platform === 'workbuddy') {
+    return firstNonBlankString(
+      row.extra?.workbuddy_usage_snapshot?.plan,
+      row.credentials?.plan_type,
+      row.parent_plan_type
+    )
+  }
   return firstNonBlankString(row.credentials?.plan_type, row.parent_plan_type)
+}
+
+function getWorkBuddySite(row: AccountListItem): string | undefined {
+  if (!row || row.platform !== 'workbuddy') return undefined
+  return (
+    normalizeWorkBuddySite(row.credentials?.site) ??
+    normalizeWorkBuddySite(row.extra?.workbuddy_usage_snapshot?.site) ??
+    undefined
+  )
 }
 
 function getOpenAIAuthMode(row: AccountListItem): string | undefined {
