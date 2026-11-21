@@ -173,7 +173,7 @@ describe('UserDashboardStats money display', () => {
       props: { isSimple: false, balance: 0, stats: {} as UserStatsType },
       global: { stubs: { Icon: true } },
     })
-    expect(wrapper.findAll('[title="dashboard.actual"]').map(node => node.text())).toEqual(['dashboard.actual USD -', 'dashboard.actual USD —'])
+    expect(wrapper.findAll('[title^="dashboard.actual"]').map(node => node.text())).toEqual(['dashboard.actual USD -', 'dashboard.actual USD —'])
     wrapper.unmount()
   })
 })
