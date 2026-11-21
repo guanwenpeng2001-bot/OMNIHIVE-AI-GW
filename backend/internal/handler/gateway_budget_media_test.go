@@ -29,6 +29,31 @@ func TestGatewayBudgetExtractsMediaUnits(t *testing.T) {
 		})
 	}
 }
+
+func TestGrokMediaBudgetUsesForwardedUnits(t *testing.T) {
+	for _, tc := range []struct {
+		name, route, body, size string
+		characters              int64
+	}{
+		{name: "tts uses input", route: "/v1/audio/speech", body: `{"input":"猫🐝ab"}`, characters: 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			meter := requestMediaMeter(service.GatewayRequestSpec{Route: tc.route}, []byte(tc.body))
+			require.Equal(t, tc.characters, meter.Numerator)
+			require.Equal(t, tc.size, meter.Size)
+		})
+	}
+}
+
+func TestGrokMediaBudgetRejectsContradictoryAliases(t *testing.T) {
+	for _, tc := range []struct{ route, body string }{
+		{route: "/v1/audio/speech", body: `{"input":"short","text":"different"}`},
+		{route: "/v1/images/generations", body: `{"size":"1024x1024","resolution":"2k"}`},
+	} {
+		meter := requestMediaMeter(service.GatewayRequestSpec{Route: tc.route}, []byte(tc.body))
+		require.Zero(t, meter.Numerator)
+	}
+}
 func TestPCMTranscriptionBoundUsesActualFrames(t *testing.T) {
 	wav := make([]byte, 44+24000)
 	copy(wav, "RIFF")

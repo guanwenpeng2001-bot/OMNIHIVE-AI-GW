@@ -99,6 +99,14 @@ func requestMediaMeter(spec service.GatewayRequestSpec, body []byte, contentType
 	case strings.Contains(route, "/tts") || strings.Contains(route, "/speech") || spec.Protocol == "audio" && field("text", "input.text", "input") != "":
 		meter.Unit = "character"
 		meter.Numerator = int64(utf8.RuneCountInString(field("text", "input.text", "input", "prompt")))
+		if strings.Contains(route, "/tts") || strings.Contains(route, "/speech") {
+			characters, err := service.GrokTTSCharacters(body)
+			if err != nil {
+				meter.Numerator = 0
+			} else {
+				meter.Numerator = characters
+			}
+		}
 	case strings.Contains(route, "video") || strings.Contains(strings.ToLower(spec.Model), "video"):
 		meter.Unit = "video_second"
 		meter.Size = field("resolution", "size", "parameters.resolution")
@@ -107,6 +115,14 @@ func requestMediaMeter(spec service.GatewayRequestSpec, body []byte, contentType
 		meter.Unit = "image"
 		meter.Size = field("size", "resolution", "parameters.size")
 		meter.Quality = field("quality", "parameters.quality")
+		if strings.HasSuffix(route, "/images/generations") || strings.HasSuffix(route, "/images/edits") {
+			resolution, err := service.GrokImagineImageResolutionBound(body)
+			if err != nil {
+				meter.Numerator = 0
+			} else {
+				meter.Size = resolution
+			}
+		}
 	}
 	return meter
 }

@@ -65,6 +65,12 @@ func (s *OpenAIGatewayService) ForwardGrokVoice(ctx context.Context, c *gin.Cont
 		}
 		body, contentType = converted, "application/json"
 	}
+	if baseEndpoint == "tts" {
+		if _, err := GrokTTSCharacters(body); err != nil {
+			writeGrokMediaErrorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return nil, err
+		}
+	}
 	token, _, err := s.getRequestCredential(ctx, c, account)
 	if err != nil {
 		return nil, err
@@ -365,12 +371,8 @@ func estimateGrokVoiceAudioUsage(endpoint string, reqBody []byte, contentType st
 		// Prefer JSON "input" / "text" fields; fallback to raw body length.
 		chars := 0
 		if gjson.ValidBytes(reqBody) {
-			for _, key := range []string{"input", "text", "prompt"} {
-				if s := strings.TrimSpace(gjson.GetBytes(reqBody, key).String()); s != "" {
-					chars = len([]rune(s))
-					break
-				}
-			}
+			count, _ := GrokTTSCharacters(reqBody)
+			chars = int(count)
 		}
 		if chars <= 0 {
 			chars = len(reqBody)
