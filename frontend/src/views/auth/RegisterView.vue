@@ -291,7 +291,7 @@
         <p v-if="promoValidation.invalid" id="promo-error" role="alert" class="auth-field-error">{{ promoValidation.message }}</p>
         <div data-testid="referral-code-field">
           <label for="aff_code" class="input-label">
-            推荐码
+            {{ t('auth.referralCodeLabel') }}
             <span class="ml-1 text-xs font-normal text-[var(--muted-foreground)]">({{ t('common.optional') }})</span>
           </label>
           <input
@@ -300,7 +300,7 @@
             type="text"
             :disabled="registrationActionDisabled"
             class="input"
-            placeholder="输入推荐码（可选）"
+            :placeholder="t('auth.referralCodePlaceholder')"
           />
         </div>
         <div v-if="captchaEnabled" data-testid="registration-turnstile">

@@ -96,6 +96,12 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 			return
 		}
 
+		if isModelsPageNavigation(c.Request) {
+			c.Redirect(http.StatusFound, modelPlazaPath)
+			c.Abort()
+			return
+		}
+
 		if path == "/favicon.ico" && !s.fileExists("favicon.ico") {
 			c.Status(http.StatusNotFound)
 			c.Abort()
@@ -341,6 +347,12 @@ func ServeEmbeddedFrontend() (gin.HandlerFunc, error) {
 
 		if isUsagePanelRequest(c.Request) {
 			serveIndexHTML(c, distFS)
+			return
+		}
+
+		if isModelsPageNavigation(c.Request) {
+			c.Redirect(http.StatusFound, modelPlazaPath)
+			c.Abort()
 			return
 		}
 

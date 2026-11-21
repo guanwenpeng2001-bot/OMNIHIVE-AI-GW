@@ -303,6 +303,8 @@ export default {
     invalidCode: 'Please enter a valid 6-digit code',
     promoCodeLabel: 'Promo Code',
     promoCodePlaceholder: 'Enter promo code (optional)',
+    referralCodeLabel: 'Referral Code',
+    referralCodePlaceholder: 'Enter referral code (optional)',
     promoCodeValid: 'Valid! You will receive ${amount} bonus balance',
     promoCodeInvalid: 'Invalid promo code',
     promoCodeNotFound: 'Promo code not found',
