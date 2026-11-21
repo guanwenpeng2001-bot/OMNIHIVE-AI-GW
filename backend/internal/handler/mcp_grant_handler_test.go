@@ -24,7 +24,14 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
+
+type cacheUsageRecorderFunc func(context.Context, service.UsageSettlementKey) error
+
+func (f cacheUsageRecorderFunc) RecordCacheHit(ctx context.Context, key service.UsageSettlementKey) error {
+	return f(ctx, key)
+}
 
 func mcpRequest(h *MCPGrantHandler, user int64, role, method, path, body string) *httptest.ResponseRecorder {
 	r := gin.New()
@@ -593,6 +600,38 @@ func TestMcpGrantExtensionEngines(t *testing.T) {
 			require.Empty(t, request(r, `{"stream":true}`, "key").Header().Get("X-OmniHive-Cache"))
 		}
 		require.Equal(t, 5, *calls)
+	})
+	t.Run("cache hit usage is not presented as new upstream usage", func(t *testing.T) {
+		_, r, _ := newEngine("cache-layer")
+		require.Equal(t, "MISS", request(r, `{"message":"hi"}`, "key").Header().Get("X-OmniHive-Cache"))
+		hit := request(r, `{"message":"hi"}`, "key")
+		require.Equal(t, "HIT", hit.Header().Get("X-OmniHive-Cache"))
+		require.False(t, gjson.Get(hit.Body.String(), "usage").Exists())
+	})
+	t.Run("cache hit without durable receipt fails closed", func(t *testing.T) {
+		h, r, calls := newEngine("cache-layer")
+		h.SetCacheUsageRecorder(cacheUsageRecorderFunc(func(context.Context, service.UsageSettlementKey) error {
+			return service.ErrUsageSettlementNotFound
+		}))
+		require.Equal(t, "MISS", request(r, `{"message":"hi"}`, "key").Header().Get("X-OmniHive-Cache"))
+		require.Equal(t, http.StatusServiceUnavailable, request(r, `{"message":"hi"}`, "key").Code)
+		require.Equal(t, 1, *calls)
+	})
+	t.Run("cache is bounded LRU", func(t *testing.T) {
+		h, r, calls := newEngine("cache-layer")
+		for i := range h.extensions {
+			if h.extensions[i].Key == "cache-layer" {
+				h.extensions[i].Config["max_entries"] = float64(2)
+			}
+		}
+		request(r, `{"message":"one"}`, "key")
+		request(r, `{"message":"two"}`, "key")
+		require.Equal(t, "HIT", request(r, `{"message":"one"}`, "key").Header().Get("X-OmniHive-Cache"))
+		request(r, `{"message":"three"}`, "key")
+		require.Equal(t, "MISS", request(r, `{"message":"two"}`, "key").Header().Get("X-OmniHive-Cache"))
+		require.Equal(t, 4, *calls)
+		require.LessOrEqual(t, len(h.cache), 2)
+		require.LessOrEqual(t, h.cacheBytes, 32<<20)
 	})
 	t.Run("paid runs each reach the gateway journal", func(t *testing.T) {
 		h, r, calls := newEngine("cache-layer")

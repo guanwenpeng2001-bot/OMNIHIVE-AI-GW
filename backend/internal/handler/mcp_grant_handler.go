@@ -74,10 +74,16 @@ type MCPGrantHandler struct {
 	costs          map[string]extensionCost
 	cache          map[string]extensionCache
 	cacheOrder     []string
+	cacheBytes     int
+	cacheUsage     service.CacheUsageRecorder
 }
 
 func NewMCPGrantHandler() *MCPGrantHandler {
 	return &MCPGrantHandler{users: make(map[int64]*mcpUserState)}
+}
+
+func (h *MCPGrantHandler) SetCacheUsageRecorder(recorder service.CacheUsageRecorder) {
+	h.cacheUsage = recorder
 }
 
 // state must be called with mu held. Initialization is once per user, including
@@ -685,7 +691,7 @@ func defaultPluginExtensions() []PluginExtensionDTO {
 	raw := `[
 {"key":"prompt-guard","name":"关键词与提示词风控","category":"security","description":"在请求转发前执行提示词敏感模式匹配、PII 脱敏与风险审计。","config":{"mode":"audit","redact_pii":true,"max_scan_chars":16000}},
 {"key":"rate-limiter","name":"自适应智能限流","category":"traffic","description":"按访问主体分配并发配额与等待队列。","config":{"burst_rpm":120,"strategy":"fair_queue","max_wait_ms":3000}},
-{"key":"cache-layer","name":"语义与前缀响应缓存","category":"performance","description":"按密钥隔离响应缓存并控制过期时间。","config":{"ttl_seconds":300,"max_payload_kb":512,"scope":"key_isolated"}},
+{"key":"cache-layer","name":"语义与前缀响应缓存","category":"performance","description":"按密钥隔离响应缓存并控制过期时间。","config":{"ttl_seconds":300,"max_payload_kb":512,"max_entries":256,"scope":"key_isolated"}},
 {"key":"cost-tracker","name":"多维成本追踪与预算熔断","category":"billing","description":"追踪每日成本并检查预算与突增阈值。","config":{"daily_alert_usd":200,"spike_ratio":2.5,"circuit_breaker":false}}
 ]`
 	var result []PluginExtensionDTO
@@ -835,6 +841,7 @@ func (h *MCPGrantHandler) UpdatePluginExtension(c *gin.Context) {
 		}
 		h.cache = nil
 		h.cacheOrder = nil
+		h.cacheBytes = 0
 		response.Success(c, current)
 		return
 	}
@@ -974,6 +981,64 @@ type extensionCache struct {
 	Body    []byte
 	Type    string
 	Expires time.Time
+	Receipt service.UsageSettlementKey
+}
+
+func (h *MCPGrantHandler) cachedExtension(key string, now time.Time) (extensionCache, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	cached, ok := h.cache[key]
+	if !ok {
+		return extensionCache{}, false
+	}
+	if !now.Before(cached.Expires) {
+		h.cacheBytes -= len(cached.Body)
+		delete(h.cache, key)
+		for i, current := range h.cacheOrder {
+			if current == key {
+				h.cacheOrder = append(h.cacheOrder[:i], h.cacheOrder[i+1:]...)
+				break
+			}
+		}
+		return extensionCache{}, false
+	}
+	for i, current := range h.cacheOrder {
+		if current == key {
+			h.cacheOrder = append(h.cacheOrder[:i], h.cacheOrder[i+1:]...)
+			break
+		}
+	}
+	h.cacheOrder = append(h.cacheOrder, key)
+	return cached, true
+}
+
+func (h *MCPGrantHandler) cacheExtension(key string, cached extensionCache, maxEntries int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.cache == nil {
+		h.cache = map[string]extensionCache{}
+	}
+	if old, exists := h.cache[key]; exists {
+		h.cacheBytes -= len(old.Body)
+		for i, current := range h.cacheOrder {
+			if current == key {
+				h.cacheOrder = append(h.cacheOrder[:i], h.cacheOrder[i+1:]...)
+				break
+			}
+		}
+	}
+	if maxEntries <= 0 {
+		maxEntries = 256
+	}
+	for len(h.cacheOrder) >= maxEntries || h.cacheBytes+len(cached.Body) > 32<<20 && len(h.cacheOrder) > 0 {
+		oldest := h.cacheOrder[0]
+		h.cacheBytes -= len(h.cache[oldest].Body)
+		delete(h.cache, oldest)
+		h.cacheOrder = h.cacheOrder[1:]
+	}
+	h.cache[key] = cached
+	h.cacheBytes += len(cached.Body)
+	h.cacheOrder = append(h.cacheOrder, key)
 }
 
 var extensionRisk = regexp.MustCompile(`(?i)ignore (all )?previous instructions|reveal system prompt|dump api key|sk-[A-Za-z0-9_-]{20,}`)
@@ -1402,10 +1467,19 @@ func (h *MCPGrantHandler) executeExtensions(c *gin.Context, next func()) {
 		}
 		if len(body) <= limit {
 			cacheKey = fmt.Sprintf("%x", sha256.Sum256([]byte(subject+"\x00"+c.Request.URL.RequestURI()+"\x00"+string(body))))
-			h.mu.Lock()
-			cached, ok := h.cache[cacheKey]
-			h.mu.Unlock()
-			if ok && time.Now().Before(cached.Expires) {
+			cached, ok := h.cachedExtension(cacheKey, time.Now())
+			if ok {
+				if h.cacheUsage != nil {
+					if cached.Receipt.RequestID == "" {
+						extensionError(c, http.StatusServiceUnavailable, "CACHE_USAGE_UNAVAILABLE", "Cached usage evidence is unavailable")
+						return
+					}
+					if err := h.cacheUsage.RecordCacheHit(c.Request.Context(), cached.Receipt); err != nil {
+						extensionError(c, http.StatusServiceUnavailable, "CACHE_USAGE_UNAVAILABLE", "Cached usage could not be recorded")
+						return
+					}
+				}
+				cached.Body = stripCachedUsage(cached.Body)
 				c.Header("X-OmniHive-Cache", "HIT")
 				c.Data(200, cached.Type, cached.Body)
 				c.Abort()
@@ -1441,20 +1515,31 @@ func (h *MCPGrantHandler) executeExtensions(c *gin.Context, next func()) {
 	}
 	next()
 	if capture != nil && !capture.overflow && c.Writer.Status() == 200 && strings.Contains(c.Writer.Header().Get("Content-Type"), "application/json") && json.Valid(capture.body.Bytes()) {
-		h.mu.Lock()
-		defer h.mu.Unlock()
-		if h.cache == nil {
-			h.cache = map[string]extensionCache{}
+		cached := extensionCache{Body: append([]byte(nil), capture.body.Bytes()...), Type: c.Writer.Header().Get("Content-Type"), Expires: time.Now().Add(time.Duration(extFloat(cacheConfig, "ttl_seconds")) * time.Second)}
+		if plan := service.GatewayRequestPlanFromContext(c.Request.Context()); plan != nil {
+			cached.Receipt = plan.State().ReceiptKey
 		}
-		if _, exists := h.cache[cacheKey]; !exists {
-			if len(h.cacheOrder) >= 256 {
-				delete(h.cache, h.cacheOrder[0])
-				h.cacheOrder = h.cacheOrder[1:]
-			}
-			h.cacheOrder = append(h.cacheOrder, cacheKey)
-		}
-		h.cache[cacheKey] = extensionCache{append([]byte(nil), capture.body.Bytes()...), c.Writer.Header().Get("Content-Type"), time.Now().Add(time.Duration(extFloat(cacheConfig, "ttl_seconds")) * time.Second)}
+		h.cacheExtension(cacheKey, cached, int(extFloat(cacheConfig, "max_entries")))
 	}
+}
+
+func stripCachedUsage(body []byte) []byte {
+	if !json.Valid(body) {
+		return body
+	}
+	var decoded map[string]any
+	if json.Unmarshal(body, &decoded) != nil {
+		return body
+	}
+	delete(decoded, "usage")
+	if response, ok := decoded["response"].(map[string]any); ok {
+		delete(response, "usage")
+	}
+	encoded, err := json.Marshal(decoded)
+	if err != nil {
+		return body
+	}
+	return encoded
 }
 
 // Probes use the actual middleware on a private handler, never production buckets or spend.
@@ -1503,8 +1588,9 @@ func probeExtension(e PluginExtensionDTO) (bool, string) {
 	case "cache-layer":
 		a := request(`{"probe":true}`)
 		b := request(`{"probe":true}`)
-		ok := a.Header().Get("X-OmniHive-Cache") == "MISS" && b.Header().Get("X-OmniHive-Cache") == "HIT" && sha256.Sum256(a.Body.Bytes()) == sha256.Sum256(b.Body.Bytes()) && calls == 1
+		ok := a.Header().Get("X-OmniHive-Cache") == "MISS" && b.Header().Get("X-OmniHive-Cache") == "HIT" && sha256.Sum256(stripCachedUsage(a.Body.Bytes())) == sha256.Sum256(b.Body.Bytes()) && calls == 1
 		h.cache = nil
+		h.cacheBytes = 0
 		return ok, "cache write/read digest matched; private cache deleted"
 	case "cost-tracker":
 		h.RecordExtensionSpend("__probe__", extFloat(isolated.Config, "daily_alert_usd"))

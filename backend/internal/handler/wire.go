@@ -215,12 +215,15 @@ func ProvideHandlers(
 	asyncImageHandler *AsyncImageHandler,
 	batchImageHandler *BatchImageHandler,
 	resourceHandler *GatewayResourceHandler,
+	usageSettlement *service.UsageSettlementService,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 	_ *service.OpenAIQuotaAutoResetService,
 ) *Handlers {
+	mcp := NewMCPGrantHandler()
+	mcp.SetCacheUsageRecorder(usageSettlement)
 	return &Handlers{
-		MCP:              NewMCPGrantHandler(),
+		MCP:              mcp,
 		ModelAccess:      modelAccessHandler,
 		Workspace:        workspaceHandler,
 		Auth:             authHandler,
