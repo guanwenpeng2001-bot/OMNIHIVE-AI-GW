@@ -2,7 +2,7 @@ package restore
 
 import (
 	"context"
-	"io"
+	"fmt"
 	"net/http"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/restoregate"
@@ -18,13 +18,19 @@ func (s *Service) Maintenance(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		ctx, leave, ok := gate.AdmitRequest(r.Context())
-		if !ok {
+		ctx, leave, err := gate.Admit(r.Context())
+		if err != nil {
+			reason := "RESTORE_MAINTENANCE"
+			message := "Production restore maintenance. Retry after recovery."
+			if restoregate.IsUnavailable(err) {
+				reason = "RESTORE_STATUS_UNAVAILABLE"
+				message = "Restore status is temporarily unavailable. Retry later."
+			}
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Cache-Control", "no-store")
-			w.Header().Set("Retry-After", "5")
+			w.Header().Set("Retry-After", "1")
 			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = io.WriteString(w, `{"code":503,"reason":"RESTORE_MAINTENANCE","message":"Production restore maintenance. Retry after recovery."}`)
+			_, _ = fmt.Fprintf(w, `{"code":503,"reason":%q,"message":%q}`, reason, message)
 			return
 		}
 		defer leave()

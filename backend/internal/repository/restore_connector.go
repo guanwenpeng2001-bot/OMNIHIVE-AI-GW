@@ -54,11 +54,7 @@ func (c *restoreConn) enter(ctx context.Context) (func(), error) {
 	if c.transaction || restoregate.IsSnapshot(ctx) {
 		return func() {}, nil
 	}
-	leave, ok := c.gate.AdmitStatement(ctx)
-	if !ok {
-		return nil, errors.New("restore maintenance")
-	}
-	return leave, nil
+	return c.gate.Statement(ctx)
 }
 func (c *restoreConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
 	leave, err := c.enter(ctx)
