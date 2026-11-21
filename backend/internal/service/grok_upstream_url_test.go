@@ -50,13 +50,16 @@ func TestGrokAPIKeyURLPolicyFollowsGlobalSecurityConfig(t *testing.T) {
 		require.EqualError(t, err, "invalid base url: base URL rejected by URL security policy")
 	})
 
-	t.Run("enabled allowlist remains HTTPS only", func(t *testing.T) {
+	t.Run("enabled allowlist requires explicit permission for HTTP", func(t *testing.T) {
 		cfg := &config.Config{}
 		cfg.Security.URLAllowlist.Enabled = true
 		cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 		cfg.Security.URLAllowlist.UpstreamHosts = []string{"grok.example.test"}
-
-		_, err := buildGrokResponsesURL(account, cfg)
+		got, err := buildGrokResponsesURL(account, cfg)
+		require.NoError(t, err)
+		require.Equal(t, "http://grok.example.test/v1/responses", got)
+		cfg.Security.URLAllowlist.AllowInsecureHTTP = false
+		_, err = buildGrokResponsesURL(account, cfg)
 		require.EqualError(t, err, "invalid base url: base URL rejected by URL security policy")
 	})
 }
