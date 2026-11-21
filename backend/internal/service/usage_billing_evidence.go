@@ -12,4 +12,5 @@ type UsageBillingEvidence struct {
 	TurnID          string `json:"turn_id,omitempty"`
 	Family          string `json:"family,omitempty"`
 	CacheHit        bool   `json:"cache_hit,omitempty"`
+	CacheSourceID   int64  `json:"cache_source_receipt_id,omitempty"`
 }

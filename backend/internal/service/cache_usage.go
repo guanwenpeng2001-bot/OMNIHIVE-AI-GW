@@ -11,7 +11,7 @@ type CacheUsageRecorder interface {
 }
 
 func (r *UsageSettlementReceipt) Cacheable() bool {
-	return r != nil && (r.State == UsageSettlementSettled || r.State == UsageSettlementPending) && r.CompletionState == "complete" && r.ResolutionState == "resolved"
+	return r != nil && r.ID > 0 && (r.State == UsageSettlementSettled || r.State == UsageSettlementPending) && r.CompletionState == "complete" && r.ResolutionState == "resolved"
 }
 
 func (s *UsageSettlementService) LoadReceipt(ctx context.Context, key UsageSettlementKey) (*UsageSettlementReceipt, error) {
@@ -40,7 +40,11 @@ func (s *UsageSettlementService) RecordCacheHit(ctx context.Context, source *Usa
 	usage.RequestID = key.RequestID
 	usage.UserID, usage.APIKeyID = key.UserID, key.APIKeyID
 	usage.InboundEndpoint = optionalTrimmedStringPtr(spec.Route)
-	usage.BillingEvidence = &UsageBillingEvidence{CacheHit: true}
+	sourceID := source.ID
+	if source.Usage.BillingEvidence != nil && source.Usage.BillingEvidence.CacheSourceID > 0 {
+		sourceID = source.Usage.BillingEvidence.CacheSourceID
+	}
+	usage.BillingEvidence = &UsageBillingEvidence{CacheHit: true, CacheSourceID: sourceID}
 	command := source.Command
 	command.RequestID, command.UserID, command.APIKeyID = key.RequestID, key.UserID, key.APIKeyID
 	command.RequestFingerprint = ""

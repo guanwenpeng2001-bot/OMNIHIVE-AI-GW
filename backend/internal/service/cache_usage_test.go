@@ -16,6 +16,7 @@ func TestCacheHitReceiptUsesNewIdentityAndOriginalCharge(t *testing.T) {
 	snapshot, err := json.Marshal(PricingSnapshot{PricingState: PricingStatePriced, UnitPrice: &price, Units: 1, RateMultiplier: 1, ActualCost: price, TotalCost: price, ChargedAmount: price})
 	require.NoError(t, err)
 	source := &UsageSettlementReceipt{
+		ID:              42,
 		CompletionState: "complete", ResolutionState: "resolved", State: UsageSettlementSettled,
 		Key:     UsageSettlementKey{RequestID: "original", UserID: 1, APIKeyID: 2},
 		Command: UsageBillingCommand{RequestID: "original", UserID: 1, APIKeyID: 2, AccountID: 3, Model: "model", BalanceCost: 0.25},
@@ -26,6 +27,7 @@ func TestCacheHitReceiptUsesNewIdentityAndOriginalCharge(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "hit", repo.receipt.Key.RequestID)
 	require.True(t, repo.receipt.Usage.BillingEvidence.CacheHit)
+	require.Equal(t, int64(42), repo.receipt.Usage.BillingEvidence.CacheSourceID)
 	require.Equal(t, 1, repo.settles)
 	require.Equal(t, price, repo.receipt.Command.BalanceCost)
 }
