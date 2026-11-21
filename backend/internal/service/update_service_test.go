@@ -468,9 +468,6 @@ func TestUpdateServicePersistentStageWhenDirectSwapFails(t *testing.T) {
 	svc := NewUpdateService(nil, client, "0.2.4", "release")
 	prepareRollbackService(t, svc)
 	svc.executablePath = func() (string, error) { return exe, nil }
-	backup := filepath.Join(exe+".backup", updateBinaryName)
-	require.NoError(t, os.WriteFile(backup, []byte("original"), 0755))
-	require.NoError(t, svc.prepareBackupManifest(backup))
 	require.NoError(t, svc.applyReleaseAssets(context.Background(), "0.2.5", assets))
 	content, err := os.ReadFile(exe)
 	require.NoError(t, err)

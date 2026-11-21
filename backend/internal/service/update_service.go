@@ -473,6 +473,20 @@ func (s *UpdateService) rollback(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("rollback database compatibility check failed: %w", err)
 	}
+	backupFile := exePath + ".backup"
+	directInfo, statErr := os.Lstat(backupFile)
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return statErr
+	}
+	directBackup := statErr == nil && directInfo.Mode().IsRegular()
+	if statErr == nil && !directBackup && !directInfo.IsDir() {
+		return fmt.Errorf("unexpected direct backup file type")
+	}
+	if directBackup {
+		if err := s.verifyBackup(backupFile, floor); err != nil {
+			return fmt.Errorf("rollback verification failed: %w", err)
+		}
+	}
 	persistentBackup := filepath.Join(resolveDockerDataDir(), ".updates", "backup", updateBinaryName)
 	persistentCurrent := filepath.Join(resolveDockerDataDir(), ".updates", "current", updateBinaryName)
 	if _, err := os.Stat(persistentBackup); os.IsNotExist(err) {
@@ -501,16 +515,12 @@ func (s *UpdateService) rollback(ctx context.Context) error {
 		return err
 	}
 
-	backupFile := exePath + ".backup"
-	if _, err := os.Stat(backupFile); err == nil {
-		if err := s.verifyBackup(backupFile, floor); err != nil {
-			return fmt.Errorf("rollback verification failed: %w", err)
-		}
+	if directBackup {
 		if err := os.Rename(backupFile, exePath); err != nil && !staged {
 			return fmt.Errorf("rollback failed: %w", err)
 		}
 	} else if !staged {
-		return fmt.Errorf("no backup found: %w", err)
+		return fmt.Errorf("no backup found at %s", backupFile)
 	}
 
 	return nil
