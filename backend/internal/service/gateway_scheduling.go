@@ -79,7 +79,19 @@ func withNativePolicyAccounts(ctx context.Context, cfg *config.Config, model str
 	return context.WithValue(ctx, nativePolicyAccountsKey{}, nativePolicyAccounts{auth, model, request, accounts}), nil
 }
 
+type requiredAccountKey struct{}
+
+// WithRequiredAccount restricts scheduling to one account. Callers that admit a
+// request against a specific verified connection use it so that a group with
+// several accounts cannot select a different one.
+func WithRequiredAccount(ctx context.Context, accountID int64) context.Context {
+	return context.WithValue(ctx, requiredAccountKey{}, accountID)
+}
+
 func nativePolicyAllows(ctx context.Context, a *Account) bool {
+	if required, ok := ctx.Value(requiredAccountKey{}).(int64); ok && required > 0 && (a == nil || a.ID != required) {
+		return false
+	}
 	policy, _ := ctx.Value(nativePolicyAccountsKey{}).(nativePolicyAccounts)
 	return policy.allowed == nil || a != nil && policy.allowed[a.ID]
 }

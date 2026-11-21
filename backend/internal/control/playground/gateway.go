@@ -284,6 +284,7 @@ func (g *Gateway) admit(p prepared, r pg.Summary, reg *journal.Registration) (co
 	ctx, stop := service.WithAttemptBudget(journal.WithStore(p.ctx, j), 1, service.DefaultGenerationDeadline)
 	ctx = service.WithProjectBudgetCoordinator(ctx, readmodel.Store{DB: g.DB})
 	ctx = service.WithPrefetchedStickySession(ctx, p.account, p.key.Group.ID, true)
+	ctx = service.WithRequiredAccount(ctx, p.account)
 
 	spec := service.GatewayRequestSpec{ExecutionKind: "playground", Registration: reg, WorkspaceID: p.frozen.WorkspaceID, UserID: p.key.UserID, APIKeyID: p.key.ID, BillingGroupID: p.key.Group.ID, Route: strings.Split(p.native.Path, "?")[0], Action: "text.chat", Protocol: p.native.Protocol, Model: p.model, ModelVersion: p.decision.CatalogVersion, PriceVersion: p.decision.PriceVersion}
 	ctx, plan := g.Plans.CaptureRequestPlan(ctx, spec)
