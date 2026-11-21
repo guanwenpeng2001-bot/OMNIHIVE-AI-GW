@@ -418,4 +418,24 @@ describe('Playground error normalization (PG-1)', () => {
     expect(zhNotice.message).toContain('keys.act_as')
     expect(zhNotice.message).toContain('付费人')
   })
+
+  it('normalizes 422 NO_ELIGIBLE_ENDPOINT into actionable guidance in English and Chinese (PG-2)', () => {
+    const err = {
+      status: 422,
+      reason: 'NO_ELIGIBLE_ENDPOINT',
+      message: 'No verified endpoint supports this call in the selected scope.'
+    }
+
+    const enNotice = normalizePlaygroundError(err, { isZh: false })
+    expect(enNotice.kind).toBe('error')
+    expect(enNotice.reason).toBe('NO_ELIGIBLE_ENDPOINT')
+    expect(enNotice.code).toBe('NO_ELIGIBLE_ENDPOINT')
+    expect(enNotice.message).toContain('/byok')
+    expect(enNotice.retryable).toBe(false)
+
+    const zhNotice = normalizePlaygroundError(err, { isZh: true })
+    expect(zhNotice.reason).toBe('NO_ELIGIBLE_ENDPOINT')
+    expect(zhNotice.message).toContain('/byok')
+    expect(zhNotice.message).toContain('已发布模型')
+  })
 })

@@ -576,4 +576,29 @@ describe('PlaygroundView 3-pane workbench', () => {
     )
     wrapper.unmount()
   })
+
+  it('renders actionable /byok and admin catalog links on 422 NO_ELIGIBLE_ENDPOINT (PG-2)', async () => {
+    mocks.authUser = { id: '1', role: 'admin' }
+    mocks.submitRun.mockRejectedValue({
+      status: 422,
+      reason: 'NO_ELIGIBLE_ENDPOINT',
+      message: 'No verified endpoint supports this call in the selected scope.'
+    })
+
+    const wrapper = mount(PlaygroundView, { props: { teleportDisabled: true } })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="message-input-0"]').setValue('Test endpoint')
+    await wrapper.get('[data-testid="playground-run-trigger"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="confirm-playground-funding"]').trigger('click')
+    await flushPromises()
+
+    const banner = wrapper.get('[data-testid="console-state-error"]')
+    expect(banner.text()).toContain('NO_ELIGIBLE_ENDPOINT')
+    expect(banner.text()).toContain('/byok')
+    expect(wrapper.find('[data-testid="playground-goto-byok-A"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="playground-goto-admin-catalog-A"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
 })

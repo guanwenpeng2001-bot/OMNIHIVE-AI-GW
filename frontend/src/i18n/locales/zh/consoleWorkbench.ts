@@ -25,6 +25,11 @@ export default {
     ownedGroupLabel: '我的项目密钥',
     actAsGroupLabel: '代他人运行，需要指定付费人',
   },
+  playgroundErrors: {
+    noEligibleEndpointHint: '请检查模型是否已发布到目录、连接是否已验证，或切换协议/模型。',
+    gotoByokAction: '前往 BYOK 验证连接 (/byok)',
+    gotoAdminCatalogAction: '前往运营目录验证页 (/admin/channels/pricing)',
+  },
   playgroundDiagnostics: {
     title: '诊断检查器',
     expandDrawer: '展开诊断抽屉',

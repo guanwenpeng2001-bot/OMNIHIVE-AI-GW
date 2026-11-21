@@ -1511,11 +1511,13 @@ function formatSettlementState(state: string | null | undefined): string {
               :compare-mode="compareMode"
               :inspected="inspectedSide === 'A'"
               :is-zh="isZh"
+              :is-admin="authStore.isAdmin"
               @run="prepareConsentForTargets(['A'])"
               @stop="controllerA.stop(scope.activeWorkspaceId.value || '1', scope.activeProjectId.value || '1')"
               @recover="controllerA.recoverByIdempotencyKey(scope.activeWorkspaceId.value || '1', scope.activeProjectId.value || '1')"
               @query-status="controllerA.queryRunStatus(scope.activeWorkspaceId.value || '1', scope.activeProjectId.value || '1')"
               @inspect="inspectedSide = 'A'"
+              @navigate="navigateTo"
               @inject-tool-response="injectToolResultMessage"
             />
 
@@ -1527,11 +1529,13 @@ function formatSettlementState(state: string | null | undefined): string {
               compare-mode
               :inspected="inspectedSide === 'B'"
               :is-zh="isZh"
+              :is-admin="authStore.isAdmin"
               @run="prepareConsentForTargets(['B'])"
               @stop="controllerB.stop(scope.activeWorkspaceId.value || '1', scope.activeProjectId.value || '1')"
               @recover="controllerB.recoverByIdempotencyKey(scope.activeWorkspaceId.value || '1', scope.activeProjectId.value || '1')"
               @query-status="controllerB.queryRunStatus(scope.activeWorkspaceId.value || '1', scope.activeProjectId.value || '1')"
               @inspect="inspectedSide = 'B'"
+              @navigate="navigateTo"
               @inject-tool-response="injectToolResultMessage"
             />
           </div>

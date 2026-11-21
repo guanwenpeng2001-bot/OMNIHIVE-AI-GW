@@ -25,6 +25,22 @@ export function normalizePlaygroundError(
   const isZh = Boolean(options?.isZh)
   const status = extractHttpStatus(error)
 
+  if (base.reason === 'NO_ELIGIBLE_ENDPOINT' || (status === 422 && base.reason === 'NO_ELIGIBLE_ENDPOINT')) {
+    return {
+      ...base,
+      kind: 'error',
+      title: isZh
+        ? '当前作用域内无可用的已验证端点 (422)'
+        : 'No Verified Endpoint Available in Scope (422)',
+      message: isZh
+        ? '当前作用域内没有可用的已验证端点或已发布模型：请检查模型是否已发布到目录、连接是否已验证（BYOK 页面 /byok），或切换协议/模型后重试。'
+        : 'No verified endpoint or published model is available in the selected scope. Check that the model is published to the catalog, verify your connection on the BYOK page (/byok), or switch protocol/model.',
+      code: 'NO_ELIGIBLE_ENDPOINT',
+      reason: 'NO_ELIGIBLE_ENDPOINT',
+      retryable: false
+    }
+  }
+
   if (status === 404 && options?.isNonOwnedKey) {
     return {
       ...base,

@@ -177,3 +177,48 @@ describe('PlaygroundRunPane collapsible Raw Request JSON & SSE Frames inspector 
     expect(rawEventsList.text()).toContain('"chatcmpl-1"')
   })
 })
+
+describe('PlaygroundRunPane NO_ELIGIBLE_ENDPOINT guidance (PG-2)', () => {
+  it('shows /byok link button for users and extra admin catalog button for admins', async () => {
+    currentLocale = 'zh'
+    const session = makeSession({
+      status: 'failed',
+      errorNotice: {
+        kind: 'error',
+        title: '当前作用域内无可用的已验证端点 (422)',
+        message: '当前作用域内没有可用的已验证端点或已发布模型',
+        code: 'NO_ELIGIBLE_ENDPOINT',
+        reason: 'NO_ELIGIBLE_ENDPOINT',
+        retryable: false
+      }
+    })
+
+    const userWrapper = mount(PlaygroundRunPane, {
+      props: {
+        sideKey: 'A',
+        config: sideConfig,
+        session,
+        isZh: true,
+        isAdmin: false
+      }
+    })
+
+    expect(userWrapper.find('[data-testid="no-eligible-endpoint-actions-A"]').exists()).toBe(true)
+    expect(userWrapper.find('[data-testid="playground-goto-admin-catalog-A"]').exists()).toBe(false)
+    await userWrapper.get('[data-testid="playground-goto-byok-A"]').trigger('click')
+    expect(userWrapper.emitted('navigate')).toEqual([['/byok']])
+
+    const adminWrapper = mount(PlaygroundRunPane, {
+      props: {
+        sideKey: 'A',
+        config: sideConfig,
+        session,
+        isZh: true,
+        isAdmin: true
+      }
+    })
+
+    await adminWrapper.get('[data-testid="playground-goto-admin-catalog-A"]').trigger('click')
+    expect(adminWrapper.emitted('navigate')).toEqual([['/admin/channels/pricing']])
+  })
+})

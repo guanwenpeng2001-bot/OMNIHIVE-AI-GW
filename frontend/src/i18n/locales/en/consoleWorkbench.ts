@@ -25,6 +25,11 @@ export default {
     ownedGroupLabel: 'My Project Keys',
     actAsGroupLabel: 'Run on behalf of owner (requires payer)',
   },
+  playgroundErrors: {
+    noEligibleEndpointHint: 'Check model catalog publication, connection verification, or switch protocol/model.',
+    gotoByokAction: 'Verify Connections (BYOK)',
+    gotoAdminCatalogAction: 'Open Model Catalog & Pricing',
+  },
   playgroundDiagnostics: {
     title: 'Diagnostics Inspector',
     expandDrawer: 'Show Inspector',

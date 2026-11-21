@@ -20,11 +20,13 @@ const props = withDefaults(
     compareMode?: boolean
     inspected?: boolean
     isZh?: boolean
+    isAdmin?: boolean
   }>(),
   {
     compareMode: false,
     inspected: false,
-    isZh: false
+    isZh: false,
+    isAdmin: false
   }
 )
 
@@ -34,6 +36,7 @@ const emit = defineEmits<{
   recover: []
   'query-status': []
   inspect: []
+  navigate: [path: string]
   'inject-tool-response': [payload: { toolCallId: string; name: string }]
 }>()
 
@@ -240,6 +243,35 @@ function triggerToolResponse(tc: PlaygroundToolCallView): void {
           session.status === 'disconnected_recoverable' ? emit('recover') : emit('query-status')
         "
       />
+
+      <div
+        v-if="session.errorNotice?.reason === 'NO_ELIGIBLE_ENDPOINT'"
+        :data-testid="`no-eligible-endpoint-actions-${sideKey}`"
+        class="flex flex-wrap items-center justify-between gap-2 rounded-[var(--oh-r-md,8px)] border border-dashed border-[var(--oh-border-strong,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-3 py-2 text-xs"
+      >
+        <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+          {{ t('playgroundErrors.noEligibleEndpointHint') }}
+        </span>
+        <div class="flex flex-wrap items-center gap-1.5">
+          <Button
+            :data-testid="`playground-goto-byok-${sideKey}`"
+            variant="secondary"
+            size="xs"
+            @click="emit('navigate', '/byok')"
+          >
+            {{ t('playgroundErrors.gotoByokAction') }}
+          </Button>
+          <Button
+            v-if="isAdmin"
+            :data-testid="`playground-goto-admin-catalog-${sideKey}`"
+            variant="outline-accent"
+            size="xs"
+            @click="emit('navigate', '/admin/channels/pricing')"
+          >
+            {{ t('playgroundErrors.gotoAdminCatalogAction') }}
+          </Button>
+        </div>
+      </div>
 
       <div
         v-if="session.status === 'disconnected_recoverable' && session.idempotencyKey"
