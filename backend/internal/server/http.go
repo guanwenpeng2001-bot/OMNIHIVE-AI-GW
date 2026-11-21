@@ -77,10 +77,6 @@ func ProvideRouter(
 	redisClient *redis.Client,
 	db *sql.DB,
 ) *gin.Engine {
-	if cfg.Server.Mode == "release" {
-		gin.SetMode(gin.ReleaseMode)
-	}
-
 	r := gin.New()
 	r.Use(middleware2.Recovery())
 	configureTrustedProxies(r, cfg.Server)
