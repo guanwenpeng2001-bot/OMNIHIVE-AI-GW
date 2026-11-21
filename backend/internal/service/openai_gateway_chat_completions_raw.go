@@ -682,7 +682,11 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	observer.ObserveOpenAI(respBody, strings.TrimSpace(gjson.GetBytes(respBody, "type").String()))
 
 	var usage OpenAIUsage
-	if parsedUsage, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
+	var observation *TokenUsageObservation
+	if account.Platform == PlatformOpenAI {
+		observation = &TokenUsageObservation{}
+	}
+	if parsedUsage, ok := extractObservedOpenAIUsage(respBody, observation); ok {
 		usage = parsedUsage
 	}
 	if (account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter) && !mistralChatUsageKnown(respBody) {
@@ -718,6 +722,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	return &OpenAIForwardResult{
 		RequestID:                     requestID,
 		UpstreamHeaders:               resp.Header,
+		TokenUsageObservation:         observation,
 		Usage:                         usage,
 		Model:                         originalModel,
 		BillingModel:                  billingModel,

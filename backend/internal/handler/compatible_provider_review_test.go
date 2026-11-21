@@ -43,8 +43,10 @@ func compatibleReviewAccount(base string) service.Account {
 }
 func compatibleReviewHandler(t *testing.T, base string) (*OpenAIGatewayHandler, *service.Group, *hunyuanSTTReceiptRepository, *cursorRouteUsageRepo) {
 	t.Helper()
-	cfg := compatibleReviewConfig()
-	account := compatibleReviewAccount(base)
+	return reviewHandlerForAccount(t, compatibleReviewAccount(base), compatibleReviewConfig())
+}
+func reviewHandlerForAccount(t *testing.T, account service.Account, cfg *config.Config) (*OpenAIGatewayHandler, *service.Group, *hunyuanSTTReceiptRepository, *cursorRouteUsageRepo) {
+	t.Helper()
 	accounts := &geminiReviewAccountRepo{openAIWSUsageHandlerAccountRepoStub: openAIWSUsageHandlerAccountRepoStub{account: account}}
 	receipts := newHunyuanSTTReceiptRepository()
 	usage := &cursorRouteUsageRepo{}
@@ -54,7 +56,7 @@ func compatibleReviewHandler(t *testing.T, base string) (*OpenAIGatewayHandler, 
 	t.Cleanup(billing.Stop)
 	handler := NewOpenAIGatewayHandler(gateway, service.NewConcurrencyService(&fakeConcurrencyCache{}), billing, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg)
 	inputPrice, outputPrice := 0.5, 1.0
-	group := &service.Group{ID: 3, Platform: "fixture-review", Status: service.StatusActive, Hydrated: true, RateMultiplier: 1, ModelPricing: []service.ChannelModelPricing{{Models: []string{"fixture-model"}, BillingMode: service.BillingModeToken, InputPrice: &inputPrice, OutputPrice: &outputPrice}}}
+	group := &service.Group{ID: 3, Platform: account.Platform, Status: service.StatusActive, Hydrated: true, RateMultiplier: 1, ModelPricing: []service.ChannelModelPricing{{Models: []string{"fixture-model"}, BillingMode: service.BillingModeToken, InputPrice: &inputPrice, OutputPrice: &outputPrice}}}
 	return handler, group, receipts, usage
 }
 func compatibleReviewReply(protocol, presence string, stream bool) string {
@@ -353,4 +355,42 @@ func TestCompatibleReviewFinishReasonIsTerminalWithoutDone(t *testing.T) {
 		require.Equal(t, service.UsageSettlementNeedsReview, receipt.State)
 	}
 	require.Zero(t, receipts.settles)
+}
+
+func TestNativeChatEmptyBodyReview(t *testing.T) {
+	for _, tt := range []struct {
+		name, body string
+		state      service.UsageSettlementState
+	}{
+		{"empty", "", service.UsageSettlementNeedsReview},
+		{"partial", `{"usage":{"prompt_tokens":0}}`, service.UsageSettlementNeedsReview},
+		{"wrapped_zero", `{"data":{"usage":{"prompt_tokens":0,"completion_tokens":0}}}`, service.UsageSettlementSettled},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/v1/chat/completions" {
+					t.Errorf("unexpected upstream path %s", r.URL.Path)
+				}
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer upstream.Close()
+			account := compatibleReviewAccount(upstream.URL + "/v1")
+			account.Platform = service.PlatformOpenAI
+			account.Extra["openai_responses_supported"] = false
+			handler, group, receipts, _ := reviewHandlerForAccount(t, account, compatibleReviewConfig())
+			client, _ := requestPlanHTTPContext("/v1/chat/completions", `{"model":"fixture-model","messages":[{"role":"user","content":"hi"}]}`, group)
+			handler.ChatCompletions(client)
+			require.Len(t, receipts.receipts, 1)
+			for _, receipt := range receipts.receipts {
+				require.Equal(t, tt.state, receipt.State)
+			}
+			if tt.state == service.UsageSettlementNeedsReview {
+				require.Zero(t, receipts.settles)
+			} else {
+				require.Equal(t, 1, receipts.settles)
+			}
+			require.Zero(t, receipts.debit)
+		})
+	}
 }
