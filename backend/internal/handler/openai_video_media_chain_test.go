@@ -48,6 +48,8 @@ func newOpenAIVideoMediaChainHandler(t *testing.T, server *httptest.Server) (*Op
 	repo := newGatewayResourceWiringRepo()
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	cfg.Security.URLAllowlist.AllowPrivateHosts = true
+	cfg.Security.URLAllowlist.UpstreamHosts = []string{"127.0.0.1"}
 	cfg.Gateway.Scheduling.StickySessionWaitTimeout = 20 * time.Millisecond
 	cfg.Gateway.Scheduling.StickySessionMaxWaiting = 3
 	concurrency := service.NewConcurrencyService(&grokMediaSlotsCache{accounts: map[string]int64{}, users: map[string]int64{}})

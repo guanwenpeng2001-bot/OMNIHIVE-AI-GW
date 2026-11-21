@@ -26,6 +26,7 @@ import (
 func specialAuthHandler(t *testing.T, account service.Account, transport service.HTTPUpstream) (*OpenAIGatewayHandler, *service.Group, *hunyuanSTTReceiptRepository, *cursorRouteUsageRepo) {
 	t.Helper()
 	cfg := compatibleReviewConfig()
+	cfg.Security.URLAllowlist.UpstreamHosts = append(cfg.Security.URLAllowlist.UpstreamHosts, "api.githubcopilot.com", "inference-api.nousresearch.com")
 	accounts := &geminiReviewAccountRepo{openAIWSUsageHandlerAccountRepoStub: openAIWSUsageHandlerAccountRepoStub{account: account}}
 	receipts := newHunyuanSTTReceiptRepository()
 	usage := &cursorRouteUsageRepo{}
@@ -252,6 +253,7 @@ func TestCopilotNousSavedProbeAndCatalog(t *testing.T) {
 		}))
 		defer upstream.Close()
 		cfg := compatibleReviewConfig()
+		cfg.Security.URLAllowlist.UpstreamHosts = append(cfg.Security.URLAllowlist.UpstreamHosts, "api.githubcopilot.com", "inference-api.nousresearch.com")
 		account := specialHandlerAccount(platform, upstream.URL+"/v1", "")
 		var transport service.HTTPUpstream = repository.NewHTTPUpstream(cfg)
 		catalogPath := "GET /v1/models"

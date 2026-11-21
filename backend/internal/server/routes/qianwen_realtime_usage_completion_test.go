@@ -71,7 +71,7 @@ func TestProductionQianwenRealtimeUsageCompletion(test *testing.T) {
 			transport := testassert.Type[*http.Transport](test, original).Clone()
 			transport.Proxy = nil
 			transport.DialTLSContext = func(dialContext context.Context, network, address string) (net.Conn, error) {
-				if address != "dashscope.aliyuncs.com:443" {
+				if address != "127.0.0.1:443" {
 					return nil, errors.New("unexpected external destination")
 				}
 				dialer := tls.Dialer{Config: testassert.Type[*http.Transport](test, provider.Client().Transport).TLSClientConfig}

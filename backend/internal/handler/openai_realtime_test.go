@@ -57,7 +57,7 @@ func TestOpenAIRealtimeHandlerFakeUpstream(t *testing.T) {
 		_, _, _ = connection.Read(ctx)
 	}))
 	defer provider.Close()
-	cfg := &config.Config{RunMode: config.RunModeSimple, Gateway: config.GatewayConfig{ConcurrencySlotTTLMinutes: 3}, Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{AllowInsecureHTTP: true}}}
+	cfg := &config.Config{RunMode: config.RunModeSimple, Gateway: config.GatewayConfig{ConcurrencySlotTTLMinutes: 3}, Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{AllowInsecureHTTP: true, AllowPrivateHosts: true, UpstreamHosts: []string{"127.0.0.1"}}}}
 	account := service.Account{ID: 7, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Concurrency: 2, Credentials: map[string]any{"api_key": "fixture", "base_url": provider.URL, "model_mapping": map[string]any{"gpt-realtime-2.1": "gpt-realtime-2.1"}}, AccountGroups: []service.AccountGroup{{AccountID: 7, GroupID: 3}}, Extra: map[string]any{service.UpstreamModelCatalogExtraKey: service.AccountModelCatalogSnapshot{Complete: true, Revision: 1, DiscoveredModels: []string{"gpt-realtime-2.1"}, EligibleModels: []service.AccountCatalogModel{{ID: "gpt-realtime-2.1", Endpoints: []string{"realtime", "chat_completions"}, EvidenceKind: "fixture", EvidenceObservedAt: "2026-09-18T00:00:00Z"}}}}}
 	repository := &openAIWSUsageHandlerAccountRepoStub{account: account}
 	require.True(t, service.AccountSupportsResolvedModel(ctx, &account, "gpt-realtime-2.1", service.AccountModelBindingOptions{Endpoint: "realtime"}), "fixture must expose realtime binding")

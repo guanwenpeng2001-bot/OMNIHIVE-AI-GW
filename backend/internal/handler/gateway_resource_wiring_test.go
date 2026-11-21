@@ -279,6 +279,8 @@ func newGatewayResourceWiringHandler(t *testing.T, server *httptest.Server) (*Ga
 	gin.SetMode(gin.TestMode)
 	repo := newGatewayResourceWiringRepo()
 	cfg := &config.Config{RunMode: config.RunModeSimple}
+	cfg.Security.URLAllowlist.AllowPrivateHosts = true
+	cfg.Security.URLAllowlist.UpstreamHosts = []string{"127.0.0.1"}
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 	cfg.Gateway.Scheduling.StickySessionWaitTimeout = 20 * time.Millisecond
 	cfg.Gateway.Scheduling.StickySessionMaxWaiting = 3

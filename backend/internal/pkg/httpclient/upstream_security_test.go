@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -47,13 +48,19 @@ func TestSharedClientRejectsRedirectToPrivateAddress(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { targetCalls++ }))
 	defer target.Close()
 	origin := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		http.Redirect(writer, request, "http://private.invalid/", http.StatusFound)
+		http.Redirect(writer, request, strings.Replace(target.URL, "127.0.0.1", "private.invalid", 1), http.StatusFound)
 	}))
 	defer origin.Close()
 	client, err := buildClient(Options{AllowPrivateHosts: true, PrivateHosts: []string{"127.0.0.1"}})
 	require.NoError(t, err)
 	defer client.CloseIdleConnections()
-	response, err := client.Get(origin.URL)
+	ctx := WithPublicIPLookup(t.Context(), func(_ context.Context, _, host string) ([]net.IP, error) {
+		require.Equal(t, "private.invalid", host)
+		return []net.IP{net.ParseIP("127.0.0.1")}, nil
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, origin.URL, nil)
+	require.NoError(t, err)
+	response, err := client.Do(req)
 	if response != nil {
 		_ = response.Body.Close()
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
@@ -88,7 +89,7 @@ func (repository *realtimeRouteChannels) GetGroupPlatforms(context.Context, []in
 func realtimeProductionRouter(test *testing.T, account service.Account, groupPlatform, publicModel, targetModel, channelModel string, jobs service.UpstreamJobRepository, upstream ...service.HTTPUpstream) *gin.Engine {
 	test.Helper()
 	gin.SetMode(gin.TestMode)
-	cfg := &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{AllowInsecureHTTP: true}}, RunMode: config.RunModeSimple, Gateway: config.GatewayConfig{ConcurrencySlotTTLMinutes: 3, MaxBodySize: 1 << 20, TextMaxBodySize: 1 << 20}}
+	cfg := &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{AllowInsecureHTTP: true, AllowPrivateHosts: true, UpstreamHosts: []string{"127.0.0.1", "dashscope.aliyuncs.com"}}}, RunMode: config.RunModeSimple, Gateway: config.GatewayConfig{ConcurrencySlotTTLMinutes: 3, MaxBodySize: 1 << 20, TextMaxBodySize: 1 << 20}}
 	repository := &realtimeRouteAccounts{account: account}
 	var channels *service.ChannelService
 	if channelModel != "" {
@@ -115,6 +116,15 @@ func realtimeProductionRouter(test *testing.T, account service.Account, groupPla
 	}
 	router := gin.New()
 	RegisterGatewayRoutes(router, &handler.Handlers{Gateway: &handler.GatewayHandler{}, OpenAIGateway: openAI}, middleware.APIKeyAuthMiddleware(func(request *gin.Context) {
+		if account.Platform == service.PlatformQianwen {
+			ctx := httpclient.WithPublicIPLookup(request.Request.Context(), func(_ context.Context, _, host string) ([]net.IP, error) {
+				if host != "dashscope.aliyuncs.com" {
+					return nil, errors.New("unexpected realtime host")
+				}
+				return []net.IP{net.ParseIP("127.0.0.1")}, nil
+			})
+			request.Request = request.Request.WithContext(ctx)
+		}
 		request.Set(string(middleware.ContextKeyAPIKey), key)
 		request.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1, Concurrency: 1})
 		request.Next()
@@ -406,7 +416,7 @@ func TestProductionQianwenRealtimeNativeAndAliasWire(test *testing.T) {
 			transport := testassert.Type[*http.Transport](test, originalTransport).Clone()
 			transport.Proxy = nil
 			transport.DialTLSContext = func(dialContext context.Context, network, address string) (net.Conn, error) {
-				if address != "dashscope.aliyuncs.com:443" {
+				if address != "127.0.0.1:443" {
 					return nil, errors.New("unexpected external socket destination")
 				}
 				dialer := tls.Dialer{Config: testassert.Type[*http.Transport](test, provider.Client().Transport).TLSClientConfig}
