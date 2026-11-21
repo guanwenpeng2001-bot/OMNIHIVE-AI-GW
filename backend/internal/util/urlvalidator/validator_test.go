@@ -116,3 +116,11 @@ func TestValidateResolvedIPRespectsCallerContext(t *testing.T) {
 		}
 	}
 }
+
+func TestRejectAmbiguousNumericHost(t *testing.T) {
+	for _, host := range []string{"2130706433", "0177.0.0.1", "127.1", "0x7f000001", "08.08.08.08", "169.254.169.254", "::1", "fd00:ec2::254"} {
+		if !IsBlockedHost(host) {
+			t.Errorf("expected blocked host %q", host)
+		}
+	}
+}

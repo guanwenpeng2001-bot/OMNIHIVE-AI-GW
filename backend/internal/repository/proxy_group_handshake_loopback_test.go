@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -78,7 +79,7 @@ func TestProxyGroupTLSLoopbackDiscoveryAlternatesAndSticks(t *testing.T) {
 	healthy := makeProxy(false, &healthyConnects)
 	defer healthy.Close()
 	group := &service.ProxyGroup{ID: 7, WorkspaceID: 1, Status: service.StatusActive, FallbackMode: service.FallbackModeNone}
-	upstream := NewHTTPUpstream(nil).(*httpUpstreamService)
+	upstream := NewHTTPUpstream(loopbackUpstreamConfig()).(*httpUpstreamService)
 	for index, raw := range []string{failed.URL, healthy.URL} {
 		u, _ := url.Parse(raw)
 		port, _ := strconv.Atoi(u.Port())
@@ -86,7 +87,7 @@ func TestProxyGroupTLSLoopbackDiscoveryAlternatesAndSticks(t *testing.T) {
 		group.Members = append(group.Members, service.ProxyGroupMember{GroupID: 7, WorkspaceID: 1, ProxyID: p.ID, Proxy: p})
 		entry, err := upstream.getOrCreateClient(p.URL(), 91, 1)
 		require.NoError(t, err)
-		transport := entry.client.Transport.(*http.Transport)
+		transport := entry.client.Transport.(*httpclient.PublicTransport).Base
 		transport.TLSClientConfig = origin.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
 		transport.DisableKeepAlives = true
 		defer transport.CloseIdleConnections()

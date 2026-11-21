@@ -117,6 +117,7 @@ func TestCopilotNousReferencedBulkBoundaryPostgres(t *testing.T) {
 			cfg := &config.Config{}
 			cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 			cfg.Security.URLAllowlist.AllowPrivateHosts = true
+			cfg.Security.URLAllowlist.UpstreamHosts = []string{"127.0.0.1"}
 			probe := service.NewAccountTestService(fixture.accounts, nil, nil, nil, nil, NewHTTPUpstream(cfg), cfg, nil)
 			result := probe.ProbeAccount(fixture.ctx, service.AccountProbeInput{AccountID: account.ID, ModelID: "fixture-model"}, func(service.TestEvent) {})
 			require.True(t, result.Success, result.Error)

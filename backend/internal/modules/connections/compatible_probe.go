@@ -52,14 +52,13 @@ func (p compatibleEndpointProber) ProbeConnection(ctx context.Context, account *
 	if p.policy.Enabled {
 		opts.AllowedHosts = p.policy.UpstreamHosts
 	}
-	allowHTTP := !p.policy.Enabled && p.policy.AllowInsecureHTTP
-	base, err := urlvalidator.ValidateHTTPURL(base, allowHTTP, opts)
+	base, err := urlvalidator.ValidateHTTPURL(base, p.policy.AllowInsecureHTTP, opts)
 	if err != nil {
 		return failed
 	}
 	shared, err := httpclient.GetClient(httpclient.Options{
 		Timeout: compatibleProbeTimeout, ProxyURL: proxy,
-		ValidateResolvedIP: true, AllowPrivateHosts: p.policy.AllowPrivateHosts,
+		ValidateResolvedIP: true, AllowPrivateHosts: p.policy.AllowPrivateHosts, PrivateHosts: p.policy.UpstreamHosts,
 	})
 	if err != nil {
 		return failed

@@ -10,6 +10,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log"
+	"net/http"
+	"sync"
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/wire"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
@@ -53,10 +58,6 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/routes"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/redis/go-redis/v9"
-	"log"
-	"net/http"
-	"sync"
-	"time"
 )
 
 import (
@@ -254,7 +255,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	adminUserHandler := admin.NewUserHandler(adminService, concurrencyService, serviceUserPlatformQuotaRepository, billingCache, totpService, userService, settingService)
 	groupCapacityService := service.NewGroupCapacityService(accountRepository, groupRepository, concurrencyService, sessionLimitCache, rpmCacheImpl)
 	groupHandler := admin.NewGroupHandlerWithConfig(adminService, dashboardService, groupCapacityService, cfg)
-	cursorGatewayService := service.ProvideCursorGatewayService(cursorSessionProvider, settingRepository, redisClient)
+	cursorGatewayService := service.ProvideCursorGatewayService(cursorSessionProvider, settingRepository, redisClient, cfg)
 	pluginRepository := repository.NewPluginRepository(db)
 	pluginHostInfo := providePluginHostInfo(buildInfo)
 	pluginManager := service.NewPluginManager(pluginRepository, aesEncryptor, cfg, pluginHostInfo)
@@ -320,7 +321,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	channelMonitorRequestTemplateHandler := admin.NewChannelMonitorRequestTemplateHandler(channelMonitorRequestTemplateService)
 	contentModerationRepository := repository.NewContentModerationRepository(db)
 	contentModerationHashCache := repository.NewContentModerationHashCache(redisClient)
-	contentModerationService := service.NewContentModerationService(settingRepository, contentModerationRepository, contentModerationHashCache, groupRepository, userRepository, proxyRepository, apiKeyAuthCacheInvalidator, emailService)
+	contentModerationService := service.ProvideContentModerationService(settingRepository, contentModerationRepository, contentModerationHashCache, groupRepository, userRepository, proxyRepository, apiKeyAuthCacheInvalidator, emailService, cfg)
 	contentModerationHandler := admin.NewContentModerationHandler(contentModerationService)
 	configManager := securityaudit.NewConfigManager(db, settingRepository, redisClient, aesEncryptor, cfg)
 	postgreSQLRepository := securityaudit.NewPostgreSQLRepository(db)

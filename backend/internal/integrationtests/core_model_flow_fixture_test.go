@@ -152,6 +152,7 @@ func newCoreFlowFixture(t *testing.T) *coreFlowFixture {
 	cfg := &config.Config{}
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 	cfg.Security.URLAllowlist.AllowPrivateHosts = true
+	cfg.Security.URLAllowlist.UpstreamHosts = []string{"127.0.0.1"}
 	cfg.Database.MaxOpenConns = 8
 	cfg.APIKeyAuth.L1Size = 32
 	cfg.APIKeyAuth.L1TTLSeconds = 60

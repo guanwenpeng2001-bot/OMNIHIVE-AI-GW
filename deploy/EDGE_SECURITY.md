@@ -36,17 +36,11 @@ These four defaults remain unchanged in the application and deployment examples:
 | --- | --- | --- |
 | `server.trusted_proxies` | `[]` | Only explicitly trusted proxy hops can supply client addresses. |
 | `security.url_allowlist.enabled` | `false` | No upstream host allowlist is enabled by default. |
-| `security.url_allowlist.allow_private_hosts` | `true` | Configured destinations can reach private/loopback services. |
-| `security.url_allowlist.allow_insecure_http` | `true` | HTTP destinations are allowed; credentials/content may travel without TLS. |
+| `security.url_allowlist.allow_private_hosts` | `false` | Private/loopback upstreams require opt-in and an exact entry in upstream_hosts. |
+| `security.url_allowlist.allow_insecure_http` | `false` | Use HTTPS for configurable upstream URLs by default. |
 
-An administrator can opt into restrictions using the existing settings. Changing examples
-does not silently impose HTTPS, forbid private networks, or override an existing policy.
-Prompt-audit endpoints intentionally support internal HTTP/private services: the operator
-must trust the endpoint owner and the service network, because prompts and configured
-credentials are sent there. In the baseline implementation the prompt-audit client uses
-its own direct dialer; the generic URL allowlist alone must not be represented as an
-already-enforced restriction on that path. Verify the deployed version's prompt-audit
-allowlist enforcement before relying on it; apply network egress rules when needed.
+Prompt-audit and gateway clients validate resolved addresses and pin the connection.
+The admin-configured hostname allowlist can further restrict destinations.
 
 CORS defaults to an empty allowed-origin list. Explicit `cors.allowed_origins: ["*"]`
 is supported; it allows browser access from arbitrary origins and disables credentialed

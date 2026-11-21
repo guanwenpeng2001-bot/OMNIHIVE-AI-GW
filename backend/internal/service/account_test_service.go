@@ -275,12 +275,9 @@ func (s *AccountTestService) validateUpstreamBaseURL(raw string) (string, error)
 	if s.cfg == nil {
 		return "", errors.New("config is not available")
 	}
-	if !s.cfg.Security.URLAllowlist.Enabled {
-		return urlvalidator.ValidateURLFormat(raw, s.cfg.Security.URLAllowlist.AllowInsecureHTTP)
-	}
-	normalized, err := urlvalidator.ValidateHTTPSURL(raw, urlvalidator.ValidationOptions{
+	normalized, err := urlvalidator.ValidateHTTPURL(raw, s.cfg.Security.URLAllowlist.AllowInsecureHTTP, urlvalidator.ValidationOptions{
 		AllowedHosts:     s.cfg.Security.URLAllowlist.UpstreamHosts,
-		RequireAllowlist: true,
+		RequireAllowlist: s.cfg.Security.URLAllowlist.Enabled,
 		AllowPrivate:     s.cfg.Security.URLAllowlist.AllowPrivateHosts,
 	})
 	if err != nil {
@@ -1853,7 +1850,7 @@ func (s *AccountTestService) testGrokRealtime(c *accountProbeContext, ctx contex
 
 	dialer := s.grokWSDialer
 	if dialer == nil {
-		dialer = newDefaultOpenAIWSClientDialer()
+		dialer = newDefaultOpenAIWSClientDialer(s.cfg)
 	}
 
 	dialCtx, cancel := context.WithTimeout(ctx, grokRealtimeProbeTimeout)
@@ -3298,7 +3295,7 @@ func (s *AccountTestService) ProbeConnection(ctx context.Context, account *Accou
 		result.Network = "failed"
 		return result
 	}
-	client, err := httpclient.GetClient(httpclient.Options{Timeout: 12 * time.Second, ProxyURL: proxy, ValidateResolvedIP: true, AllowPrivateHosts: private})
+	client, err := httpclient.GetClient(httpclient.Options{Timeout: 12 * time.Second, ProxyURL: proxy, ValidateResolvedIP: true, AllowPrivateHosts: private, PrivateHosts: policy.UpstreamHosts})
 	if err != nil {
 		result.Network = "failed"
 		return result

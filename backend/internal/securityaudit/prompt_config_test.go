@@ -193,7 +193,7 @@ func TestConfigManagerUndecryptableTokenStillFailsClosedForBlockingIntent(t *tes
 	require.NoError(t, manager.Reload(context.Background()))
 	require.Equal(t, ModeBlocking, manager.EffectiveMode())
 
-	service := &PromptService{config: manager, evaluator: NewGuardEvaluator(NewOpenAICompatibleScanner(), nil, nil)}
+	service := &PromptService{config: manager, evaluator: NewGuardEvaluator(localScanner(), nil, nil)}
 	decision, err := service.Evaluate(context.Background(), Request{
 		Protocol: "openai_chat_completions",
 		Body:     []byte(`{"messages":[{"role":"user","content":"hi"}]}`),

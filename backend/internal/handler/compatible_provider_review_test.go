@@ -35,6 +35,7 @@ func compatibleReviewConfig() *config.Config {
 	cfg.Default.RateMultiplier = 1
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 	cfg.Security.URLAllowlist.AllowPrivateHosts = true
+	cfg.Security.URLAllowlist.UpstreamHosts = []string{"127.0.0.1"}
 	return cfg
 }
 func compatibleReviewAccount(base string) service.Account {

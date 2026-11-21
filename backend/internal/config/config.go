@@ -832,6 +832,14 @@ type URLAllowlistConfig struct {
 	AllowInsecureHTTP bool `mapstructure:"allow_insecure_http"`
 }
 
+// PrivateUpstreamHosts returns the exact names eligible for private egress.
+func (c URLAllowlistConfig) PrivateUpstreamHosts() []string {
+	if !c.AllowPrivateHosts {
+		return nil
+	}
+	return c.UpstreamHosts
+}
+
 type ResponseHeaderConfig struct {
 	Enabled           bool     `mapstructure:"enabled"`
 	AdditionalAllowed []string `mapstructure:"additional_allowed"`
@@ -2012,7 +2020,7 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	}
 
 	if !cfg.Security.URLAllowlist.Enabled {
-		slog.Warn("security.url_allowlist.enabled=false; allowlist/SSRF checks disabled (minimal format validation only).")
+		slog.Warn("security.url_allowlist.enabled=false; upstream hostname allowlist disabled; public address policy still applies.")
 	}
 	if !cfg.Security.ResponseHeaders.Enabled {
 		slog.Warn("security.response_headers.enabled=false; configurable header filtering disabled (default allowlist only).")
@@ -2138,8 +2146,8 @@ func setDefaults() {
 		"raw.githubusercontent.com",
 	})
 	viper.SetDefault("security.url_allowlist.crs_hosts", []string{})
-	viper.SetDefault("security.url_allowlist.allow_private_hosts", true)
-	viper.SetDefault("security.url_allowlist.allow_insecure_http", true)
+	viper.SetDefault("security.url_allowlist.allow_private_hosts", false)
+	viper.SetDefault("security.url_allowlist.allow_insecure_http", false)
 	viper.SetDefault("security.response_headers.enabled", true)
 	viper.SetDefault("security.response_headers.additional_allowed", []string{})
 	viper.SetDefault("security.response_headers.force_remove", []string{})

@@ -160,7 +160,7 @@ dependencies and draining state. Caddy uses readiness; a dependency outage shoul
 the instance from traffic without triggering a liveness restart loop.
 
 Configure `server.trusted_proxies` for the connecting reverse proxy. Outbound defaults are
-`url_allowlist.enabled=false`, `allow_private_hosts=true`, `allow_insecure_http=true`.
+`url_allowlist.enabled=false`, `allow_private_hosts=false`, `allow_insecure_http=false`.
 See `deploy/EDGE_SECURITY.md` for their effects, optional restrictions, prompt-audit
 private endpoints, and the explicitly configured CORS wildcard behavior.
 

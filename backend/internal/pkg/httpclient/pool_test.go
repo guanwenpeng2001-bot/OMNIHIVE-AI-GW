@@ -128,7 +128,7 @@ func TestBuildClientPrivateHostPolicy(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
 	defer server.Close()
 	for _, allow := range []bool{false, true} {
-		client, err := buildClient(Options{ValidateResolvedIP: true, AllowPrivateHosts: allow})
+		client, err := buildClient(Options{ValidateResolvedIP: true, AllowPrivateHosts: allow, PrivateHosts: []string{"127.0.0.1"}})
 		require.NoError(t, err)
 		defer client.CloseIdleConnections()
 		resp, err := client.Get(server.URL)
@@ -274,4 +274,41 @@ func TestPublicTransportRejectsWrongTLSIdentity(t *testing.T) {
 	_, err := (&http.Client{Transport: tr}).Get("https://wrong.example")
 	var hostnameErr x509.HostnameError
 	require.ErrorAs(t, err, &hostnameErr)
+}
+
+func TestDefaultPoolRejectsLocalDestination(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Error("unexpected dispatch") }))
+	defer server.Close()
+	client, err := buildClient(Options{})
+	require.NoError(t, err)
+	defer client.CloseIdleConnections()
+	resp, err := client.Get(server.URL)
+	if resp != nil {
+		resp.Body.Close()
+	}
+	require.ErrorContains(t, err, "not allowed")
+}
+
+func TestPrivateExceptionRequiresExactHost(t *testing.T) {
+	for _, hosts := range [][]string{nil, {"*.test"}, {"other.test"}} {
+		client, err := buildClient(Options{AllowPrivateHosts: true, PrivateHosts: hosts})
+		require.NoError(t, err)
+		ctx := WithPublicIPLookup(t.Context(), func(context.Context, string, string) ([]net.IP, error) { return []net.IP{net.ParseIP("10.0.0.1")}, nil })
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://upstream.test", nil)
+		require.NoError(t, err)
+		_, err = client.Do(req)
+		require.ErrorContains(t, err, "not allowed")
+		client.CloseIdleConnections()
+	}
+}
+
+func TestPrivateExceptionNormalizesHostPort(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer server.Close()
+	client, err := buildClient(Options{AllowPrivateHosts: true, PrivateHosts: []string{server.Listener.Addr().String()}})
+	require.NoError(t, err)
+	defer client.CloseIdleConnections()
+	response, err := client.Get(server.URL)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
 }

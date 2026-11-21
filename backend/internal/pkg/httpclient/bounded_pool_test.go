@@ -29,7 +29,7 @@ func TestSharedPoolCapacityExpiryAndActiveStream(t *testing.T) {
 	}))
 	defer server.Close()
 	defer close(release)
-	client, err := GetClient(Options{})
+	client, err := GetClient(loopbackOptions())
 	require.NoError(t, err)
 	response, err := client.Get(server.URL)
 	require.NoError(t, err)
@@ -87,6 +87,7 @@ func TestSharedPoolConnectionLimitAndKeyPrivacy(t *testing.T) {
 	key := buildClientKey(Options{ProxyURL: "http://user:password@proxy.example:8080"})
 	require.Len(t, key, 64)
 	require.NotContains(t, key, "password")
+	require.NotEqual(t, buildClientKey(Options{AllowPrivateHosts: true}), buildClientKey(Options{}))
 }
 
 func TestSharedPoolConnectionLimitQueuesAndCancels(t *testing.T) {
@@ -101,7 +102,9 @@ func TestSharedPoolConnectionLimitQueuesAndCancels(t *testing.T) {
 	}))
 	defer server.Close()
 	defer close(release)
-	client, err := buildClient(Options{MaxConnsPerHost: 1})
+	options := loopbackOptions()
+	options.MaxConnsPerHost = 1
+	client, err := buildClient(options)
 	require.NoError(t, err)
 	defer client.CloseIdleConnections()
 	response, err := client.Get(server.URL)
@@ -114,4 +117,8 @@ func TestSharedPoolConnectionLimitQueuesAndCancels(t *testing.T) {
 	_, err = client.Do(request)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.EqualValues(t, 1, calls.Load())
+}
+
+func loopbackOptions() Options {
+	return Options{AllowPrivateHosts: true, PrivateHosts: []string{"127.0.0.1"}}
 }

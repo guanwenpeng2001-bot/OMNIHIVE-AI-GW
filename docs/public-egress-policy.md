@@ -47,9 +47,8 @@ IPv4 普通单播仍按特殊用途排除法判断，不维护实时 BGP/RIR 所
   备用地址也只能来自同一已验证集合。域名 Host、SNI、证书身份以及响应关联的原始 URL 保持原有逻辑。
 - 字面量 IP 不交给自定义 resolver 改写；request-local resolver 的返回值仍需完整验证。
 - `ValidateResolvedIP` 只是预检，不能单独消除 TOCTOU；实际连接必须继续经过带 pinning 的通道。
-- `AllowPrivate` / `AllowPrivateHosts`、域名白名单、通配规则、格式校验模式以及是否启用 URL 策略均未重定义。
-  显式私网授权仍允许可信 Kaggle/内部上游；普通域名白名单本身不会跳过公网检查。
-  标记为 public-only 的请求仍使用隔离的严格连接池，即使全局允许私网。
+- 租户上游默认只连公网。允许内网需要管理员同时开启 `allow_private_hosts`，并在 `upstream_hosts` 中填写准确主机名或 IP。通配符只用于普通主机名白名单。私网例外仍在每跳解析、验证并固定地址。图片与遥测等强制公网路径使用独立连接池。
+- 十进制整数、八进制以及其他非标准 IPv4 写法均在解析前拒绝。
 - 用户配置的可信代理和自定义 dialer 仍是信任边界。代理端点可以在内网；受限目标以验证后的 IP
   传给 HTTP absolute URI、CONNECT、SOCKS。不能以本地 socket 的代理 IP 替代目标策略。
 - Qianwen 已有的限定结果域名、已知 fake-IP 前缀、固定 DoH bootstrap 和账户路由规则保留。
