@@ -87,7 +87,7 @@ func startChild(t *testing.T, mode, source string, dsn *url.URL, redisPort, pric
 	cmd := exec.Command(exe, "-test.run=^TestRuntimeProcessEntry$")
 	cmd.Dir = dir
 	password, _ := dsn.User.Password()
-	cmd.Env = append(os.Environ(), "RUNTIME_MODE_CHILD=1", "RUNTIME_MODE_FLAG="+roleFlag, "OMNIHIVE_RUNTIME_MODE="+roleEnv,
+	cmd.Env = append(os.Environ(), "TOTP_ENCRYPTION_KEY="+strings.Repeat("4f", 32), "RUNTIME_MODE_CHILD=1", "RUNTIME_MODE_FLAG="+roleFlag, "OMNIHIVE_RUNTIME_MODE="+roleEnv,
 		"CONFIG_FILE="+cfg, "OMNIHIVE_DATA_DIR="+dir, "SKIP_SETUP=true", "SERVER_HOST=127.0.0.1", "SERVER_PORT="+strconv.Itoa(port), "DATABASE_HOST="+dsn.Hostname(), "DATABASE_PORT="+dsn.Port(), "DATABASE_USER="+dsn.User.Username(), "DATABASE_PASSWORD="+password, "DATABASE_DBNAME=job_test", "DATABASE_SSLMODE=disable", "REDIS_HOST=127.0.0.1", "REDIS_PORT="+redisPort, "LOG_OUTPUT_TO_FILE=false", "PRICING_DATA_DIR="+pricing, "PRICING_HASH_URL=", "PRICING_REMOTE_URL=https://127.0.0.1:1/prices", "PLUGINS_ROOT_DIR="+dir)
 	cmd.Env = append(cmd.Env, "OMNIHIVE_RESTORE_JOURNAL_DSN=", "OMNIHIVE_RESTORE_ISOLATED_DSN=")
 	cmd.Env = append(cmd.Env, overrides...)
@@ -247,7 +247,7 @@ func TestRuntimeSplitProcesses(t *testing.T) {
 			control.request(t, 200, "GET", path, token, "")
 		}
 		for _, path := range []string{"/api/v1/public/rankings", "/api/v1/model-plaza/rankings"} {
-			control.request(t, 503, "GET", path, "", "")
+			require.Contains(t, control.request(t, 200, "GET", path, "", ""), `"source":"channel_monitor_v2_metrics_1m"`)
 		}
 	}
 	retained(all, all)

@@ -142,10 +142,12 @@ jobs:
           set -eu
           # job_test already exists (POSTGRES_DB); add the per-suite databases
           # so no DSN-gated suite falls back to a skip.
-          for db in stats_test billing_audit_test backup_data_test be09_rehearsal_test be09_journal_test fix3_batch_test model_access_test ops_billing_backlog_test scheduler_recovery_test scheduler_resources_test prompt_audit_test; do
+          for db in stats_test billing_audit_test backup_data_test be09_journal_test fix3_batch_test model_access_test ops_billing_backlog_test scheduler_recovery_test scheduler_resources_test prompt_audit_test; do
             docker exec "${{ job.services.postgres.id }}" \
               createdb -U omni_fixture "$db"
           done
+          # Rehearsal requires a different PostgreSQL system identifier.
+          docker exec "${{ job.services.postgres_ipgroup.id }}" createdb -U codex_test_admin be09_rehearsal_test
           # backup_test exercises a real pg_dump/psql cycle against PostgreSQL
           # 17; the distro client (16) refuses to dump a newer server.
           sudo apt-get update -qq
@@ -222,7 +224,7 @@ jobs:
           COMPATIBLE_PROVIDER_TEST_POSTGRES_DSN: postgres://omni_fixture@127.0.0.1:55480/job_test?sslmode=disable
           PROMPT_AUDIT_TEST_POSTGRES_DSN: postgres://omni_fixture@127.0.0.1:55480/prompt_audit_test?sslmode=disable
           QUOTES_POSTGRES_DSN: postgres://omni_fixture@127.0.0.1:55480/job_test?sslmode=disable
-          BE09_TEST_ISOLATED_DSN: postgres://omni_fixture@127.0.0.1:55480/be09_rehearsal_test?sslmode=disable
+          BE09_TEST_ISOLATED_DSN: postgres://codex_test_admin:postgres@127.0.0.1:55439/be09_rehearsal_test?sslmode=disable
           BE09_TEST_JOURNAL_DSN: postgres://omni_fixture@127.0.0.1:55480/be09_journal_test?sslmode=disable
           MIGRATION_INTEGRATION_TEST_DSN: postgres://omni_fixture@127.0.0.1:55486/job_test?sslmode=disable
           RETIREMENT_INTEGRATION_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/job_test?sslmode=disable
@@ -272,7 +274,7 @@ jobs:
           COMPATIBLE_PROVIDER_TEST_POSTGRES_DSN: postgres://omni_fixture@127.0.0.1:55480/job_test?sslmode=disable
           PROMPT_AUDIT_TEST_POSTGRES_DSN: postgres://omni_fixture@127.0.0.1:55480/prompt_audit_test?sslmode=disable
           QUOTES_POSTGRES_DSN: postgres://omni_fixture@127.0.0.1:55480/job_test?sslmode=disable
-          BE09_TEST_ISOLATED_DSN: postgres://omni_fixture@127.0.0.1:55480/be09_rehearsal_test?sslmode=disable
+          BE09_TEST_ISOLATED_DSN: postgres://codex_test_admin:postgres@127.0.0.1:55439/be09_rehearsal_test?sslmode=disable
           BE09_TEST_JOURNAL_DSN: postgres://omni_fixture@127.0.0.1:55480/be09_journal_test?sslmode=disable
           MIGRATION_INTEGRATION_TEST_DSN: postgres://omni_fixture@127.0.0.1:55486/job_test?sslmode=disable
           RETIREMENT_INTEGRATION_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/job_test?sslmode=disable
@@ -298,7 +300,7 @@ jobs:
         run: |
           set -e
           reset_db() {
-            for db in job_test stats_test billing_audit_test backup_data_test be09_rehearsal_test be09_journal_test model_access_test ops_billing_backlog_test scheduler_recovery_test scheduler_resources_test prompt_audit_test; do
+            for db in job_test stats_test billing_audit_test backup_data_test be09_journal_test model_access_test ops_billing_backlog_test scheduler_recovery_test scheduler_resources_test prompt_audit_test; do
               docker exec "${{ job.services.postgres.id }}" psql -U omni_fixture -d template1 -v ON_ERROR_STOP=1 \
                 -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='${db}' AND pid<>pg_backend_pid()" >/dev/null
               docker exec "${{ job.services.postgres.id }}" dropdb -U omni_fixture --if-exists "$db"

@@ -26,7 +26,21 @@ func TestBackfillQuarantinesBeforeReplacingInline(t *testing.T) {
 	require.NoError(t, e)
 	var w, id, unsafe int64
 	require.NoError(t, db.QueryRowContext(ctx, "INSERT INTO workspaces(name) VALUES('migration fixture') RETURNING id").Scan(&w))
-	require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO accounts(workspace_id,name,platform,type,credentials) VALUES($1,'migrate','openai','apikey','{"api_key":"test-inline-credential"}') RETURNING id`, w).Scan(&id))
+	insertLegacy := func(name, credentials string) int64 {
+		t.Helper()
+		tx, err := db.BeginTx(ctx, nil)
+		require.NoError(t, err)
+		defer tx.Rollback()
+		var accountID int64
+		require.NoError(t, tx.QueryRowContext(ctx, `INSERT INTO accounts(workspace_id,name,platform,type) VALUES($1,$2,'openai','apikey') RETURNING id`, w, name).Scan(&accountID))
+		_, err = tx.ExecContext(ctx, `SELECT set_config('omnihive.account_secret_backfill',$1,true)`, accountID)
+		require.NoError(t, err)
+		_, err = tx.ExecContext(ctx, `UPDATE accounts SET credentials=$2 WHERE id=$1`, accountID, credentials)
+		require.NoError(t, err)
+		require.NoError(t, tx.Commit())
+		return accountID
+	}
+	id = insertLegacy("migrate", `{"api_key":"test-inline-credential"}`)
 	_, e = Batch(ctx, db, broken{enc}, 1000)
 	require.NoError(t, e)
 	var inline bool
@@ -34,7 +48,7 @@ func TestBackfillQuarantinesBeforeReplacingInline(t *testing.T) {
 	require.True(t, inline)
 	_, e = db.ExecContext(ctx, "DELETE FROM connection_migration_quarantine WHERE account_id=$1", id)
 	require.NoError(t, e)
-	require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO accounts(workspace_id,name,platform,type,credentials) VALUES($1,'unsafe','openai','apikey','{"api_key":"safe-test-only","base_url":"https://up.example/?token=review"}') RETURNING id`, w).Scan(&unsafe))
+	unsafe = insertLegacy("unsafe", `{"api_key":"safe-test-only","base_url":"https://up.example/?token=review"}`)
 	_, e = Batch(ctx, db, enc, 1000)
 	require.NoError(t, e)
 	var ref string
