@@ -85,9 +85,10 @@ const editProjectName = ref('')
 // Member grants modal
 const grantModalMember = ref<MemberDisplayRow | null>(null)
 const grantVersionInput = ref('1')
-const grantSelectedActions = ref<string[]>(['text.chat', 'usage.read'])
+const grantSelectedActions = ref<string[]>([])
 const grantSelectedProjects = ref<string[]>([])
 const grantLoading = ref(false)
+const grantLoadFailed = ref(false)
 const grantBusy = ref(false)
 const grantModalConflict = ref<CasConflictState | null>(null)
 
@@ -98,8 +99,10 @@ const memberMutationBusy = ref(false)
 const platformUsers = ref<Array<{ id: number; email: string; username?: string }>>([])
 const platformUsersTotal = ref<number | null>(null)
 const platformUsersLoading = ref(false)
+const platformUsersError = ref<string | null>(null)
 const platformUserSearchQuery = ref('')
 const platformUserDropdownOpen = ref(false)
+const selectedPlatformUser = ref<{ id: number; email: string; username?: string } | null>(null)
 let platformUsersRequestSeq = 0
 let platformUsersSearchTimer: ReturnType<typeof setTimeout> | null = null
 let platformUserBlurTimer: ReturnType<typeof setTimeout> | null = null
@@ -112,6 +115,7 @@ async function loadPlatformUsersDirectory(search = ''): Promise<void> {
   const reqSeq = ++platformUsersRequestSeq
   const trimmed = search.trim()
   platformUsersLoading.value = true
+  platformUsersError.value = null
   try {
     const res = await apiClient.get<{
       items?: Array<{ id: number; email: string; username?: string }>
@@ -130,8 +134,10 @@ async function loadPlatformUsersDirectory(search = ''): Promise<void> {
     const list = Array.isArray(res.data?.items) ? res.data.items : []
     platformUsers.value = list
     platformUsersTotal.value = typeof res.data?.total === 'number' ? res.data.total : list.length
-  } catch {
+  } catch (error) {
     if (reqSeq !== platformUsersRequestSeq) return
+    const err = classifyAsyncError(error, t('membersAccess.errors.searchUsersFailed'))
+    platformUsersError.value = err.message
     platformUsers.value = []
     platformUsersTotal.value = null
   } finally {
@@ -144,6 +150,10 @@ async function loadPlatformUsersDirectory(search = ''): Promise<void> {
 function handlePlatformUserSearchInput(value: string | number): void {
   const query = String(value ?? '')
   platformUserSearchQuery.value = query
+  newMemberUserId.value = ''
+  selectedPlatformUser.value = null
+  platformUsersRequestSeq++
+  platformUsersError.value = null
   platformUserDropdownOpen.value = true
   if (platformUsersSearchTimer) {
     clearTimeout(platformUsersSearchTimer)
@@ -152,6 +162,14 @@ function handlePlatformUserSearchInput(value: string | number): void {
     platformUsersSearchTimer = null
     void loadPlatformUsersDirectory(query)
   }, 250)
+}
+
+function handleMemberUserIdInput(value: string | number): void {
+  const raw = String(value ?? '')
+  newMemberUserId.value = raw
+  if (selectedPlatformUser.value && String(selectedPlatformUser.value.id) !== raw.trim()) {
+    selectedPlatformUser.value = null
+  }
 }
 
 function handlePlatformUserSearchFocus(): void {
@@ -171,9 +189,29 @@ function handlePlatformUserSearchBlur(): void {
 
 function selectPlatformUser(user: { id: number; email: string; username?: string }): void {
   newMemberUserId.value = String(user.id)
+  selectedPlatformUser.value = user
   platformUserSearchQuery.value = formatPlatformUserLabel(user)
   platformUserDropdownOpen.value = false
 }
+
+const canSubmitAddMember = computed(() => {
+  const trimmed = newMemberUserId.value.trim()
+  if (!trimmed) return false
+  const parsed = Number(trimmed)
+  return Number.isInteger(parsed) && parsed > 0
+})
+
+const NON_GRANTABLE_SERVER_ACTIONS = new Set([
+  'projects.create',
+  'members.grants.write',
+  'ops.export.configure',
+  'ops.restore.preview',
+  'ops.restore.execute',
+  'ops.incidents.publish',
+  'catalog.verify',
+  'catalog.publish',
+  'extensions.read'
+])
 
 const ACTION_CATALOG: ReadonlyArray<{ action: string; labelKey: string }> = [
   { action: 'text.chat', labelKey: 'membersAccess.actions.textChat' },
@@ -181,29 +219,87 @@ const ACTION_CATALOG: ReadonlyArray<{ action: string; labelKey: string }> = [
   { action: 'image.generate', labelKey: 'membersAccess.actions.imageGenerate' },
   { action: 'usage.read', labelKey: 'membersAccess.actions.usageRead' },
   { action: 'tasks.read', labelKey: 'membersAccess.actions.tasksRead' },
+  { action: 'tasks.create', labelKey: 'membersAccess.actions.tasksCreate' },
+  { action: 'tasks.cancel', labelKey: 'membersAccess.actions.tasksCancel' },
+  { action: 'tasks.retry', labelKey: 'membersAccess.actions.tasksRetry' },
+  { action: 'tasks.artifacts.read', labelKey: 'membersAccess.actions.tasksArtifactsRead' },
+  { action: 'tasks.artifacts.revoke', labelKey: 'membersAccess.actions.tasksArtifactsRevoke' },
   { action: 'projects.read', labelKey: 'membersAccess.actions.projectsRead' },
   { action: 'projects.edit', labelKey: 'membersAccess.actions.projectsEdit' },
+  { action: 'projects.delete', labelKey: 'membersAccess.actions.projectsDelete' },
   { action: 'models.read', labelKey: 'membersAccess.actions.modelsRead' },
   { action: 'keys.read', labelKey: 'membersAccess.actions.keysRead' },
   { action: 'keys.create', labelKey: 'membersAccess.actions.keysCreate' },
+  { action: 'keys.act_as', labelKey: 'membersAccess.actions.keysActAs' },
+  { action: 'credentials.byok.manage', labelKey: 'membersAccess.actions.credentialsByokManage' },
+  { action: 'credentials.read_metadata', labelKey: 'membersAccess.actions.credentialsReadMetadata' },
+  { action: 'credentials.rotate', labelKey: 'membersAccess.actions.credentialsRotate' },
+  { action: 'credentials.revoke', labelKey: 'membersAccess.actions.credentialsRevoke' },
+  { action: 'credentials.write', labelKey: 'membersAccess.actions.credentialsWrite' },
   { action: 'connections.read', labelKey: 'membersAccess.actions.connectionsRead' },
   { action: 'connections.edit', labelKey: 'membersAccess.actions.connectionsEdit' },
+  { action: 'connections.verify', labelKey: 'membersAccess.actions.connectionsVerify' },
+  { action: 'connections.activate', labelKey: 'membersAccess.actions.connectionsActivate' },
+  { action: 'pools.read', labelKey: 'membersAccess.actions.poolsRead' },
+  { action: 'pools.edit', labelKey: 'membersAccess.actions.poolsEdit' },
+  { action: 'pools.assign', labelKey: 'membersAccess.actions.poolsAssign' },
   { action: 'routing.read', labelKey: 'membersAccess.actions.routingRead' },
+  { action: 'routing.edit', labelKey: 'membersAccess.actions.routingEdit' },
+  { action: 'routing.simulate', labelKey: 'membersAccess.actions.routingSimulate' },
+  { action: 'routing.publish', labelKey: 'membersAccess.actions.routingPublish' },
   { action: 'requests.read', labelKey: 'membersAccess.actions.requestsRead' },
+  { action: 'requests.content.read', labelKey: 'membersAccess.actions.requestsContentRead' },
+  { action: 'requests.export', labelKey: 'membersAccess.actions.requestsExport' },
+  { action: 'requests.replay', labelKey: 'membersAccess.actions.requestsReplay' },
   { action: 'billing.read', labelKey: 'membersAccess.actions.billingRead' },
-  { action: 'playground.run', labelKey: 'membersAccess.actions.playgroundRun' }
+  { action: 'billing.ledger.read', labelKey: 'membersAccess.actions.billingLedgerRead' },
+  { action: 'billing.payers.read', labelKey: 'membersAccess.actions.billingPayersRead' },
+  { action: 'billing.budgets.write', labelKey: 'membersAccess.actions.billingBudgetsWrite' },
+  { action: 'billing.adjust', labelKey: 'membersAccess.actions.billingAdjust' },
+  { action: 'billing.export', labelKey: 'membersAccess.actions.billingExport' },
+  { action: 'billing.reconcile.read', labelKey: 'membersAccess.actions.billingReconcileRead' },
+  { action: 'billing.reconcile.write', labelKey: 'membersAccess.actions.billingReconcileWrite' },
+  { action: 'playground.read', labelKey: 'membersAccess.actions.playgroundRead' },
+  { action: 'playground.run', labelKey: 'membersAccess.actions.playgroundRun' },
+  { action: 'playground.cancel', labelKey: 'membersAccess.actions.playgroundCancel' },
+  { action: 'playground.raw', labelKey: 'membersAccess.actions.playgroundRaw' },
+  { action: 'audit.read', labelKey: 'membersAccess.actions.auditRead' },
+  { action: 'audit.export', labelKey: 'membersAccess.actions.auditExport' },
+  { action: 'audit.retention.write', labelKey: 'membersAccess.actions.auditRetentionWrite' },
+  { action: 'operations.read', labelKey: 'membersAccess.actions.operationsRead' }
 ]
 
+const ACTION_LABEL_KEY_BY_NAME = new Map(ACTION_CATALOG.map((item) => [item.action, item.labelKey]))
+
 const grantActionOptions = computed(() => {
-  const known = new Set(ACTION_CATALOG.map((item) => item.action))
-  const extras = grantSelectedActions.value
-    .filter((act) => !known.has(act))
+  const serverActions = projectAccess.value?.actions
+  if (!Array.isArray(serverActions)) {
+    return []
+  }
+  if (serverActions.includes('*')) {
+    return ACTION_CATALOG.map((item) => ({ action: item.action, label: t(item.labelKey) }))
+  }
+  const allowedGrantable = serverActions.filter((act) => !NON_GRANTABLE_SERVER_ACTIONS.has(act))
+  const allowedSet = new Set(allowedGrantable)
+  const catalogOptions = ACTION_CATALOG.filter((item) => allowedSet.has(item.action)).map((item) => ({
+    action: item.action,
+    label: t(item.labelKey)
+  }))
+  const extraOptions = allowedGrantable
+    .filter((act) => !ACTION_LABEL_KEY_BY_NAME.has(act))
+    .sort()
     .map((act) => ({ action: act, label: act }))
   return [
-    ...ACTION_CATALOG.map((item) => ({ action: item.action, label: t(item.labelKey) })),
-    ...extras
+    ...catalogOptions,
+    ...extraOptions
   ]
 })
+
+const grantableActionSet = computed(() => new Set(grantActionOptions.value.map((item) => item.action)))
+
+const outOfScopeMemberActions = computed(() =>
+  grantSelectedActions.value.filter((act) => !grantableActionSet.value.has(act))
+)
 
 const selectedWorkspace = computed(() =>
   workspaces.value.find((ws) => String(ws.id) === selectedWorkspaceId.value) ?? null
@@ -561,6 +657,7 @@ async function handleDeleteProject(project: IdentityProject): Promise<void> {
 async function loadMemberGrantsIntoModal(memberId: string): Promise<boolean> {
   if (!selectedWorkspaceId.value) return false
   grantLoading.value = true
+  grantLoadFailed.value = false
   try {
     const grants = await fetchMemberGrants(selectedWorkspaceId.value, memberId)
     if (grants) {
@@ -574,6 +671,7 @@ async function loadMemberGrantsIntoModal(memberId: string): Promise<boolean> {
       return true
     }
   } catch (error) {
+    grantLoadFailed.value = true
     const err = classifyAsyncError(
       error,
       t('membersAccess.errors.loadGrantsFailed')
@@ -593,7 +691,8 @@ function openGrantModal(member: MemberDisplayRow): void {
   grantModalMember.value = member
   grantVersionInput.value = member.grant_version || '1'
   grantSelectedProjects.value = projects.value.map((p) => p.id)
-  grantSelectedActions.value = ['text.chat', 'usage.read']
+  grantSelectedActions.value = []
+  grantLoadFailed.value = false
   conflictState.value = null
   grantModalConflict.value = null
   void loadMemberGrantsIntoModal(String(member.user_id))
@@ -632,7 +731,7 @@ async function handleSaveGrants(): Promise<void> {
       memberId,
       grantVersionInput.value,
       {
-        actions: grantSelectedActions.value,
+        actions: grantSelectedActions.value.filter((act) => grantableActionSet.value.has(act)),
         project_ids: grantSelectedProjects.value
       }
     )
@@ -717,6 +816,7 @@ async function handleAddMember(): Promise<void> {
   try {
     await workspacesAPI.setMember(wsId, userId, newMemberRole.value)
     newMemberUserId.value = ''
+    selectedPlatformUser.value = null
     platformUserSearchQuery.value = ''
     await loadWorkspaceDetails(selectedWorkspaceId.value)
     confirmedMessage.value = t('membersAccess.feedback.memberUpdatedMessage', {
@@ -949,12 +1049,31 @@ onUnmounted(() => {
               >
                 <p
                   v-if="platformUsersLoading"
+                  data-testid="platform-user-search-loading"
                   class="px-3 py-2 text-xs text-oh-muted"
                 >
                   {{ t('membersAccess.userPicker.searching') }}
                 </p>
+                <div
+                  v-else-if="platformUsersError"
+                  data-testid="platform-user-search-error"
+                  role="alert"
+                  class="flex items-center justify-between gap-2 px-3 py-2 text-xs text-oh-status-bad-fg"
+                >
+                  <span class="truncate">
+                    {{ t('membersAccess.userPicker.searchFailed', { message: platformUsersError }) }}
+                  </span>
+                  <button
+                    type="button"
+                    class="shrink-0 font-medium underline"
+                    @mousedown.prevent="loadPlatformUsersDirectory(platformUserSearchQuery)"
+                  >
+                    {{ t('membersAccess.userPicker.retrySearch') }}
+                  </button>
+                </div>
                 <p
                   v-else-if="platformUsers.length === 0"
+                  data-testid="platform-user-search-empty"
                   class="px-3 py-2 text-xs text-oh-muted"
                 >
                   {{ t('membersAccess.userPicker.noMatches') }}
@@ -989,12 +1108,13 @@ onUnmounted(() => {
             </div>
             <div class="w-36">
               <Input
-                v-model="newMemberUserId"
+                :model-value="newMemberUserId"
                 type="number"
                 data-testid="new-member-user-id-input"
                 :placeholder="t('membersAccess.userPicker.userIdPlaceholder')"
                 size="sm"
                 mono
+                @update:model-value="handleMemberUserIdInput"
               />
             </div>
             <div class="w-32">
@@ -1007,11 +1127,30 @@ onUnmounted(() => {
                 size="sm"
               />
             </div>
-            <Button type="submit" size="sm" variant="primary" :loading="memberMutationBusy" :disabled="!newMemberUserId">
+            <Button
+              type="submit"
+              size="sm"
+              variant="primary"
+              data-testid="add-member-submit-btn"
+              :loading="memberMutationBusy"
+              :disabled="!canSubmitAddMember"
+            >
               {{ t('membersAccess.userPicker.addOrUpdate') }}
             </Button>
           </form>
         </div>
+        <p
+          v-if="selectedPlatformUser"
+          data-testid="selected-platform-user-summary"
+          class="mb-3 rounded-oh-md border border-oh-subtle bg-oh-subtle/50 px-3 py-1.5 font-mono text-xs text-oh-primary"
+        >
+          {{
+            t('membersAccess.userPicker.selectedTarget', {
+              id: selectedPlatformUser.id,
+              email: selectedPlatformUser.email
+            })
+          }}
+        </p>
 
         <div
           v-if="filteredMembers.length === 0 && !hasActiveFilters"
@@ -1300,7 +1439,21 @@ onUnmounted(() => {
           <p class="text-xs font-semibold text-oh-secondary">
             {{ t('membersAccess.modals.capabilityActions') }}
           </p>
-          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 max-h-52 overflow-y-auto pr-1">
+          <p class="text-[11px] text-oh-muted">
+            {{ t('membersAccess.modals.grantScopeHint') }}
+          </p>
+          <p
+            v-if="grantActionOptions.length === 0"
+            data-testid="grant-actions-unavailable"
+            class="rounded-oh-md border border-oh-subtle bg-oh-subtle/50 px-3 py-2 text-xs text-oh-muted"
+          >
+            {{ t('membersAccess.modals.noGrantableActions') }}
+          </p>
+          <div
+            v-else
+            data-testid="grant-actions-grid"
+            class="grid grid-cols-1 gap-2 sm:grid-cols-2 max-h-52 overflow-y-auto pr-1"
+          >
             <Checkbox
               v-for="item in grantActionOptions"
               :key="item.action"
@@ -1308,6 +1461,24 @@ onUnmounted(() => {
               :label="`${item.label} (${item.action})`"
               @update:model-value="(v) => toggleGrantAction(item.action, Boolean(v))"
             />
+          </div>
+          <div
+            v-if="outOfScopeMemberActions.length > 0"
+            data-testid="grant-actions-out-of-scope"
+            class="rounded-oh-md border border-oh-subtle bg-oh-subtle/40 px-3 py-2 text-[11px] text-oh-muted space-y-1"
+          >
+            <p>{{ t('membersAccess.modals.outOfScopeActionsHint') }}</p>
+            <div class="flex flex-wrap gap-1.5">
+              <Badge
+                v-for="act in outOfScopeMemberActions"
+                :key="act"
+                tone="neutral"
+                variant="outline"
+                mono
+              >
+                {{ act }}
+              </Badge>
+            </div>
           </div>
         </div>
         <div v-if="projects.length > 0" class="space-y-2">
@@ -1328,7 +1499,7 @@ onUnmounted(() => {
           <Button variant="secondary" type="button" @click="grantModalMember = null">
             {{ t('membersAccess.modals.cancel') }}
           </Button>
-          <Button type="submit" variant="primary" :loading="grantBusy" :disabled="grantLoading">
+          <Button type="submit" variant="primary" :loading="grantBusy" :disabled="grantLoading || grantLoadFailed || grantActionOptions.length === 0">
             {{ t('membersAccess.modals.saveGrants') }}
           </Button>
         </div>

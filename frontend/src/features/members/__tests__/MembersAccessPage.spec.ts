@@ -126,7 +126,7 @@ describe('MembersAccessPage remote user search & i18n', () => {
   it('loads initial directory with page_size=20, supports debounced remote search, and selects a user beyond page 1', async () => {
     const wrapper = mount(MembersAccessPage, {
       props: { initialWorkspaceId: '1' },
-      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } },
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, Teleport: true } },
     })
     await flushPromises()
 
@@ -160,5 +160,160 @@ describe('MembersAccessPage remote user search & i18n', () => {
     await flushPromises()
 
     expect(mocks.workspacesSetMember).toHaveBeenCalledWith(1, 9981, 'member')
+  })
+
+  it('clears selected user ID and disables submit when search text changes after selecting user A (E2-1)', async () => {
+    const wrapper = mount(MembersAccessPage, {
+      props: { initialWorkspaceId: '1' },
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, Teleport: true } },
+    })
+    await flushPromises()
+
+    const searchInput = wrapper.get('[data-testid="platform-user-search-input"] input')
+    await searchInput.trigger('focus')
+    await searchInput.setValue('user9981@corp.io')
+    vi.advanceTimersByTime(260)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="platform-user-option-9981"]').trigger('mousedown')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="selected-platform-user-summary"]').text()).toContain('user9981@corp.io')
+    expect(wrapper.get('[data-testid="selected-platform-user-summary"]').text()).toContain('9981')
+    const submitBtn = wrapper.get('[data-testid="add-member-submit-btn"]')
+    expect(submitBtn.attributes('disabled')).toBeUndefined()
+
+    await searchInput.setValue('different-user')
+    await flushPromises()
+
+    const idInput = wrapper.get('[data-testid="new-member-user-id-input"] input')
+    expect((idInput.element as HTMLInputElement).value).toBe('')
+    expect(wrapper.find('[data-testid="selected-platform-user-summary"]').exists()).toBe(false)
+    expect(submitBtn.attributes('disabled')).toBeDefined()
+
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(mocks.workspacesSetMember).not.toHaveBeenCalled()
+  })
+
+  it('distinguishes user search failure from zero matches (E2-1)', async () => {
+    mocks.apiGet.mockImplementation(async (url: string, config?: { params?: Record<string, unknown> }) => {
+      if (url === '/admin/users') {
+        if (config?.params?.search === 'boom') {
+          throw { response: { status: 403, data: { message: 'Forbidden' } } }
+        }
+        if (config?.params?.search === 'nobody') {
+          return { data: { items: [], total: 0 } }
+        }
+        return { data: { items: [{ id: 1, username: 'admin', email: 'admin@corp.io' }], total: 1 } }
+      }
+      if (url === '/workspaces/1/members') {
+        return { data: { items: [] } }
+      }
+      return { data: {} }
+    })
+
+    const wrapper = mount(MembersAccessPage, {
+      props: { initialWorkspaceId: '1' },
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, Teleport: true } },
+    })
+    await flushPromises()
+
+    const searchInput = wrapper.get('[data-testid="platform-user-search-input"] input')
+    await searchInput.trigger('focus')
+    await searchInput.setValue('boom')
+    vi.advanceTimersByTime(260)
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="platform-user-search-error"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="platform-user-search-empty"]').exists()).toBe(false)
+
+    await searchInput.setValue('nobody')
+    vi.advanceTimersByTime(260)
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="platform-user-search-error"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="platform-user-search-empty"]').exists()).toBe(true)
+  })
+
+  it('renders grantable actions strictly from server authorization scope including tasks.* and excluding workspace/platform actions (E2-1)', async () => {
+    mocks.getProjectAccess.mockResolvedValue({
+      actor_id: '1',
+      scope_version: '5',
+      actions: [
+        'members.grants.write',
+        'ops.export.configure',
+        'catalog.publish',
+        'projects.read',
+        'projects.edit',
+        'tasks.read',
+        'tasks.create',
+        'tasks.cancel',
+        'tasks.retry',
+        'tasks.artifacts.read',
+      ],
+    })
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      if (url === '/admin/users') {
+        return { data: { items: [], total: 0 } }
+      }
+      if (url === '/workspaces/1/members') {
+        return {
+          data: {
+            items: [
+              {
+                id: '7',
+                user_id: '7',
+                username: 'alice',
+                email: 'alice@corp.io',
+                role: 'member',
+                status: 'active',
+                version: '3',
+              },
+            ],
+          },
+        }
+      }
+      if (url === '/workspaces/1/members/7/grants') {
+        return {
+          data: {
+            member_id: '7',
+            version: '3',
+            project_ids: ['p1'],
+            actions: ['tasks.read'],
+          },
+        }
+      }
+      return { data: {} }
+    })
+
+    const wrapper = mount(MembersAccessPage, {
+      props: { initialWorkspaceId: '1' },
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, Teleport: true } },
+    })
+    await flushPromises()
+
+    const editGrantsBtn = wrapper
+      .findAll('button')
+      .find((btn) => btn.text().includes('Edit Grants'))
+    expect(editGrantsBtn).toBeDefined()
+    await editGrantsBtn!.trigger('click')
+    await flushPromises()
+
+    const modalText = wrapper.get('[data-testid="grant-actions-grid"]').text()
+    expect(modalText).toContain('tasks.read')
+    expect(modalText).toContain('tasks.create')
+    expect(modalText).toContain('tasks.cancel')
+    expect(modalText).toContain('tasks.retry')
+    expect(modalText).toContain('tasks.artifacts.read')
+    expect(modalText).toContain('projects.read')
+    expect(modalText).toContain('projects.edit')
+
+    expect(modalText).not.toContain('keys.create')
+    expect(modalText).not.toContain('billing.read')
+    expect(modalText).not.toContain('members.grants.write')
+    expect(modalText).not.toContain('ops.export.configure')
+    expect(modalText).not.toContain('catalog.publish')
   })
 })
