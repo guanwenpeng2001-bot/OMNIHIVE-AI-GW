@@ -53,8 +53,6 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const endpoint = `${window.location.origin}/mcp`
-const scenario = ref('')
-const hasClientId = computed(() => Object.prototype.hasOwnProperty.call(route.query, 'client_id'))
 const request = ref({ client_id: '', client_name: '', redirect_uri: '', resource: '' })
 const scope = ref<'user' | 'admin'>('user')
 const permission = ref<'read' | 'write'>('read')
@@ -90,20 +88,21 @@ const cacheGrants = (key: string, grants: MCPGrantDTO[], merge = false) => {
   ]))
 }
 const requestError = computed(() => {
-  if (scenario.value === 'missing' || !request.value.client_id || !request.value.redirect_uri || !request.value.resource) return '缺少必要参数：client_id、redirect_uri 和 resource 均为必填。请从客户端重新发起请求。'
-  if (scenario.value === 'unsafe' || !validMcpRedirect(request.value.redirect_uri)) return '回调地址无效。仅允许完整的 http:// 或 https:// 地址，且不能包含用户名或密码。'
+  if (!request.value.client_id || !request.value.redirect_uri || !request.value.resource) return '缺少必要参数：client_id、redirect_uri 和 resource 均为必填。请从客户端重新发起请求。'
+  if (!validMcpRedirect(request.value.redirect_uri)) return '回调地址无效。仅允许完整的 http:// 或 https:// 地址，且不能包含用户名或密码。'
   if (request.value.resource !== endpoint) return `范围资源不属于本站 MCP 服务。预期地址：${endpoint}`
   return ''
 })
 function reset() { sequence++; phase.value = 'consent'; error.value = ''; notice.value = ''; totpCode.value = ''; result.value = null; busy.value = false }
 watch(() => route.fullPath, () => {
   reset()
-  scenario.value = queryString('scenario') || 'valid'
-  request.value = hasClientId.value
-    ? { client_id: queryString('client_id').trim(), client_name: queryString('client_name').trim() || queryString('client_id').trim(), redirect_uri: queryString('redirect_uri').trim(), resource: queryString('resource').trim() }
-    : { client_id: 'claude-desktop-mcp', client_name: 'Claude Desktop MCP', redirect_uri: 'http://127.0.0.1:43110/oauth/callback', resource: endpoint }
-  if (scenario.value === 'missing') request.value.client_id = ''
-  if (scenario.value === 'unsafe') request.value.redirect_uri = 'javascript:alert(1)'
+  const clientId = queryString('client_id').trim()
+  request.value = {
+    client_id: clientId,
+    client_name: queryString('client_name').trim() || clientId,
+    redirect_uri: queryString('redirect_uri').trim(),
+    resource: queryString('resource').trim()
+  }
   scope.value = queryString('scope') === 'admin' && allowAdmin.value ? 'admin' : 'user'
   permission.value = queryString('permission') === 'write' ? 'write' : 'read'
 }, { immediate: true })
