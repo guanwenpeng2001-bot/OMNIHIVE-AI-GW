@@ -320,6 +320,28 @@ export function calculateExactScenarioBreakdown(
     input.cachedInputRate?.currency ||
     'USD'
 
+  const unpricedResult = (): ScenarioCostBreakdown => ({
+    state: 'unpriced',
+    currency,
+    uncachedInputTokens: String(uncachedPerReq),
+    cachedInputTokens: String(cachedPerReq),
+    outputTokens: String(outputPerReq),
+    requests: String(requests),
+    totalUncachedInputTokens: String(totalUncached),
+    totalCachedInputTokens: String(totalCached),
+    totalOutputTokens: String(totalOutput),
+    uncachedInputCost: '—',
+    cachedInputCost: '—',
+    outputCost: '—',
+    singleRequestTotal: '—',
+    totalDisplay: '—',
+    usedFallbackCacheRate: false
+  })
+
+  if (input.priceState === 'unpriced' || input.priceState === 'error') {
+    return unpricedResult()
+  }
+
   if (input.priceState === 'free') {
     const zeroText = formatExactRationalCurrency(
       { num: 0n, den: 1n },
@@ -354,6 +376,28 @@ export function calculateExactScenarioBreakdown(
     totalCached > 0n && !input.cachedInputRate && Boolean(input.inputRate)
   const effectiveCacheRate = input.cachedInputRate ?? input.inputRate
 
+  const invalidRateUnit =
+    (totalUncached > 0n && input.inputRate && !isTokenRateUnit(input.inputRate.unit)) ||
+    (totalCached > 0n && effectiveCacheRate && !isTokenRateUnit(effectiveCacheRate.unit)) ||
+    (totalOutput > 0n && input.outputRate && !isTokenRateUnit(input.outputRate.unit))
+  if (invalidRateUnit) {
+    return unpricedResult()
+  }
+
+  const activeCurrencies = new Set<string>()
+  if (totalUncached > 0n && input.inputRate?.currency) {
+    activeCurrencies.add(input.inputRate.currency.trim().toUpperCase())
+  }
+  if (totalCached > 0n && effectiveCacheRate?.currency) {
+    activeCurrencies.add(effectiveCacheRate.currency.trim().toUpperCase())
+  }
+  if (totalOutput > 0n && input.outputRate?.currency) {
+    activeCurrencies.add(input.outputRate.currency.trim().toUpperCase())
+  }
+  if (activeCurrencies.size > 1) {
+    return unpricedResult()
+  }
+
   const uncachedCost = computeExactQuantityCost(totalUncached, input.inputRate)
   const cachedCost = computeExactQuantityCost(totalCached, effectiveCacheRate)
   const outputCost = computeExactQuantityCost(totalOutput, input.outputRate)
@@ -366,23 +410,7 @@ export function calculateExactScenarioBreakdown(
     (!hasAnyTokens && !input.inputRate && !input.outputRate)
 
   if (missingRequiredRate) {
-    return {
-      state: 'unpriced',
-      currency,
-      uncachedInputTokens: String(uncachedPerReq),
-      cachedInputTokens: String(cachedPerReq),
-      outputTokens: String(outputPerReq),
-      requests: String(requests),
-      totalUncachedInputTokens: String(totalUncached),
-      totalCachedInputTokens: String(totalCached),
-      totalOutputTokens: String(totalOutput),
-      uncachedInputCost: '—',
-      cachedInputCost: '—',
-      outputCost: '—',
-      singleRequestTotal: '—',
-      totalDisplay: '—',
-      usedFallbackCacheRate
-    }
+    return { ...unpricedResult(), usedFallbackCacheRate }
   }
 
   const totalRational = addRationals(addRationals(uncachedCost, cachedCost), outputCost)

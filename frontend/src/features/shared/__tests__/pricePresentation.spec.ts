@@ -126,4 +126,68 @@ describe('pricePresentation exact decimal scaling & scenario math', () => {
     expect(breakdown.singleRequestTotal).toBe('$0.036')
     expect(breakdown.totalDisplay).toBe('$3.60')
   })
+
+  it('returns unpriced without zero-fallback when rate is missing, priceState is unpriced, currencies are mixed, or rate is non-token', () => {
+    const missingOutput = calculateExactScenarioBreakdown({
+      inputRate: { currency: 'USD', amount: '1.00', per: '1000000', unit: 'input_token' },
+      outputRate: null,
+      inputTokens: '1000',
+      outputTokens: '500',
+      requests: '1'
+    })
+    expect(missingOutput.state).toBe('unpriced')
+    expect(missingOutput.totalDisplay).toBe('—')
+    expect(missingOutput.outputCost).toBe('—')
+
+    const explicitUnpriced = calculateExactScenarioBreakdown({
+      inputRate: { currency: 'USD', amount: '1.00', per: '1000000', unit: 'input_token' },
+      outputRate: { currency: 'USD', amount: '2.00', per: '1000000', unit: 'output_token' },
+      priceState: 'unpriced',
+      inputTokens: '1000',
+      outputTokens: '500',
+      requests: '1'
+    })
+    expect(explicitUnpriced.state).toBe('unpriced')
+    expect(explicitUnpriced.totalDisplay).toBe('—')
+
+    const explicitFree = calculateExactScenarioBreakdown({
+      priceState: 'free',
+      inputTokens: '1000',
+      outputTokens: '500',
+      requests: '1',
+      locale: 'en'
+    })
+    expect(explicitFree.state).toBe('free')
+    expect(explicitFree.totalDisplay).toBe('Free')
+
+    const mixedCurrency = calculateExactScenarioBreakdown({
+      inputRate: { currency: 'USD', amount: '1.00', per: '1000000', unit: 'input_token' },
+      outputRate: { currency: 'CNY', amount: '2.00', per: '1000000', unit: 'output_token' },
+      inputTokens: '1000',
+      outputTokens: '500',
+      requests: '1'
+    })
+    expect(mixedCurrency.state).toBe('unpriced')
+    expect(mixedCurrency.totalDisplay).toBe('—')
+
+    const underflow = calculateExactScenarioBreakdown({
+      inputRate: { currency: 'USD', amount: '0.001', per: '1000000', unit: 'input_token' },
+      outputRate: { currency: 'USD', amount: '0.001', per: '1000000', unit: 'output_token' },
+      inputTokens: '100',
+      outputTokens: '100',
+      requests: '1'
+    })
+    expect(underflow.state).toBe('estimated')
+    expect(underflow.totalDisplay).toBe('< $0.0001')
+
+    const perRequestRate = calculateExactScenarioBreakdown({
+      inputRate: { currency: 'USD', amount: '0.01', per: '1', unit: 'request' },
+      outputRate: { currency: 'USD', amount: '2.00', per: '1000000', unit: 'output_token' },
+      inputTokens: '1000',
+      outputTokens: '500',
+      requests: '1'
+    })
+    expect(perRequestRate.state).toBe('unpriced')
+    expect(perRequestRate.totalDisplay).toBe('—')
+  })
 })

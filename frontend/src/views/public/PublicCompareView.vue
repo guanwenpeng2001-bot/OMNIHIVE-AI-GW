@@ -371,21 +371,30 @@ function buildClientScenarioBreakdown(row: PublicCompareRow) {
 }
 
 function formatQuoteCell(row: PublicCompareRow): string {
+  if (row.quote) {
+    if (row.quote.state === 'unpriced' || row.quote.state === 'error') {
+      return tr('unpriced')
+    }
+    if (row.quote.state === 'free') {
+      return tr('free')
+    }
+    const charge = row.quote.estimated_charge
+    if (charge) {
+      const parsed = parseNonNegativeDecimal(charge.amount)
+      if (parsed) {
+        return formatExactRationalCurrency(parsed, charge.currency, {
+          minDecimals: 2,
+          maxDecimals: 4,
+          locale: activeLocaleCode.value,
+          groupThousands: true
+        })
+      }
+      return charge.currency === 'USD' ? `$${charge.amount}` : `${charge.currency} ${charge.amount}`
+    }
+    return tr('unpriced')
+  }
   const summary = findSummary(row.model_id)
   if (summary?.price_state === 'free') return tr('free')
-  const charge = row.quote?.estimated_charge
-  if (charge) {
-    const parsed = parseNonNegativeDecimal(charge.amount)
-    if (parsed) {
-      return formatExactRationalCurrency(parsed, charge.currency, {
-        minDecimals: 2,
-        maxDecimals: 4,
-        locale: activeLocaleCode.value,
-        groupThousands: true
-      })
-    }
-    return charge.currency === 'USD' ? `$${charge.amount}` : `${charge.currency} ${charge.amount}`
-  }
   const local = buildClientScenarioBreakdown(row)
   if (local.state === 'estimated' || local.state === 'free') {
     return local.totalDisplay
@@ -394,26 +403,35 @@ function formatQuoteCell(row: PublicCompareRow): string {
 }
 
 function formatBreakdownDetailCell(row: PublicCompareRow): string {
+  if (row.quote) {
+    if (row.quote.state === 'unpriced' || row.quote.state === 'error') {
+      return '—'
+    }
+    if (row.quote.state === 'free') {
+      return tr('free')
+    }
+    const components = row.quote.components
+    if (components?.length) {
+      const parts = components.map((comp) => {
+        const parsed = parseNonNegativeDecimal(comp.raw_amount)
+        const money = parsed
+          ? formatExactRationalCurrency(parsed, row.quote?.estimated_charge?.currency || 'USD', {
+              minDecimals: 2,
+              maxDecimals: 4,
+              groupThousands: true
+            })
+          : comp.raw_amount
+        return `${comp.kind}: ${money}`
+      })
+      const versionSuffix = row.quote.price_version
+        ? ` · ${formatShortVersion(row.quote.price_version)}`
+        : ''
+      return `${parts.join(' + ')}${versionSuffix}`
+    }
+    return '—'
+  }
   const local = buildClientScenarioBreakdown(row)
   if (local.state === 'free') return tr('free')
-  const components = row.quote?.components
-  if (components?.length) {
-    const parts = components.map((comp) => {
-      const parsed = parseNonNegativeDecimal(comp.raw_amount)
-      const money = parsed
-        ? formatExactRationalCurrency(parsed, row.quote?.estimated_charge?.currency || 'USD', {
-            minDecimals: 2,
-            maxDecimals: 4,
-            groupThousands: true
-          })
-        : comp.raw_amount
-      return `${comp.kind}: ${money}`
-    })
-    const versionSuffix = row.quote?.price_version
-      ? ` · ${formatShortVersion(row.quote.price_version)}`
-      : ''
-    return `${parts.join(' + ')}${versionSuffix}`
-  }
   if (local.state === 'estimated') {
     return `In ${local.uncachedInputCost} + Cache ${local.cachedInputCost} + Out ${local.outputCost}`
   }

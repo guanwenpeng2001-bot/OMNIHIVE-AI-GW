@@ -6,6 +6,7 @@ import { ref } from 'vue'
 import PublicCompareView from '../PublicCompareView.vue'
 import PublicModelsView from '../PublicModelsView.vue'
 import PublicModelDetailView from '../PublicModelDetailView.vue'
+import PublicPricingView from '../PublicPricingView.vue'
 
 const { apiGetMock, apiPostMock } = vi.hoisted(() => ({
   apiGetMock: vi.fn(),
@@ -294,5 +295,91 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
     expect(detailWrapper.text()).toContain('Gemini 3.8 Flash')
     expect(detailWrapper.text()).toContain('$0.075')
     expect(detailWrapper.text()).toContain('$0.30')
+  })
+
+  it('does not override backend unpriced quote with local estimate in PublicCompareView', async () => {
+    apiGetMock.mockResolvedValueOnce({
+      data: { items: sampleCatalogItems, next_cursor: null }
+    })
+    apiPostMock.mockResolvedValueOnce({
+      data: {
+        catalog_version: 'cat_v1',
+        as_of: '2026-11-20T12:00:00Z',
+        rows: [
+          {
+            model_id: MODEL_A_ID,
+            capabilities: { tools: 'supported', stream: 'supported' },
+            quote: {
+              state: 'unpriced',
+              estimated_charge: null,
+              components: []
+            }
+          },
+          {
+            model_id: MODEL_B_ID,
+            capabilities: { tools: 'supported', stream: 'supported' },
+            quote: {
+              state: 'estimated',
+              estimated_charge: { currency: 'USD', amount: '0.036' },
+              components: [{ kind: 'total', quantity: '1', raw_amount: '0.036' }]
+            }
+          }
+        ]
+      }
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/model-plaza/compare', component: PublicCompareView }]
+    })
+    await router.push(`/model-plaza/compare?ids=${MODEL_A_ID},${MODEL_B_ID}`)
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const wrapper = mount(PublicCompareView, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { SiteICPFooter: true, LocaleSwitcher: true }
+      }
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+
+    const quoteRow = wrapper.findAll('tr').find((tr) => tr.text().includes('Scenario quote'))
+    expect(quoteRow).toBeTruthy()
+    expect(quoteRow!.text()).toContain('Unpriced')
+    expect(quoteRow!.text()).toContain('$0.036')
+    expect(quoteRow!.text()).not.toContain('$0.0135')
+  })
+
+  it('does not render $0.00 breakdown in PublicPricingView when output rate is missing', async () => {
+    apiGetMock.mockResolvedValueOnce({
+      data: {
+        items: [
+          {
+            ...sampleCatalogItems[0],
+            output_rate: null
+          }
+        ],
+        next_cursor: null
+      }
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/pricing', component: PublicPricingView }]
+    })
+    await router.push('/pricing')
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const wrapper = mount(PublicPricingView, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { SiteICPFooter: true, LocaleSwitcher: true }
+      }
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+
+    const estimatorSection = wrapper.get('[data-testid="pricing-estimator"]')
+    expect(estimatorSection.text()).not.toContain('$0.00')
+    expect(estimatorSection.text()).toContain('—')
   })
 })

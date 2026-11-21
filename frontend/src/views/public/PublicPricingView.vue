@@ -167,6 +167,7 @@ const estimatorBreakdown = computed(() => {
   const zeroRational: ExactRational = { num: 0n, den: 1n }
   if (!target) {
     return {
+      state: 'unpriced' as const,
       currency: 'USD',
       currencyPrefix: '$',
       isFree: false,
@@ -180,9 +181,22 @@ const estimatorBreakdown = computed(() => {
   const currencyPrefix = currencyPrefixFor(currency)
   if (target.price_state === 'free') {
     return {
+      state: 'free' as const,
       currency,
       currencyPrefix,
       isFree: true,
+      inputCost: zeroRational,
+      outputCost: zeroRational,
+      singleTotal: zeroRational,
+      monthlyTotal: zeroRational
+    }
+  }
+  if (target.price_state === 'unpriced' || target.price_state === 'error') {
+    return {
+      state: 'unpriced' as const,
+      currency,
+      currencyPrefix,
+      isFree: false,
       inputCost: zeroRational,
       outputCost: zeroRational,
       singleTotal: zeroRational,
@@ -193,14 +207,34 @@ const estimatorBreakdown = computed(() => {
     parseNonNegativeDecimal(sanitizedInputMillions.value) ?? zeroRational
   const outputMillions =
     parseNonNegativeDecimal(sanitizedOutputMillions.value) ?? zeroRational
-  const inputScaled = scaleRateToPerMillion(target.input_rate) ?? {
-    ...zeroRational,
-    currency
+  const inputScaledRaw = scaleRateToPerMillion(target.input_rate)
+  const outputScaledRaw = scaleRateToPerMillion(target.output_rate)
+  const activeCurrencies = new Set<string>()
+  if (inputMillions.num > 0n && inputScaledRaw?.currency) {
+    activeCurrencies.add(inputScaledRaw.currency.trim().toUpperCase())
   }
-  const outputScaled = scaleRateToPerMillion(target.output_rate) ?? {
-    ...zeroRational,
-    currency
+  if (outputMillions.num > 0n && outputScaledRaw?.currency) {
+    activeCurrencies.add(outputScaledRaw.currency.trim().toUpperCase())
   }
+  const missingRequiredRate =
+    (inputMillions.num > 0n && !inputScaledRaw) ||
+    (outputMillions.num > 0n && !outputScaledRaw) ||
+    (inputMillions.num === 0n && outputMillions.num === 0n && !inputScaledRaw && !outputScaledRaw) ||
+    activeCurrencies.size > 1
+  if (missingRequiredRate) {
+    return {
+      state: 'unpriced' as const,
+      currency,
+      currencyPrefix,
+      isFree: false,
+      inputCost: zeroRational,
+      outputCost: zeroRational,
+      singleTotal: zeroRational,
+      monthlyTotal: zeroRational
+    }
+  }
+  const inputScaled = inputScaledRaw ?? { ...zeroRational, currency }
+  const outputScaled = outputScaledRaw ?? { ...zeroRational, currency }
   const inputCost = reduceRational(
     inputMillions.num * inputScaled.num,
     inputMillions.den * inputScaled.den
@@ -215,6 +249,7 @@ const estimatorBreakdown = computed(() => {
     singleTotal.den
   )
   return {
+    state: 'estimated' as const,
     currency,
     currencyPrefix,
     isFree: false,
@@ -398,6 +433,7 @@ onBeforeUnmount(() => {
     </section>
 
     <section
+      data-testid="pricing-estimator"
       class="mt-6 rounded-oh-md border border-oh-default bg-oh-surface p-4 sm:p-5"
       :aria-label="isZh ? '交互式 Token 费用估算器' : 'Interactive token cost estimator'"
     >
@@ -539,6 +575,9 @@ onBeforeUnmount(() => {
               <Badge v-if="estimatorBreakdown.isFree" tone="success" size="xs" variant="subtle">
                 {{ isZh ? '免费额度模型' : 'Free Tier' }}
               </Badge>
+              <Badge v-else-if="estimatorBreakdown.state === 'unpriced'" tone="unknown" size="xs" variant="subtle">
+                {{ isZh ? '暂未完整定价' : 'Unpriced' }}
+              </Badge>
               <Badge v-else tone="info" size="xs" variant="subtle" mono>
                 {{ sanitizedInputMillions }}M In · {{ sanitizedOutputMillions }}M Out
               </Badge>
@@ -550,7 +589,7 @@ onBeforeUnmount(() => {
                   {{ isZh ? '单次 / 单日预估成本' : 'Single-Cycle Estimate' }}
                 </p>
                 <p class="mt-1 font-mono text-xl font-semibold tabular-nums text-oh-primary">
-                  {{ formatMoneyAmount(estimatorBreakdown.singleTotal, estimatorBreakdown.currencyPrefix) }}
+                  {{ estimatorBreakdown.state === 'unpriced' ? '—' : formatMoneyAmount(estimatorBreakdown.singleTotal, estimatorBreakdown.currencyPrefix) }}
                 </p>
               </div>
               <div class="rounded-oh-sm border border-oh-accent/40 bg-oh-accent-subtle/40 p-3">
@@ -558,7 +597,7 @@ onBeforeUnmount(() => {
                   {{ isZh ? `月度预估 (×${sanitizedRunsPerMonth})` : `Monthly Est. (×${sanitizedRunsPerMonth})` }}
                 </p>
                 <p class="mt-1 font-mono text-xl font-semibold tabular-nums text-oh-primary">
-                  {{ formatMoneyAmount(estimatorBreakdown.monthlyTotal, estimatorBreakdown.currencyPrefix) }}
+                  {{ estimatorBreakdown.state === 'unpriced' ? '—' : formatMoneyAmount(estimatorBreakdown.monthlyTotal, estimatorBreakdown.currencyPrefix) }}
                 </p>
               </div>
             </div>
@@ -566,11 +605,11 @@ onBeforeUnmount(() => {
             <dl class="space-y-1.5 border-t border-oh-subtle pt-3 font-mono text-xs tabular-nums">
               <div class="flex items-center justify-between gap-2">
                 <dt class="text-oh-secondary">{{ isZh ? '输入 Token 费用' : 'Input token subtotal' }}</dt>
-                <dd class="text-oh-primary">{{ formatMoneyAmount(estimatorBreakdown.inputCost, estimatorBreakdown.currencyPrefix) }}</dd>
+                <dd class="text-oh-primary">{{ estimatorBreakdown.state === 'unpriced' ? '—' : formatMoneyAmount(estimatorBreakdown.inputCost, estimatorBreakdown.currencyPrefix) }}</dd>
               </div>
               <div class="flex items-center justify-between gap-2">
                 <dt class="text-oh-secondary">{{ isZh ? '输出 Token 费用' : 'Output token subtotal' }}</dt>
-                <dd class="text-oh-primary">{{ formatMoneyAmount(estimatorBreakdown.outputCost, estimatorBreakdown.currencyPrefix) }}</dd>
+                <dd class="text-oh-primary">{{ estimatorBreakdown.state === 'unpriced' ? '—' : formatMoneyAmount(estimatorBreakdown.outputCost, estimatorBreakdown.currencyPrefix) }}</dd>
               </div>
             </dl>
           </div>
