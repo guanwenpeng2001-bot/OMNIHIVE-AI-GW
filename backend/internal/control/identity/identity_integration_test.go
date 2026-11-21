@@ -405,6 +405,17 @@ func TestProjectKeyGroupBinding(t *testing.T) {
 	require.Equal(t, group, policy.GroupID)
 	require.True(t, policy.Allows("text.chat", []string{"example"}))
 
+	readModels := in
+	readModels.Name = "model discovery"
+	readModels.Actions = []string{"models.read"}
+	readModelsKey, err := store.CreateKey(ctx, user, w, p, readModels, "models-read")
+	require.NoError(t, err)
+	readPolicy, err := store.ProjectCredential(ctx, service.APIKeyCredentialDigest(*readModelsKey.Credential))
+	require.NoError(t, err)
+	require.Equal(t, []string{"models.read"}, readPolicy.Actions)
+	require.True(t, readPolicy.Allows("models.read", nil))
+	require.False(t, readPolicy.Allows("text.chat", []string{"example"}))
+
 	standard := id("INSERT INTO groups(workspace_id,name,platform,is_exclusive) VALUES($1,$2,'openai',false) RETURNING id", w, uuid.NewString())
 	exec("INSERT INTO project_resources(kind,resource_id,workspace_id,project_id) VALUES('groups',$1,$2,$3)", standard, w, p)
 	key, err = store.CreateKey(ctx, user, w, p, auto, "auto-standard")

@@ -3294,7 +3294,7 @@ export interface components {
                 mode: "allow_list" | "inherit" | "deny_all";
                 ids: string[];
             };
-            actions: ("text.chat" | "text.embeddings" | "image.generate" | "usage.read" | "tasks.read")[];
+            actions: ("models.read" | "text.chat" | "text.embeddings" | "image.generate" | "usage.read" | "tasks.read")[];
             /** Format: date-time */
             expires_at: string | null;
         };

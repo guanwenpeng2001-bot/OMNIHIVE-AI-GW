@@ -731,6 +731,7 @@ components:
           items:
             type: string
             enum:
+            - models.read
             - text.chat
             - text.embeddings
             - image.generate

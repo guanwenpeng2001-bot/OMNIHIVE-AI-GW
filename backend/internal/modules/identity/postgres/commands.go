@@ -189,7 +189,7 @@ func (s *Store) CreateKey(ctx context.Context, actor, w, p int64, in identity.Cr
 			}
 		}
 		var count int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM identity_actions WHERE category='key' AND action=ANY($1)`, pq.Array(in.Actions)).Scan(&count); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM identity_actions WHERE (category='key' OR action='models.read') AND action=ANY($1)`, pq.Array(in.Actions)).Scan(&count); err != nil {
 			return err
 		}
 		if count != len(in.Actions) {

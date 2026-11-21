@@ -76,7 +76,7 @@ func (p *KeyPolicy) Allows(action string, models []string) bool {
 	if !slices.Contains(p.Actions, action) {
 		return false
 	}
-	if action == "usage.read" || action == "tasks.read" {
+	if action == "models.read" || action == "usage.read" || action == "tasks.read" {
 		return true
 	}
 	switch p.Mode {
