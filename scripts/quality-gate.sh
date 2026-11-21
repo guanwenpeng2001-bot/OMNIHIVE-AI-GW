@@ -276,7 +276,7 @@ start_postgres() {
   "${PG_BIN}/initdb" -D "$PG_DATA" -U postgres --auth=trust --no-instructions >"${PG_TEMP}/initdb.log" 2>&1
   "${PG_BIN}/pg_ctl" -D "$PG_DATA" -o "-c listen_addresses=127.0.0.1 -c port=${PG_PORT} -c unix_socket_directories=${PG_SOCKET}" -l "${PG_TEMP}/postgres.log" -w start >/dev/null
   "${PG_BIN}/psql" -h 127.0.0.1 -p "$PG_PORT" -U postgres -v ON_ERROR_STOP=1 -c "ALTER USER postgres PASSWORD 'quality_gate'" >/dev/null
-  for database in job_test stats_test billing_audit_test backup_data_test be09_rehearsal_test be09_journal_test fix3_batch_test model_access_test ops_billing_backlog_test scheduler_recovery_test scheduler_resources_test; do
+  for database in job_test stats_test billing_audit_test backup_data_test be09_rehearsal_test be09_journal_test fix3_batch_test model_access_test ops_billing_backlog_test scheduler_recovery_test scheduler_resources_test prompt_audit_test; do
     "${PG_BIN}/psql" -h 127.0.0.1 -p "$PG_PORT" -U postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE ${database}" >/dev/null
   done
   local pg_password="quality_gate"
@@ -338,7 +338,7 @@ stop_services() {
 reset_test_databases() {
   [[ $PG_EXTERNAL -eq 1 || -z "$PG_BIN" ]] && return 0
   local database
-  for database in job_test stats_test model_access_test ops_billing_backlog_test scheduler_recovery_test scheduler_resources_test; do
+  for database in job_test stats_test model_access_test ops_billing_backlog_test scheduler_recovery_test scheduler_resources_test prompt_audit_test; do
     "${PG_BIN}/psql" -h 127.0.0.1 -p "$PG_PORT" -U postgres -v ON_ERROR_STOP=1 \
       -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='${database}' AND pid<>pg_backend_pid()" \
       -c "DROP DATABASE IF EXISTS ${database} WITH (FORCE)" \
@@ -412,10 +412,10 @@ stage_backend() {
   export CURSOR_TEST_POSTGRES_DSN="$PG_DSN"
   export CURSOR_MONITOR_TEST_POSTGRES_DSN="$PG_DSN"
   export COMPATIBLE_PROVIDER_TEST_POSTGRES_DSN="$PG_DSN"
-  export PROMPT_AUDIT_TEST_POSTGRES_DSN="$PG_DSN"
   export QUOTES_POSTGRES_DSN="$PG_DSN"
   # These suites compare the raw query string, so keep it to sslmode=disable.
   local base_pg_dsn="${PG_DSN%%&*}"
+  export PROMPT_AUDIT_TEST_POSTGRES_DSN="${base_pg_dsn/\/job_test/\/prompt_audit_test}"
   export BE09_TEST_ISOLATED_DSN="${base_pg_dsn/\/job_test/\/be09_rehearsal_test}"
   export BE09_TEST_JOURNAL_DSN="${base_pg_dsn/\/job_test/\/be09_journal_test}"
   export MIGRATION_INTEGRATION_TEST_DSN="$PG_DSN"
@@ -424,7 +424,8 @@ stage_backend() {
   export UPSTREAM_BILLING_AUDIT_DSN="${PG_DSN/\/job_test/\/billing_audit_test}"
   export BATCH_SUBMIT_TEST_DSN="${base_pg_dsn/\/job_test/\/fix3_batch_test}"
   export MODEL_ACCESS_TEST_DSN="${base_pg_dsn/\/job_test/\/model_access_test}"
-  export OPS_BILLING_BACKLOG_TEST_DSN="${base_pg_dsn/\/job_test/\/ops_billing_backlog_test}"
+  local base_pg_url="${base_pg_dsn%%\?*}"
+  export OPS_BILLING_BACKLOG_TEST_DSN="${base_pg_url/\/job_test/\/ops_billing_backlog_test}"
   export SCHEDULER_RECOVERY_TEST_DSN="${base_pg_dsn/\/job_test/\/scheduler_recovery_test}"
   export SCHEDULER_RESOURCES_TEST_DSN="${base_pg_dsn/\/job_test/\/scheduler_resources_test}"
   export AFFINITY_REDIS_TEST_ADDR="$REDIS_ADDR"

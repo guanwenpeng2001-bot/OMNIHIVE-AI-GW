@@ -74,6 +74,10 @@ BASE_SKIP_ALLOWLIST = {
         "external service: needs TLSFINGERPRINT_NETWORK_TESTS=1 and a live JA3 "
         "fingerprinting endpoint; this is not a database/Redis gate"
     ),
+    "TestAllProfiles": (
+        "external service: dials live HTTPS endpoints for every TLS profile and "
+        "skips in -short mode; this is not a database/Redis gate"
+    ),
     "TestAuthPendingIdentityService_UpsertAdoptionDecision_ClearsLegacyNullSessionReference": (
         "production-history fixture: legacy NULL pending_auth_session_id rows are "
         "rejected by the sqlite unit schema"

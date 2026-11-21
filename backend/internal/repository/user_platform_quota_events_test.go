@@ -63,13 +63,24 @@ func TestUserPlatformQuotaEventsPostgres(t *testing.T) {
 		require.NoError(t, db.QueryRow(`INSERT INTO users(email,password_hash,balance) VALUES($1,'test',100) RETURNING id`, uuid.NewString()+"@quota.test").Scan(&user))
 		t.Cleanup(func() {
 			// All predicates use IDs returned by this invocation's inserts.
+			// Settlement links wallet movements to the receipt (migration 305),
+			// so those links must go before the receipts they reference.
+			_, cleanupError := db.Exec(`DELETE FROM billing_movement_links WHERE receipt_id IN (SELECT id FROM usage_settlement_receipts WHERE user_id=$1)`, user)
+			require.NoError(t, cleanupError)
 			for _, table := range []string{"user_platform_quota_events", "usage_settlement_receipts", "upstream_jobs", "usage_logs", "user_platform_quotas", "api_keys"} {
-				_, cleanupError := db.Exec("DELETE FROM "+table+" WHERE user_id=$1", user)
+				_, cleanupError = db.Exec("DELETE FROM "+table+" WHERE user_id=$1", user)
 				require.NoError(t, cleanupError)
 			}
-			_, cleanupError := db.Exec("DELETE FROM users WHERE id=$1", user)
+			_, cleanupError = db.Exec("DELETE FROM users WHERE id=$1", user)
 			require.NoError(t, cleanupError)
 			if account != 0 {
+				// Qianwen upstream jobs are imported into the task center by the
+				// task_media_job_insert trigger (migration 314); those rows hold
+				// the account and must be removed with it.
+				_, cleanupError = db.Exec(`DELETE FROM task_media_attributes WHERE account_id=$1`, account)
+				require.NoError(t, cleanupError)
+				_, cleanupError = db.Exec(`DELETE FROM image_tasks t WHERE NOT EXISTS (SELECT 1 FROM task_media_attributes m WHERE m.task_id=t.id) AND t.source='upstream_job' AND t.funding_user_id=$1`, user)
+				require.NoError(t, cleanupError)
 				_, cleanupError = db.Exec("DELETE FROM accounts WHERE id=$1", account)
 				require.NoError(t, cleanupError)
 			}
@@ -100,6 +111,12 @@ func TestUserPlatformQuotaEventsPostgres(t *testing.T) {
 		require.Equal(t, m, rec.MonthlyUsageUSD)
 	}
 	drain := func() { _, err := repo.ConsumeQuotaEvents(ctx, 1000, invalidate); require.NoError(t, err) }
+	if !testresources.External() {
+		// Other suites in this package share job_test and may leave unconsumed
+		// events. The consumer works in id order, so drain them first: the
+		// failure-injection cases below must act on this suite's own events.
+		drain()
+	}
 	t.Run("commit_exit_redis_failure_duplicate_multiconsumer_and_cache_clear", func(t *testing.T) {
 		input := settle(fixture(time.Now().UTC()))
 		usage(input, 0, 0, 0)
