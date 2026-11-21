@@ -1,8 +1,8 @@
-# BE-09 · Database restore
+# · Database restore
 
 ## Composition
 
-Add `restorehttp.ProviderSet` from `internal/control/restore` to Wire. It builds `*be09.Runtime` from `internal/legacy/BE-09` using the existing application DB, config, backup service, identity evaluator, TOTP service and user service. The constructor attaches the v1 backup adapter. Include the runtime in the BE-01 operation registry alongside BE-04.
+Add `restorehttp.ProviderSet` from `internal/control/restore` to Wire. It builds `*be09.Runtime` from `internal/legacy/restore` using the existing application DB, config, backup service, identity evaluator, TOTP service and user service. The constructor attaches the v1 backup adapter. Include the runtime in the identity operation registry alongside connections.
 
 ```go
 identity.Operations{Readers: []identity.OperationReader{connectionStore, restoreRuntime}}
@@ -24,7 +24,7 @@ stopRestores()
 restoreRuntime.Close()
 ```
 
-From `backend`, regenerate Wire with `go generate ./cmd/server` and compose the fragment with `go run ./api/v2/compose`. Regenerate v2 frontend transport declarations using the integration log command. The coordinator owns the aggregate edits and these outputs.
+From `backend`, regenerate Wire with `go generate ./cmd/server` and compose the fragment with `go run ./api/openapi/compose`. Regenerate the frontend transport declarations after composing the fragments.
 
 ## Storage and deployment
 
@@ -74,18 +74,18 @@ UPDATE restore_journal.operations
 
 For a reviewed legacy candidate, clear only its reviewed backup ID's `review_required` flag after fencing old writers and recording the operator decision. A binary rollback retains migration 298 and the independent journal. Keep restore writes drained while any earlier-generation workers or uncertain operations remain.
 
-## API and frontend handoff
+## API and frontend integration
 
 | Method and route | Authority and response |
 | --- | --- |
 | `POST /api/v2/admin/restores/previews` | `ops.restore.preview`, `Idempotency-Key`, HTTP 201. Input has `backup_id`, `target` and optional `expected_digest`. Output has `id`, `verified`, `impact` and `expires_at`. |
 | `POST /api/v2/admin/restores` | `ops.restore.execute`, `Idempotency-Key`, HTTP 202. Input has `preview_id`, `target` and nullable `rehearsal_id`. Production requires a successful isolated operation for the same backup and digest. |
 | `GET /api/v2/admin/restores/{id}` | `ops.restore.execute`, HTTP 200. Poll the accepted ID for `generation`, `state`, `stage`, `target` and `report`. |
-| `GET /api/v2/workspaces/1/operations/{id}` | BE-01 operation status. Current restore authority sees details. An owner whose platform authority was removed sees only their operation status when they retain workspace access. |
+| `GET /api/v2/workspaces/1/operations/{id}` | identity operation status. Current restore authority sees details. An owner whose platform authority was removed sees only their operation status when they retain workspace access. |
 
-FE-WP7 should retain the operation ID and reuse the create key on transport loss. A reused key with different input or an already consumed preview returns 409. Poll through `queued` and `running`. Display `succeeded` only with the final verified report. Display `unknown` as requiring operator review and keep the stage and opaque operation ID visible. `STEP_UP_REQUIRED` uses the existing TOTP prompt. `STEP_UP_TOTP_NOT_ENABLED` requires enrolling the actor. Archive credentials, object keys, SQL text and row contents stay outside v2 responses. Example payloads are in [the contract fixture](../../api/BE-09/restore.json).
+The operations console should retain the operation ID and reuse the create key on transport loss. A reused key with different input or an already consumed preview returns 409. Poll through `queued` and `running`. Display `succeeded` only with the final verified report. Display `unknown` as requiring operator review and keep the stage and opaque operation ID visible. `STEP_UP_REQUIRED` uses the existing TOTP prompt. `STEP_UP_TOTP_NOT_ENABLED` requires enrolling the actor. Archive credentials, object keys, SQL text and row contents stay outside v2 responses. Example payloads are in [the contract fixture](../../api/restore/restore.json).
 
-The existing v1 restore endpoint retains its admin password check and returns HTTP 202 after persisting a request. A production request also requires the execution grant and session TOTP. The worker uses separate idempotent isolated and production operations and creates the fresh production preview after rehearsal. The accepted v1 request ID stays queryable on the admin and BE-01 operation routes through the production child's terminal state. A failure before source verification has a reason-only report. The backup read and list endpoints project status from the journal, including when the backup predates its own inventory record. An explicit deletion hides the legacy backup link while retaining operation history. BE-22 should run restore consumers in `all` and `worker`, and mount the authenticated endpoints in `all` and `control`. The v1 adapter is the only production restore initiator outside v2. Direct, unbound `BackupService.RestoreBackup` and `StartRestore` compatibility helpers have fixture callers and reject calls on the composed service.
+The existing v1 restore endpoint retains its admin password check and returns HTTP 202 after persisting a request. A production request also requires the execution grant and session TOTP. The worker uses separate idempotent isolated and production operations and creates the fresh production preview after rehearsal. The accepted v1 request ID stays queryable on the admin and identity operation routes through the production child's terminal state. A failure before source verification has a reason-only report. The backup read and list endpoints project status from the journal, including when the backup predates its own inventory record. An explicit deletion hides the legacy backup link while retaining operation history. Runtime should run restore consumers in `all` and `worker`, and mount the authenticated endpoints in `all` and `control`. The v1 adapter is the only production restore initiator outside v2. Direct, unbound `BackupService.RestoreBackup` and `StartRestore` compatibility helpers have fixture callers and reject calls on the composed service.
 
 ## Verification
 
@@ -97,4 +97,4 @@ go test -p 1 -tags=integration -count=1 ./internal/modules/ops/restore ./interna
 go test -p 1 ./internal/service/... ./internal/handler/... ./internal/repository/...
 ```
 
-After aggregate wiring, run [the smoke script](smoke.sh) against a disposable standard-mode or embedded server with a completed fixture backup, isolated Redis, an independent journal and a separate disposable rehearsal cluster. Set `SMOKE_BASE_URL`, `SMOKE_ADMIN_EMAIL`, `SMOKE_ADMIN_PASSWORD` and `SMOKE_BACKUP_ID`. The script uses a loopback server with a password-login fixture admin and performs an isolated execution, idempotent replay, report verification and BE-01 operation lookup.
+After aggregate wiring, run [the smoke script](smoke.sh) against a disposable standard-mode or embedded server with a completed fixture backup, isolated Redis, an independent journal and a separate disposable rehearsal cluster. Set `SMOKE_BASE_URL`, `SMOKE_ADMIN_EMAIL`, `SMOKE_ADMIN_PASSWORD` and `SMOKE_BACKUP_ID`. The script uses a loopback server with a password-login fixture admin and performs an isolated execution, idempotent replay, report verification and identity operation lookup.

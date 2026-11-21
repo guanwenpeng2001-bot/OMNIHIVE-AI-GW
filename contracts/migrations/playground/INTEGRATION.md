@@ -1,10 +1,10 @@
 # Authenticated Playground
 
-Apply migration 302 after migrations 295, 297, 299, 300 and 301. It adds a run metadata table, a Playground journal origin, a grant for projected live raw events and a cancel fence in the BE-06 dispatch transaction. The journal and run share the request UUID. The separate run UUID is the UI handle. No prompt, response or native frame is stored in PostgreSQL by this module.
+Apply migration 302 after migrations 295, 297, 299, 300 and 301. It adds a run metadata table, a Playground journal origin, a grant for projected live raw events and a cancel fence in the settlement dispatch transaction. The journal and run share the request UUID. The separate run UUID is the UI handle. No prompt, response or native frame is stored in PostgreSQL by this module.
 
 ## Production composition
 
-Compose the protected control routes after the BE-01 identity and BE-05 catalog providers. `v2` is the existing group at `/api/v2`. Use the same initialized, settlement-backed GatewayService and adapter map that serve the standard API.
+Compose the protected control routes after the identity identity and catalog catalog providers. `v2` is the existing group at `/api/v2`. Use the same initialized, settlement-backed GatewayService and adapter map that serve the standard API.
 
 ```go
 dispatch := service.NewGatewayActionDispatch(routes.GatewayActionHandlers(handlers))
@@ -23,13 +23,13 @@ playground.Register(v2, h, gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(),
     panelRateLimiter.Heavy(), gin.HandlerFunc(auditLog))
 ```
 
-Keep body logging disabled on the Playground and private native routes. Audit actor, project, run, admission, outcome and content-access metadata. BE-22 owns wiring and split-mode transport of this private execution entry. In a split deployment the gateway process must own admission, dispatch and reservation. Authenticate the internal handoff as well as the end-user session, propagate its cancellation and keep both processes on the same journal. The native router receives its key through server-owned context and must remain private.
+Keep body logging disabled on the Playground and private native routes. Audit actor, project, run, admission, outcome and content-access metadata. Runtime owns wiring and split-mode transport of this private execution entry. In a split deployment the gateway process must own admission, dispatch and reservation. Authenticate the internal handoff as well as the end-user session, propagate its cancellation and keep both processes on the same journal. The native router receives its key through server-owned context and must remain private.
 
-The selected key resolves in the active project. For an owned key, consent confirms the owner's funding. A delegated caller needs `keys.act_as` and must name the matching `payer_user_id`. The gateway validates credential status, key/model/action restrictions, IP, group, balance/subscription eligibility and active membership. The BE-10 scenario uses the resolved native model, requested protocol, serialized byte length as input token reservation estimate and enforced native output bound. Candidate capture binds verified BE-04 endpoints from the key's group to their current verification IDs. The selected endpoint is the only permitted upstream for this invocation. A changed policy, verification, scope, cancellation, or a scheduler choice outside that selection closes the send permit. There is no automatic replacement generation.
+The selected key resolves in the active project. For an owned key, consent confirms the owner's funding. A delegated caller needs `keys.act_as` and must name the matching `payer_user_id`. The gateway validates credential status, key/model/action restrictions, IP, group, balance/subscription eligibility and active membership. The policies scenario uses the resolved native model, requested protocol, serialized byte length as input token reservation estimate and enforced native output bound. Candidate capture binds verified connections endpoints from the key's group to their current verification IDs. The selected endpoint is the only permitted upstream for this invocation. A changed policy, verification, scope, cancellation, or a scheduler choice outside that selection closes the send permit. There is no automatic replacement generation.
 
-BE-11 remains the settlement authority. `GatewayRequestPlan.ReserveBudget` executes once before the first event. A key with an active period budget records a physical hold. Other keys use the existing wallet/subscription rules. The standard native adapter records usage and its receipt, using the admitted request UUID. Only a persisted receipt establishes settlement. Pricing, charge, quantity evidence and ledger entries are available through BE-14's permission-projected `detail_url`. The run's `settlement_state` is refreshed from the linked receipt.
+Wallet remains the settlement authority. `GatewayRequestPlan.ReserveBudget` executes once before the first event. A key with an active period budget records a physical hold. Other keys use the existing wallet/subscription rules. The standard native adapter records usage and its receipt, using the admitted request UUID. Only a persisted receipt establishes settlement. Pricing, charge, quantity evidence and ledger entries are available through requests's permission-projected `detail_url`. The run's `settlement_state` is refreshed from the linked receipt.
 
-## FE-WP3
+## Console integration
 
 - Submit one POST per model to `P/playground/runs` with session credentials and a fresh `Idempotency-Key`. Display each estimate before obtaining cost consent. Each comparison side has its own request, hold, stream and cancel endpoint.
 - Supply the scoped catalog model ID, downstream key ID, protocol, `action: "text.chat"`, native `input` and `funding_acknowledged: true`. IDs are JSON strings. Use `options.stream: false` and `Accept: application/json` for a synchronous native output. Streaming uses `Accept: text/event-stream`. The outer request is limited to 256 KiB. The default output bound is 1024 tokens and the maximum is 32768. Each call permits one completion.
@@ -41,6 +41,6 @@ BE-11 remains the settlement authority. `GatewayRequestPlan.ReserveBudget` execu
 
 ## Legacy exit and verification
 
-BE-22 should switch the console to authenticated v2, announce the transition for the operator-funded `/playground/chat` forwarder, measure remaining legacy traffic, then remove its public registration and operator credential. Binary rollback can remove v2 registration while preserving run identities and receipt links. Coordinate schema contraction with the journal, billing and request readers.
+Runtime should switch the console to authenticated v2, announce the transition for the operator-funded `/playground/chat` forwarder, measure remaining legacy traffic, then remove its public registration and operator credential. Binary rollback can remove v2 registration while preserving run identities and receipt links. Coordinate schema contraction with the journal, billing and request readers.
 
 From `backend`, run `go build ./...`, `go vet ./...` and `go test ./...`. With a disposable migrated PostgreSQL `job_test` URI in `UPSTREAM_JOB_TEST_DSN` and Redis in `AFFINITY_REDIS_TEST_ADDR`, run `go test -tags=integration -count=1 ./internal/control/playground`. The fixture replaces external provider output and catalog discovery. It uses the production policy, journal, dispatch permit, budget repository, settlement ledger and scoped Gin routes. Native variant fixtures live in `contracts/protocol/playground/native.json`. At aggregate compose time regenerate OpenAPI and v2 TypeScript declarations from the fragment.

@@ -138,9 +138,9 @@ Kaggle 的配置片段示例（放入每个账号的 credentials，三个账号�
 
 引用账号的 scheduler full 与 metadata 缓存均保留引用标记并在序列化时剥离明文秘密。此保护只覆盖新写入；升级前已存在的不安全缓存必须通过受控重写或删除对应缓存项后再核验。
 
-## 安全暂存事务回执（P2）
+## 安全暂存事务回执
 
-尚未部署的迁移 `289_add_staged_account_import_receipts.sql` 包含专用成功回执表 `staged_account_import_receipts` 和共享模式占用表 `account_import_key_modes`；不新增 290，288 保留给既有终态索引迁移。两表使用迁移 SQL 和事务内原生查询，不生成 Ent 实体。仅 `stage_inactive=true` 绕开通用 coordinator；普通导入先检查共享占用，再沿用原 coordinator、active 创建及同模式重试行为，其他写入不变。
+迁移 `289_add_staged_account_import_receipts.sql` 包含专用成功回执表 `staged_account_import_receipts` 和共享模式占用表 `account_import_key_modes`；不新增 290，288 保留给既有终态索引迁移。两表使用迁移 SQL 和事务内原生查询，不生成 Ent 实体。仅 `stage_inactive=true` 绕开通用 coordinator；普通导入先检查共享占用，再沿用原 coordinator、active 创建及同模式重试行为，其他写入不变。
 
 两个模式都先使用 credentialDrafts 的 Ent client 开启 READ COMMITTED 短事务，在同一 workspace/规范化 key 的 PostgreSQL 事务 advisory lock 下检查并持久化模式占用，提交成功后才开始各自业务流程。mode、actor 和 payload 都不参与锁键。占用表唯一键为 `(workspace_id, idempotency_key_hash)`，绑定首次 actor 和 staged/legacy 模式；没有请求内容或请求摘要。
 
@@ -164,7 +164,7 @@ actor 来自认证中间件，workspace 来自经授权的服务端上下文；b
 
 上线前必须排空两个模式的旧导入写入并统一切换实例；旧版本不取得共享锁，不能混跑或回退后继续接收导入请求。历史批次，尤其记录已清理者，须人工核对；本补丁不回填旧摘要、不合并已有账号。新请求使用从未使用的 key，不能换 key 重试结果不明的旧导入。回执必须读写同一 PostgreSQL 主库，加密密钥必须跨副本一致。
 
-### P2 验证入口
+### 验证入口
 
 仅指向可丢弃 PostgreSQL，设置 `CREDENTIAL_SECRET_TEST_DSN` 后运行：
 
@@ -179,4 +179,4 @@ go test -tags unit ./cmd/server -run '^$' -count=1
 
 跨模式专项覆盖 staged→legacy（false/省略）、legacy→staged、两个方向的受控并发、不同 key、workspace/actor 隔离、禁用 coordinator、旧成功记录采纳、错误 actor/payload 不能抢占旧 key、占用提交前后进程退出、占用提交结果不明、业务回滚后同模式恢复、legacy MarkSucceeded 失败后仍不能切换模式。
 
-数据库崩溃恢复用例分两次运行 `TestAccountImportModePostgresDatabaseRestart`：使用相同 `IMPORT_MODE_DB_RESTART_RUN` 标识，先设置 `IMPORT_MODE_DB_RESTART_PHASE=create`，仅对专属可丢弃集群执行 immediate stop/start，恢复后以 `replay` 再运行。测试代码本身不控制 PostgreSQL 进程。本次只使用 worktree 内原隔离 PG18 的新建 `receipt_test`，没有操作 PG17/job_test 或其他业务库。
+数据库崩溃恢复用例分两次运行 `TestAccountImportModePostgresDatabaseRestart`：使用相同 `IMPORT_MODE_DB_RESTART_RUN` 标识，先设置 `IMPORT_MODE_DB_RESTART_PHASE=create`，仅对专属可丢弃集群执行 immediate stop/start，恢复后以 `replay` 再运行。测试代码本身不控制 PostgreSQL 进程。

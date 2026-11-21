@@ -1,7 +1,7 @@
 # 旧版 `.s2plugin` 包格式
 
 > 当前插件包格式为 `.ohplugin`（manifest v2 + WASI Preview 1）。请优先阅读
-> [`contracts/plugins/README.md`](../../../../../contracts/plugins/README.md)；
+> [`contracts/plugins/README.md`](../../../../contracts/plugins/README.md)；
 > 本页只描述兼容窗口内的 v1 `.s2plugin` 布局。
 
 `.s2plugin` 是 ZIP 文件，根目录必须包含 `manifest.json`，生产包还必须包含 `signature.json`。

@@ -1,12 +1,12 @@
-# BE-29 workspace telemetry exports
+# Workspace telemetry exports
 
-Apply migration 318 after BE-01 and BE-21. The migration creates scoped collector, policy, idempotency, pending delivery and bounded deduplication storage. It classifies the existing unused `ops.export.configure` action as a workspace action so the identity evaluator grants it to workspace administrators. There is no historical export backfill. A binary rollback keeps the expansion. Reapply the production policy and validate any destination explicitly approved for import before enabling it.
+Apply migration 318 after identity and audit. The migration creates scoped collector, policy, idempotency, pending delivery and bounded deduplication storage. It classifies the existing unused `ops.export.configure` action as a workspace action so the identity evaluator grants it to workspace administrators. There is no historical export backfill. A binary rollback keeps the expansion. Reapply the production policy and validate any destination explicitly approved for import before enabling it.
 
 ## Composition
 
-Include `observability.ProviderSet` and attach the resulting handler to v2 with `observability.Register(v2, handler, session, panelLimit, legacyAudit)`. The provider owns a PostgreSQL pool with four connections and uses BE-21 controlled egress. Register its cleanup after the supervisor drains. Compose the v2 fragment and regenerate the frontend API types through the aggregate branch.
+Include `observability.ProviderSet` and attach the resulting handler to v2 with `observability.Register(v2, handler, session, panelLimit, legacyAudit)`. The provider owns a PostgreSQL pool with four connections and uses audit controlled egress. Register its cleanup after the supervisor drains. Compose the v2 fragment and regenerate the frontend API types through the aggregate branch.
 
-Install the BE-21 `auditHandler.Capture` after session authentication on authorized project routes. In serving modes, run both `exportStore.RunIngest(ctx, onIngestFailure)` and the audit observer. Use `observer.RunWithExport(ctx, auditStore, onAuditFailure, exportStore.Offer)` in place of the existing observer call. Start `exportStore.RunDelivery(ctx, onWorkerFailure)` in worker modes. Every callback takes no arguments. Use fixed failure counters and expose `exportStore.Dropped()` as a process counter. Workspace and project visibility are checked through the live identity evaluator for every sampled scope. Delivery checks the current grant of the approval actor.
+Install the audit `auditHandler.Capture` after session authentication on authorized project routes. In serving modes, run both `exportStore.RunIngest(ctx, onIngestFailure)` and the audit observer. Use `observer.RunWithExport(ctx, auditStore, onAuditFailure, exportStore.Offer)` in place of the existing observer call. Start `exportStore.RunDelivery(ctx, onWorkerFailure)` in worker modes. Every callback takes no arguments. Use fixed failure counters and expose `exportStore.Dropped()` as a process counter. Workspace and project visibility are checked through the live identity evaluator for every sampled scope. Delivery checks the current grant of the approval actor.
 
 ## Collector protocol
 
@@ -29,4 +29,4 @@ go test ./...
 go test -p 1 -tags=integration -count=1 ./internal/modules/ops/export ./internal/control/observability ./internal/control/audit ./internal/control/identity
 ```
 
-The package tests exercise full migration, scoped grants, collector revocation, lease recovery, retry and queue caps, expiry, payload projection and the ability to deliver independently of locks on the financial outbox and receipt tables. The BE-01 integration test exercises the shared scope authority with its Redis-backed API key cache.
+The package tests exercise full migration, scoped grants, collector revocation, lease recovery, retry and queue caps, expiry, payload projection and the ability to deliver independently of locks on the financial outbox and receipt tables. The identity integration test exercises the shared scope authority with its Redis-backed API key cache.

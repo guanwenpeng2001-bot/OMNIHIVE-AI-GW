@@ -1,16 +1,10 @@
 # 模型注册表、公开协议与运行一致性合同
 
-## 合同效力与来源
-
-本合同是 `execution-contracts` 的实施基线，规定后续实现必须满足的行为，不表示这些行为已经实现。基线为 `guanwenpeng2001-bot/main-next-3`，SHA `52bbd9182f186caac1e87ba1893330952e05555a`。本次仅交付本文件和 [账号与模型访问合同](account-model-access.md)，不新增运行开关、配置项、接口实现或预期失败测试。
-
-裁决依据为 [整合执行方案](C:/Users/Administrator/orca/workspaces/sub2api/main-work/.pi/plans/main-next-3-account-management/plans/plan-integrated-execution.md) 的「冲突裁决」「固定实现合同与 U 组落地」「P 组：18 平台动作覆盖的派发边界」「阶段依赖、派发规则与文件所有权」。编号以 [定稿登记册](C:/Users/Administrator/orca/workspaces/sub2api/main-work/.pi/plans/main-next-3-account-management/final-problem-register.md) 和 [审计合并稿](C:/Users/Administrator/orca/workspaces/sub2api/main-work/.pi/plans/main-next-3-account-management/audit-merge.md) 为准；旧报告建议不能覆盖已裁决的 U 组及补充决定。本文把字段和验收表达具体化，不重新裁决范围；发现工程硬冲突必须报告协调者。
-
-后续验收必须同时满足派发合同任务交付、来源编号验收行和阶段验收要求。本文不是 302 项核销账本的替代品；D8/K1、D9/K2、D10/K3、D11/K4、D12/K5、D13/K6 等共用实现时仍须分别核销。
+本文列出注册表与公开协议的设计约束。已支持的端点见[协议矩阵](gateway-platform-protocol-matrix.md)。
 
 ## 运行事实源与不可变快照
 
-服务层必须组装不可变 `ModelRegistrySnapshot`（U4、D10、N2），供预设、目录、资格判断、能力展示和价格关联使用。它是既有来源的一代事实视图，不是第四张人工维护的模型表。
+服务层必须组装不可变 `ModelRegistrySnapshot`，供预设、目录、资格判断、能力展示和价格关联使用。它是既有来源的一代事实视图，不是第四张人工维护的模型表。
 
 | 来源或标识 | 必须承担的职责 | 不得承担的职责 |
 | --- | --- | --- |
@@ -22,7 +16,7 @@
 
 模型身份必须区分平台、托管类型、实际 hosting provider、协议/画像、region/project/deployment 与凭据拥有者；内部部署标识不能作为公共 canonical 的替代。mode、套餐、协议必须正交，不得将 Coding 端点的权限等同开放 API。公开同名的多个绑定可以聚合，但不能抹去内部身份区别。
 
-快照必须携带可追溯的制品 digest、release pin/generation 与来源 revision。一次请求必须冻结同一快照引用及对应报价；不得在调用中途混用新旧代事实。价格缺失、明确免费和有价必须区分；已冻结的历史收据不得随新包重算。前端必须先迁移到现有预设 API，再删除 Go 独立名单及 `admin_group.go` 的 Claude default（U4b）；未知画像无候选必须返回空态并允许合法手工输入。
+快照必须携带可追溯的制品 digest、release pin/generation 与来源 revision。一次请求必须冻结同一快照引用及对应报价；不得在调用中途混用新旧代事实。价格缺失、明确免费和有价必须区分；已冻结的历史收据不得随新包重算。前端必须先迁移到现有预设 API，再删除 Go 独立名单及 `admin_group.go` 的 Claude default；未知画像无候选必须返回空态并允许合法手工输入。
 
 ## 批准包重载与离线运行
 
@@ -34,7 +28,7 @@
 
 预设补全只有在 confirmed 官方审阅记录的 platform、预设 profile、准确 model ID、field 与当前来源 URL 全部匹配时，才使用该字段的捕获哈希和日期。沿用模型原始来源的历史字段保留旧哈希、旧日期及 `observed`；其他无法匹配的 URL 保留未知哈希/日期，无字段 URL 时仅标识预设包来源，不能借用兄弟字段、其他模型或画像的新捕获。候选事实与逐字段可信度均不证明账号权限。
 
-运行时重载采用管理员触发的批准本地包入口（U4a），保留既有签名、release pin 和审批链。不接受任意远程 URL，不以文件变化绕过审批，不新增自动启用资料的通道。O5 定时采集只生成待审差异。
+运行时重载采用管理员触发的批准本地包入口，保留既有签名、release pin 和审批链。不接受任意远程 URL，不以文件变化绕过审批，不新增自动启用资料的通道。定时采集只生成待审差异。
 
 1. 必须完整校验制品、签名、pin、防降级规则、身份关联和解析结果，再原子替换快照；半包不得可见。
 2. 并发 reload 必须按 generation 串行发布或拒绝过时提交；失败必须保留 last-good，已开始请求继续使用冻结引用。
@@ -54,7 +48,7 @@
 | `discovery_complete` | 发现遍历是否完整；与模型能力字段是否齐全独立 |
 | `capability_status` | 能力证据的完整/稀疏/未知状态；不得反向阻断已有效发现的模型添加 |
 
-求值必须遵循：**当前身份的发现/声明/探测证据 ∩ 动作实现 ∩ 账号规则 → 账号 Eligible → 组内可路由公开名并集 → 组/Composite 规则 → Key 规则交集**。完整访问规则见 [账号与模型访问合同](account-model-access.md)。U4c 要求公共目录仍以账号 Eligible 为准；模型事实不是凭据权限。
+求值必须遵循：**当前身份的发现/声明/探测证据 ∩ 动作实现 ∩ 账号规则 → 账号 Eligible → 组内可路由公开名并集 → 组/Composite 规则 → Key 规则交集**。完整访问规则见 [账号与模型访问合同](account-model-access.md)。公共目录仍以账号 Eligible 为准；模型事实不是凭据权限。
 
 账号空数组必须保持存量语义，不能迁成“拒绝全部”；Key 未设置与显式空必须分开存储。Key 默认继承，存在策略时只能缩小组有效集。有限显式别名先按用户请求的公开名授权，再映射到上游模型并重查身份、动作、绑定；不得映射后绕过公开名规则。公开 `aliases` 和 `canonical` 必须在相同作用域内可解析到真实授权绑定，不公开隐藏目标或内部部署名。
 
@@ -144,7 +138,7 @@ Anthropic 必须支持 `limit`、`after_id`、`before_id`，按可信创建时�
 | 公共入口 | routes 只注册路径和中间件；handler/service 解析动作、参数和公开模型，先执行公开名授权 |
 | 目标解析 | Composite 先解析有权限的显式目标，再复用相同动作解析；Cursor 不得默认归一成 OpenAI 池；Bedrock 非 Claude body 不送 Claude parser |
 | 资格选择 | 当前身份证据、动作实现、账号/组/Key 规则、真实模型能力及请求要求共同确定候选；填入普通凭据无需“未验证”人工解锁 |
-| 发送前重验 | 每次发送/换路必须重查绑定、身份与要求；已知不支持当前输入或动作时必须在调用上游前返回协议化 400（D13），上游 fixture 调用数为零 |
+| 发送前重验 | 每次发送/换路必须重查绑定、身份与要求；已知不支持当前输入或动作时必须在调用上游前返回协议化 400，上游 fixture 调用数为零 |
 | 未知证据 | unknown 不得当 false 拒绝；有合法绑定和适配路径时继续保守执行，不能借 unknown 绕过权限、缺价或适配器缺失，也不能把未知标为已支持 |
 | 暴露控制 | `allow_image_generation` 等既有开关只控制暴露，不能替代 adapter；保存/迁移必须保留旧明确设置，新账号默认按实际能力生成 |
 | 生命周期 | 所有 HTTP/媒体/搜索/异步/WS 均建 request plan；同步按 request、异步按 job、实时按 session+turn 冻结授权、动作、模型、报价、attempt budget、lease/receipt |
@@ -161,7 +155,7 @@ Anthropic 必须支持 `limit`、`after_id`、`before_id`，按可信创建时�
 
 ### 全部产品的适配归属与硬冲突处理
 
-每个产品必须核证全部动作格，下表不是能力白名单或已完成声明；实施时由供应商任务固定第一方资料/脱敏 wire 样本和证据时间。无真实密钥不等于无能力，U5 以本地协议夹具验收，不宣称线上地区授权/风控已验证。
+每个产品必须核证全部动作格，下表不是能力白名单或已完成声明；实施时由供应商任务固定第一方资料/脱敏 wire 样本和证据时间。无真实密钥不等于无能力，本地协议夹具覆盖协议行为，不宣称线上地区授权/风控已验证。
 
 | 产品入口 | 唯一适配任务 | 必须保留的边界 |
 | --- | --- | --- |
@@ -223,100 +217,11 @@ Google 原生 `/v1beta` 的 query `key` 继续兼容且全链 URI/日志/错误�
 
 | 迁移 | 必须保留与执行的顺序 | 回滚边界 |
 | --- | --- | --- |
-| 托管身份归位（U1/U1a–d） | 所有实例先双读旧值；一次性幂等迁移仅更新当前配置；Bedrock 新写 `platform=anthropic,type=bedrock`，Vertex 按承载协议归 `anthropic/gemini,type=service_account`；hosting provider/region/project/deployment/SigV4/SA 保留 | 旧 Bedrock 限定组仍仅允许 Bedrock 子类型，不扩大为全部 Anthropic；回滚最低为能读新 type 的兼容代码 |
-| 历史统计（U1c） | account/Key/group ID 不变；历史 usage/价格收据不重写；读取映射保留 Bedrock 子类，每行只计一次；配额已用量不清 | 仅允许核对和兼容读取，不得通过回滚重写历史金额或覆盖迁移后新建配置 |
-| 消费点切换（U1b） | 常量、筛选、选择器、路由、目录、图标/徽章、统计、同步/导入及夹具同批切换；所有写入口执行绑定 payload/revision 的混合渠道 409 | 不得只改平台枚举而遗漏 N 组消费点 |
-| 同 ID 凭据轮换（U2b） | 使用从属凭据记录和摘要查找，同一 `api_keys.id` 最多 current+previous 有效；默认 24h 可配宽限，第二次轮换终止更旧宽限；创建/轮换只返回一次 secret | 期限/撤销逐次校验并审计，轮换不重置权限/预算/历史归属；不能回生撤销凭据 |
+| 托管身份归位 | 所有实例先双读旧值；一次性幂等迁移仅更新当前配置；Bedrock 新写 `platform=anthropic,type=bedrock`，Vertex 按承载协议归 `anthropic/gemini,type=service_account`；hosting provider/region/project/deployment/SigV4/SA 保留 | 旧 Bedrock 限定组仍仅允许 Bedrock 子类型，不扩大为全部 Anthropic；回滚最低为能读新 type 的兼容代码 |
+| 历史统计 | account/Key/group ID 不变；历史 usage/价格收据不重写；读取映射保留 Bedrock 子类，每行只计一次；配额已用量不清 | 仅允许核对和兼容读取，不得通过回滚重写历史金额或覆盖迁移后新建配置 |
+| 消费点切换 | 常量、筛选、选择器、路由、目录、图标/徽章、统计、同步/导入及夹具同批切换；所有写入口执行绑定 payload/revision 的混合渠道 409 | 不得只改平台枚举而遗漏 N 组消费点 |
+| 同 ID 凭据轮换 | 使用从属凭据记录和摘要查找，同一 `api_keys.id` 最多 current+previous 有效；默认 24h 可配宽限，第二次轮换终止更旧宽限；创建/轮换只返回一次 secret | 期限/撤销逐次校验并审计，轮换不重置权限/预算/历史归属；不能回生撤销凭据 |
 | 明文转摘要 | 先凭据表、摘要双读和掩码 DTO 全实例兼容；再回填原 Key 的摘要并验证可鉴权；新凭据只存摘要，停止明文回读/写入；最后分批清旧明文并记录退出证据 | 原明文列可空，唯一性转摘要，用独立显示后缀，不塞假 secret；清明文后不能回滚到明文鉴权二进制，不从备份复活旧凭据；本轮必须退出临时双读 |
 | secret 引用 | 默认 inline 读取兼容；明确转换后使用 workspace 内加密实体、既有 SecretEncryptor、OAuth 刷新 CAS；版本变化统一失效且 diff 脱敏 | 无明文 GET、引用不跨域；不得自动退回历史明文，不额外接多家 Vault SDK |
 
 每个迁移实施 PR 必须记录最低回滚代码 SHA/schema 范围/制品 digest/是否已有新语义写入，并验证 fresh/旧库/二次执行。预算和作用域迁移见配套访问合同，不能恢复忽略已生效规则的旧二进制。
-
-## 基线门禁状态与后续验收
-
-[基线门禁记录](C:/Users/Administrator/orca/workspaces/sub2api/main-work/.pi/plans/main-next-3-account-management/baseline-gates.md) 于 2026-09-20 10:20 记录上述基线 SHA **当前全绿、无已知失败项**：后端 `go build ./...`、`go test ./...`，前端 typecheck/check:i18n/lint:check/test:run/build，以及 required usage-coverage/catalog/affinity 均通过，affinity 使用真实 Redis CAS。此处引用的是既有基线证据，不是后续功能完成声明。
-
-后续子分支必须按共通规格运行既有全门禁与相邻行为测试；required 必须实际 PASS，不得把 Skip/缺依赖算通过。身份/权限/预算/结算另跑对应隔离集成测试。U5 不要求真实供应商实机，不得因此声称线上权限或地区风控已经验证。本地 3000/8080 浏览器验证由协调者统一执行，worker 不自启/重启主实例。过程证据只写主工作树 `.pi`，本合同不新增扫描器、完成度开关或测试百分比门槛。
-
-### 后续实现的保留约束
-
-后续实现必须保留 18 产品入口、离线 catalog 与 release pin、平台预设、模态分块和折叠诊断；诊断降噪必须保留可展开的诊断内容，覆盖率横幅必须保持原显示逻辑。前端必须复用既有 Select/Modal/ConfirmDialog/token，保持全局设计语言；后端必须保持 handler→service→repository/domain 分层，不得为单平台另起服务流水线。
-
-后续新增配置必须仅限登记条目明确要求的周期/TPM/权重/区域/TTL，并可回查对应条目；不得新增“实验平台”或“实现完成度”开关。验收必须检查模态区块与折叠诊断仍可用、组件与分层沿用既有设施，并逐项核对新增配置的登记依据，不得用删除诊断或开关代替功能交付。
-
-## 附录：共享文件锁与夹具归属
-
-### 文件锁的取得、释放与串行顺序
-
-同一时刻一个共享文件只允许当前获派任务写入；表中箭头表示顺序所有者，不是同时授权。前一任务必须合并并验收，释放文件后后一任务才基于该 SHA 增量接线。没有独占文件授权的任务只交自己的模块，跨表重叠也必须串行；协调者维护实际锁状态。`execution-contracts` 本次仅锁两份合同文档，不修改现有协议矩阵或任何源码。
-
-| 共享区（源码根相对路径或派发合同中的文件简称） | 顺序所有者/唯一写者 |
-| --- | --- |
-| `gateway_handler.go`、`openai_gateway_handler.go`、`gateway_service.go`、`openai_gateway_service.go` 及共享流工具 | `stream-cancellation-repair` → `gateway-protocol-contract`/`request-lifecycle` 按互斥接线顺序 → `action-dispatch` → `multimodal-ingress`/治理所属任务 → `shared-architecture-cleanup`；同文件禁止并行 |
-| `admin_account.go`、`account_repo.go`、`group_repo.go` | `account-preview-repair` → `account-runtime-identity`/`catalog-event-propagation` → `hosted-account-identity` → `oauth-credential-drafts` → `workspace-resource-scope` → 对应 access/secret 任务；跨阶段每次释放后接线 |
-| `admin_group.go` | `hosted-account-identity` → `model-registry-runtime` → `model-access-groups` |
-| `api_key_service.go`（实际服务文件见下表）、API Key schema/repo/auth | `gateway-protocol-contract`（协议错误）→ `model-access-groups` → `key-credential-lifecycle` → `key-budget-periods`/`gateway-admission-controls` 各自接线 |
-| `config.go` | `deployment-config-alignment` 对齐原值/提示；已要求的治理配置先由对应治理任务定义再串行接线；不得同时编辑或改变四个安全默认 |
-| `routes/*.go` | auth 归 `oauth-identity-boundary`，workspace 归 `workspace-resource-scope`；gateway 由 `action-dispatch` 薄委托后交 `multimodal-ingress` 集中入口；18 adapters 不写 routes |
-| `ent/schema/*`、Wire、Ent/Wire 生成物、迁移 | 当前持有 schema/DI 的任务独占生成并与源定义同批提交；协调者分配未用前缀，不手改生成物、不改历史迁移号 |
-| Create/Edit/Bulk、模型选择组件 | `account-preview-repair` → `preset-api-source` → `account-workflow` → workspace/access/secret 插槽；`model-modal-presentation` 等相关组件必须等待 workflow 释放 |
-| `SettingsView.vue`、`GroupsView.vue` | `settings-view-modules` 拆分 → 治理对应接线 → `frontend-accessibility-language`；视觉 token 沿用原设计 |
-| `frontend/src/types/index.ts` 与域 DTO | `frontend-domain-contracts` 主责拆分/re-export，其他域实施按其合并点顺序迁移，不并行重写聚合器 |
-| `frontend/src/api/client.ts`、错误规范化工具 | `panel-error-contract` 唯一主责；后续消费者按统一错误工具接线 |
-| router、i18n 聚合器 | 按当前界面所属任务取得独占锁：身份/工作流 → session → workspace/access/credential/budget → accessibility/client guides；该顺序不得覆盖各任务硬前置 |
-| 根/后端 Makefile | `test-entry-repair` 唯一主责修入口；其他任务复用已有目标，不另造门禁 |
-| CI/release/security、package/lock、忽略规则 | `build-and-dependency-health` 主责；`usage-display-export` 的 XLSX 依赖改动必须先合并释放；deployment 的 Docker/Compose 单独归 `deployment-config-alignment` |
-| 共享预设 JSON、能力 catalog 与采集输入 | `model-registry-data` 唯一数据写者；adapter 数据需求交其顺序补入，release/pin/runtime 接线归 `model-registry-runtime` |
-
-### 精确接线文件的顺序所有者
-
-以下精确索引沿用派发合同，以避免简称误指文件；未存在路径为派发合同拟议新增文件，同责模块已存在时就近复用。表内原有版本式文件名只是既有路径，不是新命名许可。
-
-| 精确路径（相对源码根；未存在者标新增） | 顺序所有者与具体改动 |
-| --- | --- |
-| `backend/internal/handler/admin/account_handler.go` | panel-error-contract：409；account-preview-repair：preview/catalog/幂等；oauth-credential-drafts：最终确认；workspace-resource-scope：scope；各次仅薄接线 |
-| `backend/internal/service/admin_account.go` | preview：头/复制；runtime：身份变更；hosted：类型；draft：原子创建；workspace/secret：授权/引用，按阶段串行 |
-| `backend/internal/service/admin_group.go` | hosted：subtype限制；registry-runtime：删Claude default；access：模型规则；保留同一调用链 |
-| `backend/internal/handler/gateway_handler.go`、`backend/internal/handler/openai_gateway_handler.go` | stream修复→protocol→request-lifecycle→action-dispatch→治理策略，控制各分支接线行，不整文件格式化 |
-| `backend/internal/service/gateway_upstream_response.go`、`backend/internal/service/gateway_anthropic_passthrough.go`、`backend/internal/service/openai_gateway_messages_anthropic_native.go`、`backend/internal/service/antigravity_gateway_streaming.go`、`backend/internal/service/bedrock_stream.go` | stream-cancellation-repair修所有取消/心跳入口；request-lifecycle统一真实usage与结算，不能只修一个provider |
-| `backend/internal/handler/openai_images.go`、`backend/internal/handler/grok_media.go`、`backend/internal/handler/openai_embeddings.go`、`backend/internal/handler/grok_audio.go`、`backend/internal/handler/openai_alpha_search.go`、`backend/internal/handler/openai_live.go` | request-lifecycle先接plan与deadline；protocol任务接错误/Origin；各provider adapter保留专有处理；multimodal-ingress最后统一入口 |
-| `backend/internal/handler/qianwen_realtime_relay.go`、`backend/internal/service/qianwen_realtime_billing.go`、`backend/internal/service/qianwen_native_audio_billing.go` | lifecycle按turn/receipt接入；actions-qianwen补原生动作；model-pricing-facts串行处理单位/冻结报价 |
-| `backend/internal/util/logredact/redact.go`、`backend/internal/handler/request_body_parse_log.go`、`backend/internal/service/error_passthrough_runtime.go` | gateway-protocol-contract统一凭据/身份/URL脱敏，先擦除后截断；不得把HTTP原文原样交用户 |
-| `backend/internal/server/middleware/api_key_auth.go`、`backend/internal/server/middleware/api_key_auth_google.go`、`backend/internal/server/middleware/group_model_allowlist.go` | protocol先统一错误；access组同resolver；key生命周期双凭据/期限；admission统一限额反馈，全部协议不留旁路 |
-| `backend/internal/server/middleware/panel_rate_limit.go`、`backend/internal/server/middleware/session_binding.go`、`backend/internal/handler/auth_dingtalk_client.go` | oauth-identity-boundary处理限流/旧token边界；bounded-runtime-resources处理DingTalk共享token |
-| `backend/internal/securityaudit/prompt_outbound_security.go`、`backend/internal/config/config.go` | deployment-config-alignment只对齐已有选项/提示与显式配置执行；四个安全默认不改；可靠性必需配置由对应治理分支先定义再串行接线 |
-| `backend/ent/schema/api_key_credential.go`（新增）、`backend/internal/repository/api_key_credential_repo.go`（新增） | key-credential-lifecycle：摘要唯一索引、Key关联、current/grace、valid_until/revoked；原key明文列转nullable兼容后停止使用，唯一性转摘要，不往原列塞假secret |
-| `backend/ent/schema/api_key.go`、`backend/internal/service/api_key.go`、`backend/internal/repository/api_key_repo.go` | access规则→credential revision→budget policy/period串行；原ID/owner/group不变，用户/管理员解绑一致 |
-| `backend/ent/schema/workspace.go`、`backend/ent/schema/workspace_member.go`、`backend/internal/service/workspace_service.go`、`backend/internal/repository/workspace_repo.go`、`backend/internal/server/routes/workspaces.go`（均新增） | workspace-resource-scope：实体/成员/作用域服务/资源路由，既有account/group/proxy/channel/monitor查询显式scope |
-| `backend/ent/schema/model_access_group.go`、`backend/internal/service/model_access_group.go`、`backend/internal/repository/model_access_group_repo.go`、`backend/internal/handler/admin/model_access_group_handler.go`（均新增） | model-access-groups：具名集合、引用关系、规则revision、有效集和影响预览 |
-| `backend/ent/schema/credential_secret.go`、`backend/internal/service/credential_secret.go`、`backend/internal/repository/credential_secret_repo.go`（均新增） | credential-reference-audit：workspace加密secret、版本CAS、引用轮换、没有明文GET；复用TOTP等现有SecretEncryptor接口而非混表 |
-| `backend/internal/service/audit_log_service.go`、`backend/internal/repository/audit_log_repo.go`、`backend/internal/handler/admin/audit_log_handler.go` | credential-reference-audit：配置脱敏diff/actor/workspace/revision，与业务事务结果一致；key生命周期先提交轮换事件类型 |
-| `backend/internal/service/usage_settlement_service.go`、`backend/internal/repository/usage_settlement_receipt_repo.go`、`backend/internal/repository/usage_billing_repo.go` | lifecycle→budget串行：强制receipt、预留/实扣、幂等恢复、冻结period，取消/失败不丢实际账 |
-| `backend/internal/handler/admin/dashboard_handler.go`、`backend/internal/handler/admin/dashboard_snapshot_v2_handler.go`、`backend/internal/repository/usage_log_repo_dashboard.go` | usage-display-export补billing_mode/成本；admin-observation-truth补真实realtime，不各自维护假stats |
-| `backend/internal/handler/admin/group_handler.go`、`backend/internal/handler/admin/proxy_handler.go`、`backend/internal/handler/admin/redeem_handler.go`、`backend/internal/service/proxy_service.go`、`backend/internal/service/redeem_service.go` | admin-observation-truth接真实聚合/实际网络，scope取前序workspace实现 |
-| `backend/internal/handler/admin/channel_handler.go`、`frontend/src/api/admin/channels.ts` | model-pricing-facts补复杂价卡bind/response；frontend-domain-contracts保持精确类型 |
-| `frontend/src/components/account/CreateAccountModal.vue`、`frontend/src/components/account/EditAccountModal.vue`、`frontend/src/components/account/BulkEditAccountModal.vue` | preview小修→preset API→workflow区块→workspace/访问组/secret插槽，四组写者串行 |
-| `frontend/src/components/account/ModelWhitelistSelector.vue`、`frontend/src/components/account/ModelCatalogDetails.vue`、`frontend/src/utils/modelCategories.ts` | preview返回集合→model-modal-presentation分组/大列表/TaskLimits；覆盖率横幅所在显示逻辑不改 |
-| `frontend/src/views/admin/SettingsView.vue`、`frontend/src/views/admin/GroupsView.vue` | settings-view-modules按已有tab/表单块抽取；治理接线在拆分后，视觉token不另设 |
-| `frontend/src/views/user/KeysView.vue`、`frontend/src/components/admin/user/UserApiKeysModal.vue`、`frontend/src/api/keys.ts`、`frontend/src/api/admin/apiKeys.ts` | 错误/幂等→session→access→credential→budget→账单/状态顺序，显式保留子分支回滚边界 |
-| `frontend/src/views/admin/UsageView.vue`、`frontend/src/views/user/UsageView.vue`、`frontend/src/api/admin/usage.ts`、`frontend/src/api/admin/dashboard.ts` | usage-display-export抽共用页面块/筛选DTO，服务端导出并保留XLSX能力 |
-| `frontend/src/views/user/CustomPageView.vue`、`frontend/src/views/HomeView.vue`、`frontend/src/utils/embedded-url.ts`、`frontend/vite.config.ts` | browser-session-boundary移除主JWT、同消毒/沙箱、生命周期与HTML注入转义，随后a11y只补label |
-| `frontend/src/views/auth/WechatCallbackView.vue`、`frontend/src/views/auth/OidcCallbackView.vue`、`frontend/src/views/auth/DingTalkCallbackView.vue`、`frontend/src/views/auth/LinuxDoCallbackView.vue` | frontend-session-lifecycle共用换票/会话恢复状态，provider专有参数保留 |
-| `frontend/src/api/channelMonitorV2.ts`、`frontend/src/api/admin/channelMonitor.ts`、`frontend/src/features/channel-monitor-v2/MonitorSettingsPanel.vue`、`frontend/src/features/channel-monitor-v2/normalizeConfig.ts` | admin-observation-truth补完整指标/模式错误/候选来源；不因既有文件名v2另造新版本模块 |
-| `backend/internal/service/wire.go`、`backend/internal/repository/wire.go`、`backend/internal/handler/wire.go`、`backend/internal/server/middleware/wire.go`、`backend/cmd/server/wire_gen.go`、`backend/ent/migrate/schema.go` | 每个schema/DI所有者顺序生成；`make -C backend generate`使用现有流程，生成diff与源定义同批审查 |
-
-### 测试环境与夹具的唯一写者
-
-| 夹具/资源 | 所有者与调度规则 | 验收边界 |
-| --- | --- | --- |
-| PostgreSQL `stats_test`（127.0.0.1:5433） | 协调者分配独占执行时段；当前门禁 worker 在时段内运行 required usage-coverage，`test-entry-repair` 仅修测试入口，统计行为夹具随对应 usage 任务 | 使用共通规格 `USAGE_STATS_TEST_DSN`；后端测试与三个 required 串行，不得两个分支同时 reset；不得接 dev/业务库 |
-| Redis 测试实例 127.0.0.1:6399 | 协调者分配独占执行时段；affinity 当前测试运行者独占，identity/admission 的 fixture 各归行为任务 | `AFFINITY_REDIS_TEST_ADDR=127.0.0.1:6399`；不是 dev 6380；并发只允许已证明互相隔离的 namespace，禁止共享实例 FLUSH 互相干扰 |
-| `job_test` 与迁移测试管理连接 | `upstream-job-integrity`/schema 所属任务及 required catalog 当前运行者按协调者时段独占；变量分别为既有 `UPSTREAM_JOB_TEST_DSN`、`NEW_PLATFORMS_TEST_POSTGRES_DSN` | required catalog 的 PostgreSQL reconfirmation/CAS 哨兵也必须设置 `UPSTREAM_JOB_TEST_DSN` 指向独占 job_test；仅设置 stats_test 和 Redis 不足以通过；未知 DSN 不猜、不向日志输出凭据 |
-| HTTP 模型列表/错误/授权夹具 | `gateway-protocol-contract` 主责协议序列化，`visible-model-policy` 主责有效集合，`action-dispatch` 主责动作负例；共享 fixture 文件按上述顺序释放 | 三协议严格 schema、时间/游标、404/400、撤权、别名，不用候选充授权 |
-| HTTP 身份/发现/catalog/reload 夹具 | preview → discovery → identity → registry 各任务只写相邻行为夹具；同文件按依赖串行 | 身份 CAS、partial 保旧、坏签名、换代/断网、双实例失效 |
-| SSE 取消/心跳/断流夹具 | `stream-cancellation-repair` → `request-lifecycle`，协议事件归 `gateway-protocol-contract` 串行接线，供应商 wire 归对应 `actions-*` | 心跳后仍必须同时明确未提交副作用且未输出语义内容才可换路；副作用已提交/未知或已有语义内容不得重放；取消与总 deadline 传上游，短尾不生成，计费失败/panic 经 receipt/outbox 恢复且已发生 usage 不丢 |
-| WS/Realtime、multipart、二进制供应商夹具 | 每个 `actions-*` 独占本供应商 fixture；公共 session/turn/receipt 由 `request-lifecycle`，入口矩阵由 `multimodal-ingress` 汇总 | owner/取消/超时/价格/重复任务正反例；仅有 404 不能证明已有动作支持 |
-| 协议/全平台集成矩阵 | `multimodal-ingress` 集中核验，`integrated-acceptance` 最终复核；缺陷交原所有者修复 | 保留 18 平台全部动作格，硬冲突未裁决不得写全完成 |
-| 本地 Vite 3000 / 后端 8080 与双实例演练 | 协调者统一启动、点选和分配；worker 不自起/重启主服务，额外 8081 仅由协调者调度 | 三协议请求、页面、数据库/收据一致；模拟外部连通必须标为夹具 |
-
-HTTP/SSE/WS 测试服务器必须使用独立临时端口并在测试结束释放，真实供应商凭据不得放入 fixture。共享 fixture 若归属重叠，必须等待前一写者释放，不借“测试文件”名义并行修改共享源码。全部过程日志和核销证据只归主工作树 `.pi`；正式相邻测试在其行为实施任务提交，本契约任务不落预期失败测试。
