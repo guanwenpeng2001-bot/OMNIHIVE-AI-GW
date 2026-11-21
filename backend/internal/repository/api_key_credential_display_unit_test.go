@@ -123,7 +123,9 @@ func createAuditLogsTableForSQLite(t *testing.T, client *dbent.Client) {
 			request_body TEXT NOT NULL DEFAULT '',
 			status_code INTEGER NOT NULL DEFAULT 0,
 			latency_ms BIGINT NOT NULL DEFAULT 0,
-			extra TEXT NOT NULL DEFAULT '{}'
+			extra TEXT NOT NULL DEFAULT '{}',
+			project_id BIGINT,
+			resource_id TEXT
 		)`)
 	require.NoError(t, err)
 }

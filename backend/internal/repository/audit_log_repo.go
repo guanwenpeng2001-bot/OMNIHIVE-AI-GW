@@ -27,6 +27,9 @@ const auditLogInsertColumns = `created_at, actor_user_id, actor_email, actor_rol
 credential_masked, action, method, path, request_id, client_ip, user_agent,
 	request_body, status_code, latency_ms, extra, project_id, resource_id`
 
+const auditLogInsertSQL = `INSERT INTO audit_logs (` + auditLogInsertColumns + `)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`
+
 func auditLogInsertValues(log *service.AuditLog) []any {
 	createdAt := log.CreatedAt
 	if createdAt.IsZero() {
@@ -116,9 +119,7 @@ func (r *auditLogRepository) Insert(ctx context.Context, log *service.AuditLog) 
 	if log == nil {
 		return fmt.Errorf("nil audit log")
 	}
-	query := `INSERT INTO audit_logs (` + auditLogInsertColumns + `)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`
-	_, err := r.db.ExecContext(ctx, query, auditLogInsertValues(log)...)
+	_, err := r.db.ExecContext(ctx, auditLogInsertSQL, auditLogInsertValues(log)...)
 	return err
 }
 
@@ -350,9 +351,7 @@ func (r *auditLogRepository) ClearWithTrace(ctx context.Context, trace *service.
 		trace.Extra = map[string]any{}
 	}
 	trace.Extra["deleted_rows"] = deleted
-	query := `INSERT INTO audit_logs (` + auditLogInsertColumns + `)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`
-	if _, err := tx.ExecContext(ctx, query, auditLogInsertValues(trace)...); err != nil {
+	if _, err := tx.ExecContext(ctx, auditLogInsertSQL, auditLogInsertValues(trace)...); err != nil {
 		return 0, fmt.Errorf("persist audit clear trace: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

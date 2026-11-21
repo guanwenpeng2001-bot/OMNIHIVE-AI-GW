@@ -84,7 +84,7 @@ func writeAvailabilityAudit(ctx context.Context, tx *dbent.Tx, accountID, actor 
 	if actor > 0 {
 		log.ActorUserID = &actor
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO audit_logs (`+auditLogInsertColumns+`) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, auditLogInsertValues(log)...)
+	_, err := tx.ExecContext(ctx, auditLogInsertSQL, auditLogInsertValues(log)...)
 	return err
 }
 
