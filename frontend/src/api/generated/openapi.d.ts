@@ -1139,6 +1139,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/audit/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        /** Export a redacted project audit page with audit.read and audit.export */
+        get: operations["exportScopedAuditEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/workspaces/{workspace_id}/projects/{project_id}/audit/retention": {
         parameters: {
             query?: never;
@@ -4096,6 +4116,19 @@ export interface components {
             /** Format: date-time */
             at: string;
             affected?: string;
+            request_id?: string;
+            route?: string;
+            method?: string;
+            actor_email?: string;
+            actor_role?: string;
+            status_code?: number;
+            reason?: string;
+            changes?: {
+                field: string;
+                operation: string;
+                before: unknown;
+                after: unknown;
+            }[];
         };
         /** @enum {string} */
         ScopedAuditResource: "request_export" | "artifact" | "billing_command" | "retention" | "audit_event" | "project";
@@ -4502,6 +4535,25 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["IdentityError"];
+            };
+        };
+        /** @description Redacted audit page */
+        ScopedAuditPage: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    message: string;
+                    data: {
+                        items: components["schemas"]["ScopedAuditEvent"][];
+                        /** Format: date-time */
+                        as_of: string;
+                        next_cursor: string | null;
+                    };
+                };
             };
         };
         /** @description Effective policy */
@@ -7060,6 +7112,30 @@ export interface operations {
                     "application/json": components["schemas"]["ScopedAuditEvent"];
                 };
             };
+            default: components["responses"]["ScopedAuditError"];
+        };
+    };
+    exportScopedAuditEvents: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+                action?: string;
+                resource?: components["schemas"]["ScopedAuditResource"];
+                resource_id?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ScopedAuditPage"];
             default: components["responses"]["ScopedAuditError"];
         };
     };

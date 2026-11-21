@@ -533,8 +533,8 @@ func auditStoreProvider(db *sql.DB, access *postgres2.Store) *audit2.Store {
 
 func auditObserverProvider() *audit2.Observer { return audit2.NewObserver() }
 
-func auditHandlerProvider(store *audit2.Store, observer *audit2.Observer, cfg *config.Config, auditService *service.AuditLogService) *audit.Handler {
-	auditService.SetScopedStore(store)
+func auditHandlerProvider(store *audit2.Store, observer *audit2.Observer, cfg *config.Config, auditLogs *service.AuditLogService) *audit.Handler {
+	auditLogs.SetScopedStore(store)
 	return audit.New(store, observer, cfg)
 }
 
