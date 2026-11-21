@@ -1698,3 +1698,9 @@ AiHubMix、DMX 中国站、CrazyRouter 国内/国际站通过独立 `usage_query
 API Key 类型且明确保存 `account_mode=payg` 的账号，仅当前中国 `https://api.minimax.cn` 和 Global `https://api.minimax.io`（含 `/v1`、`/anthropic` 根）显示余额查询。所有协议覆盖必须属于同一地区；旧 `api.minimaxi.com`、Coding、自定义主机和跨地区覆盖不复用余额接口，也不自动迁移。后端核验 `sk-api-` Key 类别，列表使用脱敏账号配置判断可见性，无需取回明文密钥。
 
 既有管理员余额接口调用该地区 `GET /account/query_balance`。官方 `available_amount` 是顶层字符串；数值不缩放、不累加其他钱包字段，也不猜测 CNY/USD。沿用数值余额合同，尾随零可省略；超出 JavaScript 安全数值界限或数值往返改变原十进制值时拒绝响应，不发布近似金额。缺失币种表示未知，界面不加人民币或美元符号；真实零保留，失败不补零，未知可用性不等于余额不足。余额不会改变本站账本、健康或调度状态。普通查询错误保留带错误提示的旧读数，身份变化拒绝旧观测。参见 [MiniMax 官方 CLI 类型](https://github.com/MiniMax-AI/cli/blob/06e47c70/src/types/api.ts)、[地区定义](https://github.com/MiniMax-AI/cli/blob/06e47c70/src/config/schema.ts)、[原值输出](https://github.com/MiniMax-AI/cli/blob/06e47c70/src/output/balance.ts)。这里描述已接入合同；未进行真实密钥在线验收。
+
+### GPT-6.2 及以上模型的 Responses 提示词缓存
+
+对于平台为 `openai` 的 API Key 账号，网关按映射后的上游模型判断。当标准 Responses 请求显式传入 `store: false`，且没有 `previous_response_id` 和 `conversation` 时，网关将非空字符串 `instructions` 移至 `input` 的第一条 developer 消息。字符串输入成为随后一条 user 消息。首条 developer 消息已包含相同内容时只删除顶层字段。Codex OAuth 和 compact 请求保留原有处理方式。
+
+配置项 `gateway.openai_instructions_cache_hoist` 默认开启，可用环境变量 `GATEWAY_OPENAI_INSTRUCTIONS_CACHE_HOIST=false` 关闭。发生改写时，请求日志包含 `openai_instructions_cache_hoisted=true`。缓存读取用量继续取自上游返回的 `usage.input_tokens_details.cached_tokens`。

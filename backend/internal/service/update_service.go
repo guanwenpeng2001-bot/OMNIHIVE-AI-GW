@@ -931,7 +931,20 @@ func compareVersions(current, latest string) int {
 			return 1
 		}
 	}
+	// A prerelease precedes the release with the same core version.
+	currentPre, latestPre := versionHasPrerelease(current), versionHasPrerelease(latest)
+	switch {
+	case currentPre && !latestPre:
+		return -1
+	case !currentPre && latestPre:
+		return 1
+	}
 	return 0
+}
+
+func versionHasPrerelease(v string) bool {
+	v, _, _ = strings.Cut(strings.TrimPrefix(v, "v"), "+")
+	return strings.Contains(v, "-")
 }
 
 func parseVersion(v string) [3]int {
