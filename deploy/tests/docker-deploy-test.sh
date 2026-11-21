@@ -64,9 +64,9 @@ EXPECTED_BASE="https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI
 run_deploy "$test_dir/default" > /dev/null
 cmp "$repo_root/deploy/docker-compose.local.yml" "$test_dir/default/docker-compose.yml"
 cmp "$repo_root/deploy/.env.example" "$test_dir/default/.env.example"
-[[ "$(stat -c '%a' "$test_dir/default/.env")" == 600 ]]
+[[ "$(ls -l "$test_dir/default/.env" | cut -c1-10)" == "-rw-------" ]]
 [[ $(wc -l < "$CURL_LOG") -eq 2 ]]
-! rg -q '/main/' "$CURL_LOG"
+! grep -q '/main/' "$CURL_LOG"
 [[ -z $(find "$test_dir/default" -maxdepth 1 -name '.omnihive-deploy.*' -print -quit) ]]
 echo 'PASS: default downloads use the release tag and curl fail-on-error'
 
