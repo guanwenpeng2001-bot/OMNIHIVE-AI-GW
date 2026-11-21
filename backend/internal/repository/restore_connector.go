@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/restoregate"
 )
@@ -35,7 +36,12 @@ func (c restoreConnector) Connect(ctx context.Context) (driver.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &restoreConn{pgConn: raw.(pgConn), gate: c.gate}, nil
+	conn, ok := raw.(pgConn)
+	if !ok {
+		_ = raw.Close()
+		return nil, fmt.Errorf("restore connector: unsupported driver connection %T", raw)
+	}
+	return &restoreConn{pgConn: conn, gate: c.gate}, nil
 }
 
 type restoreConn struct {
@@ -100,7 +106,12 @@ func (c *restoreConn) PrepareContext(ctx context.Context, q string) (driver.Stmt
 	if c.transaction {
 		return stmt, nil
 	}
-	return &restoreStmt{stmt.(pgStmt), c}, nil
+	prepared, ok := stmt.(pgStmt)
+	if !ok {
+		_ = stmt.Close()
+		return nil, fmt.Errorf("restore connector: unsupported driver statement %T", stmt)
+	}
+	return &restoreStmt{prepared, c}, nil
 }
 func (c *restoreConn) ExecContext(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error) {
 	leave, err := c.enter(ctx)
