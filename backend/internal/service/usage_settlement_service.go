@@ -159,7 +159,7 @@ func (s *UsageSettlementService) Submit(ctx context.Context, input *UsageSettlem
 	// Queue only durable identity as billing evidence, never a caller-owned
 	// receipt pointer. The optional post-commit callback is best-effort only;
 	// recovery and every financial effect depend exclusively on the repository.
-	key, fingerprint := stored.Key, stored.Command.RequestFingerprint
+	key, fingerprint, createdAt := stored.Key, stored.Command.RequestFingerprint, stored.CreatedAt
 	plan := GatewayRequestPlanFromContext(ctx)
 	if plan != nil {
 		plan.acknowledgeReceipt(stored)
@@ -182,7 +182,7 @@ func (s *UsageSettlementService) Submit(ctx context.Context, input *UsageSettlem
 				}
 				return
 			}
-			slog.Error("usage settlement pending", "request_id", key.RequestID, "api_key_id", key.APIKeyID, "failure_category", billingFailureCategory(err))
+			s.logPending(ctx, key, createdAt, err)
 			return
 		}
 		if plan != nil {
@@ -200,6 +200,23 @@ func (s *UsageSettlementService) Submit(ctx context.Context, input *UsageSettlem
 	defer settleCancel()
 	task(settleCtx)
 	return nil
+}
+
+// Four recovery ticks give transient contention a minute to clear.
+func (s *UsageSettlementService) logPending(ctx context.Context, key UsageSettlementKey, createdAt time.Time, cause error) {
+	level := slog.LevelInfo
+	if !createdAt.IsZero() && time.Since(createdAt) >= time.Minute {
+		lookup, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		stored, err := s.repo.Get(lookup, key)
+		if err == nil && stored != nil {
+			if stored.State != UsageSettlementPending {
+				return
+			}
+			level = slog.LevelError
+		}
+	}
+	slog.Log(ctx, level, "usage settlement pending", "request_id", key.RequestID, "api_key_id", key.APIKeyID, "failure_category", billingFailureCategory(cause))
 }
 
 func (s *UsageSettlementService) persistenceError(key UsageSettlementKey, err error) error {
@@ -317,7 +334,7 @@ func (s *UsageSettlementService) Recover(ctx context.Context) error {
 			_, err := s.settle(settleCtx, receipt)
 			cancel()
 			if err != nil {
-				slog.Error("usage settlement recovery pending", "request_id", receipt.Key.RequestID, "api_key_id", receipt.Key.APIKeyID, "failure_category", billingFailureCategory(err))
+				s.logPending(ctx, receipt.Key, receipt.CreatedAt, err)
 			}
 		}
 	}

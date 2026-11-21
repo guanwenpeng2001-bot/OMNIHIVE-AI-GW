@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -115,6 +116,26 @@ func TestSettlementRecoveryInvalidatesExhaustedKeyAuth(t *testing.T) {
 			} else {
 				require.Empty(t, invalidator.userIDs)
 			}
+		})
+	}
+}
+
+func TestPendingSettlementLogLevel(t *testing.T) {
+	for _, tc := range []struct {
+		age   time.Duration
+		level string
+	}{{time.Second, "INFO"}, {2 * time.Minute, "ERROR"}} {
+		t.Run(tc.level, func(t *testing.T) {
+			out := captureBillingBacklogLog(t)
+			repo := &durableReceiptStore{settleErr: ErrUsageSettlementBackpressure}
+			svc := NewUsageSettlementService(repo, nil, nil)
+			input := durableReceiptFixture()
+			input.CreatedAt = time.Now().Add(-tc.age)
+			require.NoError(t, svc.Submit(t.Context(), input, nil))
+			require.Contains(t, out.String(), `"level":"`+tc.level+`","msg":"usage settlement pending"`)
+			out.Reset()
+			require.NoError(t, svc.Recover(t.Context()))
+			require.Contains(t, out.String(), `"level":"`+tc.level+`","msg":"usage settlement pending"`)
 		})
 	}
 }
