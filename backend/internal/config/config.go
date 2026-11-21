@@ -15,10 +15,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/urlvalidator"
 	"github.com/spf13/viper"
 	"golang.org/x/net/http/httpguts"
-
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
 )
 
 const (
@@ -828,8 +828,23 @@ type URLAllowlistConfig struct {
 	PricingHosts      []string `mapstructure:"pricing_hosts"`
 	CRSHosts          []string `mapstructure:"crs_hosts"`
 	AllowPrivateHosts bool     `mapstructure:"allow_private_hosts"`
-	// 关闭 URL 白名单校验时，是否允许 http URL（默认只允许 https）
+	// 是否允许 HTTP 探针和上游 URL（默认仅 HTTPS）
 	AllowInsecureHTTP bool `mapstructure:"allow_insecure_http"`
+}
+
+// ValidateProbeURL checks both native and compatible discovery endpoints.
+func (c URLAllowlistConfig) ValidateProbeURL(raw string) (string, error) {
+	opts := urlvalidator.ValidationOptions{RequireAllowlist: c.Enabled, AllowPrivate: c.AllowPrivateHosts}
+	if c.Enabled {
+		insecure := strings.HasPrefix(strings.ToLower(strings.TrimSpace(raw)), "http://")
+		for _, host := range c.UpstreamHosts {
+			if insecure && strings.Contains(host, "*") {
+				continue
+			}
+			opts.AllowedHosts = append(opts.AllowedHosts, host)
+		}
+	}
+	return urlvalidator.ValidateHTTPURL(raw, c.AllowInsecureHTTP, opts)
 }
 
 // PrivateUpstreamHosts returns the exact names eligible for private egress.

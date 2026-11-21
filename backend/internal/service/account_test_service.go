@@ -3286,12 +3286,7 @@ func (s *AccountTestService) ProbeConnection(ctx context.Context, account *Accou
 	}
 	policy := s.cfg.Security.URLAllowlist
 	private := policy.AllowPrivateHosts
-	opts := urlvalidator.ValidationOptions{RequireAllowlist: policy.Enabled, AllowPrivate: private}
-	if policy.Enabled {
-		opts.AllowedHosts = policy.UpstreamHosts
-	}
-	allowHTTP := !policy.Enabled && policy.AllowInsecureHTTP
-	if _, err = urlvalidator.ValidateHTTPURL(req.URL.Scheme+"://"+req.URL.Host, allowHTTP, opts); err != nil {
+	if _, err = policy.ValidateProbeURL(req.URL.Scheme + "://" + req.URL.Host); err != nil {
 		result.Network = "failed"
 		return result
 	}

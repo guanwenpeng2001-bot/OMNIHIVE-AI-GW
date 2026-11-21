@@ -2681,3 +2681,15 @@ func TestDefaultDatabasePoolBudget(t *testing.T) {
 	require.Equal(t, 32, viper.GetInt("database.max_open_conns"))
 	require.Equal(t, 8, viper.GetInt("database.max_idle_conns"))
 }
+
+func TestProbeHTTPRequiresExactAllowlistEntry(t *testing.T) {
+	policy := URLAllowlistConfig{Enabled: true, AllowInsecureHTTP: true, UpstreamHosts: []string{"mock.example:8090", "*.test.example"}}
+	_, err := policy.ValidateProbeURL("http://mock.example:8090")
+	require.NoError(t, err)
+	for _, endpoint := range []string{"http://other.example", "http://sub.test.example", "http://127.0.0.1"} {
+		_, err := policy.ValidateProbeURL(endpoint)
+		require.Error(t, err)
+	}
+	_, err = policy.ValidateProbeURL("https://sub.test.example")
+	require.NoError(t, err)
+}

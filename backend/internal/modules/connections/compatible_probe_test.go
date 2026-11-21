@@ -32,6 +32,7 @@ func TestCompatibleEndpointProbe(t *testing.T) {
 	defer server.Close()
 
 	cfg := &config.Config{}
+	cfg.Security.URLAllowlist.Enabled = true
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 	cfg.Security.URLAllowlist.AllowPrivateHosts = true
 	cfg.Security.URLAllowlist.UpstreamHosts = []string{"127.0.0.1"}
