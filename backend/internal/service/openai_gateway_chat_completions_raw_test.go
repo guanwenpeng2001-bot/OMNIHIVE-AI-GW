@@ -1280,7 +1280,7 @@ func TestRawChatSplitUsage(t *testing.T) {
 		stream += "data: [DONE]\n\n"
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
-		result, err := (&OpenAIGatewayService{}).streamRawChatCompletions(c, &http.Response{Header: http.Header{}, Body: io.NopCloser(strings.NewReader(stream))}, &Account{Platform: PlatformOpenAI}, "model", "model", "model", nil, nil, time.Now(), 0)
+		result, err := (&OpenAIGatewayService{}).streamRawChatCompletions(c, &http.Response{Header: http.Header{}, Body: io.NopCloser(strings.NewReader(stream))}, &Account{Platform: PlatformOpenAI}, "gpt-5.4", "gpt-5.4", "gpt-5.4", nil, nil, time.Now(), 0)
 		require.NoError(t, err)
 		require.Equal(t, 7, result.Usage.InputTokens)
 		require.Equal(t, &TokenUsageObservation{InputTokensKnown: true, OutputTokensKnown: complete}, result.TokenUsageObservation)
@@ -1289,7 +1289,7 @@ func TestRawChatSplitUsage(t *testing.T) {
 		receipts := &settlementCapture{}
 		gateway := newOpenAIRecordUsageServiceForTest(&openAIRecordUsageLogRepoStub{}, users, &openAIRecordUsageSubRepoStub{}, nil)
 		gateway.usageSettlement = NewUsageSettlementService(receipts, nil, nil)
-		group := &Group{ID: 4, Platform: PlatformOpenAI, RateMultiplier: 1, ModelPricing: []ChannelModelPricing{{Models: []string{"model"}, InputPrice: testPtrFloat64(1e-6), OutputPrice: testPtrFloat64(2e-6)}}}
+		group := &Group{ID: 4, Platform: PlatformOpenAI, RateMultiplier: 1}
 		err = gateway.RecordUsage(context.Background(), &OpenAIRecordUsageInput{Result: result, APIKey: &APIKey{ID: 2, Group: group, GroupID: &group.ID}, User: &User{ID: 1}, Account: &Account{ID: 3, Platform: PlatformOpenAI}})
 		require.Equal(t, 7, receipts.receipt.Usage.InputTokens)
 		if complete {
