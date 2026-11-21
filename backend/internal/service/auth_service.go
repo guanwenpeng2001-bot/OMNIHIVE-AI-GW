@@ -1856,7 +1856,6 @@ func (s *AuthService) RefreshTokenPair(ctx context.Context, refreshToken string)
 		logger.LegacyPrintf("service.auth", "[Auth] Error getting refresh token: %v", err)
 		return nil, ErrServiceUnavailable
 	}
-
 	// 检查Token是否过期
 	if time.Now().After(data.ExpiresAt) {
 		// 删除过期Token
@@ -1902,13 +1901,21 @@ func (s *AuthService) RefreshTokenPair(ctx context.Context, refreshToken string)
 
 	// Token轮转：原子消费旧Token。并发刷新时只有一个请求能成功，
 	// 其余请求拿到 ErrRefreshTokenNotFound，避免同一个 Refresh Token 被兑换两次。
-	if _, err := s.refreshTokenCache.ConsumeRefreshToken(ctx, tokenHash); err != nil {
+	consumed, err := s.refreshTokenCache.ConsumeRefreshToken(ctx, tokenHash)
+	if err != nil {
 		if errors.Is(err, ErrRefreshTokenNotFound) {
 			logger.LegacyPrintf("service.auth", "[Auth] Refresh token already consumed, possible reuse attack")
 			return nil, ErrRefreshTokenInvalid
 		}
 		logger.LegacyPrintf("service.auth", "[Auth] Failed to consume old refresh token: %v", err)
 		return nil, ErrServiceUnavailable
+	}
+	revoked, err := s.sessionFamilyRevoked(ctx, consumed.FamilyID)
+	if err != nil {
+		return nil, ErrServiceUnavailable
+	}
+	if revoked {
+		return nil, ErrRefreshTokenInvalid
 	}
 
 	// 生成新的Token对，保持同一个家族ID
