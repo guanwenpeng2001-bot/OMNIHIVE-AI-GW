@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	ErrAccountConnectionManaged = infraerrors.Conflict("ACCOUNT_CONNECTION_MANAGED", "Edit this account in the workspace Connections workbench. Verify endpoint or credential changes there.")
+	ErrAccountConnectionManaged = infraerrors.Conflict("ACCOUNT_CONNECTION_MANAGED", "This account is managed by the workspace Connections workbench. Use a group-only update to bind or clear routing groups; edit connection settings in Connections.")
 	ErrAccountNotFound          = infraerrors.NotFound("ACCOUNT_NOT_FOUND", "account not found")
 	ErrAccountNilInput          = infraerrors.BadRequest("ACCOUNT_NIL_INPUT", "account input cannot be nil")
 	ErrAccountNotInFallback     = infraerrors.BadRequest("ACCOUNT_NOT_IN_FALLBACK", "account is not in proxy fallback state")

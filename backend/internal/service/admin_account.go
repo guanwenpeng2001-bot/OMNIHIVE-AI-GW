@@ -650,6 +650,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		return nil, err
 	}
 	defer s.captureRuntimeInvalidation(ctx, account)()
+	if groupOnlyAccountUpdate(input) {
+		return s.updateAccountGroupsOnly(ctx, account, input)
+	}
 	previousCredentials := account.Credentials
 	if err := validateCompatibleSpecialAuthTransition(account, input.Credentials); err != nil {
 		return nil, err
