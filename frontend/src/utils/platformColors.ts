@@ -34,6 +34,7 @@ const BADGE: Record<PaletteIdentity, string> = {
   qianfan: 'bg-red-500/10 text-red-700 border-red-500/30 dark:text-red-300',
   opencode_go: 'bg-lime-500/10 text-lime-700 border-lime-500/30 dark:text-lime-300',
   composite: 'bg-cyan-500/10 text-cyan-700 border-cyan-500/30 dark:text-cyan-300',
+  workbuddy: 'bg-emerald-500/10 text-emerald-700 border-emerald-500/30 dark:text-emerald-300',
 }
 const BADGE_DEFAULT = 'bg-slate-500/10 text-slate-600 border-slate-500/30 dark:text-slate-400'
 
@@ -60,6 +61,7 @@ const BADGE_LIGHT: Record<PaletteIdentity, string> = {
   qianfan: 'bg-red-500/10 text-red-700 dark:bg-red-500/10 dark:text-red-300',
   opencode_go: 'bg-lime-500/10 text-lime-700 dark:bg-lime-500/10 dark:text-lime-300',
   composite: 'bg-cyan-500/10 text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300',
+  workbuddy: 'bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300',
 }
 
 // ── Solid badge (opaque light tint + dark text; account list platform/type chips) ──
@@ -86,6 +88,7 @@ const SOLID_BADGE: Record<PaletteIdentity, string> = {
   qianfan: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
   opencode_go: 'bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-400',
   composite: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400',
+  workbuddy: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
 }
 // 中性兜底：未知平台不占用任何一家的色系（曾与 gemini 同蓝）。
 const SOLID_BADGE_DEFAULT = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
@@ -113,6 +116,7 @@ const BORDER: Record<PaletteIdentity, string> = {
   qianfan: 'border-red-500/20 dark:border-red-500/20',
   opencode_go: 'border-lime-500/20 dark:border-lime-500/20',
   composite: 'border-cyan-500/20 dark:border-cyan-500/20',
+  workbuddy: 'border-emerald-500/20 dark:border-emerald-500/20',
 }
 const BORDER_DEFAULT = 'border-gray-200 dark:border-dark-700'
 
@@ -139,6 +143,7 @@ const BORDER_STRONG: Record<PaletteIdentity, string> = {
   qianfan: 'border-red-500/35 dark:border-red-500/30',
   opencode_go: 'border-lime-500/35 dark:border-lime-500/30',
   composite: 'border-cyan-500/35 dark:border-cyan-500/30',
+  workbuddy: 'border-emerald-500/35 dark:border-emerald-500/30',
 }
 const BORDER_STRONG_DEFAULT = 'border-gray-300 dark:border-dark-600'
 
@@ -166,6 +171,7 @@ const ACCENT: Record<PaletteIdentity, string> = {
   qianfan: '#dc2626', // red-600
   opencode_go: '#84cc16', // lime-500
   composite: '#06b6d4', // cyan-500
+  workbuddy: '#00C48C', // workbuddy emerald-teal
 }
 const ACCENT_DEFAULT = '#14b8a6' // primary-500 (teal)
 
@@ -192,6 +198,7 @@ const ACCENT_BAR: Record<PaletteIdentity, string> = {
   qianfan: 'bg-gradient-to-r from-red-400 to-red-500',
   opencode_go: 'bg-gradient-to-r from-lime-400 to-lime-500',
   composite: 'bg-gradient-to-r from-slate-500 to-cyan-500',
+  workbuddy: 'bg-gradient-to-r from-emerald-400 to-teal-500',
 }
 const ACCENT_BAR_DEFAULT = 'bg-gradient-to-r from-primary-400 to-primary-500'
 
@@ -218,6 +225,7 @@ const TEXT: Record<PaletteIdentity, string> = {
   qianfan: 'text-red-700 dark:text-red-300',
   opencode_go: 'text-lime-700 dark:text-lime-300',
   composite: 'text-cyan-700 dark:text-cyan-300',
+  workbuddy: 'text-emerald-700 dark:text-emerald-300',
 }
 const TEXT_DEFAULT = 'text-primary-600 dark:text-primary-400'
 
@@ -244,6 +252,7 @@ const ICON: Record<PaletteIdentity, string> = {
   qianfan: 'text-red-500 dark:text-red-300',
   opencode_go: 'text-lime-500 dark:text-lime-300',
   composite: 'text-cyan-600 dark:text-cyan-300',
+  workbuddy: 'text-emerald-500 dark:text-emerald-300',
 }
 const ICON_DEFAULT = 'text-primary-500 dark:text-primary-400'
 
@@ -270,6 +279,7 @@ const BUTTON: Record<PaletteIdentity, string> = {
   qianfan: 'bg-red-500 text-white hover:bg-red-600 active:bg-red-700 dark:bg-red-500/80 dark:hover:bg-red-500',
   opencode_go: 'bg-lime-500 text-white hover:bg-lime-600 active:bg-lime-700 dark:bg-lime-500/80 dark:hover:bg-lime-500',
   composite: 'bg-cyan-700 text-white hover:bg-cyan-800 active:bg-cyan-900 dark:bg-cyan-600 dark:hover:bg-cyan-500',
+  workbuddy: 'bg-emerald-600 text-white hover:bg-emerald-700 active:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500',
 }
 const BUTTON_DEFAULT = 'bg-primary-500 text-white hover:bg-primary-600 dark:bg-primary-600 dark:hover:bg-primary-500'
 
@@ -296,6 +306,7 @@ const DISCOUNT: Record<PaletteIdentity, string> = {
   qianfan: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
   opencode_go: 'bg-lime-100 text-lime-800 dark:bg-lime-900/40 dark:text-lime-300',
   composite: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300',
+  workbuddy: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
 }
 const DISCOUNT_DEFAULT = 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
 
@@ -322,6 +333,7 @@ const GRADIENT: Record<PaletteIdentity, string> = {
   qianfan: 'from-red-500 to-red-600',
   opencode_go: 'from-lime-500 to-lime-600',
   composite: 'from-slate-600 to-cyan-600',
+  workbuddy: 'from-emerald-500 to-teal-600',
 }
 const GRADIENT_DEFAULT = 'from-primary-500 to-primary-600'
 
@@ -348,6 +360,7 @@ const GRADIENT_TEXT: Record<PaletteIdentity, string> = {
   qianfan: 'text-red-100',
   opencode_go: 'text-lime-100',
   composite: 'text-cyan-100',
+  workbuddy: 'text-emerald-50',
 }
 const GRADIENT_TEXT_DEFAULT = 'text-primary-100'
 
@@ -373,6 +386,7 @@ const GRADIENT_SUBTEXT: Record<PaletteIdentity, string> = {
   qianfan: 'text-red-200',
   opencode_go: 'text-lime-200',
   composite: 'text-cyan-200',
+  workbuddy: 'text-teal-100',
 }
 const GRADIENT_SUBTEXT_DEFAULT = 'text-primary-200'
 
@@ -457,7 +471,8 @@ const SELECTION: Partial<Record<PaletteIdentity, string>> = {
   zhipu: 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20',
   deepseek: 'border-teal-500 bg-teal-50 dark:bg-teal-900/20',
   minimax: 'border-rose-500 bg-rose-50 dark:bg-rose-900/20',
-  opencode_go: 'border-lime-500 bg-lime-50 dark:bg-lime-900/20'
+  opencode_go: 'border-lime-500 bg-lime-50 dark:bg-lime-900/20',
+  workbuddy: 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
 }
 const SELECTION_ICON: Partial<Record<PaletteIdentity, string>> = {
   compatible: 'bg-gray-700 text-white',
@@ -465,7 +480,8 @@ const SELECTION_ICON: Partial<Record<PaletteIdentity, string>> = {
   zhipu: 'bg-indigo-500 text-white',
   deepseek: 'bg-teal-500 text-white',
   minimax: 'bg-rose-500 text-white',
-  opencode_go: 'bg-lime-500 text-white'
+  opencode_go: 'bg-lime-500 text-white',
+  workbuddy: 'bg-emerald-500 text-white'
 }
 
 export function platformSelectionClass(platform: string): string {

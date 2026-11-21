@@ -665,7 +665,8 @@ export default {
       commandcode: 'Command Code',
       minimax: 'MiniMax',
       cursor: 'Cursor',
-      opencode_go: 'OpenCode'
+      opencode_go: 'OpenCode',
+      workbuddy: 'WorkBuddy'
     },
     // Check modes (how a monitor performs its checks)
     checkMode: {

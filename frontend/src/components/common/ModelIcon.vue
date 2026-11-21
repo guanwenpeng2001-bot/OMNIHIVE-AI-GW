@@ -154,6 +154,10 @@ const iconData: Record<string, IconData> = {
   coze: {
     color: '#5436F5',
     paths: ['M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z']
+  },
+  workbuddy: {
+    color: '#00C48C',
+    paths: ['M4.2 3h15.6A2.2 2.2 0 0 1 22 5.2v13.6a2.2 2.2 0 0 1-2.2 2.2H4.2A2.2 2.2 0 0 1 2 18.8V5.2A2.2 2.2 0 0 1 4.2 3Zm2.35 4.8L9.2 16.5h1.95l1.65-5.35 1.65 5.35h1.95l2.65-8.7h-2.1l-1.55 5.55L13.75 7.8h-1.9l-1.65 5.55L8.65 7.8h-2.1Z']
   }
 }
 
@@ -254,6 +258,9 @@ const iconKey = computed(() => {
 
   // Coze
   if (modelLower.includes('coze')) return 'coze'
+
+  // WorkBuddy
+  if (modelLower.includes('workbuddy')) return 'workbuddy'
 
   return null
 })

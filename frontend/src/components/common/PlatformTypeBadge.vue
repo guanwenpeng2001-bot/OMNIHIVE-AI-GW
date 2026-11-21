@@ -29,6 +29,18 @@
         <Icon v-else name="key" size="xs" />
         <span>{{ typeLabel }}</span>
       </span>
+      <span
+        v-if="workbuddySite"
+        data-testid="workbuddy-site-badge"
+        :class="[
+          'ml-1 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium',
+          workbuddySite === 'cn'
+            ? 'bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
+            : 'bg-sky-500/15 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300'
+        ]"
+      >
+        {{ t(`admin.accounts.workbuddy.siteShort.${workbuddySite}`) }}
+      </span>
     </div>
     <!-- Row 2: Plan type + Privacy mode (only if either exists) -->
     <div v-if="planLabel || privacyBadge" class="inline-flex flex-wrap items-center gap-y-0.5 rounded-md">
@@ -71,6 +83,7 @@ import { useI18n } from 'vue-i18n'
 import type { AccountPlatform, AccountType } from '@/types'
 import { normalizePlanType, openAIPlanTypeLabel } from '@/utils/planType'
 import { platformSolidBadgeClass } from '@/utils/platformColors'
+import { normalizeWorkBuddySite } from '@/api/admin/workbuddy'
 import GrokFreeIcon from './GrokFreeIcon.vue'
 import PlatformIcon from './PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -85,11 +98,15 @@ interface Props {
   planType?: string
   privacyMode?: string
   subscriptionExpiresAt?: string
+  site?: string
 }
 
 const props = defineProps<Props>()
 
 const basePlatformLabel = computed(() => getPlatformLabel(canonicalPlatform(props.platform), t))
+const workbuddySite = computed(() =>
+  props.platform === 'workbuddy' ? normalizeWorkBuddySite(props.site) : null
+)
 const isBedrock = computed(() => props.platform === 'bedrock' ||
   (canonicalPlatform(props.platform) === 'anthropic' && props.type === 'bedrock'))
 const platformLabel = computed(() => props.showAwsSuffix && isBedrock.value

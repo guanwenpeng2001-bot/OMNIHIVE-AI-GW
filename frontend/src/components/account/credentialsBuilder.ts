@@ -2,6 +2,94 @@ import { compatibleProvider, compatibleMode } from '@/constants/compatibleProvid
 import { NATIVE_PROFILE_PRESETS } from './nativeProfilePresets'
 import { CHAT_PLATFORM_BASE_URLS } from '@/constants/platforms'
 import { openAIPlanTypeLabel } from '@/utils/planType'
+import {
+  defaultWorkBuddyDomain,
+  normalizeWorkBuddySite,
+  type WorkBuddySite
+} from '@/api/admin/workbuddy'
+
+export interface WorkBuddyOAuthDraft {
+  access_token: string
+  refresh_token: string
+  uid: string
+  domain: string
+  expires_at: string
+  refresh_expires_at?: string
+  enterprise_id?: string
+}
+
+export function extractWorkBuddySite(
+  credentials?: Record<string, unknown> | null,
+  extra?: Record<string, unknown> | null
+): WorkBuddySite {
+  const credSite = normalizeWorkBuddySite(credentials?.site)
+  if (credSite) return credSite
+  const snapshot = extra?.workbuddy_usage_snapshot as Record<string, unknown> | undefined
+  const snapshotSite = normalizeWorkBuddySite(snapshot?.site)
+  return snapshotSite ?? 'cn'
+}
+
+export function extractWorkBuddyOAuthDraft(
+  credentials?: Record<string, unknown> | null,
+  fallbackSite: WorkBuddySite = 'cn'
+): WorkBuddyOAuthDraft {
+  const site = normalizeWorkBuddySite(credentials?.site) ?? fallbackSite
+  return {
+    access_token: '',
+    refresh_token: '',
+    uid: typeof credentials?.uid === 'string' ? credentials.uid : '',
+    domain:
+      typeof credentials?.domain === 'string' && credentials.domain.trim()
+        ? credentials.domain.trim()
+        : defaultWorkBuddyDomain(site),
+    expires_at: typeof credentials?.expires_at === 'string' ? credentials.expires_at : '',
+    refresh_expires_at:
+      typeof credentials?.refresh_expires_at === 'string'
+        ? credentials.refresh_expires_at
+        : undefined,
+    enterprise_id:
+      typeof credentials?.enterprise_id === 'string' ? credentials.enterprise_id : undefined
+  }
+}
+
+export function buildWorkBuddyCredentials(input: {
+  mode: 'oauth' | 'apikey'
+  site: WorkBuddySite
+  oauthCredentials?: WorkBuddyOAuthDraft
+  apiKey?: string
+  baseUrl?: string
+  existing?: Record<string, unknown>
+}): Record<string, unknown> {
+  const credentials: Record<string, unknown> = {
+    ...(input.existing ? { ...input.existing } : {}),
+    site: input.site
+  }
+  if (input.mode === 'oauth') {
+    const draft = input.oauthCredentials
+    if (draft?.access_token.trim()) credentials.access_token = draft.access_token.trim()
+    if (draft?.refresh_token.trim()) credentials.refresh_token = draft.refresh_token.trim()
+    if (draft?.uid.trim()) credentials.uid = draft.uid.trim()
+    credentials.domain = draft?.domain.trim() || defaultWorkBuddyDomain(input.site)
+    if (draft?.expires_at.trim()) credentials.expires_at = draft.expires_at.trim()
+    if (draft?.refresh_expires_at?.trim()) {
+      credentials.refresh_expires_at = draft.refresh_expires_at.trim()
+    }
+    if (draft?.enterprise_id?.trim()) {
+      credentials.enterprise_id = draft.enterprise_id.trim()
+    }
+    return credentials
+  }
+  if (input.apiKey?.trim()) {
+    credentials.api_key = input.apiKey.trim()
+  }
+  const trimmedBaseUrl = input.baseUrl?.trim() || ''
+  if (trimmedBaseUrl) {
+    credentials.base_url = trimmedBaseUrl
+  } else {
+    delete credentials.base_url
+  }
+  return credentials
+}
 
 /** Cursor Relay 上游协议：与后端 NormalizeCursorAccount 的两个字面量保持一致。 */
 export type CursorRelayProtocol = 'adaptive' | 'chat_completions'
@@ -121,7 +209,8 @@ export function isHeaderOverrideCapable(platform: string, type: string): boolean
     platform === 'minimax' ||
     platform === 'qianwen' ||
     platform === 'commandcode' ||
-    platform === 'opencode_go'
+    platform === 'opencode_go' ||
+    platform === 'workbuddy'
   ) {
     return type === 'apikey'
   }

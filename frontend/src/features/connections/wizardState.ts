@@ -1,8 +1,11 @@
 import type { UiStepItem, UiStepStatus } from '@/components/ui'
+import { defaultWorkBuddyDomain, type WorkBuddySite } from '@/api/admin/workbuddy'
+import type { WorkBuddyOAuthDraft } from '@/components/account/credentialsBuilder'
 import {
   buildHeaderOverridesMap,
   getPrimaryVerificationDiagnostic,
   hasUnavailableVerificationEvidence,
+  inferWorkBuddySiteFromEndpoint,
   isAllowedCredentialType,
   isOAuthWorkflowSupported,
   isVerificationFresh,
@@ -62,6 +65,8 @@ export interface ConnectionWizardState {
   credentialMode: CredentialOperationMode
   credentialSecret: string
   credentialRefreshToken: string
+  workbuddySite: WorkBuddySite
+  workbuddyOAuth: WorkBuddyOAuthDraft
   verification: ConnectionVerification | null
   verificationStale: boolean
   modelIds: string[]
@@ -205,6 +210,14 @@ export function createInitialWizardState(mode: 'create' | 'edit' = 'create'): Co
     credentialMode: mode === 'edit' ? 'keep' : 'set',
     credentialSecret: '',
     credentialRefreshToken: '',
+    workbuddySite: 'cn',
+    workbuddyOAuth: {
+      access_token: '',
+      refresh_token: '',
+      uid: '',
+      domain: defaultWorkBuddyDomain('cn'),
+      expires_at: ''
+    },
     verification: null,
     verificationStale: false,
     modelIds: [],
@@ -234,6 +247,10 @@ export function hydrateWizardFromResource(
     : state.headerOverrides
   const normalizedPolicyId = normalizeSnapshotPolicyId(resource.network_policy_id)
   const concurrency = resource.limits?.concurrency ?? 4
+  const inferredSite: WorkBuddySite =
+    resource.provider === 'workbuddy'
+      ? inferWorkBuddySiteFromEndpoint(resource.endpoint || '')
+      : 'cn'
   return {
     ...state,
     mode: preserveCreateDraftMode ? 'create' : 'edit',
@@ -253,6 +270,14 @@ export function hydrateWizardFromResource(
     credentialMode: nextCredentialState === 'unset' ? 'set' : 'keep',
     credentialSecret: '',
     credentialRefreshToken: '',
+    workbuddySite: inferredSite,
+    workbuddyOAuth: {
+      access_token: '',
+      refresh_token: '',
+      uid: '',
+      domain: defaultWorkBuddyDomain(inferredSite),
+      expires_at: ''
+    },
     verification: resource.last_verification ?? null,
     verificationStale: resource.last_verification ? !isVerificationFresh(resource.last_verification) : false,
     modelIds: [...resource.model_ids],

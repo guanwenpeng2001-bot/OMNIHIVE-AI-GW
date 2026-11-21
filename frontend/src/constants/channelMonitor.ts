@@ -21,6 +21,7 @@ export const PROVIDER_QIANWEN: Provider = 'qianwen'
 export const PROVIDER_COMMANDCODE: Provider = 'commandcode'
 export const PROVIDER_MINIMAX: Provider = 'minimax'
 export const PROVIDER_OPENCODE_GO: Provider = 'opencode_go'
+export const PROVIDER_WORKBUDDY: Provider = 'workbuddy'
 
 export const DEFAULT_GROK_ENDPOINT = 'https://api.x.ai'
 export const DEFAULT_GROK_MODEL = 'grok-4.5'
@@ -57,6 +58,7 @@ export const PROVIDERS: readonly Provider[] = [
   PROVIDER_COMMANDCODE,
   PROVIDER_MINIMAX,
   PROVIDER_OPENCODE_GO,
+  PROVIDER_WORKBUDDY,
 ]
 
 /** 仅支持配额模式（无探活 adapter）的 provider。 */

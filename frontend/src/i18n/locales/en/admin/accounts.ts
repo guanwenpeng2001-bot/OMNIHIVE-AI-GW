@@ -404,6 +404,7 @@ export default {
         qianfan: 'Baidu Qianfan',
         volcengine: 'Volcengine Ark',
         cursor: 'Cursor',
+        workbuddy: 'WorkBuddy',
         composite: 'Composite',
         claude: 'Claude',
       },
@@ -564,6 +565,8 @@ export default {
         codeAssist: 'Code Assist',
         antigravityOauth: 'Antigravity OAuth',
         grokOauth: 'Grok OAuth',
+        workbuddyOauth: 'WorkBuddy OAuth (Browser login or token import)',
+        workbuddyApikey: 'API Key with CN / Global site selection',
         antigravityApikey: 'Connect via Base URL + API Key',
         upstream: 'Upstream',
         upstreamDesc: 'Connect via Base URL + API Key'
@@ -572,6 +575,64 @@ export default {
       antigravityProjectIdPlaceholder: 'your-gcp-project-id',
       antigravityProjectIdHint:
         'Antigravity standard-tier accounts that do not receive an automatic project_id need a user-owned GCP project.',
+      workbuddy: {
+        siteLabel: 'WorkBuddy Site',
+        siteHint: 'Select China (copilot.tencent.com) or International (www.workbuddy.ai).',
+        sites: {
+          cn: {
+            label: 'China · WorkBuddy',
+            subtitle: 'copilot.tencent.com',
+            domain: 'www.workbuddy.cn'
+          },
+          global: {
+            label: 'International · WorkBuddy AI',
+            subtitle: 'www.workbuddy.ai',
+            domain: 'www.workbuddy.ai'
+          }
+        },
+        siteShort: {
+          cn: 'CN',
+          global: 'Global'
+        },
+        oauth: {
+          title: 'WorkBuddy Browser OAuth',
+          hint: 'Start browser sign-in for the selected site, open the authorization link to sign in, and credentials will populate automatically.',
+          startLogin: 'Start WorkBuddy Login',
+          openLoginLink: 'Open sign-in link',
+          copyUrl: 'Copy authorization URL',
+          copied: 'Copied',
+          manualSectionTitle: 'Manual OAuth Token Import',
+          manualHint: 'Populated automatically after browser sign-in, or paste credentials manually.',
+          accessTokenRequired: 'Please complete WorkBuddy browser login or enter an access_token.',
+          keepTokenPlaceholder: 'Leave blank to keep the current token',
+          fields: {
+            accessToken: 'Access Token (access_token)',
+            refreshToken: 'Refresh Token (refresh_token)',
+            uid: 'User ID (uid)',
+            domain: 'Site Domain (domain)',
+            expiresAt: 'Expires At (expires_at, optional)'
+          },
+          status: {
+            starting: 'Creating WorkBuddy authorization session...',
+            waiting: 'Waiting for WorkBuddy sign-in completion...',
+            completed: 'WorkBuddy authorization completed; credentials populated.',
+            failed: 'WorkBuddy authorization failed. Please retry.',
+            timeout: 'WorkBuddy authorization timed out. Please start again.',
+            cancelled: 'WorkBuddy authorization cancelled.'
+          }
+        },
+        apikey: {
+          apiKeyPlaceholder: 'Enter WorkBuddy API Key',
+          baseUrlLabel: 'Base URL (optional)',
+          baseUrlHint: 'Optional override; leave blank to use the default endpoint for the selected site.'
+        },
+        usage: {
+          baseCredits: 'Base',
+          extraCredits: 'Extra',
+          totalRemaining: 'Remaining',
+          plan: 'Plan'
+        }
+      },
       accountSchedulingThresholdOverride: 'Account Auto-Pause Threshold Override',
       accountSchedulingThresholdOverrideHint:
         'Override the platform auto-pause threshold for this account only. Disable to use platform settings.',
