@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -3578,6 +3579,18 @@ func (s *oauthPendingFlowTotpCacheStub) GetVerifyAttempts(_ context.Context, use
 func (s *oauthPendingFlowTotpCacheStub) ClearVerifyAttempts(_ context.Context, userID int64) error {
 	delete(s.verifyAttempts, userID)
 	return nil
+}
+
+func (s *oauthPendingFlowTotpCacheStub) ConsumeCodeTimeStep(_ context.Context, userID int64, timeStep int64, _ time.Duration) (bool, error) {
+	key := fmt.Sprintf("%d:%d", userID, timeStep)
+	if s.loginSessions == nil {
+		s.loginSessions = map[string]*service.TotpLoginSession{}
+	}
+	if _, exists := s.loginSessions[key]; exists {
+		return false, nil
+	}
+	s.loginSessions[key] = &service.TotpLoginSession{}
+	return true, nil
 }
 
 func (s *oauthPendingFlowTotpCacheStub) SetStepUpGrant(_ context.Context, _ int64, _ string, _ time.Duration) error {

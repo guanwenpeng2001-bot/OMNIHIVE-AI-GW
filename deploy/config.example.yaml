@@ -511,9 +511,12 @@ gateway:
   # SSE max line size in bytes (default: 40MB)
   # SSE 单行最大字节数（默认 40MB）
   max_line_size: 41943040
-  # Log upstream error response body summary (safe/truncated; does not log request content)
-  # 记录上游错误响应体摘要（安全/截断；不记录请求内容）
-  log_upstream_error_body: true
+  # Log upstream error response bodies only for temporary diagnostics. Bodies may contain
+  # user prompts or other personal data; common keys, tokens and emails are redacted first.
+  # Keep disabled in production and restrict log access/retention if explicitly enabled.
+  # 仅为临时排障记录上游错误正文；正文可能包含用户 prompt 或个人信息，记录前会脱敏常见 Key、token、邮箱。
+  # 生产环境保持关闭；显式开启时须限制日志访问权限与保留时间。
+  log_upstream_error_body: false
   # Max bytes to log from upstream error body
   # 记录上游错误响应体的最大字节数
   log_upstream_error_body_max_bytes: 2048
