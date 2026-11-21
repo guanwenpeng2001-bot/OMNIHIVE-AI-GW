@@ -158,7 +158,8 @@ func TestCatalogIdentityWritesClearPersistentObservations(t *testing.T) {
 	})
 	for _, mode := range []string{"single_update", "bulk_credentials", "bulk_extra", "extra_revision", "bulk_same_identity", "extra_same_identity", "bulk_note", "extra_note", "bulk_status", "rollback_bulk", "rollback_extra"} {
 		t.Run(mode, func(t *testing.T) {
-			entity := &service.Account{Name: "catalog-runtime-observations", Platform: "cursor", Type: "oauth", Status: service.StatusError, Schedulable: false, Credentials: map[string]any{"access_token": "old"}, Extra: map[string]any{"credential_secret_revision": 1, "cursor_usage_snapshot": map[string]any{"usage": 12}, "cursor_usage_updated_at": time.Now().Format(time.RFC3339), "quota_used": 17, "quota_limit": 100}}
+			cooldown := time.Now().Add(time.Hour).UTC().Truncate(time.Microsecond)
+			entity := &service.Account{Name: "catalog-runtime-observations", Platform: "cursor", Type: "oauth", Status: service.StatusError, Schedulable: false, Credentials: map[string]any{"access_token": "old"}, Extra: map[string]any{"credential_secret_revision": 1, "cursor_usage_snapshot": map[string]any{"usage": 12}, "cursor_usage_updated_at": time.Now().Format(time.RFC3339), "grok_observed_models": []string{"old-model"}, "quota_used": 17, "quota_limit": 100}, TempUnschedulableUntil: &cooldown, TempUnschedulableReason: "synthetic credential cooldown"}
 			err := repository.Create(ctx, entity)
 			require.NoError(t, err)
 			t.Cleanup(func() {
@@ -222,9 +223,15 @@ func TestCatalogIdentityWritesClearPersistentObservations(t *testing.T) {
 			if changed {
 				require.NotContains(t, current.Extra, "cursor_usage_snapshot")
 				require.NotContains(t, current.Extra, "cursor_usage_updated_at")
+				require.NotContains(t, current.Extra, "grok_observed_models")
+				require.Nil(t, current.TempUnschedulableUntil)
+				require.Empty(t, current.TempUnschedulableReason)
 			} else {
 				require.Equal(t, before.Extra["cursor_usage_snapshot"], current.Extra["cursor_usage_snapshot"])
 				require.Equal(t, before.Extra["cursor_usage_updated_at"], current.Extra["cursor_usage_updated_at"])
+				require.Equal(t, before.Extra["grok_observed_models"], current.Extra["grok_observed_models"])
+				require.Equal(t, before.TempUnschedulableUntil, current.TempUnschedulableUntil)
+				require.Equal(t, before.TempUnschedulableReason, current.TempUnschedulableReason)
 			}
 			if transaction != nil {
 				require.NoError(t, transaction.Rollback())

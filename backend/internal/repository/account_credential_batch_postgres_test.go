@@ -84,7 +84,7 @@ func TestCredentialBatchPostgresOrderQueriesRevisionAndCAS(t *testing.T) {
 	for i := 0; i < 24; i++ {
 		accounts = append(accounts, createBatchReferencedAccount(t, f, service.PlatformCursor, service.AccountTypeOAuth, map[string]any{"access_token": fmt.Sprintf("batch-access-%d", i), "refresh_token": fmt.Sprintf("batch-refresh-%d", i), "model_mapping": map[string]any{"alias": "model"}}))
 	}
-	inline := f.createAccount(t, f.ctx, uniqueName("inline-control"), service.PlatformOpenAI, service.AccountTypeOAuth, map[string]any{"refresh_token": "inline-refresh-control"})
+	inline := f.createLegacyInlineAccount(t, f.ctx, uniqueName("inline-control"), service.PlatformOpenAI, service.AccountTypeOAuth, map[string]any{"refresh_token": "inline-refresh-control"})
 	repo, counts := countingCredentialRepository(f)
 	for _, size := range []int{1, len(accounts)} {
 		ids := []int64{-1, 0, 999999999, accounts[size-1].ID}
@@ -308,8 +308,8 @@ func TestCredentialBatchPostgresRefreshPagesActivationAndSkippedRows(t *testing.
 	good := create(map[string]any{"refresh_token": "good-refresh"})
 	_, err = f.client.Account.UpdateOneID(good.ID).SetSchedulable(false).Save(f.ctx)
 	require.NoError(t, err)
-	inline := f.createAccount(t, f.ctx, uniqueName("legacy-refresh"), service.PlatformCursor, service.AccountTypeOAuth, map[string]any{"refresh_token": "inline-refresh"})
-	legacyMissing := f.createAccount(t, f.ctx, uniqueName("legacy-missing"), service.PlatformCursor, service.AccountTypeOAuth, map[string]any{"access_token": "legacy-only-access"})
+	inline := f.createLegacyInlineAccount(t, f.ctx, uniqueName("legacy-refresh"), service.PlatformCursor, service.AccountTypeOAuth, map[string]any{"refresh_token": "inline-refresh"})
+	legacyMissing := f.createLegacyInlineAccount(t, f.ctx, uniqueName("legacy-missing"), service.PlatformCursor, service.AccountTypeOAuth, map[string]any{"access_token": "legacy-only-access"})
 	options := service.OAuthRefreshPageOptions{Platforms: []string{service.PlatformCursor}, Limit: 2, ActiveOnly: true, RequireRefreshToken: true, ExcludeRetryCooldown: true}
 	var found []int64
 	emptyPages := 0

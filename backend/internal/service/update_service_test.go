@@ -443,7 +443,7 @@ func TestUpdateServiceStagingDirectoryFallback(t *testing.T) {
 func TestUpdateServiceDirectRollback(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("OMNIHIVE_DATA_DIR", filepath.Join(root, "absent"))
-	exe := filepath.Join(root, "sub2api")
+	exe := filepath.Join(root, "omnihive")
 	require.NoError(t, os.WriteFile(exe, []byte("new"), 0755))
 	require.NoError(t, os.WriteFile(exe+".backup", []byte("old"), 0755))
 	svc := NewUpdateService(nil, nil, "0.2.5", "release")
@@ -458,7 +458,7 @@ func TestUpdateServiceDirectRollback(t *testing.T) {
 func TestUpdateServicePersistentStageWhenDirectSwapFails(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("OMNIHIVE_DATA_DIR", root)
-	exe := filepath.Join(root, "sub2api")
+	exe := filepath.Join(root, "omnihive")
 	require.NoError(t, os.WriteFile(exe, []byte("original"), 0755))
 	// A nonempty backup directory deterministically prevents the direct rename.
 	require.NoError(t, os.Mkdir(exe+".backup", 0755))
@@ -468,6 +468,9 @@ func TestUpdateServicePersistentStageWhenDirectSwapFails(t *testing.T) {
 	svc := NewUpdateService(nil, client, "0.2.4", "release")
 	prepareRollbackService(t, svc)
 	svc.executablePath = func() (string, error) { return exe, nil }
+	backup := filepath.Join(exe+".backup", updateBinaryName)
+	require.NoError(t, os.WriteFile(backup, []byte("original"), 0755))
+	require.NoError(t, svc.prepareBackupManifest(backup))
 	require.NoError(t, svc.applyReleaseAssets(context.Background(), "0.2.5", assets))
 	content, err := os.ReadFile(exe)
 	require.NoError(t, err)

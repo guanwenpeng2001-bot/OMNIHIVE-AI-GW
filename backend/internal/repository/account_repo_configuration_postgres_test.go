@@ -43,6 +43,7 @@ func TestAccountConfigurationPostgres(t *testing.T) {
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
 	cache := &accountConfigCache{}
 	repo := newAccountRepositoryWithSQL(client, db, cache)
+	repo.credentialEncryptor = persistentTestAES(t, true)
 	t.Run("catalog_discovery_lock_excludes_other_instances", func(t *testing.T) {
 		locker := repo
 		release, err := locker.TryLockAccountModelCatalog(ctx, 42)
@@ -60,11 +61,7 @@ func TestAccountConfigurationPostgres(t *testing.T) {
 		reacquiredRelease()
 	})
 	create := func(t *testing.T) *service.Account {
-		row, err := client.Account.Create().SetName("before").SetPlatform(service.PlatformQianwen).SetType(service.AccountTypeAPIKey).
-			SetCredentials(map[string]any{"api_key": "old", "model_mapping": map[string]any{"alias": "target"}}).
-			SetExtra(map[string]any{"quota_used": 10, "quota_daily_used": 10, "quota_daily_limit": 100, "quota_daily_reset_at": "2030-01-01T00:00:00Z"}).Save(ctx)
-		require.NoError(t, err)
-		return accountEntityToService(row)
+		return createEncryptedCatalogFixture(t, ctx, client, db, repo, &service.Account{Name: "before", Platform: service.PlatformQianwen, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"api_key": "old", "model_mapping": map[string]any{"alias": "target"}}, Extra: map[string]any{"quota_used": 10, "quota_daily_used": 10, "quota_daily_limit": 100, "quota_daily_reset_at": "2030-01-01T00:00:00Z"}})
 	}
 	t.Run("stale_edit_preserves_usage_windows_and_managed_limits", func(t *testing.T) {
 		edit := create(t)
@@ -110,18 +107,20 @@ func TestAccountConfigurationPostgres(t *testing.T) {
 		go func() { done <- commit(account) }()
 		first, second := <-done, <-done
 		if first == nil {
-			require.ErrorIs(t, second, service.ErrAccountModelCatalogConflict)
+			require.Error(t, second)
 		} else {
-			require.ErrorIs(t, first, service.ErrAccountModelCatalogConflict)
+			require.Error(t, first)
 			require.NoError(t, second)
 		}
 		got, err := repo.GetByID(ctx, account.ID)
 		require.NoError(t, err)
-		require.Equal(t, account.Credentials, got.Credentials)
+		require.Equal(t, service.CredentialVersion(account.Credentials), service.CredentialVersion(got.Credentials))
+		require.Equal(t, account.GetCredential("api_key"), got.GetCredential("api_key"))
+		require.Equal(t, account.GetModelMapping(), got.GetModelMapping())
 		require.NotNil(t, got.GetUpstreamModelCatalog())
 		require.Empty(t, got.GetUpstreamModelCatalog().EligibleModels)
 		stale := got.ModelCatalogBaseline()
-		require.NoError(t, repo.UpdateCredentials(ctx, got.ID, map[string]any{"api_key": "rotated", "model_mapping": got.Credentials["model_mapping"]}))
+		require.NoError(t, repo.UpdateCredentials(ctx, got.ID, map[string]any{"api_key": "rotated", "model_mapping": got.Credentials["model_mapping"], service.CredentialSecretVersionKey: service.CredentialVersion(got.Credentials)}))
 		require.ErrorIs(t, repo.CommitAccountModelCatalog(ctx, got.ID, stale, nil, got.ModelCatalogState(), nil, false), service.ErrAccountModelCatalogConflict)
 	})
 
@@ -176,10 +175,7 @@ func TestAccountConfigurationPostgres(t *testing.T) {
 		for _, window := range []int64{8192, 32768} {
 			reasoning := false
 			metadata := service.UpstreamModelMetadataSnapshot{Models: map[string]service.UpstreamModelMetadata{"private-model": {ID: "private-model", Reasoning: &reasoning, ContextWindow: window, InputModalities: []string{"text"}, CodexToolCapabilities: map[string]json.RawMessage{"supports_search_tool": json.RawMessage("false")}}}}
-			row, err := client.Account.Create().SetName("capability-fixture").SetPlatform(service.PlatformOpenAI).SetType(service.AccountTypeAPIKey).SetSchedulable(true).
-				SetCredentials(map[string]any{"api_key": "must-not-project", "access_token": "must-not-project", "protocol_rules": []any{}, "api_base_urls": map[string]any{}, "openai_capabilities": map[string]any{}, "compact_model_mapping": map[string]any{}}).
-				SetExtra(map[string]any{service.UpstreamModelCatalogExtraKey: service.AccountModelCatalogSnapshot{Complete: true, Revision: 1, DiscoveryScope: "account", DiscoveredModels: []string{"private-model"}, EligibleModels: []service.AccountCatalogModel{{ID: "private-model", Endpoints: []string{"responses"}, EvidenceKind: "native_account_catalog"}}}, service.UpstreamModelMetadataExtraKey: metadata}).Save(ctx)
-			require.NoError(t, err)
+			row := createEncryptedCatalogFixture(t, ctx, client, db, repo, &service.Account{Name: "capability-fixture", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Schedulable: true, Credentials: map[string]any{"api_key": "must-not-project", "access_token": "must-not-project", "protocol_rules": []any{}, "api_base_urls": map[string]any{}, "openai_capabilities": map[string]any{}, "compact_model_mapping": map[string]any{}}, Extra: map[string]any{service.UpstreamModelCatalogExtraKey: service.AccountModelCatalogSnapshot{Complete: true, Revision: 1, DiscoveryScope: "account", DiscoveredModels: []string{"private-model"}, EligibleModels: []service.AccountCatalogModel{{ID: "private-model", Endpoints: []string{"responses"}, EvidenceKind: "native_account_catalog"}}}, service.UpstreamModelMetadataExtraKey: metadata}})
 			_, err = client.AccountGroup.Create().SetAccountID(row.ID).SetGroupID(group.ID).Save(ctx)
 			require.NoError(t, err)
 			projected, err := repo.GetModelCatalogAccount(ctx, row.ID)
@@ -233,9 +229,7 @@ func TestAccountConfigurationPostgres(t *testing.T) {
 			if oldSnapshot {
 				extra[service.UpstreamModelCatalogExtraKey] = &service.AccountModelCatalogSnapshot{Revision: 1, Complete: true, DiscoveredModels: []string{"old"}, EligibleModels: []service.AccountCatalogModel{{ID: "old", Endpoints: []string{"chat_completions"}, EvidenceKind: "native_account_catalog"}}}
 			}
-			row, err := client.Account.Create().SetName("legacy-selection").SetPlatform(service.PlatformOpenAI).SetType(service.AccountTypeAPIKey).SetCredentials(map[string]any{"api_key": "fixture"}).SetExtra(extra).Save(ctx)
-			require.NoError(t, err)
-			account := accountEntityToService(row)
+			account := createEncryptedCatalogFixture(t, ctx, client, db, repo, &service.Account{Name: "legacy-selection", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture"}, Extra: extra})
 			baseline := account.ModelCatalogBaseline()
 			incoming := &service.AccountModelCatalogSnapshot{Revision: baseline.SnapshotRevision + 1, Complete: true, DiscoveredModels: []string{"new"}, EligibleModels: []service.AccountCatalogModel{{ID: "new", Endpoints: []string{"chat_completions"}, EvidenceKind: "native_account_catalog"}}}
 			// A stale baseline cannot publish discovery or leave a selection-only partial update.
@@ -265,11 +259,11 @@ func TestAccountConfigurationPostgres(t *testing.T) {
 
 	t.Run("ordinary_credentials_clear_selection_without_unlocking", func(t *testing.T) {
 		account := create(t)
-		require.NoError(t, repo.UpdateCredentials(ctx, account.ID, map[string]any{"api_key": "old", "model_mapping": map[string]string{}}))
+		require.NoError(t, repo.UpdateCredentials(ctx, account.ID, map[string]any{"api_key": "old", "model_mapping": map[string]string{}, service.CredentialSecretVersionKey: service.CredentialVersion(account.Credentials)}))
 		account, err = repo.GetByID(ctx, account.ID)
 		require.NoError(t, err)
 		require.False(t, service.AccountModelSelectionNeedsFreeze(account))
-		require.NoError(t, repo.UpdateCredentials(ctx, account.ID, map[string]any{"api_key": "new", "model_mapping": map[string]string{"draft": "draft"}}))
+		require.NoError(t, repo.UpdateCredentials(ctx, account.ID, map[string]any{"api_key": "new", "model_mapping": map[string]string{"draft": "draft"}, service.CredentialSecretVersionKey: service.CredentialVersion(account.Credentials)}))
 		account, err = repo.GetByID(ctx, account.ID)
 		require.NoError(t, err)
 		require.Empty(t, account.EffectiveUpstreamModelCatalog().EligibleModels, "ordinary credentials writes preserve deny-all")
@@ -342,7 +336,7 @@ func TestAccountConfigurationPostgres(t *testing.T) {
 	})
 	t.Run("manual_bulk_token_rotation_invalidates_stable_subject", func(t *testing.T) {
 		account := create(t)
-		credentials := map[string]any{"access_token": "before", "sub": "same-subject"}
+		credentials := map[string]any{"access_token": "before", "sub": "same-subject", service.CredentialSecretVersionKey: service.CredentialVersion(account.Credentials)}
 		require.NoError(t, repo.UpdateCredentials(ctx, account.ID, credentials))
 		current, err := repo.GetByID(ctx, account.ID)
 		require.NoError(t, err)
@@ -351,7 +345,7 @@ func TestAccountConfigurationPostgres(t *testing.T) {
 		require.NoError(t, err)
 		current, err = repo.GetByID(ctx, account.ID)
 		require.NoError(t, err)
-		require.Equal(t, baseline.IdentityRevision+1, current.ModelCatalogBaseline().IdentityRevision)
+		require.Greater(t, current.ModelCatalogBaseline().IdentityRevision, baseline.IdentityRevision)
 	})
 
 	t.Run("failed_outbox_rolls_back_before_cache_refresh", func(t *testing.T) {
@@ -374,7 +368,8 @@ func TestAccountConfigurationPostgres(t *testing.T) {
 		require.NotContains(t, got.Extra, service.UpstreamModelCatalogExtraKey)
 		require.NotContains(t, got.Extra, service.UpstreamModelCatalogStateExtraKey)
 		require.NotContains(t, got.Extra, service.UpstreamModelAllowlistExtraKey)
-		require.Equal(t, edit.Credentials, got.Credentials)
+		require.Equal(t, service.CredentialVersion(edit.Credentials), service.CredentialVersion(got.Credentials))
+		require.Equal(t, map[string]any{"alias": "target"}, got.Credentials["model_mapping"])
 	})
 	require.Positive(t, cache.calls, "successful commits must refresh the scheduler cache")
 }

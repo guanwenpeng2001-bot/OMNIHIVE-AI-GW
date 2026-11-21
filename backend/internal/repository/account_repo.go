@@ -703,6 +703,7 @@ func (r *accountRepository) updateLockedAccount(
 		account.Extra = quotaState.Extra
 		extra = account.Extra
 	}
+	account.Credentials = persistedCredentials
 	service.AdvanceAccountModelCatalogRevisionsForUpdate(&service.Account{ParentAccountID: current.ParentAccountID, ProxyID: current.ProxyID, Platform: current.Platform, Type: current.Type, Credentials: current.Credentials, Extra: current.Extra}, account, configurationOnly)
 
 	schedulable := account.Schedulable
@@ -4783,6 +4784,7 @@ func clearChangedAccountRuntimeObservationsSQL(incomingCredentials, incomingExtr
 func accountCatalogRevisionPatchSQL(incoming, incomingExtra, proxyChanged string, manual bool) string {
 	fields := service.AccountCatalogIdentityCredentialFields()
 	changes := make([]string, 0, len(fields)+1)
+	changes = append(changes, "credentials->'credential_secret_version' IS DISTINCT FROM "+incoming+"->'credential_secret_version'")
 	for _, field := range fields {
 		changes = append(changes, "credentials->'"+field+"' IS DISTINCT FROM "+incoming+"->'"+field+"'")
 	}

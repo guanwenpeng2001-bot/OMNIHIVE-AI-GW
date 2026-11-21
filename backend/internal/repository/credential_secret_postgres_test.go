@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -19,7 +20,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/migrations"
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
 
@@ -76,6 +77,29 @@ func (f *credentialSecretFixture) createAccount(t *testing.T, ctx context.Contex
 	}
 	require.NoError(t, f.accounts.Create(ctx, account))
 	require.Positive(t, account.ID)
+	return account
+}
+
+func (f *credentialSecretFixture) createLegacyInlineAccount(t *testing.T, ctx context.Context, name, platform, accountType string, credentials map[string]any) *service.Account {
+	t.Helper()
+	account := &service.Account{Name: name, Platform: platform, Type: accountType, Status: service.StatusActive, Concurrency: 1}
+	require.NoError(t, f.accounts.Create(ctx, account))
+	{
+		tx, err := f.db.BeginTx(ctx, nil)
+		require.NoError(t, err)
+		defer tx.Rollback()
+		_, err = tx.ExecContext(ctx, `ALTER TABLE accounts DISABLE TRIGGER accounts_credential_reference_guard`)
+		require.NoError(t, err)
+		_, err = tx.ExecContext(ctx, `SELECT set_config('omnihive.account_secret_backfill',$1,true)`, account.ID)
+		require.NoError(t, err)
+		payload, err := json.Marshal(credentials)
+		require.NoError(t, err)
+		_, err = tx.ExecContext(ctx, `UPDATE accounts SET credentials=$2::jsonb WHERE id=$1`, account.ID, payload)
+		require.NoError(t, err)
+		_, err = tx.ExecContext(ctx, `ALTER TABLE accounts ENABLE TRIGGER accounts_credential_reference_guard`)
+		require.NoError(t, err)
+		require.NoError(t, tx.Commit())
+	}
 	return account
 }
 
@@ -275,7 +299,7 @@ func TestCredentialSecretCrossWorkspacePostgres(t *testing.T) {
 	require.NoError(t, err)
 
 	foreignCtx := domain.WithWorkspaceScope(ctx, foreignWorkspace)
-	foreignAccount := f.createAccount(t, foreignCtx, uniqueName("cred-foreign"), service.PlatformOpenAI, service.AccountTypeAPIKey,
+	foreignAccount := f.createLegacyInlineAccount(t, foreignCtx, uniqueName("cred-foreign"), service.PlatformOpenAI, service.AccountTypeAPIKey,
 		map[string]any{"api_key": "sk-foreign-workspace"})
 
 	t.Run("metadata_read_is_scoped", func(t *testing.T) {
@@ -383,6 +407,7 @@ func TestCredentialSecretMigrationIdempotentPostgres(t *testing.T) {
 }
 
 func TestAccountSecretBackfillPostgres(t *testing.T) {
+	prepareIsolatedBackfillDatabase(t)
 	f := newCredentialSecretFixture(t)
 	a := f.createAccount(t, f.ctx, uniqueName("backfill"), service.PlatformOpenAI, service.AccountTypeAPIKey, nil)
 	tx, err := f.db.BeginTx(f.ctx, nil)
@@ -406,6 +431,7 @@ func TestAccountSecretBackfillPostgres(t *testing.T) {
 }
 
 func TestAccountSecretBackfillRepairsLegacySecretResiduePostgres(t *testing.T) {
+	prepareIsolatedBackfillDatabase(t)
 	f := newCredentialSecretFixture(t)
 	account := f.createAccount(t, f.ctx, uniqueName("backfill-residue"), service.PlatformGrok, service.AccountTypeOAuth,
 		map[string]any{"access_token": "before-residue", "refresh_token": "refresh-residue", "base_url": "https://old.example"})
@@ -460,4 +486,32 @@ func TestAccountSecretBackfillRepairsLegacySecretResiduePostgres(t *testing.T) {
 	reloaded, err = f.accounts.GetByID(f.ctx, account.ID)
 	require.NoError(t, err)
 	require.Equal(t, "replay-residue", reloaded.GetCredential("access_token"))
+	var pending int
+	require.NoError(t, f.db.QueryRowContext(f.ctx, "SELECT count(*) FROM account_secret_backfill WHERE account_id=$1", account.ID).Scan(&pending))
+	require.Zero(t, pending)
+}
+
+func prepareIsolatedBackfillDatabase(t *testing.T) {
+	t.Helper()
+	dsn := os.Getenv(credentialSecretPostgresEnv)
+	if dsn == "" {
+		t.Skipf("set %s to a disposable PostgreSQL database", credentialSecretPostgresEnv)
+	}
+	connection, err := sql.Open("postgres", dsn)
+	require.NoError(t, err)
+	defer connection.Close()
+	var owner string
+	require.NoError(t, connection.QueryRow("SELECT current_user").Scan(&owner))
+	name := uniqueName("backfill")
+	_, err = connection.Exec(`DROP DATABASE IF EXISTS ` + pq.QuoteIdentifier(name) + ` WITH (FORCE)`)
+	require.NoError(t, err)
+	_, err = connection.Exec(`CREATE DATABASE ` + pq.QuoteIdentifier(name) + ` OWNER ` + pq.QuoteIdentifier(owner))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = connection.Exec(`DROP DATABASE IF EXISTS ` + pq.QuoteIdentifier(name) + ` WITH (FORCE)`)
+	})
+	parsed, err := url.Parse(dsn)
+	require.NoError(t, err)
+	parsed.Path = "/" + name
+	t.Setenv(credentialSecretPostgresEnv, parsed.String())
 }

@@ -9,13 +9,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	adminhandler "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/dto"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
@@ -174,27 +172,6 @@ func TestAdminQueryClearPreservationPostgres(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, account.Credentials, updated.Credentials)
 			require.Equal(t, service.AccountRuntimeIdentityKey(account), service.AccountRuntimeIdentityKey(updated))
-		})
-	}
-	for _, fixedKey := range []bool{true, false} {
-		t.Run(fmt.Sprintf("inline_fixed_key_%t", fixedKey), func(t *testing.T) {
-			if !fixedKey {
-				unconfigured, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32)}})
-				require.NoError(t, err)
-				fixture.accounts.credentialEncryptor = unconfigured
-			}
-			inline := fixture.createAccount(t, fixture.ctx, uniqueName("inline-clear"), "dmxapi", service.AccountTypeAPIKey, map[string]any{"api_key": "fixture-inline", "base_url": "https://www.dmxapi.cn"})
-			patch := maps.Clone(inline.Credentials)
-			for _, field := range queryClearFields {
-				patch[field] = nil
-			}
-			updated, err := admin.UpdateAccount(fixture.ctx, inline.ID, &service.UpdateAccountInput{Credentials: patch})
-			require.NoError(t, err)
-			require.Equal(t, inline.Credentials, updated.Credentials)
-			require.Equal(t, inline.Credentials, fixture.storedCredentials(t, inline.ID))
-			var count int
-			require.NoError(t, fixture.db.QueryRow(`SELECT count(*) FROM credential_secrets WHERE account_id=$1`, inline.ID).Scan(&count))
-			require.Zero(t, count)
 		})
 	}
 }

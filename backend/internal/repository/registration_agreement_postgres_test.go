@@ -2,7 +2,9 @@ package repository
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
@@ -30,7 +32,7 @@ func TestRegistrationAgreementPersistencePostgres(t *testing.T) {
 	require.True(t, public.LoginAgreementEnabled)
 	repo := NewUserRepository(f.client, f.db)
 	user := &service.User{
-		Email: "agreement@example.com", PasswordHash: "hash", Role: service.RoleUser, Status: service.StatusActive,
+		Email: fmt.Sprintf("agreement-%d@example.com", time.Now().UnixNano()), PasswordHash: "hash", Role: service.RoleUser, Status: service.StatusActive,
 		SignupAgreement: &service.SignupAgreement{Accepted: true, Revision: public.LoginAgreementRevision},
 	}
 	require.NoError(t, repo.CreateWithEmailAliasGuard(ctx, user))
@@ -39,7 +41,7 @@ func TestRegistrationAgreementPersistencePostgres(t *testing.T) {
 	require.Equal(t, user.SignupAgreement.Revision, revision)
 
 	rejected := &service.User{
-		Email: "agreement-rejected@example.com", PasswordHash: "hash", Role: service.RoleUser, Status: service.StatusActive,
+		Email: fmt.Sprintf("agreement-rejected-%d@example.com", time.Now().UnixNano()), PasswordHash: "hash", Role: service.RoleUser, Status: service.StatusActive,
 		SignupAgreement: &service.SignupAgreement{Accepted: true, Revision: "stale"},
 	}
 	require.ErrorIs(t, repo.CreateWithEmailAliasGuard(ctx, rejected), service.ErrRegistrationAgreement)

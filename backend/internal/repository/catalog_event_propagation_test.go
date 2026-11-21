@@ -39,19 +39,22 @@ func TestModelCatalogEventPostgres(t *testing.T) {
 	require.NoError(t, err, "migration must be reentrant")
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, database)))
 	repository := newAccountRepositoryWithSQL(client, database, nil)
+	repository.credentialEncryptor = persistentTestAES(t, true)
 	generation := func(scope string) int64 {
 		value, err := repository.ModelCatalogGeneration(ctx, scope)
 		require.NoError(t, err)
 		return value
 	}
 	create := func(t *testing.T) *service.Account {
-		entity, err := client.Account.Create().SetName("catalog-cas-fixture").SetPlatform("openai").SetType("oauth").
-			SetCredentials(map[string]any{"access_token": "old-token", "chatgpt_account_id": "stable-subject"}).
-			SetExtra(map[string]any{"quota_used": 12, "cursor_usage_snapshot": map[string]any{"old": true}}).Save(ctx)
+		entity := &service.Account{Name: "catalog-cas-fixture", Platform: "openai", Type: "oauth", Status: service.StatusActive, Credentials: map[string]any{"access_token": "old-token", "chatgpt_account_id": "stable-subject"}, Extra: map[string]any{"quota_used": 12, "cursor_usage_snapshot": map[string]any{"old": true}}}
+		err := repository.Create(ctx, entity)
 		require.NoError(t, err)
 		account, err := repository.GetByID(ctx, entity.ID)
 		require.NoError(t, err)
-		t.Cleanup(func() { _, _ = database.Exec("DELETE FROM accounts WHERE id=$1", account.ID) })
+		t.Cleanup(func() {
+			_, _ = database.Exec("DELETE FROM credential_secrets WHERE account_id=$1", account.ID)
+			_, _ = database.Exec("DELETE FROM accounts WHERE id=$1", account.ID)
+		})
 		return account
 	}
 	t.Run("rollback_and_committed_notification", func(t *testing.T) {
@@ -160,7 +163,8 @@ func TestModelCatalogEventPostgres(t *testing.T) {
 		expected, err := service.AccountWithRuntimeCredentialOwner(shadow, parent)
 		require.NoError(t, err)
 		require.NoError(t, repository.UpdateAccountRuntimeSnapshot(ctx, expected, map[string]any{"session_window_utilization": 1}, nil))
-		require.NoError(t, client.Account.UpdateOneID(parent.ID).SetCredentials(map[string]any{"access_token": "replacement"}).Exec(ctx))
+		_, err = database.Exec(`UPDATE accounts SET extra=jsonb_set(extra,'{credential_secret_revision}','2') WHERE id=$1`, parent.ID)
+		require.NoError(t, err)
 		require.ErrorIs(t, repository.UpdateAccountRuntimeSnapshot(ctx, expected, map[string]any{"session_window_utilization": 99}, nil), service.ErrAccountRuntimeIdentityChanged)
 	})
 	t.Run("move_and_delete_keep_old_group_tombstone", func(t *testing.T) {

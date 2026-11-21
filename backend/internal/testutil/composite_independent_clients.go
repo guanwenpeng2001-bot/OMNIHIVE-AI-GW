@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,7 +54,9 @@ func RunCompositeGroupIndependentClients(test *testing.T) {
 	database.SetMaxOpenConns(1)
 	test.Cleanup(func() { require.NoError(test, database.Close()) })
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, database)))
-	accounts := repository.NewAccountRepository(client, database, nil)
+	encryptor, err := repository.NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32), EncryptionKeyConfigured: true}})
+	require.NoError(test, err)
+	accounts := repository.ProvideAccountRepositoryWithSecrets(client, database, nil, encryptor, nil)
 	committer, supportsCommit := accounts.(service.AccountModelCatalogCommitter)
 	require.True(test, supportsCommit)
 	redisAddress := os.Getenv("AFFINITY_REDIS_TEST_ADDR")
@@ -151,11 +154,14 @@ func RunCompositeGroupIndependentClients(test *testing.T) {
 	test.Cleanup(func() { require.NoError(test, routes.Delete(ctx, route.ID)) })
 	var accountIDs []int64
 	for _, priority := range []int{0, 10} {
-		row, err := client.Account.Create().SetName(fmt.Sprintf("composite-independent-%d", priority)).SetPlatform(service.PlatformOpenAI).SetType(service.AccountTypeAPIKey).SetStatus(service.StatusActive).SetSchedulable(true).SetPriority(priority).SetCredentials(map[string]any{"api_key": "fixture", "model_mapping": map[string]any{"fixture-target": "fixture-target"}}).Save(ctx)
+		row := &service.Account{Name: fmt.Sprintf("composite-independent-%d", priority), Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Priority: priority, Credentials: map[string]any{"api_key": "fixture", "model_mapping": map[string]any{"fixture-target": "fixture-target"}}}
+		err = accounts.Create(ctx, row)
 		require.NoError(test, err)
 		accountIDs = append(accountIDs, row.ID)
 		test.Cleanup(func() {
 			_, err := database.ExecContext(ctx, `DELETE FROM scheduler_outbox WHERE account_id=$1`, row.ID)
+			require.NoError(test, err)
+			_, err = database.ExecContext(ctx, `DELETE FROM credential_secrets WHERE account_id=$1`, row.ID)
 			require.NoError(test, err)
 			require.NoError(test, client.Account.DeleteOneID(row.ID).Exec(ctx))
 		})
@@ -227,7 +233,7 @@ func RunCompositeGroupIndependentClients(test *testing.T) {
 		require.NoError(test, err)
 		priorCatalog := beforeRotation.GetUpstreamModelCatalog()
 		require.NotNil(test, priorCatalog)
-		require.NoError(test, writer.UpdateCredentials(ctx, accountIDs[0], map[string]any{"api_key": "rotated", "model_mapping": map[string]any{"fixture-target": "fixture-target"}}))
+		require.NoError(test, writer.UpdateCredentials(ctx, accountIDs[0], map[string]any{"api_key": "rotated", "model_mapping": map[string]any{"fixture-target": "fixture-target"}, service.CredentialSecretVersionKey: service.CredentialVersion(beforeRotation.Credentials)}))
 		rotated, err := accounts.GetByID(ctx, accountIDs[0])
 		require.NoError(test, err)
 		require.Greater(test, rotated.ModelCatalogState().IdentityRevision, beforeRotation.ModelCatalogState().IdentityRevision)
