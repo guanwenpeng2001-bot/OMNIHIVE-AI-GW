@@ -275,13 +275,9 @@ func (s *AccountTestService) validateUpstreamBaseURL(raw string) (string, error)
 	if s.cfg == nil {
 		return "", errors.New("config is not available")
 	}
-	normalized, err := urlvalidator.ValidateHTTPURL(raw, s.cfg.Security.URLAllowlist.AllowInsecureHTTP, urlvalidator.ValidationOptions{
-		AllowedHosts:     s.cfg.Security.URLAllowlist.UpstreamHosts,
-		RequireAllowlist: s.cfg.Security.URLAllowlist.Enabled,
-		AllowPrivate:     s.cfg.Security.URLAllowlist.AllowPrivateHosts,
-	})
+	normalized, err := urlvalidator.ValidateHTTPURL(raw, s.cfg.Security.URLAllowlist.AllowInsecureHTTP, s.cfg.Security.URLAllowlist.UpstreamValidationOptions())
 	if err != nil {
-		return "", err
+		return "", &connectionProbeURLError{err: err}
 	}
 	return normalized, nil
 }
@@ -3268,61 +3264,62 @@ func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID in
 }
 
 type ConnectionProbe struct {
-	Network, Authorization, Discovery string
-	Models                            []string
+	Network, Authorization, Discovery                   string
+	Models                                              []string
+	NetworkReason, AuthorizationReason, DiscoveryReason string
+	Detail                                              string
 }
 
 // ProbeConnection builds the gateway's native catalog request with the proposed
 // credentials. The unauthenticated control distinguishes public catalogs from
 // endpoints that actually verified the credential.
 func (s *AccountTestService) ProbeConnection(ctx context.Context, account *Account, proxy string) ConnectionProbe {
-	result := ConnectionProbe{Network: "unknown", Authorization: "unknown", Discovery: "unsupported", Models: []string{}}
-	if s == nil || s.cfg == nil {
-		return result
+	if s == nil || s.cfg == nil || account == nil {
+		return connectionProbeBuildFailure(errors.New("probe configuration unavailable"))
+	}
+	policy := s.cfg.Security.URLAllowlist
+	if base := account.GetCredential("base_url"); base != "" {
+		if _, err := policy.ValidateProbeURL(base); err != nil {
+			return FailedConnectionProbe("URL_NOT_ALLOWED")
+		}
 	}
 	req, err := s.buildUpstreamModelsRequest(context.WithValue(ctx, catalogDiscoveryKey{}, true), account)
 	if err != nil {
-		return result
+		return connectionProbeBuildFailure(err)
 	}
-	policy := s.cfg.Security.URLAllowlist
-	private := policy.AllowPrivateHosts
 	if _, err = policy.ValidateProbeURL(req.URL.Scheme + "://" + req.URL.Host); err != nil {
-		result.Network = "failed"
-		return result
+		return FailedConnectionProbe("URL_NOT_ALLOWED")
 	}
-	client, err := httpclient.GetClient(httpclient.Options{Timeout: 12 * time.Second, ProxyURL: proxy, ValidateResolvedIP: true, AllowPrivateHosts: private, PrivateHosts: policy.UpstreamHosts})
+	client, err := httpclient.GetClient(httpclient.Options{Timeout: 12 * time.Second, ProxyURL: proxy, ValidateResolvedIP: true, AllowPrivateHosts: policy.AllowPrivateHosts, PrivateHosts: policy.UpstreamHosts})
 	if err != nil {
-		result.Network = "failed"
-		return result
+		return ConnectionProbeTransportFailure(err)
 	}
 	return verifyConnectionRequest(req, client, account)
 }
+
 func verifyConnectionRequest(req *http.Request, shared *http.Client, account *Account) ConnectionProbe {
-	result := ConnectionProbe{Network: "failed", Authorization: "unknown", Discovery: "unknown", Models: []string{}}
 	client := *shared
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := client.Do(req)
 	if err != nil {
-		return result
+		return ConnectionProbeTransportFailure(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
-		return result
-	}
-	result.Network = "passed"
-	if resp.StatusCode == 401 || resp.StatusCode == 403 {
-		result.Authorization = "failed"
-		return result
-	}
+	result := ConnectionProbeHTTPStatus(resp.StatusCode)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return result
 	}
+
 	body, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
 	if err != nil || len(body) > 1<<20 {
+		result.DiscoveryReason = "PROBE_FAILED"
+		result.Detail = "Could not read the upstream model catalog within the response size limit."
 		return result
 	}
 	models, _, err := extractUpstreamModelCatalog(body, account.IsGrok(), account.Platform)
 	if err != nil {
+		result.DiscoveryReason = "PROBE_FAILED"
+		result.Detail = "Upstream returned an invalid model catalog."
 		return result
 	}
 	for _, model := range models {
@@ -3374,6 +3371,9 @@ func verifyConnectionRequest(req *http.Request, shared *http.Client, account *Ac
 		check.Body.Close()
 		if check.StatusCode == 401 || check.StatusCode == 403 {
 			result.Authorization = "passed"
+		} else if check.StatusCode == http.StatusTooManyRequests {
+			result.AuthorizationReason = "UPSTREAM_RATE_LIMITED"
+			result.Detail = "Upstream rate-limited the authorization control (HTTP 429). Wait and retry."
 		}
 	}
 	return result

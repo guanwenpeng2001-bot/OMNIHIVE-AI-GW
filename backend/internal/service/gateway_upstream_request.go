@@ -9,14 +9,14 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/claude"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/logredact"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/urlvalidator"
 	"github.com/tidwall/gjson"
-
-	"github.com/gin-gonic/gin"
 )
 
 func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token, tokenType, modelID string, reqStream bool, mimicClaudeCode bool) (*http.Request, []byte, error) {
@@ -924,11 +924,11 @@ func (s *GatewayService) buildCustomRelayURL(ctx context.Context, baseURL, path 
 }
 
 func (s *GatewayService) validateUpstreamBaseURL(raw string) (string, error) {
-	normalized, err := urlvalidator.ValidateHTTPURL(raw, s.cfg != nil && s.cfg.Security.URLAllowlist.AllowInsecureHTTP, urlvalidator.ValidationOptions{
-		AllowedHosts:     s.cfg.Security.URLAllowlist.UpstreamHosts,
-		RequireAllowlist: s.cfg != nil && s.cfg.Security.URLAllowlist.Enabled,
-		AllowPrivate:     s.cfg.Security.URLAllowlist.AllowPrivateHosts,
-	})
+	policy := config.URLAllowlistConfig{}
+	if s.cfg != nil {
+		policy = s.cfg.Security.URLAllowlist
+	}
+	normalized, err := urlvalidator.ValidateHTTPURL(raw, policy.AllowInsecureHTTP, policy.UpstreamValidationOptions())
 	if err != nil {
 		return "", fmt.Errorf("invalid base_url: %w", err)
 	}

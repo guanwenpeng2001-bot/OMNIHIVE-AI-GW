@@ -159,6 +159,18 @@ func (r *userRepository) create(ctx context.Context, userIn *service.User, guard
 		return translatePersistenceError(err, nil, service.ErrEmailExists)
 	}
 
+	// Every application signup path shares this transaction. Do not grant project
+	// actions on the platform's shared Default project: those reads are project-wide.
+	role := "member"
+	if created.Role == service.RoleAdmin {
+		role = "admin"
+	}
+	if _, err := txClient.ExecContext(txCtx, `INSERT INTO workspace_members(workspace_id,user_id,role,created_at,updated_at)
+ SELECT id,$1,$2,$3,$3 FROM workspaces WHERE id=1 AND is_default=true
+ ON CONFLICT(workspace_id,user_id) DO NOTHING`, created.ID, role, time.Now()); err != nil {
+		return fmt.Errorf("provision default workspace membership: %w", err)
+	}
+
 	if consent := userIn.SignupAgreement; consent != nil {
 		settings, err := NewSettingRepository(txClient).GetMultiple(txCtx, []string{service.SettingKeyLoginAgreementEnabled, service.SettingKeyLoginAgreementUpdatedAt, service.SettingKeyLoginAgreementDocuments})
 		if err != nil {

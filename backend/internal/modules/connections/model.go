@@ -183,6 +183,7 @@ type Check struct {
 	Name   string  `json:"name"`
 	State  string  `json:"state"`
 	Reason *string `json:"reason"`
+	Detail string  `json:"detail,omitempty"`
 }
 type Verification struct {
 	ID         string    `json:"verification_id"`

@@ -832,10 +832,33 @@ type URLAllowlistConfig struct {
 	AllowInsecureHTTP bool `mapstructure:"allow_insecure_http"`
 }
 
-// ValidateProbeURL checks both native and compatible discovery endpoints.
-func (c URLAllowlistConfig) ValidateProbeURL(raw string) (string, error) {
+// validationOptions disables only hostname filtering when Enabled is false.
+// Scheme and private-address policy remain independent of the allowlist switch.
+func (c URLAllowlistConfig) validationOptions(hosts []string) urlvalidator.ValidationOptions {
 	opts := urlvalidator.ValidationOptions{RequireAllowlist: c.Enabled, AllowPrivate: c.AllowPrivateHosts}
 	if c.Enabled {
+		opts.AllowedHosts = hosts
+	}
+	return opts
+}
+
+func (c URLAllowlistConfig) UpstreamValidationOptions() urlvalidator.ValidationOptions {
+	return c.validationOptions(c.UpstreamHosts)
+}
+
+func (c URLAllowlistConfig) PricingValidationOptions() urlvalidator.ValidationOptions {
+	return c.validationOptions(c.PricingHosts)
+}
+
+func (c URLAllowlistConfig) CRSValidationOptions() urlvalidator.ValidationOptions {
+	return c.validationOptions(c.CRSHosts)
+}
+
+// ValidateProbeURL checks both native and compatible discovery endpoints.
+func (c URLAllowlistConfig) ValidateProbeURL(raw string) (string, error) {
+	opts := c.UpstreamValidationOptions()
+	if c.Enabled {
+		opts.AllowedHosts = nil
 		insecure := strings.HasPrefix(strings.ToLower(strings.TrimSpace(raw)), "http://")
 		for _, host := range c.UpstreamHosts {
 			if insecure && strings.Contains(host, "*") {

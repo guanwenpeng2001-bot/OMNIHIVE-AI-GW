@@ -128,12 +128,7 @@ func (r *Session) verify(in Verify, replacement *credentials.Change) (any, error
 	v := Verification{ID: uuid.NewString(), Models: []string{}, Checks: []Check{}, VerifiedAt: now, Expires: now.Add(24 * time.Hour)}
 	eligible := result.Network == "passed" && result.Authorization == "passed"
 	for _, s := range in.Checks {
-		state := map[string]string{"network": result.Network, "authorization": result.Authorization, "discover_models": result.Discovery}[s]
-		check := Check{Name: s, State: state}
-		if state != "passed" {
-			reason := map[string]string{"failed": "PROBE_FAILED", "unknown": "EVIDENCE_UNAVAILABLE", "unsupported": "CHECK_UNSUPPORTED"}[state]
-			check.Reason = &reason
-		}
+		check := connectionProbeCheck(s, result)
 		v.Checks = append(v.Checks, check)
 		if s == "discover_models" {
 			v.Models = result.Models
@@ -535,4 +530,18 @@ func (r *Session) BulkApply(in BulkApply) (any, error) {
 		out = append(out, index[s])
 	}
 	return r.operation(0, "connections.activate", "succeeded", map[string]any{"items": out})
+}
+
+func connectionProbeCheck(name string, result service.ConnectionProbe) Check {
+	state := map[string]string{"network": result.Network, "authorization": result.Authorization, "discover_models": result.Discovery}[name]
+	check := Check{Name: name, State: state}
+	if state != "passed" {
+		reason := map[string]string{"failed": "PROBE_FAILED", "unknown": "EVIDENCE_UNAVAILABLE", "unsupported": "CHECK_UNSUPPORTED"}[state]
+		if specific := map[string]string{"network": result.NetworkReason, "authorization": result.AuthorizationReason, "discover_models": result.DiscoveryReason}[name]; specific != "" {
+			reason = specific
+		}
+		check.Reason = &reason
+		check.Detail = result.Detail
+	}
+	return check
 }

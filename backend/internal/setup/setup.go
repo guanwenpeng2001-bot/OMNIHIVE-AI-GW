@@ -485,10 +485,16 @@ func createAdminUser(cfg *SetupConfig) (bool, string, error) {
 		return false, "", err
 	}
 
-	_, err = db.ExecContext(
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, "", err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var adminID int64
+	err = tx.QueryRowContext(
 		ctx,
 		`INSERT INTO users (email, password_hash, role, balance, concurrency, status, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
 		admin.Email,
 		admin.PasswordHash,
 		admin.Role,
@@ -497,16 +503,24 @@ func createAdminUser(cfg *SetupConfig) (bool, string, error) {
 		admin.Status,
 		admin.CreatedAt,
 		admin.UpdatedAt,
-	)
+	).Scan(&adminID)
 	if err != nil {
 		return false, "", err
 	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workspace_members(workspace_id,user_id,role)
+ SELECT id,$1,'admin' FROM workspaces WHERE id=1 AND is_default=true
+ ON CONFLICT(workspace_id,user_id) DO NOTHING`, adminID); err != nil {
+		return false, "", fmt.Errorf("failed to provision admin workspace: %w", err)
+	}
 	// Seed public features only after the initial administrator is created.
 	// Existing installations keep their explicitly configured settings.
-	if _, err := db.ExecContext(ctx, `INSERT INTO settings (key, value, updated_at)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO settings (key, value, updated_at)
 		VALUES ('model_plaza_enabled', 'true', NOW()), ('registration_enabled', 'true', NOW())
 		ON CONFLICT (key) DO NOTHING`); err != nil {
 		return false, "", fmt.Errorf("failed to seed initial settings: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, "", err
 	}
 	// Record the verified empty-history origin for a brand-new installation so
 	// multi-day dashboard windows before install time return zeroed empty series

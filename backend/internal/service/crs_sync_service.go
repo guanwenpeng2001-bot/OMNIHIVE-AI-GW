@@ -226,11 +226,7 @@ func (s *CRSSyncService) fetchCRSExport(ctx context.Context, baseURL, username, 
 		return nil, errors.New("config is not available")
 	}
 	normalizedURL := strings.TrimSpace(baseURL)
-	normalized, err := urlvalidator.ValidateHTTPURL(normalizedURL, s.cfg.Security.URLAllowlist.AllowInsecureHTTP, urlvalidator.ValidationOptions{
-		AllowedHosts:     s.cfg.Security.URLAllowlist.CRSHosts,
-		RequireAllowlist: s.cfg.Security.URLAllowlist.Enabled,
-		AllowPrivate:     s.cfg.Security.URLAllowlist.AllowPrivateHosts,
-	})
+	normalized, err := urlvalidator.ValidateHTTPURL(normalizedURL, s.cfg.Security.URLAllowlist.AllowInsecureHTTP, s.cfg.Security.URLAllowlist.CRSValidationOptions())
 	if err != nil {
 		return nil, fmt.Errorf("invalid base_url: %w", err)
 	}

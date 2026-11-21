@@ -33,11 +33,7 @@ func (s *OpenAIGatewayService) validateOutboundURL(raw string) (string, error) {
 	if s.cfg == nil {
 		return urlvalidator.ValidateURLFormat(raw, false)
 	}
-	return urlvalidator.ValidateHTTPURL(raw, s.cfg.Security.URLAllowlist.AllowInsecureHTTP, urlvalidator.ValidationOptions{
-		AllowedHosts:     s.cfg.Security.URLAllowlist.UpstreamHosts,
-		RequireAllowlist: s.cfg.Security.URLAllowlist.Enabled,
-		AllowPrivate:     s.cfg.Security.URLAllowlist.AllowPrivateHosts,
-	})
+	return urlvalidator.ValidateHTTPURL(raw, s.cfg.Security.URLAllowlist.AllowInsecureHTTP, s.cfg.Security.URLAllowlist.UpstreamValidationOptions())
 }
 
 // buildOpenAIResponsesURL 组装 OpenAI Responses 端点。

@@ -1238,11 +1238,11 @@ func (s *PricingService) fetchRemoteHash() (string, error) {
 }
 
 func (s *PricingService) validatePricingURL(raw string) (string, error) {
-	normalized, err := urlvalidator.ValidateHTTPURL(raw, s.cfg != nil && s.cfg.Security.URLAllowlist.AllowInsecureHTTP, urlvalidator.ValidationOptions{
-		AllowedHosts:     s.cfg.Security.URLAllowlist.PricingHosts,
-		RequireAllowlist: s.cfg != nil && s.cfg.Security.URLAllowlist.Enabled,
-		AllowPrivate:     s.cfg.Security.URLAllowlist.AllowPrivateHosts,
-	})
+	policy := config.URLAllowlistConfig{}
+	if s.cfg != nil {
+		policy = s.cfg.Security.URLAllowlist
+	}
+	normalized, err := urlvalidator.ValidateHTTPURL(raw, policy.AllowInsecureHTTP, policy.PricingValidationOptions())
 	if err != nil {
 		return "", fmt.Errorf("invalid pricing url: %w", err)
 	}
