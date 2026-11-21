@@ -1,6 +1,7 @@
 import type { UiStepItem, UiStepStatus } from '@/components/ui'
 import {
   buildHeaderOverridesMap,
+  getPrimaryVerificationDiagnostic,
   hasUnavailableVerificationEvidence,
   isAllowedCredentialType,
   isOAuthWorkflowSupported,
@@ -252,7 +253,7 @@ export function hydrateWizardFromResource(
     credentialMode: nextCredentialState === 'unset' ? 'set' : 'keep',
     credentialSecret: '',
     credentialRefreshToken: '',
-    verification: resource.last_verification,
+    verification: resource.last_verification ?? null,
     verificationStale: resource.last_verification ? !isVerificationFresh(resource.last_verification) : false,
     modelIds: [...resource.model_ids],
     poolIds: [...resource.pool_ids],
@@ -451,19 +452,26 @@ export function canProceedFromStep(
     }
     const hasFailedCheck = state.verification.checks.some((check) => check.state === 'failed')
     if (hasFailedCheck) {
+      const diagnostic = getPrimaryVerificationDiagnostic(state.verification, isZh)
       return {
         valid: false,
-        reason: isZh
-          ? '存在未通过的验证检查项，请修复后重新验证。'
-          : 'Resolve failed verification checks before previewing.'
+        reason: diagnostic
+          ? `${diagnostic.message} (${diagnostic.reason})`
+          : isZh
+            ? '存在未通过的验证检查项，请修复后重新验证。'
+            : 'Resolve failed verification checks before previewing.'
       }
     }
     if (hasUnavailableVerificationEvidence(state.verification)) {
+      const diagnostic = getPrimaryVerificationDiagnostic(state.verification, isZh)
       return {
         valid: false,
-        reason: isZh
-          ? '验证探测未能获取有效能力证据（EVIDENCE_UNAVAILABLE），请重试验证探针或先保存为草稿并退出。'
-          : 'Verification evidence is unavailable (EVIDENCE_UNAVAILABLE). Retry verification probe or save as draft and exit.'
+        reason:
+          diagnostic && diagnostic.reason !== 'EVIDENCE_UNAVAILABLE'
+            ? `${diagnostic.message} (${diagnostic.reason})`
+            : isZh
+              ? '验证探测未能获取有效能力证据（EVIDENCE_UNAVAILABLE），请重试验证探针或先保存为草稿并退出。'
+              : 'Verification evidence is unavailable (EVIDENCE_UNAVAILABLE). Retry verification probe or save as draft and exit.'
       }
     }
     return { valid: true }

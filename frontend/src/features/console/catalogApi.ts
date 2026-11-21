@@ -13,6 +13,7 @@ export interface CatalogModelItem {
   slug: string
   displayName: string
   provider: string
+  actions: string[]
   protocols: string[]
   modalities: string[]
   maxOutputTokens: number | null
@@ -24,6 +25,7 @@ export interface CatalogModelItem {
   priceState?: 'priced' | 'free' | 'unpriced' | 'error'
   accessState?: 'allowed' | 'denied' | 'unknown' | 'requires_scope'
   routeState?: 'eligible' | 'ineligible' | 'unknown' | 'requires_scope'
+  availabilityState?: 'live' | 'catalog_only' | string
   catalogVersion?: string
 }
 
@@ -48,6 +50,7 @@ interface RawCatalogModel {
   price_state?: 'priced' | 'free' | 'unpriced' | 'error'
   access_state?: 'allowed' | 'denied' | 'unknown' | 'requires_scope'
   route_state?: 'eligible' | 'ineligible' | 'unknown' | 'requires_scope'
+  availability_state?: 'live' | 'catalog_only' | string
   input_rate?: CatalogModelRate | null
   output_rate?: CatalogModelRate | null
   facts?: {
@@ -108,6 +111,7 @@ export function normalizeCatalogModel(raw: RawCatalogModel): CatalogModelItem | 
   const displayName = (raw.display_name || raw.name || slug || id).trim()
   const protocols = raw.protocols ?? raw.supported_protocols ?? []
   const modalities = raw.modalities ?? raw.facts?.modalities ?? []
+  const actions = raw.actions ?? []
   const { inputRate, outputRate } = normalizeRateList(raw)
   const maxOutputTokens = parseOptionalPositiveInt(raw.facts?.max_output_tokens)
   const contextTokens =
@@ -119,6 +123,7 @@ export function normalizeCatalogModel(raw: RawCatalogModel): CatalogModelItem | 
     slug: slug || id,
     displayName,
     provider: (raw.provider || 'gateway').trim(),
+    actions: Array.isArray(actions) ? actions : [],
     protocols: Array.isArray(protocols) ? protocols : [],
     modalities: Array.isArray(modalities) ? modalities : [],
     maxOutputTokens,
@@ -130,6 +135,7 @@ export function normalizeCatalogModel(raw: RawCatalogModel): CatalogModelItem | 
     priceState: raw.price_state,
     accessState: raw.access_state,
     routeState: raw.route_state,
+    availabilityState: raw.availability_state,
     catalogVersion: raw.catalog_version
   }
 }

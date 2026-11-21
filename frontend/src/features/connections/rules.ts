@@ -1124,6 +1124,31 @@ export function formatVerificationCheckReason(
   isZh = false
 ): string {
   if (!reason) return ''
+  if (reason === 'URL_NOT_ALLOWED') {
+    return isZh
+      ? '自定义端点域名未在服务端出站域名白名单中，已被 SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS 策略拦截。请在服务端 .env 中将目标域名加入 SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS，或清空/禁用主机名白名单后重试。'
+      : 'Custom endpoint domain is blocked by the server outbound allowlist policy (SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS). Add this domain to SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS in .env or disable the hostname allowlist policy, then retry.'
+  }
+  if (reason === 'INVALID_ENDPOINT') {
+    return isZh
+      ? '上游服务地址格式无效或协议不受支持，请返回第 1 步核对完整的 http(s):// 服务地址。'
+      : 'The upstream endpoint URL is invalid or uses an unsupported scheme. Return to Step 1 and verify the http(s):// endpoint URL.'
+  }
+  if (reason === 'UPSTREAM_RATE_LIMITED') {
+    return isZh
+      ? '上游服务返回限流响应（HTTP 429），验证探针暂时受限，请稍候重试或检查上游配额与并发限制。'
+      : 'Upstream returned HTTP 429 (rate limited). Wait briefly before retrying the probe or check upstream quota and concurrency limits.'
+  }
+  if (reason === 'AUTH_REJECTED') {
+    return isZh
+      ? '上游服务端拒绝了当前认证凭据（HTTP 401/403），请返回第 2 步核对 API Key 或 OAuth 授权状态。'
+      : 'Upstream rejected the credential (HTTP 401/403). Return to Step 2 to verify the API key or re-authorize.'
+  }
+  if (reason === 'NETWORK_UNREACHABLE') {
+    return isZh
+      ? '无法建立到上游服务的网络连接（DNS 解析失败、连接超时或网络不可达），请检查服务地址、端口与出站网络策略。'
+      : 'Network unreachable when connecting to upstream (DNS failure, timeout, or egress block). Verify the endpoint host, port, and outbound network policy.'
+  }
   if (reason === 'EVIDENCE_UNAVAILABLE') {
     return isZh
       ? '上游端点未能返回有效的连通或鉴权证据（探针不可达、鉴权被拒或当前协议无内置主动探针）。请检查配置后重试验证探针，或先保存为草稿并退出。'
@@ -1158,6 +1183,62 @@ export function formatVerificationCheckReason(
     return isZh ? '上游验证探针执行未通过。' : 'Upstream verification probe failed.'
   }
   return reason
+}
+
+export interface PrimaryVerificationDiagnostic {
+  checkName: string
+  reason: string
+  message: string
+  detail: string | null
+}
+
+const SPECIFIC_DIAGNOSTIC_PRIORITY = [
+  'URL_NOT_ALLOWED',
+  'INVALID_ENDPOINT',
+  'AUTH_REJECTED',
+  'UPSTREAM_RATE_LIMITED',
+  'NETWORK_UNREACHABLE',
+  'ACTIVE_MODEL_MISSING',
+  'PROBE_FAILED',
+  'CHECK_UNSUPPORTED',
+  'EVIDENCE_UNAVAILABLE'
+] as const
+
+export function getPrimaryVerificationDiagnostic(
+  verification: ConnectionVerification | null | undefined,
+  isZh = false
+): PrimaryVerificationDiagnostic | null {
+  if (!verification || !Array.isArray(verification.checks)) return null
+  const candidates = verification.checks.filter(
+    (check) => check.state !== 'passed' && Boolean(check.reason || check.detail)
+  )
+  if (candidates.length === 0) return null
+
+  const sorted = [...candidates].sort((a, b) => {
+    const idxA = a.reason
+      ? SPECIFIC_DIAGNOSTIC_PRIORITY.indexOf(
+          a.reason as (typeof SPECIFIC_DIAGNOSTIC_PRIORITY)[number]
+        )
+      : -1
+    const idxB = b.reason
+      ? SPECIFIC_DIAGNOSTIC_PRIORITY.indexOf(
+          b.reason as (typeof SPECIFIC_DIAGNOSTIC_PRIORITY)[number]
+        )
+      : -1
+    const rankA = idxA === -1 ? 99 : idxA
+    const rankB = idxB === -1 ? 99 : idxB
+    return rankA - rankB
+  })
+
+  const chosen = sorted[0]
+  const reason =
+    chosen.reason || (chosen.state === 'unsupported' ? 'CHECK_UNSUPPORTED' : 'EVIDENCE_UNAVAILABLE')
+  return {
+    checkName: chosen.name,
+    reason,
+    message: formatVerificationCheckReason(chosen.name, reason, isZh),
+    detail: typeof chosen.detail === 'string' && chosen.detail.trim() ? chosen.detail.trim() : null
+  }
 }
 
 const FIELD_ERROR_DESCRIPTORS: Record<
@@ -1352,6 +1433,26 @@ export function formatValidationIssuesMessage(
 }
 
 const REASON_ERROR_MESSAGES: Record<string, { zh: string; en: string }> = {
+  URL_NOT_ALLOWED: {
+    zh: '自定义端点域名已被服务端出站域名白名单（SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS）拦截，请在 .env 中添加该域名或禁用主机名白名单后重试。',
+    en: 'Custom endpoint domain is blocked by SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS. Allowlist the domain in .env or disable hostname allowlisting, then retry.'
+  },
+  INVALID_ENDPOINT: {
+    zh: '上游服务地址格式无效或协议不受支持，请检查 Endpoint 配置后重试。',
+    en: 'The upstream endpoint URL is invalid or uses an unsupported scheme.'
+  },
+  UPSTREAM_RATE_LIMITED: {
+    zh: '上游服务触发限流（HTTP 429），请稍候重试或调整并发配置。',
+    en: 'Upstream returned HTTP 429 (rate limited). Wait briefly before retrying.'
+  },
+  AUTH_REJECTED: {
+    zh: '上游服务拒绝了当前认证凭据（HTTP 401/403），请核对密钥或 OAuth 授权状态。',
+    en: 'Upstream rejected the credential (HTTP 401/403). Verify your secret or OAuth authorization.'
+  },
+  NETWORK_UNREACHABLE: {
+    zh: '无法连接至上游服务（DNS 解析失败、超时或网络不可达），请检查服务地址与出站网络策略。',
+    en: 'Upstream network unreachable (DNS failure, timeout, or egress block). Verify endpoint and egress policy.'
+  },
   CREDENTIAL_UNAVAILABLE: {
     zh: '尚未配置有效凭据，请返回第 2 步填写密钥或完成 OAuth 授权。',
     en: 'No valid credential is configured yet. Return to Step 2 to set a secret or complete OAuth authorization.'

@@ -117,4 +117,37 @@ describe('WorkspacesView BE-01 projects and scope switching', () => {
 
     wrapper.unmount()
   })
+
+  it('surfaces active scope banner, default workspace/role badges, and all 4 project quick actions on default onboarding', async () => {
+    mocks.list.mockResolvedValue([
+      { id: 1, name: 'Default', role: 'member', is_default: true }
+    ])
+    mocks.listProjects.mockResolvedValue({
+      items: [{ id: '101', workspace_id: '1', name: 'Default Project', state: 'active', version: '1' }],
+      next_cursor: null,
+      as_of: '2026-11-22T04:00:00Z'
+    })
+
+    const wrapper = mount(WorkspacesView, {
+      global: {
+        stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } }
+      }
+    })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="default-workspace-badge"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="workspace-role-badge"]').text()).toContain('workspaces.member')
+    const banner = wrapper.get('[data-testid="workspace-active-scope-banner"]')
+    expect(banner.text()).toContain('Default (#1)')
+    expect(banner.text()).toContain('Default Project (#101)')
+
+    expect(wrapper.get('[data-testid="quick-action-keys"]').attributes('href')).toBe('/workspaces/1/keys')
+    expect(wrapper.get('[data-testid="quick-action-playground"]').attributes('href')).toBe('/playground')
+    expect(wrapper.get('[data-testid="quick-action-usage"]').attributes('href')).toBe('/usage')
+    expect(wrapper.get('[data-testid="quick-action-tasks"]').attributes('href')).toBe('/tasks')
+
+    expect(localStorage.getItem('omnihive.workspace_id.v1')).toBe('1')
+    expect(localStorage.getItem('omnihive.project_id.v1')).toBe('101')
+    wrapper.unmount()
+  })
 })

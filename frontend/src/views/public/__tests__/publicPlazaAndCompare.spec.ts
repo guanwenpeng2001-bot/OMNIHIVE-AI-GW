@@ -382,4 +382,140 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
     expect(estimatorSection.text()).not.toContain('$0.00')
     expect(estimatorSection.text()).toContain('—')
   })
+
+  it('filters multimodal models via Modality pills and distinguishes live vs catalog_only models', async () => {
+    const multimodalCatalog = [
+      {
+        id: 'm_11111111111111111111111111111111',
+        provider: 'openai',
+        model: 'gpt-4o',
+        display_name: 'GPT-4o',
+        context_tokens: '128000',
+        modalities: ['text'],
+        actions: ['text.chat'],
+        protocols: ['openai_chat'],
+        route_state: 'eligible',
+        price_state: 'priced',
+        availability_state: 'live',
+        input_rate: { currency: 'USD', amount: '2.5', per: '1000000', unit: 'input_token' },
+        output_rate: { currency: 'USD', amount: '10', per: '1000000', unit: 'output_token' }
+      },
+      {
+        id: 'm_22222222222222222222222222222222',
+        provider: 'openai',
+        model: 'gpt-image-1',
+        display_name: 'GPT Image 1',
+        context_tokens: null,
+        modalities: ['image'],
+        actions: ['image.generate'],
+        protocols: ['openai_images'],
+        route_state: 'ineligible',
+        price_state: 'unpriced',
+        availability_state: 'catalog_only',
+        reference_price: {
+          source: 'pi-ai',
+          input_rate: { currency: 'USD', amount: '5', per: '1000000', unit: 'input_token' },
+          output_rate: { currency: 'USD', amount: '40', per: '1000000', unit: 'output_token' }
+        }
+      },
+      {
+        id: 'm_33333333333333333333333333333333',
+        provider: 'google',
+        model: 'veo-2.0',
+        display_name: 'Veo 2.0',
+        modalities: ['video'],
+        actions: ['video.generate'],
+        route_state: 'ineligible',
+        price_state: 'unpriced',
+        availability_state: 'catalog_only'
+      },
+      {
+        id: 'm_44444444444444444444444444444444',
+        provider: 'openai',
+        model: 'text-embedding-3-large',
+        display_name: 'Text Embedding 3 Large',
+        modalities: ['text'],
+        actions: ['text.embeddings'],
+        route_state: 'eligible',
+        price_state: 'priced',
+        input_rate: { currency: 'USD', amount: '0.13', per: '1000000', unit: 'input_token' }
+      }
+    ]
+
+    apiGetMock.mockResolvedValueOnce({
+      data: { items: multimodalCatalog, next_cursor: null }
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/model-plaza', component: PublicModelsView },
+        { path: '/model-plaza/:id', component: PublicModelDetailView }
+      ]
+    })
+    await router.push('/model-plaza')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {}, zh: {} } })
+    const wrapper = mount(PublicModelsView, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { SiteICPFooter: true, LocaleSwitcher: true }
+      }
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Live & Routable')
+    expect(wrapper.text()).toContain('Platform Catalog · On Demand')
+    expect(wrapper.text()).toContain('Ref $5.00')
+    expect(wrapper.text()).toContain('On demand')
+    expect(wrapper.find('[data-testid="modality-badge-image"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="modality-badge-video"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="modality-badge-embedding"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="modality-pill-image"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('GPT Image 1')
+    expect(wrapper.text()).not.toContain('Veo 2.0')
+    expect(wrapper.text()).not.toContain('GPT-4o')
+
+    await wrapper.get('[data-testid="modality-pill-video"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Veo 2.0')
+    expect(wrapper.text()).not.toContain('GPT Image 1')
+
+    await wrapper.get('[data-testid="modality-pill-embedding"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Text Embedding 3 Large')
+    expect(wrapper.text()).not.toContain('Veo 2.0')
+
+    await wrapper.get('[data-testid="modality-pill-all"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('GPT-4o')
+    expect(wrapper.text()).toContain('Veo 2.0')
+
+    // Also verify PublicModelDetailView renders catalog_only badge & modality badges
+    apiGetMock.mockResolvedValueOnce({
+      data: {
+        model: multimodalCatalog[1],
+        reference_price: multimodalCatalog[1].reference_price
+      }
+    })
+    await router.push('/model-plaza/m_22222222222222222222222222222222')
+    const detailWrapper = mount(PublicModelDetailView, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { SiteICPFooter: true, LocaleSwitcher: true }
+      }
+    })
+    wrappers.push(detailWrapper)
+    await flushPromises()
+
+    expect(detailWrapper.get('[data-testid="detail-availability-badge-catalog_only"]').text()).toContain(
+      'Platform Catalog · On Demand'
+    )
+    expect(detailWrapper.get('[data-testid="detail-modality-badge-image"]').text()).toContain('Image')
+    expect(detailWrapper.text()).toContain('Ref $5.00')
+  })
 })

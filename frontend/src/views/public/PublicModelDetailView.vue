@@ -13,7 +13,10 @@ import Skeleton from '@/components/ui/Skeleton.vue'
 import Tooltip from '@/components/ui/Tooltip.vue'
 import type { UiTone } from '@/components/ui/types'
 import {
+  availabilityStateLabel,
+  availabilityStateTone,
   evidenceStateLabel,
+  extractDisplayModalities,
   formatContextTokens,
   formatPriceSourceLabel,
   formatPublicTimestamp,
@@ -23,8 +26,11 @@ import {
   maturityLabel,
   maturityTone,
   metricsStateReason,
+  modalityLabel,
+  modalityTone,
   publicTokenPrice,
   publicValue,
+  resolveAvailabilityState,
   routeStateLabel,
   routeStateTone
 } from '@/features/public/format'
@@ -258,9 +264,38 @@ const undeclaredFacts = computed(() => facts.value.filter((entry) => entry.undec
 const shouldCompactUndeclared = computed(() => undeclaredFacts.value.length >= 2)
 const visibleFacts = computed(() => (shouldCompactUndeclared.value ? declaredFacts.value : facts.value))
 
+const detailModalities = computed(() => {
+  const factMods = primaryFact.value?.modalities?.length ? primaryFact.value.modalities : null
+  return extractDisplayModalities({
+    modalities: factMods ?? model.value?.modalities,
+    actions: model.value?.actions
+  })
+})
+
+const detailAvailability = computed(() => {
+  const state = resolveAvailabilityState(model.value)
+  if (state === 'unknown') return null
+  return {
+    state,
+    label: availabilityStateLabel(state, isZh.value),
+    tone: availabilityStateTone(state)
+  }
+})
+
+const activeReferencePrice = computed(() => detail.value?.reference_price ?? model.value?.reference_price ?? null)
+
 function displayPrice(kind: 'input' | 'output'): string {
   if (model.value?.price_state === 'free') return isZh.value ? '免费' : 'Free'
   const rate = kind === 'input' ? model.value?.input_rate : model.value?.output_rate
+  if (rate) return publicTokenPrice(rate, 'adaptive', isZh.value)
+  const refRate = kind === 'input' ? activeReferencePrice.value?.input_rate : activeReferencePrice.value?.output_rate
+  if (refRate) {
+    const formatted = publicTokenPrice(refRate, 'adaptive', isZh.value)
+    return isZh.value ? `参考 ${formatted}` : `Ref ${formatted}`
+  }
+  if (detailAvailability.value?.state === 'catalog_only') {
+    return isZh.value ? '按需接入' : 'On demand'
+  }
   return publicTokenPrice(rate, 'adaptive', isZh.value)
 }
 
@@ -324,11 +359,37 @@ onMounted(() => void load())
             <span class="font-mono text-xs uppercase tracking-[0.18em] text-oh-muted">
               {{ publicValue(model.provider, isZh ? '未声明供应商' : 'Undeclared Provider') }}
             </span>
-            <Badge :tone="routeStateTone(model.route_state)" size="xs" variant="subtle" dot>
+            <Badge
+              v-if="detailAvailability"
+              :data-testid="`detail-availability-badge-${detailAvailability.state}`"
+              :tone="detailAvailability.tone"
+              size="xs"
+              variant="subtle"
+              dot
+            >
+              {{ detailAvailability.label }}
+            </Badge>
+            <Badge
+              v-else
+              :tone="routeStateTone(model.route_state)"
+              size="xs"
+              variant="subtle"
+              dot
+            >
               {{ routeStateLabel(model.route_state, isZh) }}
             </Badge>
             <Badge :tone="maturityTone(model.maturity)" size="xs" variant="outline">
               {{ maturityLabel(model.maturity, isZh) }}
+            </Badge>
+            <Badge
+              v-for="mod in detailModalities"
+              :key="mod"
+              :tone="modalityTone(mod)"
+              size="xs"
+              variant="subtle"
+              :data-testid="`detail-modality-badge-${mod}`"
+            >
+              {{ modalityLabel(mod, isZh) }}
             </Badge>
           </div>
           <h1 class="break-words text-3xl font-semibold tracking-tight text-oh-primary">
@@ -388,8 +449,8 @@ onMounted(() => void load())
           <p class="mt-2 font-mono text-lg font-semibold tabular-nums text-oh-primary">
             {{ displayPrice('input') }}
           </p>
-          <p v-if="detail?.reference_price" class="mt-1 text-xs text-oh-muted">
-            {{ isZh ? 'pi-ai 参考价' : 'pi-ai reference price' }} · {{ publicTokenPrice(detail.reference_price.input_rate, 'adaptive', isZh) }}
+          <p v-if="activeReferencePrice?.input_rate" class="mt-1 text-xs text-oh-muted">
+            {{ isZh ? '参考定价' : 'Reference price' }} · {{ publicTokenPrice(activeReferencePrice.input_rate, 'adaptive', isZh) }}
           </p>
           <p v-if="detail?.price_source" class="mt-1 font-mono text-[11px] text-oh-muted">
             {{ isZh ? `定价源：${formatPriceSourceLabel(detail.price_source, true)}` : `Source: ${formatPriceSourceLabel(detail.price_source, false)}` }}
@@ -403,8 +464,8 @@ onMounted(() => void load())
           <p class="mt-2 font-mono text-lg font-semibold tabular-nums text-oh-primary">
             {{ displayPrice('output') }}
           </p>
-          <p v-if="detail?.reference_price" class="mt-1 text-xs text-oh-muted">
-            {{ isZh ? 'pi-ai 参考价' : 'pi-ai reference price' }} · {{ publicTokenPrice(detail.reference_price.output_rate, 'adaptive', isZh) }}
+          <p v-if="activeReferencePrice?.output_rate" class="mt-1 text-xs text-oh-muted">
+            {{ isZh ? '参考定价' : 'Reference price' }} · {{ publicTokenPrice(activeReferencePrice.output_rate, 'adaptive', isZh) }}
           </p>
           <p v-if="detail?.price_version" class="mt-1 truncate font-mono text-[11px] text-oh-muted" :title="detail.price_version">
             {{ isZh ? `费率快照 ${formatShortVersion(detail.price_version)}` : `Snapshot ${formatShortVersion(detail.price_version)}` }}

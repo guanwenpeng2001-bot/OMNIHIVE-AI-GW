@@ -251,4 +251,40 @@ describe('connections/wizardState', () => {
     expect(steps.find((s) => s.id === 'verify')?.status).toBe('warning')
     expect(steps.find((s) => s.id === 'preview')?.status).toBe('current')
   })
+
+  it('surfaces specific URL_NOT_ALLOWED and UPSTREAM_RATE_LIMITED verification diagnostics when blocking verify step', () => {
+    const now = Date.parse('2026-11-22T10:00:00Z')
+    const state = createInitialWizardState('edit')
+    state.verification = {
+      verification_id: 'ver_url_blocked',
+      models: [],
+      verified_at: '2026-11-22T09:55:00Z',
+      expires_at: '2026-11-22T11:00:00Z',
+      checks: [
+        {
+          name: 'network',
+          state: 'failed',
+          reason: 'URL_NOT_ALLOWED',
+          detail: 'blocked host: api.custom.local'
+        }
+      ]
+    }
+    const blockedCheck = canProceedFromStep(state, 'verify', null, now, false)
+    expect(blockedCheck.valid).toBe(false)
+    expect(blockedCheck.reason).toContain('URL_NOT_ALLOWED')
+    expect(blockedCheck.reason).toContain('SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS')
+
+    state.verification.checks = [
+      {
+        name: 'network',
+        state: 'failed',
+        reason: 'UPSTREAM_RATE_LIMITED',
+        detail: 'HTTP 429 retry-after=15'
+      }
+    ]
+    const rateLimitedCheck = canProceedFromStep(state, 'verify', null, now, false)
+    expect(rateLimitedCheck.valid).toBe(false)
+    expect(rateLimitedCheck.reason).toContain('UPSTREAM_RATE_LIMITED')
+    expect(rateLimitedCheck.reason).toContain('429')
+  })
 })

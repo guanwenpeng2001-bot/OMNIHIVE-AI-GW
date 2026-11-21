@@ -347,4 +347,97 @@ describe('ConnectionWizardView state machine & truth invariants (FE-F09-01)', ()
       endpoint: 'https://new.example.com'
     })
   })
+
+  it('renders URL_NOT_ALLOWED, UPSTREAM_RATE_LIMITED, and safe plain-text check.detail diagnostics on Step 3', async () => {
+    mockRoute.params = { id: 'conn_diag_1' }
+    const draftCustom = buildActiveResource({
+      id: 'conn_diag_1',
+      state: 'draft',
+      provider: 'custom_compat',
+      endpoint: 'https://custom-llm.internal.example',
+      last_verification: null,
+      model_ids: []
+    })
+    mockConnectionsApi.getConnection.mockResolvedValue(draftCustom)
+    mockConnectionsApi.verifyConnection.mockResolvedValue({
+      operation_id: 'op_diag_1',
+      state: 'running',
+      status_url: '/api/v2/workspaces/10/operations/op_diag_1'
+    })
+    mockPollConnectionOperation.mockResolvedValueOnce({
+      operation_id: 'op_diag_1',
+      state: 'failed',
+      status_url: '/api/v2/workspaces/10/operations/op_diag_1',
+      result: {
+        verification_id: 'ver_url_1',
+        models: [],
+        verified_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+        checks: [
+          {
+            name: 'network',
+            state: 'failed',
+            reason: 'URL_NOT_ALLOWED',
+            detail: 'Endpoint host custom-llm.internal.example rejected <script>alert(1)</script>'
+          }
+        ]
+      }
+    })
+
+    const wrapper = mountWizard()
+    await flushPromises()
+
+    for (let step = 0; step < 2; step += 1) {
+      const continueBtn = wrapper.findAll('button').find((btn) => btn.text().includes('Continue'))!
+      await continueBtn.trigger('click')
+      await flushPromises()
+    }
+
+    const runProbeBtn = wrapper
+      .findAll('button')
+      .find((btn) => btn.text().includes('Run Verification Probe'))!
+    await runProbeBtn.trigger('click')
+    await flushPromises()
+
+    const failedBanner = wrapper.get('[data-testid="verify-failed-diagnostic-banner"]')
+    expect(failedBanner.text()).toContain('URL_NOT_ALLOWED')
+    expect(failedBanner.text()).toContain('SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS')
+    expect(failedBanner.text()).toContain('.env')
+
+    const detailEl = wrapper.get('[data-testid="verification-check-detail"]')
+    expect(detailEl.text()).toContain('custom-llm.internal.example')
+    expect(detailEl.text()).toContain('<script>alert(1)</script>')
+    expect(detailEl.find('script').exists()).toBe(false)
+
+    // Re-run probe returning UPSTREAM_RATE_LIMITED
+    mockPollConnectionOperation.mockResolvedValueOnce({
+      operation_id: 'op_diag_2',
+      state: 'failed',
+      status_url: '/api/v2/workspaces/10/operations/op_diag_2',
+      result: {
+        verification_id: 'ver_429',
+        models: [],
+        verified_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+        checks: [
+          {
+            name: 'network',
+            state: 'failed',
+            reason: 'UPSTREAM_RATE_LIMITED',
+            detail: 'upstream returned 429 Too Many Requests'
+          }
+        ]
+      }
+    })
+
+    await wrapper.get('[data-testid="verify-retry-probe-btn"]').trigger('click')
+    await flushPromises()
+
+    const updatedBanner = wrapper.get('[data-testid="verify-failed-diagnostic-banner"]')
+    expect(updatedBanner.text()).toContain('UPSTREAM_RATE_LIMITED')
+    expect(updatedBanner.text()).toContain('429')
+    expect(wrapper.get('[data-testid="verification-check-detail"]').text()).toContain(
+      'upstream returned 429 Too Many Requests'
+    )
+  })
 })

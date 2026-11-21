@@ -15,13 +15,22 @@ import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import Tooltip from '@/components/ui/Tooltip.vue'
 import { useAuthStore } from '@/stores/auth'
 import {
+  MODALITY_FILTER_PILLS,
+  availabilityStateLabel,
+  availabilityStateTone,
+  extractDisplayModalities,
   formatContextTokens,
   formatPublicTimestamp,
+  matchesModalityFilter,
   maturityLabel,
+  modalityLabel,
+  modalityTone,
   publicTokenPrice,
   publicValue,
+  resolveAvailabilityState,
   routeStateLabel,
-  routeStateTone
+  routeStateTone,
+  type ModalityFilterKey
 } from '@/features/public/format'
 import { listPublicModels, type ListParams, type PublicModelSummary } from '@/features/public/api'
 
@@ -97,6 +106,7 @@ const query = ref('')
 const sort = ref<NonNullable<ListParams['sort']>>('name')
 const viewMode = ref<ViewMode>('table')
 const providers = ref<string[]>([])
+const activeModalityPill = ref<ModalityFilterKey>('all')
 const selectedActions = ref<string[]>([])
 const selectedModalities = ref<string[]>([])
 const selectedProtocols = ref<string[]>([])
@@ -166,9 +176,24 @@ function compareLabel(modelId: string): string {
 }
 
 const displayedModels = computed(() => {
-  if (!onlyFavorites.value) return models.value
-  return models.value.filter((entry) => favoriteSet.value.has(entry.id))
+  return models.value.filter((entry) => {
+    if (activeModalityPill.value !== 'all' && !matchesModalityFilter(entry, activeModalityPill.value)) {
+      return false
+    }
+    if (onlyFavorites.value && !favoriteSet.value.has(entry.id)) {
+      return false
+    }
+    return true
+  })
 })
+
+const modalityPillOptions = computed(() =>
+  MODALITY_FILTER_PILLS.map((pill) => ({
+    ...pill,
+    label: isZh.value ? pill.labelZh : pill.labelEn,
+    count: models.value.filter((entry) => matchesModalityFilter(entry, pill.key)).length
+  }))
+)
 
 const categoryChips = computed(() => [
   { value: 'text.chat', label: isZh.value ? '对话推理' : 'Chat & Reasoning' },
@@ -223,6 +248,7 @@ const sortOptions = computed(() => [
 
 const activeFilters = computed(
   () =>
+    activeModalityPill.value !== 'all' ||
     providers.value.length > 0 ||
     selectedActions.value.length > 0 ||
     selectedModalities.value.length > 0 ||
@@ -256,7 +282,7 @@ async function load(reset = true): Promise<void> {
       retention: selectedRetentions.value.length ? selectedRetentions.value : undefined,
       sort: sort.value,
       cursor: reset ? undefined : nextCursor.value,
-      limit: 20
+      limit: 50
     })
     if (currentRequest !== request) return
     if (
@@ -318,6 +344,7 @@ function toggleFilterByKey(
 
 function resetFilters(): void {
   query.value = ''
+  activeModalityPill.value = 'all'
   providers.value = []
   selectedActions.value = []
   selectedModalities.value = []
@@ -332,7 +359,26 @@ function resetFilters(): void {
 function displayRate(model: PublicModelSummary, kind: 'input' | 'output'): string {
   if (model.price_state === 'free') return isZh.value ? '免费' : 'Free'
   const rate = kind === 'input' ? model.input_rate : model.output_rate
+  if (rate) return publicTokenPrice(rate, 'adaptive', isZh.value)
+  const refRate = kind === 'input' ? model.reference_price?.input_rate : model.reference_price?.output_rate
+  if (refRate) {
+    const formatted = publicTokenPrice(refRate, 'adaptive', isZh.value)
+    return isZh.value ? `参考 ${formatted}` : `Ref ${formatted}`
+  }
+  if (resolveAvailabilityState(model) === 'catalog_only') {
+    return isZh.value ? '按需接入' : 'On demand'
+  }
   return publicTokenPrice(rate, 'adaptive', isZh.value)
+}
+
+function availabilityBadge(model: PublicModelSummary) {
+  const state = resolveAvailabilityState(model)
+  if (state === 'unknown') return null
+  return {
+    state,
+    label: availabilityStateLabel(state, isZh.value),
+    tone: availabilityStateTone(state)
+  }
 }
 
 function modelTtftMs(model: PublicModelSummary): number | null {
@@ -460,6 +506,36 @@ onBeforeUnmount(() => {
             ]"
             @update:model-value="viewMode = $event as ViewMode"
           />
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-1.5" data-testid="modality-filter-pills-row">
+        <span class="mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+          {{ isZh ? '模态通道' : 'Modalities' }}
+        </span>
+        <div class="inline-flex flex-wrap items-center gap-1.5" data-testid="modality-filter-pills">
+          <button
+            v-for="pill in modalityPillOptions"
+            :key="pill.key"
+            type="button"
+            :data-testid="`modality-pill-${pill.key}`"
+            class="oh-focus-ring inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors"
+            :class="
+              activeModalityPill === pill.key
+                ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
+                : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
+            "
+            :aria-pressed="activeModalityPill === pill.key"
+            @click="activeModalityPill = pill.key"
+          >
+            <span>{{ pill.label }}</span>
+            <span
+              v-if="models.length > 0"
+              class="font-mono text-[10px] tabular-nums opacity-75"
+            >
+              {{ pill.count }}
+            </span>
+          </button>
         </div>
       </div>
 
@@ -724,7 +800,22 @@ onBeforeUnmount(() => {
                   <RouterLink :to="`/model-plaza/${encodeURIComponent(model.id)}`" class="oh-focus-ring rounded-oh-xs font-medium text-oh-primary hover:text-oh-accent-text">
                     {{ model.display_name || model.model }}
                   </RouterLink>
-                  <Badge :tone="routeStateTone(model.route_state)" size="xs" variant="subtle">
+                  <Badge
+                    v-if="availabilityBadge(model)"
+                    :data-testid="`availability-badge-${availabilityBadge(model)!.state}`"
+                    :tone="availabilityBadge(model)!.tone"
+                    size="xs"
+                    variant="subtle"
+                    dot
+                  >
+                    {{ availabilityBadge(model)!.label }}
+                  </Badge>
+                  <Badge
+                    v-else-if="model.route_state"
+                    :tone="routeStateTone(model.route_state)"
+                    size="xs"
+                    variant="subtle"
+                  >
                     {{ routeStateLabel(model.route_state, isZh) }}
                   </Badge>
                 </div>
@@ -735,14 +826,17 @@ onBeforeUnmount(() => {
               </td>
               <td class="px-4 py-3">
                 <div class="font-mono text-xs text-oh-primary">{{ publicValue(model.provider, isZh ? '未声明' : 'Undeclared') }}</div>
-                <div v-if="model.modalities?.length || model.protocols?.length" class="mt-1 flex flex-wrap gap-1">
-                  <span
-                    v-for="mod in (model.modalities ?? []).slice(0, 3)"
+                <div v-if="extractDisplayModalities(model).length || model.protocols?.length" class="mt-1 flex flex-wrap gap-1">
+                  <Badge
+                    v-for="mod in extractDisplayModalities(model).slice(0, 4)"
                     :key="mod"
-                    class="rounded-oh-xs bg-oh-subtle px-1.5 py-0.5 font-mono text-[10px] text-oh-secondary"
+                    :tone="modalityTone(mod)"
+                    size="xs"
+                    variant="subtle"
+                    :data-testid="`modality-badge-${mod}`"
                   >
-                    {{ mod }}
-                  </span>
+                    {{ modalityLabel(mod, isZh) }}
+                  </Badge>
                   <span
                     v-for="proto in (model.protocols ?? []).slice(0, 2)"
                     :key="proto"
@@ -829,6 +923,27 @@ onBeforeUnmount(() => {
               </button>
               <Badge tone="neutral" size="xs" variant="subtle">{{ formatContextTokens(model.context_tokens) }}</Badge>
             </div>
+          </div>
+          <div v-if="availabilityBadge(model) || extractDisplayModalities(model).length" class="mt-2.5 flex flex-wrap items-center gap-1.5">
+            <Badge
+              v-if="availabilityBadge(model)"
+              :data-testid="`card-availability-badge-${availabilityBadge(model)!.state}`"
+              :tone="availabilityBadge(model)!.tone"
+              size="xs"
+              variant="subtle"
+              dot
+            >
+              {{ availabilityBadge(model)!.label }}
+            </Badge>
+            <Badge
+              v-for="mod in extractDisplayModalities(model).slice(0, 4)"
+              :key="mod"
+              :tone="modalityTone(mod)"
+              size="xs"
+              variant="subtle"
+            >
+              {{ modalityLabel(mod, isZh) }}
+            </Badge>
           </div>
           <dl class="mt-4 grid grid-cols-2 gap-2 border-t border-oh-subtle pt-3 font-mono text-xs tabular-nums">
             <div>

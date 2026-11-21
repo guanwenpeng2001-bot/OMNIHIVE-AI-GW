@@ -24,6 +24,7 @@ import {
   filterSupportedAuthTypes,
   formatVerificationCheckReason,
   getAuthModeLabel,
+  getPrimaryVerificationDiagnostic,
   getProviderDisplayMeta,
   hasUnavailableVerificationEvidence,
   isConnectionResource,
@@ -368,6 +369,10 @@ const hasUnavailableEvidence = computed(
     state.asyncError?.reason === 'EVIDENCE_UNAVAILABLE'
 )
 
+const primaryVerificationDiagnostic = computed(() =>
+  getPrimaryVerificationDiagnostic(state.verification, isZh.value)
+)
+
 const hasVerificationBlockedPreview = computed(() =>
   Boolean(
     state.preview?.blocked.some(
@@ -384,8 +389,7 @@ const shouldShowTopAsyncBanner = computed(
     Boolean(pageAsyncState.value) &&
     !(
       state.currentStep === 'verify' &&
-      hasUnavailableEvidence.value &&
-      state.asyncError?.reason === 'EVIDENCE_UNAVAILABLE'
+      (hasUnavailableEvidence.value || hasFailedVerificationCheck.value)
     )
 )
 
@@ -824,18 +828,24 @@ async function handleRunVerification() {
     void loadConnectionEvents(state.connectionId)
 
     if (hasUnavailableVerificationEvidence(state.verification)) {
+      const diagnostic = getPrimaryVerificationDiagnostic(state.verification, isZh.value)
+      const reasonCode = diagnostic?.reason || 'EVIDENCE_UNAVAILABLE'
       state.asyncError = {
         state: 'partial_failure',
         status: 409,
-        reason: 'EVIDENCE_UNAVAILABLE',
-        message: isZh.value
-          ? '验证探测未能获取完整的上游连通或模型证据（EVIDENCE_UNAVAILABLE）：可能由于上游端点不可达、鉴权被拒或当前协议暂无内置主动探针。请检查配置后重试探测，或先保存为草稿并退出。'
-          : 'Verification probe could not obtain valid upstream evidence (EVIDENCE_UNAVAILABLE): upstream endpoint may be unreachable, authorization rejected, or active probe unsupported. Retry verification probe or save as draft and exit.',
+        reason: reasonCode,
+        message:
+          diagnostic && reasonCode !== 'EVIDENCE_UNAVAILABLE'
+            ? diagnostic.message
+            : isZh.value
+              ? '验证探测未能获取完整的上游连通或模型证据（EVIDENCE_UNAVAILABLE）：可能由于上游端点不可达、鉴权被拒或当前协议暂无内置主动探针。请检查配置后重试探测，或先保存为草稿并退出。'
+              : 'Verification probe could not obtain valid upstream evidence (EVIDENCE_UNAVAILABLE): upstream endpoint may be unreachable, authorization rejected, or active probe unsupported. Retry verification probe or save as draft and exit.',
         requestId: finalOp.operation_id
       }
       pageAsyncState.value = 'partial_failure'
     } else if (finalOp.state === 'failed' || hasFailedVerificationCheck.value) {
       const opError = finalOp.error as Record<string, unknown> | null | undefined
+      const diagnostic = getPrimaryVerificationDiagnostic(state.verification, isZh.value)
       const rawOpMessage =
         typeof opError?.message === 'string'
           ? opError.message.trim()
@@ -843,12 +853,14 @@ async function handleRunVerification() {
             ? opError.reason.trim()
             : ''
       const localizedFailureMessage =
-        isZh.value && (!rawOpMessage || !/[\u4e00-\u9fff]/.test(rawOpMessage))
+        diagnostic?.message ||
+        (isZh.value && (!rawOpMessage || !/[\u4e00-\u9fff]/.test(rawOpMessage))
           ? '上游连通性或凭据鉴权探测未通过，请查看下方检查项详情并核对配置。'
-          : rawOpMessage || 'Verification probe did not pass. Review the check details below.'
+          : rawOpMessage || 'Verification probe did not pass. Review the check details below.')
       state.asyncError = {
         state: 'partial_failure',
         status: 0,
+        reason: diagnostic?.reason,
         message: localizedFailureMessage,
         requestId: finalOp.operation_id
       }
@@ -1664,27 +1676,47 @@ function formatEventType(type: string): string {
               </div>
 
               <div
-                v-if="hasUnavailableEvidence"
+                v-if="hasUnavailableEvidence || hasFailedVerificationCheck"
                 role="alert"
-                data-testid="verify-evidence-unavailable-banner"
-                class="rounded-oh-md border border-oh-warning bg-oh-surface p-4 space-y-3 text-xs"
+                :data-testid="
+                  hasUnavailableEvidence
+                    ? 'verify-evidence-unavailable-banner'
+                    : 'verify-failed-diagnostic-banner'
+                "
+                class="rounded-oh-md border bg-oh-surface p-4 space-y-3 text-xs"
+                :class="hasFailedVerificationCheck ? 'border-oh-danger' : 'border-oh-warning'"
               >
                 <div class="flex flex-wrap items-center justify-between gap-2">
                   <span class="font-semibold text-oh-fg">
                     {{
-                      isZh
-                        ? '未能获取有效的上游验证证据，暂无法进入启用预览'
-                        : 'Verification evidence unavailable — preview and activation are gated'
+                      primaryVerificationDiagnostic &&
+                      primaryVerificationDiagnostic.reason !== 'EVIDENCE_UNAVAILABLE'
+                        ? isZh
+                          ? '上游连通性或策略校验未通过，暂无法进入启用预览'
+                          : 'Verification diagnostic failed — preview and activation are gated'
+                        : isZh
+                          ? '未能获取有效的上游验证证据，暂无法进入启用预览'
+                          : 'Verification evidence unavailable — preview and activation are gated'
                     }}
                   </span>
-                  <Badge tone="warning" variant="subtle">EVIDENCE_UNAVAILABLE</Badge>
+                  <Badge :tone="hasFailedVerificationCheck ? 'danger' : 'warning'" variant="subtle">
+                    {{ primaryVerificationDiagnostic?.reason || 'EVIDENCE_UNAVAILABLE' }}
+                  </Badge>
                 </div>
                 <p class="text-oh-secondary">
                   {{
-                    isZh
+                    primaryVerificationDiagnostic?.message ||
+                    (isZh
                       ? '诊断说明：上游探测请求不可达、鉴权被拒绝，或当前兼容协议不支持内置主动探测端点。系统要求具备有效实时验证凭证后才允许生成分配预览与正式启用；您可检查服务地址及网络策略后重试探针，或先将当前连接保存为草稿并退出。'
-                      : 'Diagnostic: The upstream probe was unreachable, authorization was rejected, or this protocol does not expose an active verification probe. Live verification is required before previewing pool assignments or activating. Check your endpoint/egress settings and retry the probe, or save as draft and exit.'
+                      : 'Diagnostic: The upstream probe was unreachable, authorization was rejected, or this protocol does not expose an active verification probe. Live verification is required before previewing pool assignments or activating. Check your endpoint/egress settings and retry the probe, or save as draft and exit.')
                   }}
+                </p>
+                <p
+                  v-if="primaryVerificationDiagnostic?.detail"
+                  data-testid="verify-banner-detail"
+                  class="rounded-oh-xs border border-oh-subtle bg-oh-subtle/50 px-2.5 py-1.5 font-mono text-[11px] break-all text-oh-primary"
+                >
+                  {{ primaryVerificationDiagnostic.detail }}
                 </p>
                 <div class="flex flex-wrap items-center gap-2 pt-1">
                   <Button
@@ -1724,6 +1756,13 @@ function formatEventType(type: string): string {
                       {{ formatVerificationCheckReason(check.name, check.reason, isZh) }}
                       <span class="ml-1 font-mono text-[11px] opacity-75">({{ check.reason }})</span>
                     </div>
+                    <p
+                      v-if="check.detail"
+                      data-testid="verification-check-detail"
+                      class="mt-1 rounded-oh-xs border border-oh-subtle bg-oh-subtle/50 px-2 py-1 font-mono text-[11px] break-all text-oh-secondary"
+                    >
+                      {{ check.detail }}
+                    </p>
                   </div>
                   <div class="flex items-center gap-3">
                     <Badge

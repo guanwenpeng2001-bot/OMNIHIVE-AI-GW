@@ -128,6 +128,12 @@ export interface PublicModelSummary {
   output_rate?: PublicRate | null
   route_state?: string | null
   price_state?: 'priced' | 'free' | 'unpriced' | 'error' | string | null
+  availability_state?: 'live' | 'catalog_only' | string | null
+  reference_price?: {
+    source?: string
+    input_rate?: PublicRate | null
+    output_rate?: PublicRate | null
+  } | null
   observed_at?: string | null
   evidence_state?: 'fresh' | 'stale' | 'unknown' | string | null
   metrics?: PublicCatalogMetrics | null

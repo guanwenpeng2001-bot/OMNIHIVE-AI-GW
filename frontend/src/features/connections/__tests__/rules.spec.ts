@@ -7,7 +7,9 @@ import {
   extractOperationVerification,
   formatPoolModeRetryStatusCodes,
   formatProviderIdLabel,
+  formatVerificationCheckReason,
   getAuthModeLabel,
+  getPrimaryVerificationDiagnostic,
   getProviderDisplayMeta,
   isAllowedCredentialType,
   isConnectionRedacted,
@@ -281,5 +283,41 @@ describe('connections/rules (UIR01)', () => {
         true
       )
     ).toContain('Authorization')
+  })
+
+  it('formats specific verification check reasons and prioritizes primary check.detail diagnostics', () => {
+    const urlMsgEn = formatVerificationCheckReason('network', 'URL_NOT_ALLOWED', false)
+    expect(urlMsgEn).toContain('SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS')
+    expect(urlMsgEn).toContain('.env')
+
+    const urlMsgZh = formatVerificationCheckReason('network', 'URL_NOT_ALLOWED', true)
+    expect(urlMsgZh).toContain('SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS')
+    expect(urlMsgZh).toContain('.env')
+
+    expect(formatVerificationCheckReason('network', 'UPSTREAM_RATE_LIMITED', false)).toContain('429')
+    expect(formatVerificationCheckReason('authorization', 'AUTH_REJECTED', true)).toContain('401/403')
+    expect(formatVerificationCheckReason('network', 'INVALID_ENDPOINT', false)).toContain('http(s)://')
+    expect(formatVerificationCheckReason('network', 'NETWORK_UNREACHABLE', false)).toContain('DNS')
+
+    const primary = getPrimaryVerificationDiagnostic(
+      {
+        verification_id: 'ver_diag',
+        models: [],
+        verified_at: '2026-11-22T00:00:00Z',
+        expires_at: '2026-11-22T02:00:00Z',
+        checks: [
+          { name: 'authorization', state: 'unknown', reason: 'EVIDENCE_UNAVAILABLE' },
+          {
+            name: 'network',
+            state: 'failed',
+            reason: 'URL_NOT_ALLOWED',
+            detail: 'host custom.internal.example is not in SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS'
+          }
+        ]
+      },
+      false
+    )
+    expect(primary?.reason).toBe('URL_NOT_ALLOWED')
+    expect(primary?.detail).toContain('custom.internal.example')
   })
 })
