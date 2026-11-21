@@ -12,29 +12,44 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMissingFaviconDoesNotReturnSPAHTML(t *testing.T) {
-	distFS := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<!doctype html>")}}
-	server := &FrontendServer{distFS: distFS, baseHTML: []byte("<!doctype html>"), cache: NewHTMLCache()}
-	for name, middleware := range map[string]gin.HandlerFunc{
-		"settings": server.Middleware(),
-		"legacy": func(c *gin.Context) {
-			if c.Request.URL.Path == "/favicon.ico" {
-				if _, err := distFS.Stat("favicon.ico"); err != nil {
-					c.Status(http.StatusNotFound)
-					c.Abort()
-					return
-				}
-			}
-			serveIndexHTML(c, distFS)
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			router := gin.New()
-			router.Use(middleware)
-			response := httptest.NewRecorder()
-			router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/favicon.ico", nil))
-			require.Equal(t, http.StatusNotFound, response.Code)
-			require.NotContains(t, response.Body.String(), "<!doctype html>")
-		})
+func TestFaviconAndLogoCache(t *testing.T) {
+	for _, withLogo := range []bool{true, false} {
+		dist := fstest.MapFS{}
+		if withLogo {
+			dist["logo.svg"] = &fstest.MapFile{Data: []byte("<svg/>")}
+		}
+		server := &FrontendServer{distFS: dist}
+		router := gin.New()
+		router.Use(server.Middleware())
+		paths := []string{"/favicon.ico"}
+		if withLogo {
+			paths = append(paths, "/logo.svg")
+		}
+		for _, path := range paths {
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, httptest.NewRequest(http.MethodHead, path, nil))
+			require.Equal(t, http.StatusOK, w.Code)
+			require.Empty(t, w.Body.String())
+			require.NotEmpty(t, w.Header().Get("ETag"))
+			require.Equal(t, "public, max-age=300", w.Header().Get("Cache-Control"))
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req.Header.Set("If-None-Match", w.Header().Get("ETag"))
+			w = httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			require.Equal(t, http.StatusNotModified, w.Code)
+		}
 	}
+}
+
+func TestLegacyFaviconHead(t *testing.T) {
+	middleware, err := ServeEmbeddedFrontend()
+	require.NoError(t, err)
+	router := gin.New()
+	router.Use(middleware)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodHead, "/favicon.ico", nil))
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Empty(t, w.Body.String())
+	require.NotEmpty(t, w.Header().Get("ETag"))
+	require.Equal(t, "public, max-age=300", w.Header().Get("Cache-Control"))
 }

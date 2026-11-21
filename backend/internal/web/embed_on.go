@@ -7,6 +7,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"fmt"
 	htmlpkg "html"
 	"io"
 	"io/fs"
@@ -102,12 +103,6 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 			return
 		}
 
-		if path == "/favicon.ico" && !s.fileExists("favicon.ico") {
-			c.Status(http.StatusNotFound)
-			c.Abort()
-			return
-		}
-
 		// Skip API routes
 		if c.FullPath() != "" || shouldBypassEmbeddedFrontend(path) {
 			c.Next()
@@ -115,6 +110,10 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 		}
 
 		cleanPath := strings.TrimPrefix(path, "/")
+		if cleanPath == "favicon.ico" && serveMissingFavicon(c, s.distFS, s.overrideDir, &s.assetCache) {
+			return
+		}
+
 		if cleanPath == "" {
 			cleanPath = "index.html"
 		}
@@ -136,15 +135,7 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 }
 
 func (s *FrontendServer) serveEmbeddedAsset(c *gin.Context, cleanPath string) {
-	content, err := fs.ReadFile(s.distFS, cleanPath)
-	if err != nil {
-		c.Status(http.StatusNotFound)
-		c.Abort()
-		return
-	}
-	cached, _ := s.assetCache.LoadOrStore(cleanPath, newStaticResponseCache(content))
-	applyStaticAssetCacheHeaders(c.Writer.Header(), cleanPath)
-	serveStaticRepresentation(c, cached.(staticResponseCache), mime.TypeByExtension(filepath.Ext(cleanPath)))
+	serveEmbeddedAsset(c, s.distFS, cleanPath, &s.assetCache)
 }
 
 func (s *FrontendServer) fileExists(path string) bool {
@@ -159,17 +150,7 @@ func (s *FrontendServer) fileExists(path string) bool {
 // tryServeOverride checks if a local override file exists and serves it.
 // Files in overrideDir take precedence over embedded files.
 func (s *FrontendServer) tryServeOverride(c *gin.Context, cleanPath string) bool {
-	if s.overrideDir == "" {
-		return false
-	}
-	filePath := filepath.Join(s.overrideDir, filepath.Clean("/"+cleanPath))
-	info, err := os.Stat(filePath)
-	if err != nil || info.IsDir() {
-		return false
-	}
-	c.File(filePath)
-	c.Abort()
-	return true
+	return tryServeOverrideFile(c, s.overrideDir, cleanPath)
 }
 
 func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
@@ -361,15 +342,11 @@ func ServeEmbeddedFrontend() (gin.HandlerFunc, error) {
 			return
 		}
 
-		if path == "/favicon.ico" {
-			if _, err := fs.Stat(distFS, "favicon.ico"); err != nil {
-				c.Status(http.StatusNotFound)
-				c.Abort()
-				return
-			}
+		cleanPath := strings.TrimPrefix(path, "/")
+		if cleanPath == "favicon.ico" && serveMissingFavicon(c, distFS, overrideDir, &legacyAssetCache) {
+			return
 		}
 
-		cleanPath := strings.TrimPrefix(path, "/")
 		if cleanPath == "" {
 			cleanPath = "index.html"
 		}
@@ -389,13 +366,15 @@ func ServeEmbeddedFrontend() (gin.HandlerFunc, error) {
 }
 
 func serveEmbeddedAsset(c *gin.Context, distFS fs.FS, cleanPath string, cache *sync.Map) {
-	content, err := fs.ReadFile(distFS, cleanPath)
-	if err != nil {
-		c.Status(http.StatusNotFound)
-		c.Abort()
-		return
+	cached, ok := cache.Load(cleanPath)
+	if !ok {
+		content, err := fs.ReadFile(distFS, cleanPath)
+		if err != nil {
+			c.AbortWithStatus(http.StatusNotFound)
+			return
+		}
+		cached, _ = cache.LoadOrStore(cleanPath, newStaticResponseCache(content))
 	}
-	cached, _ := cache.LoadOrStore(cleanPath, newStaticResponseCache(content))
 	applyStaticAssetCacheHeaders(c.Writer.Header(), cleanPath)
 	serveStaticRepresentation(c, cached.(staticResponseCache), mime.TypeByExtension(filepath.Ext(cleanPath)))
 }
@@ -410,6 +389,8 @@ func tryServeOverrideFile(c *gin.Context, overrideDir, cleanPath string) bool {
 	if err != nil || info.IsDir() {
 		return false
 	}
+	applyStaticAssetCacheHeaders(c.Writer.Header(), cleanPath)
+	c.Header("ETag", fmt.Sprintf(`W/"%x-%x"`, info.ModTime().UnixNano(), info.Size()))
 	c.File(filePath)
 	c.Abort()
 	return true
@@ -464,4 +445,25 @@ func serveIndexHTML(c *gin.Context, fsys fs.FS) {
 func HasEmbeddedFrontend() bool {
 	_, err := frontendFS.ReadFile("dist/index.html")
 	return err == nil
+}
+
+var defaultFavicon = newStaticResponseCache([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="#475569" d="M8 0l7 4v8l-7 4-7-4V4z"/></svg>`))
+
+func serveMissingFavicon(c *gin.Context, dist fs.FS, override string, cache *sync.Map) bool {
+	if tryServeOverrideFile(c, override, "favicon.ico") {
+		return true
+	}
+	if _, err := fs.Stat(dist, "favicon.ico"); err == nil {
+		return false
+	}
+	if tryServeOverrideFile(c, override, "logo.svg") {
+		return true
+	}
+	if _, err := fs.Stat(dist, "logo.svg"); err == nil {
+		serveEmbeddedAsset(c, dist, "logo.svg", cache)
+		return true
+	}
+	applyStaticAssetCacheHeaders(c.Writer.Header(), "favicon.ico")
+	serveStaticRepresentation(c, defaultFavicon, "image/svg+xml")
+	return true
 }

@@ -80,6 +80,7 @@ func selectStaticRepresentation(cache staticResponseCache, acceptEncoding string
 func serveStaticRepresentation(c *gin.Context, cache staticResponseCache, contentType string) {
 	representation := selectStaticRepresentation(cache, c.GetHeader("Accept-Encoding"))
 	header := c.Writer.Header()
+	header.Set("Content-Type", contentType)
 	header.Add("Vary", "Accept-Encoding")
 	header.Set("ETag", representation.etag)
 	header.Set("Content-Length", strconv.Itoa(len(representation.body)))
