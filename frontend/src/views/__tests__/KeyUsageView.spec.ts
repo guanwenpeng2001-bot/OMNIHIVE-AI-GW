@@ -482,4 +482,16 @@ describe('KeyUsageView subscription feature flag', () => {
     expect(wrapper.text()).toContain('Wallet Balance')
     wrapper.unmount()
   })
+
+  it('gives every button on the public key-usage page an accessible name [E1-10]', async () => {
+    const wrapper = await mountAndQuery()
+    const unnamedButtons = wrapper.findAll('button').filter((btn) => {
+      const text = btn.text().trim()
+      const ariaLabel = btn.attributes('aria-label')?.trim()
+      const title = btn.attributes('title')?.trim()
+      return !text && !ariaLabel && !title
+    })
+    expect(unnamedButtons).toHaveLength(0)
+    wrapper.unmount()
+  })
 })

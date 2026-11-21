@@ -400,4 +400,33 @@ describe('Public documentation, compatibility page & /models redirect (FE-10-15,
     expect(text).toContain('GoogleGenAI')
     expect(text).toContain('Retry-After')
   })
+
+  it('marks console links in HelpGuide with login-required hint and avoids /models links in public navigation [E1-10]', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/docs', component: HelpGuide }]
+    })
+    await router.push('/docs')
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: compiledMessages })
+    const wrapper = mount(HelpGuide, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { SiteICPFooter: true, LocaleSwitcher: true }
+      }
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+
+    const keysLink = wrapper.findAll('a').find((a) => a.attributes('href') === '/keys')
+    expect(keysLink).toBeTruthy()
+    expect(keysLink!.text()).toContain('Login required')
+
+    const keyUsageLink = wrapper.findAll('a').find((a) => a.attributes('href') === '/key-usage')
+    expect(keyUsageLink).toBeTruthy()
+    expect(keyUsageLink!.text()).not.toContain('Login required')
+
+    const publicHrefs = wrapper.findAll('a').map((a) => a.attributes('href'))
+    expect(publicHrefs).not.toContain('/models')
+    expect(publicHrefs).toContain('/model-plaza')
+  })
 })

@@ -32,6 +32,7 @@
             @click="toggleTheme"
             class="rounded-lg p-2 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]   "
             :title="isDark ? t('home.switchToLight') : t('home.switchToDark')"
+            :aria-label="isDark ? t('home.switchToLight') : t('home.switchToDark')"
           >
             <Icon v-if="isDark" name="sun" size="md" />
             <Icon v-else name="moon" size="md" />
@@ -96,6 +97,7 @@
             />
             <button
               @click="keyVisible = !keyVisible"
+              :aria-label="keyVisible ? t('publicPortal.keyUsage.hideKey') : t('publicPortal.keyUsage.showKey')"
               class="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] hover:text-[var(--foreground)]   transition-colors"
             >
               <svg v-if="!keyVisible" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

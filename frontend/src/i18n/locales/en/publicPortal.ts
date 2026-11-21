@@ -38,6 +38,13 @@ export default {
       disabled: 'Not enabled by admin',
       checking: 'Checking'
     },
+    docs: {
+      loginRequired: 'Login required'
+    },
+    keyUsage: {
+      showKey: 'Show API key',
+      hideKey: 'Hide API key'
+    },
     mcpAuthorize: {
       titleApprovedLocal: 'Authorization Request Cached',
       titleApproved: 'Authorization Complete',

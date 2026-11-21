@@ -38,6 +38,13 @@ export default {
       disabled: '管理员未开放',
       checking: '检测中'
     },
+    docs: {
+      loginRequired: '需登录'
+    },
+    keyUsage: {
+      showKey: '显示 API Key',
+      hideKey: '隐藏 API Key'
+    },
     mcpAuthorize: {
       titleApprovedLocal: '授权请求已缓存',
       titleApproved: '授权完成',

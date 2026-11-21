@@ -141,7 +141,9 @@
               <div class="flex flex-wrap gap-x-5 gap-y-2"><a v-for="reference in helpClientReferences" :key="reference.url" :href="reference.url" target="_blank" rel="noopener noreferrer" class="text-oh-accent-text underline underline-offset-4">{{ reference.label }}</a></div>
             </nav>
             <nav v-if="links[section.id]?.length" :aria-label="t('helpGuide.next')" class="flex flex-wrap gap-x-6 gap-y-3 text-sm">
-              <RouterLink v-for="link in links[section.id]" :key="link.path" :to="link.path" class="font-medium text-oh-accent-text underline underline-offset-4">{{ t(link.key) }} →</RouterLink>
+              <RouterLink v-for="link in links[section.id]" :key="link.path" :to="link.path" class="font-medium text-oh-accent-text underline underline-offset-4">
+                {{ t(link.key) }}<span v-if="link.path !== '/key-usage'" class="ml-1 text-xs text-oh-muted">({{ t('publicPortal.docs.loginRequired') }})</span> →
+              </RouterLink>
             </nav>
           </DocSection>
           <section id="support" class="scroll-mt-24 pt-2">
