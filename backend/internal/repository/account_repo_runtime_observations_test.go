@@ -39,12 +39,13 @@ func TestReviewCatalogIdentityWritesClearPersistentObservations(t *testing.T) {
 	repository.credentialEncryptor = persistentTestAES(t, true)
 	for _, mode := range []string{"single_update", "bulk_update", "extra_update"} {
 		t.Run(mode, func(t *testing.T) {
-			entity, err := client.Account.Create().SetName("review-catalog-runtime").SetPlatform("cursor").SetType("oauth").
-				SetCredentials(map[string]any{"access_token": "old"}).
-				SetExtra(map[string]any{"cursor_usage_snapshot": map[string]any{"usage": 12}, "cursor_usage_updated_at": time.Now().Format(time.RFC3339), "quota_used": 17}).Save(ctx)
+			entity := &service.Account{Name: "review-catalog-runtime", Platform: "cursor", Type: "oauth", Status: service.StatusActive, Credentials: map[string]any{"access_token": "old"}, Extra: map[string]any{"cursor_usage_snapshot": map[string]any{"usage": 12}, "cursor_usage_updated_at": time.Now().Format(time.RFC3339), "quota_used": 17}}
+			err := repository.Create(ctx, entity)
 			require.NoError(t, err)
 			t.Cleanup(func() {
-				_, cleanupErr := database.Exec("DELETE FROM accounts WHERE id=$1", entity.ID)
+				_, cleanupErr := database.Exec("DELETE FROM credential_secrets WHERE account_id=$1", entity.ID)
+				require.NoError(t, cleanupErr)
+				_, cleanupErr = database.Exec("DELETE FROM accounts WHERE id=$1", entity.ID)
 				require.NoError(t, cleanupErr)
 			})
 			account, err := repository.GetByID(ctx, entity.ID)
@@ -52,7 +53,7 @@ func TestReviewCatalogIdentityWritesClearPersistentObservations(t *testing.T) {
 			oldIdentity := service.AccountRuntimeIdentityKey(account)
 			switch mode {
 			case "single_update":
-				account.Credentials = map[string]any{"access_token": "replacement"}
+				account.Credentials["access_token"] = "replacement"
 				require.NoError(t, repository.Update(ctx, account))
 			case "bulk_update":
 				count, err := repository.BulkUpdate(ctx, []int64{entity.ID}, service.AccountBulkUpdate{Credentials: map[string]any{"access_token": "replacement"}})
@@ -84,23 +85,10 @@ func TestBulkUpdateAndUpdateExtraSQLClearRuntimeObservationsOnIdentityChange(t *
 	for _, key := range service.CompatibleBalanceObservationKeys() {
 		require.Contains(t, clearChangedAccountRuntimeObservationsSQL("credentials", "extra", "TRUE"), "'"+key+"'")
 	}
-	t.Run("bulk_credentials", func(t *testing.T) {
-		database, mock, err := sqlmock.New()
-		require.NoError(t, err)
-		defer func() {
-			mock.ExpectClose()
-			require.NoError(t, database.Close())
-		}()
-		exec := &credentialGuardRecordingExecutor{recording: recordingSQLExecutor{result: rowsAffectedResult(1)}, DB: database}
+	t.Run("bulk_non_secret_credentials", func(t *testing.T) {
+		exec := &credentialGuardRecordingExecutor{recording: recordingSQLExecutor{result: rowsAffectedResult(1)}}
 		repository := newAccountRepositoryWithSQL(nil, exec, nil)
-		originalBulkUpdate := repository.BulkUpdate
-		repository.bulkUpdateSecrets = func(ctx context.Context, ids []int64, updates service.AccountBulkUpdate) (int64, error) {
-			inline, _ := service.SplitCredentialSecrets(updates.Credentials)
-			updates.Credentials = inline
-			_, err := originalBulkUpdate(ctx, ids, updates)
-			return int64(len(ids)), err
-		}
-		count, err := repository.BulkUpdate(context.Background(), []int64{42}, service.AccountBulkUpdate{Credentials: map[string]any{"access_token": "replacement"}})
+		count, err := repository.BulkUpdate(context.Background(), []int64{42}, service.AccountBulkUpdate{Credentials: map[string]any{"base_url": "https://replacement.example"}})
 		require.NoError(t, err)
 		require.Equal(t, int64(1), count)
 		require.NotEmpty(t, exec.recording.execQueries)
@@ -109,7 +97,6 @@ func TestBulkUpdateAndUpdateExtraSQLClearRuntimeObservationsOnIdentityChange(t *
 		require.Contains(t, query, "credentials IS DISTINCT FROM")
 		require.Contains(t, query, "(extra, temp_unschedulable_until, temp_unschedulable_reason, rate_limited_at, rate_limit_reset_at) = (SELECT ")
 		require.Contains(t, query, "credentials = COALESCE")
-		require.NoError(t, mock.ExpectationsWereMet())
 	})
 	t.Run("extra_revision", func(t *testing.T) {
 		database, mock, err := sqlmock.New()
@@ -148,6 +135,7 @@ func TestCatalogIdentityWritesClearPersistentObservations(t *testing.T) {
 	require.NoError(t, ApplyMigrations(ctx, database))
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, database)))
 	repository := newAccountRepositoryWithSQL(client, database, nil)
+	repository.credentialEncryptor = persistentTestAES(t, true)
 	t.Run("observation_removal_matches_service", func(t *testing.T) {
 		expression := clearChangedAccountRuntimeObservationsSQL("credentials", "extra", "TRUE")
 		_, fieldList, found := strings.Cut(expression, "ARRAY['")
@@ -170,13 +158,13 @@ func TestCatalogIdentityWritesClearPersistentObservations(t *testing.T) {
 	})
 	for _, mode := range []string{"single_update", "bulk_credentials", "bulk_extra", "extra_revision", "bulk_same_identity", "extra_same_identity", "bulk_note", "extra_note", "bulk_status", "rollback_bulk", "rollback_extra"} {
 		t.Run(mode, func(t *testing.T) {
-			entity, err := client.Account.Create().SetName("catalog-runtime-observations").SetPlatform("cursor").SetType("oauth").
-				SetStatus(service.StatusError).SetSchedulable(false).
-				SetCredentials(map[string]any{"access_token": "old"}).
-				SetExtra(map[string]any{"credential_secret_revision": 1, "cursor_usage_snapshot": map[string]any{"usage": 12}, "cursor_usage_updated_at": time.Now().Format(time.RFC3339), "quota_used": 17, "quota_limit": 100}).Save(ctx)
+			entity := &service.Account{Name: "catalog-runtime-observations", Platform: "cursor", Type: "oauth", Status: service.StatusError, Schedulable: false, Credentials: map[string]any{"access_token": "old"}, Extra: map[string]any{"credential_secret_revision": 1, "cursor_usage_snapshot": map[string]any{"usage": 12}, "cursor_usage_updated_at": time.Now().Format(time.RFC3339), "quota_used": 17, "quota_limit": 100}}
+			err := repository.Create(ctx, entity)
 			require.NoError(t, err)
 			t.Cleanup(func() {
-				_, cleanupErr := database.Exec("DELETE FROM accounts WHERE id=$1", entity.ID)
+				_, cleanupErr := database.Exec("DELETE FROM credential_secrets WHERE account_id=$1", entity.ID)
+				require.NoError(t, cleanupErr)
+				_, cleanupErr = database.Exec("DELETE FROM accounts WHERE id=$1", entity.ID)
 				require.NoError(t, cleanupErr)
 			})
 			before, err := repository.GetByID(ctx, entity.ID)
@@ -193,7 +181,7 @@ func TestCatalogIdentityWritesClearPersistentObservations(t *testing.T) {
 			expectedStatus := service.StatusError
 			switch mode {
 			case "single_update":
-				before.Credentials = map[string]any{"access_token": "replacement"}
+				before.Credentials["access_token"] = "replacement"
 				require.NoError(t, repository.Update(writeCtx, before))
 			case "bulk_credentials", "rollback_bulk":
 				count, err := repository.BulkUpdate(writeCtx, []int64{entity.ID}, service.AccountBulkUpdate{Credentials: map[string]any{"access_token": "replacement"}})
