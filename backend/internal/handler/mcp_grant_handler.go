@@ -45,7 +45,6 @@ type UserAuditEventDTO struct {
 type mcpUserState struct {
 	hidden   bool
 	steps    [3]bool
-	grants   []MCPGrantDTO
 	events   []UserAuditEventDTO
 	policies RoutingPoliciesDTO
 }

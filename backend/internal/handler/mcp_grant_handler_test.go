@@ -150,15 +150,19 @@ func TestMcpGrantValidation(t *testing.T) {
 
 func TestMcpGrantConcurrentInitialization(t *testing.T) {
 	h := NewMCPGrantHandler()
+	responses := make([]*httptest.ResponseRecorder, 20)
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
-		go func() { defer wg.Done(); mcpRequest(h, 1, "user", "GET", "/grants", "") }()
+		go func() { defer wg.Done(); responses[i] = mcpRequest(h, 1, "user", "GET", "/grants", "") }()
 	}
 	wg.Wait()
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	require.Empty(t, h.users[1].grants)
+	for _, response := range responses {
+		listing := mcpData[struct {
+			Grants []MCPGrantDTO `json:"grants"`
+		}](t, response)
+		require.Empty(t, listing.Grants)
+	}
 }
 
 func TestMcpGrantAuthorizeDecisions(t *testing.T) {
