@@ -12,7 +12,8 @@ const mocks = vi.hoisted(() => ({
   replayRequest: vi.fn(),
   getRunByIdempotencyKey: vi.fn(),
   getRunDetail: vi.fn(),
-  cancelRun: vi.fn()
+  cancelRun: vi.fn(),
+  authUser: { id: '1', role: 'admin' } as { id: string | number; role?: string } | null
 }))
 
 vi.mock('vue-i18n', async (importOriginal) => {
@@ -25,6 +26,13 @@ vi.mock('vue-i18n', async (importOriginal) => {
 
 vi.mock('@/components/layout/AppLayout.vue', () => ({
   default: { template: '<main><slot /></main>' }
+}))
+
+vi.mock('@/stores/auth', () => ({
+  useAuthStore: () => ({
+    user: mocks.authUser,
+    isAdmin: mocks.authUser?.role === 'admin'
+  })
 }))
 
 vi.mock('@/api', () => ({
@@ -78,6 +86,14 @@ describe('PlaygroundView 3-pane workbench', () => {
       ],
       next_cursor: null,
       as_of: '2026-11-19T10:00:00Z'
+    })
+    vi.spyOn(identityApi, 'getProjectAccess').mockResolvedValue({
+      actor_id: '1',
+      workspace_id: '2',
+      project_id: '9',
+      actions: ['keys.read', 'playground.run'],
+      scope_version: '1',
+      expires_at: '2026-11-20T00:00:00Z'
     })
     mocks.listV1Keys.mockResolvedValue({ items: [] })
     mocks.listScopedModels.mockResolvedValue([
@@ -436,6 +452,128 @@ describe('PlaygroundView 3-pane workbench', () => {
     expect(confirmBtn.attributes('disabled')).toBeDefined()
     await confirmBtn.trigger('click')
     expect(wrapper.emitted('confirm')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('filters out non-owned keys by default when keys.act_as is not granted (PG-1)', async () => {
+    mocks.authUser = { id: '1', role: 'admin' }
+    vi.spyOn(identityApi, 'getProjectAccess').mockResolvedValue({
+      actor_id: '1',
+      workspace_id: '2',
+      project_id: '9',
+      actions: ['keys.read', 'playground.run'],
+      scope_version: '1',
+      expires_at: '2026-11-20T00:00:00Z'
+    })
+    vi.spyOn(identityApi, 'listProjectKeys').mockResolvedValue({
+      items: [
+        {
+          id: '15',
+          name: 'My Key',
+          prefix: 'oh_live_15',
+          owner_id: '1',
+          state: 'active',
+          version: '1',
+          credential: null
+        },
+        {
+          id: '22',
+          name: 'Other Admin Key',
+          prefix: 'oh_live_22',
+          owner_id: '99',
+          state: 'active',
+          version: '1',
+          credential: null
+        }
+      ],
+      next_cursor: null,
+      as_of: '2026-11-19T10:00:00Z'
+    })
+
+    const wrapper = mount(PlaygroundView, { props: { teleportDisabled: true } })
+    await flushPromises()
+
+    const select = wrapper.get('[data-testid="select-key-a"]')
+    const optionValues = select.findAll('option').map((opt) => (opt.element as HTMLOptionElement).value)
+    expect(optionValues).toEqual(['15'])
+    expect(select.findAll('optgroup')).toHaveLength(0)
+    wrapper.unmount()
+  })
+
+  it('groups non-owned keys under act_as optgroup and passes payer_user_id when keys.act_as is granted (PG-1)', async () => {
+    mocks.authUser = { id: '1', role: 'admin' }
+    vi.spyOn(identityApi, 'getProjectAccess').mockResolvedValue({
+      actor_id: '1',
+      workspace_id: '2',
+      project_id: '9',
+      actions: ['keys.read', 'keys.act_as', 'playground.run'],
+      scope_version: '1',
+      expires_at: '2026-11-20T00:00:00Z'
+    })
+    vi.spyOn(identityApi, 'listProjectKeys').mockResolvedValue({
+      items: [
+        {
+          id: '15',
+          name: 'My Key',
+          prefix: 'oh_live_15',
+          owner_id: '1',
+          state: 'active',
+          version: '1',
+          credential: null
+        },
+        {
+          id: '22',
+          name: 'Teammate Key',
+          prefix: 'oh_live_22',
+          owner_id: '99',
+          state: 'active',
+          version: '1',
+          credential: null
+        }
+      ],
+      next_cursor: null,
+      as_of: '2026-11-19T10:00:00Z'
+    })
+    mocks.submitRun.mockResolvedValue({
+      kind: 'result',
+      result: {
+        run_id: 'run_act_1',
+        request_id: 'req_act_1',
+        protocol: 'openai_chat',
+        outcome: 'succeeded',
+        output: { choices: [{ message: { content: 'ok' } }] },
+        settlement_state: 'settled',
+        status_url: '/status',
+        detail_url: '/detail'
+      }
+    })
+
+    const wrapper = mount(PlaygroundView, { props: { teleportDisabled: true } })
+    await flushPromises()
+
+    const select = wrapper.get('[data-testid="select-key-a"]')
+    const groups = select.findAll('optgroup')
+    expect(groups).toHaveLength(2)
+    expect(groups[0].attributes('label')).toBe('playgroundKeys.ownedGroupLabel')
+    expect(groups[1].attributes('label')).toBe('playgroundKeys.actAsGroupLabel')
+    expect((select.element as HTMLSelectElement).value).toBe('15')
+
+    await select.setValue('22')
+    await wrapper.get('[data-testid="message-input-0"]').setValue('Hello')
+    await wrapper.get('[data-testid="playground-run-trigger"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="confirm-playground-funding"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.submitRun).toHaveBeenCalledWith(
+      '2',
+      '9',
+      expect.objectContaining({
+        api_key_id: '22',
+        payer_user_id: '99'
+      }),
+      expect.any(Object)
+    )
     wrapper.unmount()
   })
 })

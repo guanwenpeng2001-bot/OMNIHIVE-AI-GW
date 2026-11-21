@@ -20,6 +20,7 @@ import {
 } from '@/features/console/format'
 import { identityApi, useConsoleScope } from '@/features/console/scope'
 import { playgroundApi } from '@/features/playground/api'
+import { useAuthStore } from '@/stores/auth'
 import PlaygroundCostConfirmModal from '@/features/playground/components/PlaygroundCostConfirmModal.vue'
 import PlaygroundRunPane from '@/features/playground/components/PlaygroundRunPane.vue'
 import {
@@ -45,6 +46,8 @@ interface KeyOption {
   id: string
   name: string
   prefix: string
+  ownerId: string | null
+  isOwned: boolean
 }
 
 const props = withDefaults(
@@ -61,6 +64,7 @@ const isZh = computed(() => String(locale?.value || '').startsWith('zh'))
 const instance = getCurrentInstance()
 
 const scope = useConsoleScope()
+const authStore = useAuthStore()
 
 const mobilePane = ref<'params' | 'session' | 'inspector'>('session')
 const compareMode = ref(false)
@@ -78,6 +82,7 @@ let loadedScopeKey = ''
 let hasBootstrapped = false
 
 const availableKeys = ref<KeyOption[]>([])
+const canActAsKeys = ref(false)
 const catalogModels = ref<CatalogModelItem[]>([])
 const modelFilterQuery = ref('')
 
@@ -116,8 +121,25 @@ const sideB = reactive<PlaygroundSideConfig>({
   retainTextPreview: false
 })
 
-const controllerA = createPlaygroundRunController({ isZh: () => isZh.value })
-const controllerB = createPlaygroundRunController({ isZh: () => isZh.value })
+function isKeyOwnedByCurrentUser(apiKeyId: string): boolean {
+  const key = availableKeys.value.find((item) => item.id === apiKeyId)
+  return key ? key.isOwned : true
+}
+
+function resolvePayerForKey(apiKeyId: string): string | undefined {
+  const key = availableKeys.value.find((item) => item.id === apiKeyId)
+  if (!key || key.isOwned || !key.ownerId) return undefined
+  return key.ownerId
+}
+
+const controllerA = createPlaygroundRunController({
+  isZh: () => isZh.value,
+  isKeyOwned: isKeyOwnedByCurrentUser
+})
+const controllerB = createPlaygroundRunController({
+  isZh: () => isZh.value,
+  isKeyOwned: isKeyOwnedByCurrentUser
+})
 
 const consentModalOpen = ref(false)
 const pendingTargets = ref<Array<'A' | 'B'>>([])
@@ -191,6 +213,10 @@ const hasActiveProjectScope = computed(() =>
 )
 
 const validProjectKeyIds = computed(() => new Set(availableKeys.value.map((k) => k.id)))
+const ownedKeys = computed(() => availableKeys.value.filter((k) => k.isOwned))
+const actAsKeys = computed(() =>
+  canActAsKeys.value ? availableKeys.value.filter((k) => !k.isOwned) : []
+)
 
 const hasValidKeyA = computed(
   () =>
@@ -234,6 +260,7 @@ function resetTransientScopeState(): void {
   pendingEstimates.value = []
   inlinePreviewEstimates.value = []
   availableKeys.value = []
+  canActAsKeys.value = false
   sideA.apiKeyId = ''
   sideB.apiKeyId = ''
   keysLoadError.value = false
@@ -258,20 +285,52 @@ async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
     const hasScope = Boolean(wsId && projId)
     loadedScopeKey = `${wsId}:${projId}`
 
-    const [keysResult, modelsResult] = await Promise.allSettled([
+    const [keysResult, modelsResult, accessResult] = await Promise.allSettled([
       hasScope
         ? identityApi.listProjectKeys(wsId, projId, { limit: 100 }).then((page) =>
-            (page.items || [])
-              .filter((k) => !k.state || k.state === 'active')
-              .map((k) => ({ id: String(k.id), name: k.name, prefix: k.prefix }))
+            (page.items || []).filter((k) => !k.state || k.state === 'active')
           )
-        : Promise.resolve<KeyOption[]>([]),
-      catalogApi.listScopedModels(wsId, projId, { limit: 100 })
+        : Promise.resolve([]),
+      catalogApi.listScopedModels(wsId, projId, { limit: 100 }),
+      hasScope && typeof identityApi.getProjectAccess === 'function'
+        ? identityApi.getProjectAccess(wsId, projId)
+        : Promise.resolve(null)
     ])
     if (gen !== bootstrapGeneration) return
 
+    const accessActions =
+      accessResult.status === 'fulfilled' && Array.isArray(accessResult.value?.actions)
+        ? accessResult.value.actions
+        : []
+    canActAsKeys.value = accessActions.includes('keys.act_as') || accessActions.includes('*')
+
+    const rawUserId = authStore.user?.id
+    const currentUserId =
+      rawUserId !== undefined && rawUserId !== null && String(rawUserId).trim() !== ''
+        ? String(rawUserId).trim()
+        : accessResult.status === 'fulfilled' && accessResult.value?.actor_id
+          ? String(accessResult.value.actor_id).trim()
+          : ''
+
     if (keysResult.status === 'fulfilled') {
-      availableKeys.value = keysResult.value
+      const mappedKeys: KeyOption[] = keysResult.value.map((k) => {
+        const rawOwner =
+          (k as { owner_id?: string | number; user_id?: string | number }).owner_id ??
+          (k as { user_id?: string | number }).user_id
+        const ownerId =
+          rawOwner !== undefined && rawOwner !== null && String(rawOwner).trim() !== ''
+            ? String(rawOwner).trim()
+            : null
+        const isOwned = !currentUserId || !ownerId ? true : ownerId === currentUserId
+        return {
+          id: String(k.id),
+          name: k.name,
+          prefix: k.prefix,
+          ownerId,
+          isOwned
+        }
+      })
+      availableKeys.value = mappedKeys.filter((k) => k.isOwned || canActAsKeys.value)
     } else {
       availableKeys.value = []
       keysLoadError.value = true
@@ -304,11 +363,12 @@ async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
     }
 
     const validIds = new Set(availableKeys.value.map((k) => k.id))
+    const preferredKeyId = ownedKeys.value[0]?.id ?? availableKeys.value[0]?.id ?? ''
     if (!validIds.has(sideA.apiKeyId)) {
-      sideA.apiKeyId = availableKeys.value[0]?.id ?? ''
+      sideA.apiKeyId = preferredKeyId
     }
     if (!validIds.has(sideB.apiKeyId)) {
-      sideB.apiKeyId = availableKeys.value[0]?.id ?? ''
+      sideB.apiKeyId = preferredKeyId
     }
     if (!sideA.modelId && catalogModels.value.length > 0) {
       sideA.modelId = catalogModels.value[0].slug || catalogModels.value[0].id
@@ -560,8 +620,10 @@ function prepareConsentForTargets(targets: Array<'A' | 'B'>): void {
         reasoningEffort: sideA.reasoningEffort,
         toolsJson: toolsJson.value
       })
+      const payerUserId = resolvePayerForKey(sideA.apiKeyId)
       const replayPayload: PlaygroundReplay = {
         api_key_id: sideA.apiKeyId,
+        ...(payerUserId ? { payer_user_id: payerUserId } : {}),
         input: nativeInput,
         options: {
           stream: sideA.stream,
@@ -587,7 +649,11 @@ function prepareConsentForTargets(targets: Array<'A' | 'B'>): void {
           reasoningEffort: cfg.reasoningEffort,
           toolsJson: toolsJson.value
         })
-        const submitPayload = buildPlaygroundSubmitPayload(cfg, nativeInput)
+        const submitPayload = buildPlaygroundSubmitPayload(
+          cfg,
+          nativeInput,
+          resolvePayerForKey(cfg.apiKeyId)
+        )
         payloads[target] = submitPayload
         estimates.push(
           estimatePlaygroundRunCost(cfg, submitPayload, findCatalogModel(cfg.modelId))
@@ -909,9 +975,23 @@ function formatSettlementState(state: string | null | undefined): string {
                 data-testid="select-key-a"
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))]"
               >
-                <option v-for="k in availableKeys" :key="k.id" :value="k.id">
-                  {{ k.name }} (#{{ k.id }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
-                </option>
+                <template v-if="actAsKeys.length > 0">
+                  <optgroup v-if="ownedKeys.length > 0" :label="t('playgroundKeys.ownedGroupLabel')">
+                    <option v-for="k in ownedKeys" :key="k.id" :value="k.id">
+                      {{ k.name }} (#{{ k.id }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
+                    </option>
+                  </optgroup>
+                  <optgroup :label="t('playgroundKeys.actAsGroupLabel')">
+                    <option v-for="k in actAsKeys" :key="k.id" :value="k.id">
+                      {{ k.name }} (#{{ k.id }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
+                    </option>
+                  </optgroup>
+                </template>
+                <template v-else>
+                  <option v-for="k in ownedKeys" :key="k.id" :value="k.id">
+                    {{ k.name }} (#{{ k.id }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
+                  </option>
+                </template>
               </select>
             </label>
             <div
@@ -1108,9 +1188,23 @@ function formatSettlementState(state: string | null | undefined): string {
                 data-testid="select-key-b"
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))]"
               >
-                <option v-for="k in availableKeys" :key="k.id" :value="k.id">
-                  {{ k.name }} (#{{ k.id }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
-                </option>
+                <template v-if="actAsKeys.length > 0">
+                  <optgroup v-if="ownedKeys.length > 0" :label="t('playgroundKeys.ownedGroupLabel')">
+                    <option v-for="k in ownedKeys" :key="k.id" :value="k.id">
+                      {{ k.name }} (#{{ k.id }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
+                    </option>
+                  </optgroup>
+                  <optgroup :label="t('playgroundKeys.actAsGroupLabel')">
+                    <option v-for="k in actAsKeys" :key="k.id" :value="k.id">
+                      {{ k.name }} (#{{ k.id }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
+                    </option>
+                  </optgroup>
+                </template>
+                <template v-else>
+                  <option v-for="k in ownedKeys" :key="k.id" :value="k.id">
+                    {{ k.name }} (#{{ k.id }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
+                  </option>
+                </template>
               </select>
             </label>
             <p

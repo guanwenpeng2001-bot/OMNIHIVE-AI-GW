@@ -22,6 +22,8 @@ export default {
     retryAction: 'Retry',
     sideBUnavailable: 'No active project key available for Side B.',
     runBlockedHint: 'Create an active project key before confirming a billable run.',
+    ownedGroupLabel: 'My Project Keys',
+    actAsGroupLabel: 'Run on behalf of owner (requires payer)',
   },
   playgroundDiagnostics: {
     title: 'Diagnostics Inspector',

@@ -7,6 +7,7 @@ import {
   resolveCatalogQuoteModelId
 } from '../costEstimate'
 import { createPlaygroundRunController, type PlaygroundApiAdapter } from '../runMachine'
+import { normalizePlaygroundError } from '../errors'
 import { PlaygroundSseParser } from '../sseParser'
 import type { PlaygroundSideConfig, PlaygroundSummary } from '../types'
 
@@ -388,5 +389,33 @@ describe('Playground SSE state machine, stop, reconnect, and cost confirmation',
     expect(unpriced.quoteState).toBe('unpriced')
     expect(unpriced.rateKnown).toBe(false)
     expect(unpriced.maxTotalCost).toBeNull()
+  })
+})
+
+describe('Playground error normalization (PG-1)', () => {
+  it('surfaces explicit non-owned key 404 guidance in English and Chinese', () => {
+    const err = {
+      status: 404,
+      reason: 'NOT_FOUND',
+      message: 'Resource not found.'
+    }
+
+    const enNotice = normalizePlaygroundError(err, {
+      isZh: false,
+      isNonOwnedKey: true
+    })
+    expect(enNotice.kind).toBe('error')
+    expect(enNotice.title).toContain('404')
+    expect(enNotice.message).toContain('keys.act_as')
+    expect(enNotice.requiredGrant).toBe('keys.act_as')
+    expect(enNotice.retryable).toBe(false)
+
+    const zhNotice = normalizePlaygroundError(err, {
+      isZh: true,
+      isNonOwnedKey: true
+    })
+    expect(zhNotice.title).toContain('404')
+    expect(zhNotice.message).toContain('keys.act_as')
+    expect(zhNotice.message).toContain('付费人')
   })
 })

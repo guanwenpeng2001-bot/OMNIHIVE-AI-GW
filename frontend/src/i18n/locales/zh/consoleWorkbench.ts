@@ -22,6 +22,8 @@ export default {
     retryAction: '重试加载',
     sideBUnavailable: 'B 侧暂无当前项目的可用密钥。',
     runBlockedHint: '当前项目缺少可用密钥，无法预估确认付费执行；请先创建项目密钥。',
+    ownedGroupLabel: '我的项目密钥',
+    actAsGroupLabel: '代他人运行，需要指定付费人',
   },
   playgroundDiagnostics: {
     title: '诊断检查器',
