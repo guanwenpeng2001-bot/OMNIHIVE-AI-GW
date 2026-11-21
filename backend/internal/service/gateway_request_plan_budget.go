@@ -3,12 +3,35 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"strings"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
 	"github.com/shopspring/decimal"
 )
+
+var ErrGatewayBudgetModelNotFound = errors.New("model_not_found")
+
+func GatewayBudgetModelUnknown(plan *GatewayRequestPlan, estimate RequestBudgetEstimate) bool {
+	return estimate.Meter == nil && budgetModelOutputLimit(plan, estimate.Model) == 0
+}
+
+func budgetModelOutputLimit(plan *GatewayRequestPlan, model string) int {
+	if plan == nil || plan.ModelRegistrySnapshot() == nil {
+		return 0
+	}
+	for _, profile := range []string{"anthropic", "openai", "gemini", "vertex_ai"} {
+		if record, ok := plan.ModelRegistrySnapshot().CapabilitySnapshot().LookupExact(profile, model); ok && record.MaxOutputTokens != nil {
+			return int(*record.MaxOutputTokens)
+		}
+	}
+	return 0
+}
+
+func GatewayModelOutputBudgetLimit(plan *GatewayRequestPlan, model string) int {
+	return budgetModelOutputLimit(plan, model)
+}
 
 // BudgetMeter describes provider units before a request is sent. Numerator and
 // Denominator retain fractional seconds without a floating-point division.

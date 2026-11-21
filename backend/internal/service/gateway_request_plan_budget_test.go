@@ -207,7 +207,7 @@ func TestKeyHardBudgetRejectsMissingPriceAndAdmitsExplicitFree(t *testing.T) {
 				require.Len(t, repo.reservations, 1)
 				require.Zero(t, repo.reservations[0].HoldAmount)
 			} else {
-				require.ErrorIs(t, err, ErrAPIKeyBudgetUnavailable)
+				require.ErrorIs(t, err, ErrGatewayBudgetModelNotFound)
 				require.Empty(t, repo.reservations)
 			}
 		})

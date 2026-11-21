@@ -4,12 +4,15 @@ package handler
 
 import (
 	"errors"
+	"github.com/gin-gonic/gin"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestGatewayBudgetErrorResponseMapsRejections(t *testing.T) {
@@ -35,6 +38,20 @@ func TestGatewayBudgetErrorResponseMapsRejections(t *testing.T) {
 	status, reason, _ = gatewayBudgetErrorResponse(infraerrors.BadRequest("SOMETHING_ELSE", "boom"))
 	require.Equal(t, http.StatusServiceUnavailable, status)
 	require.Equal(t, "API_KEY_BUDGET_UNAVAILABLE", reason)
+}
+
+func TestGatewayBudgetUnknownModelIsProtocolNotFound(t *testing.T) {
+	for _, path := range []string{"/v1/chat/completions", "/v1/responses", "/v1/messages"} {
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(http.MethodPost, path, nil)
+		abortGatewayRequestBudget(c, service.ErrGatewayBudgetModelNotFound)
+		require.Equal(t, http.StatusNotFound, recorder.Code)
+		require.Equal(t, "model_not_found", gjson.Get(recorder.Body.String(), "error.code").String())
+		if path == "/v1/messages" {
+			require.Equal(t, "error", gjson.Get(recorder.Body.String(), "type").String())
+		}
+	}
 }
 
 func TestDeclaredGatewayMaxOutputTokensAcrossProtocols(t *testing.T) {

@@ -42,7 +42,12 @@ func reserveRequestBudget(ctx context.Context, key *service.APIKey, model string
 	if plan == nil {
 		return service.ErrAPIKeyBudgetUnavailable
 	}
-	return plan.ReserveBudget(ctx, gatewayRequestBudgetEstimate(plan, key, model, body, contentType...))
+	estimate := gatewayRequestBudgetEstimate(plan, key, model, body, contentType...)
+	err := plan.ReserveBudget(ctx, estimate)
+	if errors.Is(err, service.ErrAPIKeyBudgetUnavailable) && service.GatewayBudgetModelUnknown(plan, estimate) {
+		return service.ErrGatewayBudgetModelNotFound
+	}
+	return err
 }
 
 // Media units come from the inbound protocol and the generation parameters.
@@ -66,7 +71,7 @@ func gatewayRequestBudgetEstimate(plan *service.GatewayRequestPlan, key *service
 	estimate.OutputTokens = declaredGatewayMaxOutputTokens(body)
 	estimate.OutputTokens = gatewayCandidateCount(body) * (estimate.OutputTokens + declaredGatewayReasoningTokens(body))
 	if estimate.OutputTokens == 0 {
-		estimate.OutputTokens = modelBudgetOutputLimit(plan, model)
+		estimate.OutputTokens = service.GatewayModelOutputBudgetLimit(plan, model)
 	}
 	estimate.CacheCreationTokens = estimateGatewayCacheCreationTokens(body, estimate.InputTokens)
 	return estimate
@@ -110,18 +115,6 @@ func estimateGatewayCacheCreationTokens(body []byte, input int) int {
 	return min(total, input)
 }
 
-func modelBudgetOutputLimit(plan *service.GatewayRequestPlan, model string) int {
-	if plan == nil || plan.ModelRegistrySnapshot() == nil {
-		return 0
-	}
-	for _, profile := range []string{"anthropic", "openai", "gemini", "vertex_ai"} {
-		if record, ok := plan.ModelRegistrySnapshot().CapabilitySnapshot().LookupExact(profile, model); ok && record.MaxOutputTokens != nil {
-			return int(*record.MaxOutputTokens)
-		}
-	}
-	return 0
-}
-
 // budgetEstimateIgnoresBody 报告该协议是否"请求体不含 token 用量"。
 func budgetEstimateIgnoresBody(protocol string) bool {
 	switch protocol {
@@ -138,6 +131,9 @@ func abortGatewayRequestBudget(c *gin.Context, err error) {
 }
 
 func gatewayBudgetErrorResponse(err error) (status int, reason, message string) {
+	if errors.Is(err, service.ErrGatewayBudgetModelNotFound) {
+		return http.StatusNotFound, "model_not_found", "Model does not exist or is not available for this group"
+	}
 	var f *fault.Fault
 	if errors.As(err, &f) {
 		return f.Status, f.Reason, f.Message
