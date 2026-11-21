@@ -21,7 +21,10 @@ func (a SignupAgreement) Context(ctx context.Context) context.Context {
 }
 
 func signupAgreementFromContext(ctx context.Context) *SignupAgreement {
-	a, _ := ctx.Value(signupAgreementKey{}).(SignupAgreement)
+	a, ok := ctx.Value(signupAgreementKey{}).(SignupAgreement)
+	if !ok {
+		return &SignupAgreement{}
+	}
 	return &a
 }
 

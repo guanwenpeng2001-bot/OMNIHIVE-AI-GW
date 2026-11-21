@@ -205,8 +205,8 @@ func EncryptVerifiedCredential(ctx context.Context, enc SecretEncryptor, m Crede
 }
 
 func AccountAPIKeyDigest(credentials map[string]any) string {
-	key, _ := credentials["api_key"].(string)
-	if key == "" {
+	key, ok := credentials["api_key"].(string)
+	if !ok || key == "" {
 		return ""
 	}
 	sum := sha256.Sum256([]byte(key))
