@@ -66,6 +66,10 @@ func legalDocumentPlaceholder(title, sections string) string {
 		"Document the following where applicable: " + sections + ". Do not present this template as published legal terms."
 }
 
+// LoginAgreementReady reports whether every document has a title and final
+// text. Template documents are never presented to registrants.
+func LoginAgreementReady(docs []LoginAgreementDocument) bool { return loginAgreementReady(docs) }
+
 func loginAgreementReady(docs []LoginAgreementDocument) bool {
 	if len(docs) == 0 {
 		return false

@@ -830,6 +830,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		response.BadRequest(c, "Login agreement documents are required when enabled")
 		return
 	}
+	if req.LoginAgreementEnabled && !service.LoginAgreementReady(loginAgreementDocuments) {
+		response.BadRequest(c, "Replace the template text in every login agreement document before enabling registration agreements")
+		return
+	}
 
 	// LinuxDo Connect 参数验证
 	if req.LinuxDoConnectEnabled {
