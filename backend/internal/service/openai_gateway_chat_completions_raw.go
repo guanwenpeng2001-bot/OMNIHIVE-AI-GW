@@ -381,6 +381,10 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 
 	var usage OpenAIUsage
 	var firstTokenMs *int
+	var observation *TokenUsageObservation
+	if account.Platform == PlatformOpenAI {
+		observation = &TokenUsageObservation{}
+	}
 	chatUsageKnown := false
 	hunyuanUsageKnown := false
 	clientDisconnected := false
@@ -476,7 +480,9 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 						hunyuanUsageKnown = true
 					}
 				}
-				if reported := extractCCStreamUsage(payload); reported != nil && account.Platform != PlatformHunyuan {
+				if observation != nil {
+					mergeRawChatUsage(payload, &usage, observation)
+				} else if reported := extractCCStreamUsage(payload); reported != nil && account.Platform != PlatformHunyuan {
 					if (account.Platform != PlatformMistral && account.Platform != PlatformOpenRouter) || mistralChatUsageKnown([]byte(payload)) {
 						usage = *reported
 						chatUsageKnown = true
@@ -533,6 +539,8 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			RequestID:                     requestID,
 			UpstreamHeaders:               resp.Header,
 			Usage:                         usage,
+			TokenUsageObservation:         observation,
+			UsageIncomplete:               !observation.known(),
 			Model:                         originalModel,
 			BillingModel:                  billingModel,
 			UpstreamModel:                 upstreamModel,
@@ -637,6 +645,31 @@ func isOpenAIChatUsageOnlyStreamChunk(payload string) bool {
 	}
 	choices := gjson.Get(payload, "choices")
 	return choices.Exists() && choices.IsArray() && len(choices.Array()) == 0
+}
+
+// Chat usage frames report cumulative counters. Only a present counter
+// replaces its prior value, including an explicitly reported zero.
+func mergeRawChatUsage(payload string, usage *OpenAIUsage, observation *TokenUsageObservation) {
+	var frame TokenUsageObservation
+	reported, ok := extractObservedOpenAIUsage([]byte(payload), &frame)
+	if !ok {
+		return
+	}
+	if frame.known() {
+		*usage = reported
+		*observation = frame
+		return
+	}
+	if frame.InputTokensKnown {
+		usage.InputTokens = reported.InputTokens
+		observation.InputTokensKnown = true
+	}
+	if frame.OutputTokensKnown {
+		usage.OutputTokens = reported.OutputTokens
+		observation.OutputTokensKnown = true
+	}
+	reported.InputTokens, reported.OutputTokens = 0, 0
+	mergeOpenAIUsageNonZero(usage, reported)
 }
 
 // extractCCStreamUsage 从单个 CC 流式 chunk 的 payload 中提取 usage 字段。
