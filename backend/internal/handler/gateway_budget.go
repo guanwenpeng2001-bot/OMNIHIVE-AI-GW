@@ -42,6 +42,9 @@ func reserveGatewayRequestBudget(c *gin.Context, key *service.APIKey, model stri
 
 func reserveRequestBudget(ctx context.Context, key *service.APIKey, model string, body []byte, contentType ...string) error {
 	plan := service.GatewayRequestPlanFromContext(ctx)
+	if err := validateMediaRequestAliases(plan.Snapshot(), body, contentType...); err != nil {
+		return &fault.Fault{Status: http.StatusBadRequest, Reason: "invalid_request_error", Message: err.Error()}
+	}
 	if !key.HasPeriodBudget() && !plan.HasProjectBudgetCoordinator() {
 		return nil
 	}

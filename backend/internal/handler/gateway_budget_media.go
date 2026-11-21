@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -15,6 +16,42 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/tidwall/gjson"
 )
+
+func validateMediaRequestAliases(spec service.GatewayRequestSpec, body []byte, contentType ...string) error {
+	route := strings.ToLower(spec.Route)
+	if strings.Contains(route, "/tts") || strings.Contains(route, "/speech") {
+		if _, err := service.GrokTTSCharacters(body); err != nil {
+			return err
+		}
+	}
+	if spec.Protocol == "images" || spec.Protocol == "media" && strings.Contains(route, "image") || strings.Contains(route, "image") {
+		aliases := body
+		if len(contentType) > 0 {
+			mediaType, params, _ := mime.ParseMediaType(contentType[0])
+			if mediaType == "multipart/form-data" {
+				fields := map[string]string{}
+				reader := multipart.NewReader(bytes.NewReader(body), params["boundary"])
+				for {
+					part, err := reader.NextPart()
+					if err != nil {
+						break
+					}
+					if name := part.FormName(); name == "size" || name == "resolution" {
+						value, _ := io.ReadAll(io.LimitReader(part, 128))
+						fields[name] = string(value)
+					}
+				}
+				aliases, _ = json.Marshal(fields)
+			}
+		}
+		size := strings.TrimSpace(gjson.GetBytes(aliases, "size").String())
+		resolution := strings.TrimSpace(gjson.GetBytes(aliases, "resolution").String())
+		if !imageSizeAliasesAgree(size, resolution) {
+			return fmt.Errorf("image size and resolution disagree")
+		}
+	}
+	return nil
+}
 
 func requestMediaMeter(spec service.GatewayRequestSpec, body []byte, contentType ...string) *service.BudgetMeter {
 	meter := &service.BudgetMeter{Count: 1, Numerator: 1, Denominator: 1}

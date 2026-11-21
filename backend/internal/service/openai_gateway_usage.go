@@ -599,6 +599,12 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 			return s.calculateOpenAIVideoCost(ctx, billingModel, apiKey, result, videoMultiplier), nil
 		}
 	}
+	if result != nil && result.ImageCount > 0 && result.TokenUsageObservation == nil && result.Usage.InputTokens == 0 && result.Usage.OutputTokens == 0 {
+		if resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey); resolved != nil && resolved.Mode == BillingModeToken {
+			snapshot, _ := json.Marshal(PricingSnapshot{PricingState: PricingStateUnpriced, Source: "upstream_usage_unknown", Model: billingModel, Mode: string(BillingModeToken), Tokens: tokens, TokenUsageObservation: result.TokenUsageObservation})
+			return &CostBreakdown{PricingState: PricingStateUnpriced, BillingMode: string(BillingModeToken), PricingSnapshot: string(snapshot)}, nil
+		}
+	}
 	if result != nil && result.AudioUsage != nil {
 		if resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey); resolved != nil &&
 			(resolved.Mode == BillingModePerRequest) {

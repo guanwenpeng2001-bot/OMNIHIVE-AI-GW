@@ -2849,6 +2849,34 @@ func newOpenAITokenImageChannelPricingResolverWithTimeForTest(
 	return resolver
 }
 
+func TestOpenAIGatewayServiceRecordUsage_TokenPricedImageWithoutUsageNeedsReview(t *testing.T) {
+	groupID := int64(133)
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}
+	svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(usageRepo, billingRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+	group := &Group{ID: groupID, RateMultiplier: 1}
+	svc.resolver = newOpenAITokenImageChannelPricingResolverForTest(t, groupID, "gpt-image-mock")
+	cost, err := svc.calculateOpenAIRecordUsageCost(context.Background(), &OpenAIForwardResult{Model: "gpt-image-mock", ImageCount: 1, ImageSize: "1K"}, &APIKey{GroupID: &groupID, Group: group}, []string{"gpt-image-mock"}, 1, 1, 1, 1, UsageTokens{}, "", nil, time.Time{})
+	require.NoError(t, err)
+	require.Equal(t, PricingStateUnpriced, cost.PricingState)
+	require.Equal(t, string(BillingModeToken), cost.BillingMode)
+	require.Zero(t, cost.ActualCost)
+
+	err = svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result:  &OpenAIForwardResult{RequestID: "image-without-token-usage", Model: "gpt-image-mock", ImageCount: 1, ImageSize: "1K"},
+		APIKey:  &APIKey{ID: 20, GroupID: &groupID, Group: group},
+		User:    &User{ID: 10},
+		Account: &Account{ID: 30, Platform: PlatformOpenAI},
+	})
+
+	require.ErrorIs(t, err, ErrUsageSettlementNeedsReview)
+	require.Zero(t, billingRepo.calls)
+	receipt := receiptFixture(t, svc).receipt
+	require.NotNil(t, receipt)
+	require.Equal(t, PricingStateUnpriced, receipt.Usage.PricingState)
+	require.Equal(t, UsageSettlementNeedsReview, receipt.State)
+}
+
 type openAIMediaPriceGroupRepoStub struct {
 	GroupRepository
 	group *Group
