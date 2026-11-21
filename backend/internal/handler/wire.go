@@ -216,12 +216,15 @@ func ProvideHandlers(
 	batchImageHandler *BatchImageHandler,
 	resourceHandler *GatewayResourceHandler,
 	usageSettlement *service.UsageSettlementService,
+	mcpGrants service.MCPGrantStore,
+	totpService *service.TotpService,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 	_ *service.OpenAIQuotaAutoResetService,
 ) *Handlers {
 	mcp := NewMCPGrantHandler()
 	mcp.SetCacheUsageRecorder(usageSettlement)
+	mcp.SetSecurityDependencies(mcpGrants, totpService)
 	return &Handlers{
 		MCP:              mcp,
 		ModelAccess:      modelAccessHandler,

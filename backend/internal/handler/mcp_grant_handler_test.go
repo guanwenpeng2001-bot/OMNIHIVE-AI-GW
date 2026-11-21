@@ -125,13 +125,15 @@ func TestMcpGrantValidation(t *testing.T) {
 		{"valid code", "admin", `{"scope":"admin","permission":"write","totp_code":"012345"}`, 200},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			h := NewMCPGrantHandler()
+			h.stepUpVerifier = mcpStepUpVerifierFunc(func(context.Context, int64, string, string) error { return nil })
 			payload := map[string]string{"decision": "approve", "client_id": "client", "name": "Client", "redirect_uri": "https://example.test/callback", "scope": "user", "permission": "read"}
 			require.NoError(t, json.Unmarshal([]byte(tc.patch), &payload))
 			body, err := json.Marshal(payload)
 			require.NoError(t, err)
-			w := mcpRequest(NewMCPGrantHandler(), 1, tc.role, "POST", "/grants", string(body))
+			w := mcpRequest(h, 1, tc.role, "POST", "/grants", string(body))
 			require.Equal(t, tc.status, w.Code, w.Body.String())
-			w = mcpRequest(NewMCPGrantHandler(), 1, tc.role, "POST", "/authorize", string(body))
+			w = mcpRequest(h, 1, tc.role, "POST", "/authorize", string(body))
 			require.Equal(t, tc.status, w.Code, w.Body.String())
 		})
 	}
@@ -157,17 +159,22 @@ func TestMcpGrantConcurrentInitialization(t *testing.T) {
 
 func TestMcpGrantAuthorizeDecisions(t *testing.T) {
 	h := NewMCPGrantHandler()
+	h.stepUpVerifier = mcpStepUpVerifierFunc(func(context.Context, int64, string, string) error { return nil })
 	body := `{"decision":"deny","client_id":"client","name":"Client","redirect_uri":"https://example.test/callback","scope":"admin","permission":"write"}`
 	denied := mcpData[map[string]any](t, mcpRequest(h, 1, "user", "POST", "/authorize", body))
 	require.Equal(t, "denied", denied["decision"])
 	events := mcpData[[]UserAuditEventDTO](t, mcpRequest(h, 1, "user", "GET", "/audit", ""))
 	require.Equal(t, "mcp.grant.denied", events[0].Action)
 	require.Equal(t, "denied", events[0].Status)
-	require.Empty(t, h.users[1].grants)
+	require.Empty(t, mcpData[struct {
+		Grants []MCPGrantDTO `json:"grants"`
+	}](t, mcpRequest(h, 1, "user", "GET", "/grants", "")).Grants)
 	body = strings.ReplaceAll(strings.ReplaceAll(body, "deny", "approve"), "admin", "user")
 	approved := mcpData[map[string]any](t, mcpRequest(h, 1, "user", "POST", "/authorize", body))
 	require.Equal(t, "approved", approved["decision"])
-	require.Len(t, h.users[1].grants, 1)
+	require.Len(t, mcpData[struct {
+		Grants []MCPGrantDTO `json:"grants"`
+	}](t, mcpRequest(h, 1, "user", "GET", "/grants", "")).Grants, 1)
 	for _, invalid := range []string{`{`, strings.ReplaceAll(body, "approve", "other"), strings.ReplaceAll(body, `"client_id":"client"`, `"client_id":""`), strings.ReplaceAll(body, `"name":"Client"`, `"resource":"javascript:alert(1)","name":"Client"`)} {
 		require.Equal(t, 400, mcpRequest(h, 1, "user", "POST", "/authorize", invalid).Code)
 	}

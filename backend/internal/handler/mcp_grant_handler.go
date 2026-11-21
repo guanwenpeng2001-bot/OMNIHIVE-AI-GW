@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -29,18 +30,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
-type MCPGrantDTO struct {
-	ID          string     `json:"id"`
-	ClientID    string     `json:"client_id"`
-	Name        string     `json:"name"`
-	RedirectURI string     `json:"redirect_uri"`
-	Scope       string     `json:"scope"`
-	Permission  string     `json:"permission"`
-	Status      string     `json:"status"`
-	CreatedAt   time.Time  `json:"created_at"`
-	ExpiresAt   time.Time  `json:"expires_at"`
-	LastUsedAt  *time.Time `json:"last_used_at"`
-}
+type MCPGrantDTO = service.MCPGrantDTO
 
 type UserAuditEventDTO struct {
 	ID        string    `json:"id"`
@@ -75,10 +65,21 @@ type MCPGrantHandler struct {
 	cacheOrder     []string
 	cacheBytes     int
 	cacheUsage     service.CacheUsageRecorder
+	grantStore     service.MCPGrantStore
+	stepUpVerifier mcpStepUpVerifier
+}
+
+type mcpStepUpVerifier interface {
+	VerifyStepUp(context.Context, int64, string, string) (time.Duration, error)
 }
 
 func NewMCPGrantHandler() *MCPGrantHandler {
-	return &MCPGrantHandler{users: make(map[int64]*mcpUserState)}
+	return &MCPGrantHandler{users: make(map[int64]*mcpUserState), grantStore: newMemoryMCPGrantStore()}
+}
+
+func (h *MCPGrantHandler) SetSecurityDependencies(store service.MCPGrantStore, verifier mcpStepUpVerifier) {
+	h.grantStore = store
+	h.stepUpVerifier = verifier
 }
 
 func (h *MCPGrantHandler) SetCacheUsageRecorder(recorder service.CacheUsageRecorder) {
@@ -117,9 +118,11 @@ func (h *MCPGrantHandler) ListGrants(c *gin.Context) {
 	if !ok {
 		return
 	}
-	h.mu.Lock()
-	grants := append([]MCPGrantDTO{}, h.state(id).grants...)
-	h.mu.Unlock()
+	grants, err := h.grantStore.List(c.Request.Context(), id)
+	if err != nil {
+		response.Error(c, 503, "MCP grants unavailable")
+		return
+	}
 	response.Success(c, gin.H{"endpoint": "/mcp", "role": role, "grants": grants})
 }
 
@@ -182,6 +185,10 @@ func (h *MCPGrantHandler) createGrant(c *gin.Context, authorize bool) {
 		return
 	}
 	if authorize && req.Decision == "deny" {
+		if err := h.grantStore.RegisterClient(c.Request.Context(), id, req.ClientID, req.Name, req.RedirectURI); err != nil {
+			response.Error(c, 503, "MCP client registration unavailable")
+			return
+		}
 		audit := mcpAudit(c, "mcp.grant.denied", MCPGrantDTO{ID: req.ClientID, Name: req.Name})
 		audit.Status = "denied"
 		h.mu.Lock()
@@ -191,23 +198,53 @@ func (h *MCPGrantHandler) createGrant(c *gin.Context, authorize bool) {
 		response.Success(c, gin.H{"decision": "denied", "client_id": req.ClientID, "name": req.Name, "redirect_uri": req.RedirectURI})
 		return
 	}
+	if authorize {
+		if err := h.grantStore.RegisterClient(c.Request.Context(), id, req.ClientID, req.Name, req.RedirectURI); err != nil {
+			response.Error(c, 503, "MCP client registration unavailable")
+			return
+		}
+	}
 	if req.Scope == "admin" && role != "admin" {
 		response.Error(c, 403, "Administrator scope requires an administrator")
 		return
 	}
-	// Format validation only: this handler does not issue access credentials.
 	if req.Scope == "admin" && req.Permission == "write" && !mcpTOTPFormat.MatchString(req.TOTPCode) {
 		response.Error(c, 428, "A six-digit two-step verification code is required")
 		return
 	}
+	if authorize && req.Permission == "write" {
+		if h.stepUpVerifier == nil {
+			response.Error(c, 503, "Step-up verification unavailable")
+			return
+		}
+		matches, err := h.grantStore.ClientMatches(c.Request.Context(), id, req.ClientID, req.RedirectURI)
+		if err != nil || !matches {
+			response.Error(c, 400, "redirect_uri does not match the registered client")
+			return
+		}
+		if _, err := h.stepUpVerifier.VerifyStepUp(c.Request.Context(), id, middleware.StepUpSessionKey(c, id), req.TOTPCode); err != nil {
+			response.Error(c, 403, "Step-up verification failed")
+			return
+		}
+	}
 	if strings.TrimSpace(req.ClientID) == "" {
 		req.ClientID = uuid.NewString()
 	}
+	if !authorize {
+		if err := h.grantStore.RegisterClient(c.Request.Context(), id, req.ClientID, req.Name, req.RedirectURI); err != nil {
+			response.Error(c, 503, "MCP client registration unavailable")
+			return
+		}
+	}
 	now := time.Now().UTC()
 	grant := MCPGrantDTO{ID: uuid.NewString(), ClientID: req.ClientID, Name: req.Name, RedirectURI: req.RedirectURI, Scope: req.Scope, Permission: req.Permission, Status: "active", CreatedAt: now, ExpiresAt: now.Add(30 * 24 * time.Hour)}
+	grant, err = h.grantStore.Create(c.Request.Context(), id, grant)
+	if err != nil {
+		response.Error(c, 503, "MCP grant unavailable")
+		return
+	}
 	h.mu.Lock()
 	s := h.state(id)
-	s.grants = append(s.grants, grant)
 	s.events = append([]UserAuditEventDTO{mcpAudit(c, "mcp.grant.created", grant)}, s.events...)
 	h.mu.Unlock()
 	if authorize {
@@ -226,23 +263,28 @@ func (h *MCPGrantHandler) RevokeGrant(c *gin.Context) {
 	if !ok {
 		return
 	}
-	h.mu.Lock()
-	s := h.state(id)
-	for i := range s.grants {
-		if s.grants[i].ID != c.Param("id") {
-			continue
+	_, wasActive, _ := h.grantStore.Active(c.Request.Context(), id, c.Param("id"))
+	grant, err := h.grantStore.Revoke(c.Request.Context(), id, c.Param("id"))
+	if err == nil {
+		if wasActive {
+			h.mu.Lock()
+			s := h.state(id)
+			s.events = append([]UserAuditEventDTO{mcpAudit(c, "mcp.grant.revoked", grant)}, s.events...)
+			h.mu.Unlock()
 		}
-		if s.grants[i].Status != "revoked" {
-			s.grants[i].Status = "revoked"
-			s.events = append([]UserAuditEventDTO{mcpAudit(c, "mcp.grant.revoked", s.grants[i])}, s.events...)
-		}
-		grant := s.grants[i]
-		h.mu.Unlock()
 		response.Success(c, grant)
 		return
 	}
-	h.mu.Unlock()
+	if !errors.Is(err, ErrMCPGrantNotFound) {
+		response.Error(c, 503, "MCP grant unavailable")
+		return
+	}
 	response.Error(c, 404, "Grant not found")
+}
+
+func (h *MCPGrantHandler) storeGrant(ctx context.Context, userID int64, grantID string) (MCPGrantDTO, bool) {
+	grant, ok, err := h.grantStore.Active(ctx, userID, grantID)
+	return grant, ok && err == nil
 }
 
 func (h *MCPGrantHandler) ListUserAuditLogs(c *gin.Context) {

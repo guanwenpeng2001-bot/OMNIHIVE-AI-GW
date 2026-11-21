@@ -49,6 +49,7 @@ import { useI18n } from 'vue-i18n'
 import AuthLayout from '@/components/layout/AuthLayout.vue'
 import { useAuthStore } from '@/stores/auth'
 import { mcpAPI, type MCPGrantDTO } from '@/api/mcp'
+import { totpAPI } from '@/api/totp'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -137,6 +138,7 @@ async function saveAuthorization(code?: string) {
   error.value = ''
   const payload = { client_id: request.value.client_id, name: request.value.client_name || request.value.client_id, redirect_uri: request.value.redirect_uri, scope: scope.value, permission: permission.value, ...(code ? { totp_code: code } : {}) }
   try {
+    if (code) await totpAPI.stepUp(code)
     const decision = await mcpAPI.authorizeGrant({ ...payload, resource: request.value.resource, decision: 'approve' })
     if (decision.decision !== 'approved') throw new Error(t('publicPortal.mcpAuthorize.errApproveUnconfirmed'))
     const grant = decision.grant
