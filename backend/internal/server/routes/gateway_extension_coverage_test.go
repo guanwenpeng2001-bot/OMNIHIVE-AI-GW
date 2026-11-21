@@ -75,12 +75,16 @@ func TestGatewayExtensionRouteCoverage(t *testing.T) {
 func TestRoutingConstraintsAcrossGatewayRegistry(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	checked := 0
+	antigravityChecked := 0
 	for _, route := range protocolMatrixRouter("gemini").Routes() {
 		path := concreteMatrixPath(route.Path)
 		if service.GatewayActionForRoute(route.Method, path) == "" {
 			continue
 		}
 		checked++
+		if strings.HasPrefix(path, "/antigravity/") {
+			antigravityChecked++
+		}
 		router := protocolMatrixRouter("gemini")
 		sends := 0
 		router.Use(func(c *gin.Context) {
@@ -100,6 +104,7 @@ func TestRoutingConstraintsAcrossGatewayRegistry(t *testing.T) {
 		require.Zero(t, sends, "%s %s reached dispatch", route.Method, path)
 	}
 	require.Positive(t, checked)
+	require.GreaterOrEqual(t, antigravityChecked, 2)
 }
 
 func TestRoutingHeaderParsingPrecedesDispatch(t *testing.T) {
