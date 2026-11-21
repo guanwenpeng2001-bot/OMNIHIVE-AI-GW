@@ -61,13 +61,13 @@ const COMPAT_MESSAGES = {
     pluginV2Badge: 'Current Standard · v2',
     pluginV2Title: 'omnihive.plugin.v2 (.ohplugin)',
     pluginV2Body:
-      'Canonical signed archive format with v2 manifest schema, SHA-256 package digest verification, explicit host capability permissions (omnihive-plugin-host), and tenant-scoped storage keys (omnihive.<domain>.v1).',
+      'Target signed archive format with v2 manifest schema and SHA-256 package digest verification. Note: the current admin host bridge still dispatches sub2api-plugin-host / sub2api.plugin.ready while transitioning to omnihive-plugin-host.',
     pluginV2Action: 'Required for all newly published plugins and production upgrades.',
 
     pluginV1Badge: 'Deprecated · Compatibility Bridge',
     pluginV1Title: 'Legacy .s2plugin (v1 Bridge)',
     pluginV1Body:
-      'Accepted only through the transitional compatibility loader during the v1 -> v2 migration window. Legacy postMessage sources and un-scoped localStorage keys are deprecated and scheduled for removal.',
+      'Currently handled by the admin compatibility loader (sub2api-plugin-host / sub2api.plugin.ready) during the v1 -> v2 migration window. Legacy postMessage sources and un-scoped localStorage keys are scheduled for removal.',
     pluginV1Action: 'Repackage existing extensions to .ohplugin with manifest_version: 2 before cutover.',
 
     releaseEyebrow: 'RELEASE SAFETY & ROLLBACK',
@@ -87,7 +87,7 @@ const COMPAT_MESSAGES = {
     limit1:
       'Sparse or freshly published models display Unobserved / Insufficient samples until live traffic meets the disclosure threshold—never fabricated 0 ms or 100% uptime.',
     limit2:
-      'Compatible upstream connections without active capability probes require explicit model declaration rather than synthetic verification badges.',
+      'Connection wizard v2 requires /models probe evidence to activate (409 EVIDENCE_UNAVAILABLE blocks activation when discover_models is unknown or unsupported); non-probing upstreams must be saved as drafts or configured via controlled allowlists.',
     limit3:
       'Cross-protocol bridges reject provider-exclusive hosted tools when target upstreams cannot honor them, preventing silent behavioral drift.'
   },
@@ -145,13 +145,13 @@ const COMPAT_MESSAGES = {
     pluginV2Badge: '当前主标准 · v2',
     pluginV2Title: 'omnihive.plugin.v2 (.ohplugin)',
     pluginV2Body:
-      '采用 v2 Manifest 清单、SHA-256 包摘要强校验、omnihive-plugin-host 受控通信桥与绑定工作空间/用户的 omnihive.<domain>.v1 存储键。',
+      '目标签名归档格式，采用 v2 Manifest 清单与 SHA-256 摘要校验。注：当前管理端宿主桥接仍使用 sub2api-plugin-host / sub2api.plugin.ready，正逐步过渡至 omnihive-plugin-host。',
     pluginV2Action: '所有新上架扩展与生产环境自动化部署均须使用 .ohplugin v2 格式。',
 
     pluginV1Badge: '已弃用 · 迁移窗口兼容',
     pluginV1Title: '旧版 .s2plugin（v1 兼容桥接）',
     pluginV1Body:
-      '仅在 v1 → v2 过渡窗口内以显式兼容模式加载；旧版 postMessage source 与未分区缓存键已标记弃用，将在兼容窗口结束后下线。',
+      '当前由管理端兼容加载器（sub2api-plugin-host / sub2api.plugin.ready）在 v1 → v2 过渡窗口内承接；旧版 postMessage source 与未分区缓存键将在窗口结束后下线。',
     pluginV1Action: '请在迁移窗口期内升级清单至 manifest_version: 2 并重新打包为 .ohplugin。',
 
     releaseEyebrow: '版本更新、校验和与回滚保障',
@@ -171,7 +171,7 @@ const COMPAT_MESSAGES = {
     limit1:
       '公开状态页与模型广场对低样本模型统一标注「未观测 / 样本不足」，绝不回退或伪造为 0 ms 延迟或 99.99% 可用性。',
     limit2:
-      '无主动探针的兼容协议上游连接需显式声明可用模型范围，不会生成伪造的自动探测通过凭证。',
+      'v2 连接向导强制要求 /models 探针证据才能激活（discover_models 为 unknown/unsupported 时返回 409 EVIDENCE_UNAVAILABLE 阻断启用）；无探针上游需保存为草稿或走受控白名单流程。',
     limit3:
       '跨协议桥接遇到目标供应商无法执行的专有托管工具时直接报错阻断，防止生产调用静默偏离预期行为。'
   }
@@ -252,7 +252,7 @@ const protocolRows: readonly ProtocolMatrixRow[] = [
   {
     id: 'retrieval-media',
     nameKey: 'protoMediaName',
-    endpoint: 'POST /v1/embeddings · /v1/rerank · /v1/images · /v1/audio/*',
+    endpoint: 'POST /v1/embeddings · /v1/rerank · /v1/images/generations · /v1/audio/*',
     maturityTone: 'success',
     maturityKey: 'maturityStable',
     capabilitiesKey: 'protoMediaCap',
@@ -282,6 +282,15 @@ const releaseCards = computed(() => [
 ])
 
 const limitationItems = computed(() => [tr('limit1'), tr('limit2'), tr('limit3')])
+const { t: tGlobal } = useI18n({ useScope: 'global' })
+const changelogEntries = computed(() =>
+  (['v210', 'v200'] as const).map((id) => ({
+    version: tGlobal(`publicPortal.compatibilityChangelog.${id}.version`),
+    date: tGlobal(`publicPortal.compatibilityChangelog.${id}.date`),
+    summary: tGlobal(`publicPortal.compatibilityChangelog.${id}.summary`),
+    migration: tGlobal(`publicPortal.compatibilityChangelog.${id}.migration`)
+  }))
+)
 </script>
 
 <template>
@@ -478,6 +487,37 @@ const limitationItems = computed(() => [tr('limit1'), tr('limit2'), tr('limit3')
             {{ item }}
           </li>
         </ul>
+      </section>
+
+      <!-- 5. Versioned Changelog -->
+      <section
+        v-if="changelogEntries.length"
+        data-testid="compatibility-changelog"
+        aria-labelledby="compat-changelog-heading"
+        class="space-y-4"
+      >
+        <div>
+          <p class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+            {{ tGlobal('publicPortal.compatibilityChangelog.eyebrow') }}
+          </p>
+          <h2 id="compat-changelog-heading" class="mt-1 text-xl font-semibold text-oh-primary">
+            {{ tGlobal('publicPortal.compatibilityChangelog.title') }}
+          </h2>
+        </div>
+        <div class="space-y-3">
+          <article
+            v-for="entry in changelogEntries"
+            :key="entry.version"
+            class="rounded-oh-md border border-oh-default bg-oh-surface p-4 sm:p-5"
+          >
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <span class="font-mono text-sm font-semibold text-oh-primary">{{ entry.version }}</span>
+              <span class="font-mono text-xs text-oh-muted">{{ entry.date }}</span>
+            </div>
+            <p class="mt-2 text-xs leading-6 text-oh-secondary">{{ entry.summary }}</p>
+            <p class="mt-2 border-t border-oh-subtle pt-2 font-mono text-[11px] text-oh-muted">{{ entry.migration }}</p>
+          </article>
+        </div>
       </section>
     </div>
   </PublicShell>

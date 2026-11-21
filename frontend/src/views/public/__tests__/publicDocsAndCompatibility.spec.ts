@@ -348,4 +348,56 @@ describe('Public documentation, compatibility page & /models redirect (FE-10-15,
     expect(supportSection.text()).toContain('Not configured')
     expect(supportSection.text()).toContain('1–2 business days')
   })
+
+  it('corrects image endpoint, probe constraint, plugin host disclosure, and renders versioned changelog [E1-5]', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/compatibility', component: PublicCompatibilityView }]
+    })
+    await router.push('/compatibility')
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: compiledMessages })
+    const wrapper = mount(PublicCompatibilityView, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { SiteICPFooter: true, LocaleSwitcher: true }
+      }
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('/v1/images/generations')
+    expect(text).not.toContain('POST /v1/embeddings · /v1/rerank · /v1/images · /v1/audio/*')
+    expect(text).toContain('sub2api-plugin-host')
+    expect(text).toContain('EVIDENCE_UNAVAILABLE')
+    expect(wrapper.find('[data-testid="compatibility-changelog"]').exists()).toBe(true)
+  })
+
+  it('includes SDK first-call examples for OpenAI, Anthropic, Gemini, and rate-limit retry in HelpGuide SDK tab [E1-5]', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/docs', component: HelpGuide }]
+    })
+    await router.push('/docs')
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: compiledMessages })
+    const wrapper = mount(HelpGuide, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { SiteICPFooter: true, LocaleSwitcher: true }
+      }
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+
+    const sdkTab = wrapper.findAll('button').find((b) => b.text().includes('SDK'))
+    expect(sdkTab).toBeTruthy()
+    await sdkTab!.trigger('click')
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('OpenAI(')
+    expect(text).toContain('Anthropic(')
+    expect(text).toContain('GoogleGenAI')
+    expect(text).toContain('Retry-After')
+  })
 })

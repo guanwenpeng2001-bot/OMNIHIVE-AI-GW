@@ -342,7 +342,7 @@ const scenarioTabs: readonly HelpScenarioTab[] = [
   {
     id: 'sdk',
     labelKey: 'scenarioSdk',
-    sectionIds: ['addresses', 'chat', 'messages', 'responses', 'gemini', 'retrieval', 'resources', 'images', 'async-images', 'media-jobs', 'audio', 'suppliers']
+    sectionIds: ['addresses', 'clients', 'chat', 'messages', 'responses', 'gemini', 'retrieval', 'resources', 'images', 'async-images', 'media-jobs', 'audio', 'suppliers', 'faq']
   }
 ]
 

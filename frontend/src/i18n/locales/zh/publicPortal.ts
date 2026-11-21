@@ -32,6 +32,22 @@ export default {
       dashboardAction: '返回控制台',
       supportAction: '人工支持'
     },
+    compatibilityChangelog: {
+      eyebrow: '版本变更记录',
+      title: '协议兼容与迁移更新日志',
+      v210: {
+          version: 'v2.1.0',
+          date: '2026-11-20',
+          summary: '上线公开模型广场、精确十进制场景对比，以及 /v1/images/generations 与 /v1/images/edits 图像端点。',
+          migration: '公开入口请使用 /model-plaza 与 /v1/images/generations；/models 已统一跳转至 /model-plaza。'
+      },
+      v200: {
+          version: 'v2.0.0',
+          date: '2026-10-15',
+          summary: 'v2 连接向导强制校验 /models 探针证据（缺失返回 409 EVIDENCE_UNAVAILABLE）；管理端当前仍通过 sub2api-plugin-host 兼容桥接 .s2plugin。',
+          migration: '请在兼容窗口期内将扩展迁移至 .ohplugin v2；无探针上游可保存为草稿或通过受控白名单接入。'
+      }
+    },
     legal: {
       retry: '重试',
       settingsLoadFailedHint: '无法加载站点条款与注册配置，请重试后再继续操作。',
