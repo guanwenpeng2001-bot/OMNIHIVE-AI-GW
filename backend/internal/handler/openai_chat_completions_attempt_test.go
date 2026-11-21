@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/attempt"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -77,7 +78,7 @@ func TestNativeChatRoutingPolicyDeniesBeforeUpstreamSend(t *testing.T) {
 	_, _, upstream, inner, cleanup := newGrokCredentialFailoverHandler(t, "first_429")
 	defer cleanup()
 	router := gin.New()
-	router.Use(NewMCPGrantHandler().GatewayExtensionMiddleware())
+	router.Use(middleware.GatewayRoutingConstraints())
 	router.POST("/openai/v1/chat/completions", func(c *gin.Context) { inner.ServeHTTP(c.Writer, c.Request) })
 	for _, tc := range []struct {
 		value  string

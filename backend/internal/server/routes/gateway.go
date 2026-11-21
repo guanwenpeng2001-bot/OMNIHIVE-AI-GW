@@ -123,7 +123,7 @@ func GatewayActionHandlers(h *handler.Handlers) service.GatewayActionHandlers {
 
 // RegisterGatewayRoutes 注册 API 网关路由（Claude/OpenAI/Gemini 兼容）
 func RegisterGatewayRoutes(
-	r *gin.Engine,
+	engine *gin.Engine,
 	h *handler.Handlers,
 	apiKeyAuth middleware.APIKeyAuthMiddleware,
 	apiKeyService *service.APIKeyService,
@@ -134,8 +134,10 @@ func RegisterGatewayRoutes(
 	cfg *config.Config,
 ) {
 	// Public IDs may contain provider/model: match the encoded ID as one raw path segment.
-	r.UseRawPath = true
-	r.Use(middleware.GatewayUnknownRouteProtocol())
+	engine.UseRawPath = true
+	engine.Use(middleware.GatewayUnknownRouteProtocol())
+	r := engine.Group("", middleware.GatewayRoutingConstraints())
+	routingAdmission := middleware.GatewayRoutingAdmission(cfg)
 	bodyLimit := middleware.RequestBodyLimit(cfg.Gateway.MaxBodySize)
 	textBodyLimit := middleware.RequestBodyLimit(cfg.Gateway.TextMaxBodySize)
 	clientRequestID := middleware.ClientRequestID()
@@ -187,7 +189,7 @@ func RegisterGatewayRoutes(
 	gateway.Use(clientRequestID)
 	gateway.Use(opsErrorLogger)
 	gateway.Use(endpointNorm)
-	gateway.Use(gin.HandlerFunc(apiKeyAuth))
+	gateway.Use(gin.HandlerFunc(apiKeyAuth), routingAdmission)
 	if extensionMiddleware != nil {
 		gateway.Use(extensionMiddleware)
 	}
@@ -304,7 +306,7 @@ func RegisterGatewayRoutes(
 	gemini.Use(clientRequestID)
 	gemini.Use(opsErrorLogger)
 	gemini.Use(endpointNorm)
-	gemini.Use(middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg))
+	gemini.Use(middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg), routingAdmission)
 	if extensionMiddleware != nil {
 		gemini.Use(extensionMiddleware)
 	}
@@ -325,10 +327,10 @@ func RegisterGatewayRoutes(
 	// 之前，避免逐条路由手工维护链导致漏挂。
 	rootRoute := func(method, path string, limit gin.HandlerFunc, handler gin.HandlerFunc) {
 		if extensionMiddleware != nil {
-			r.Handle(method, path, middleware.GatewayProtocol(), limit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), extensionMiddleware, groupModelAllowlist, compositeTarget, actionRequirement, requireGroupAnthropic, handler)
+			r.Handle(method, path, middleware.GatewayProtocol(), limit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), routingAdmission, extensionMiddleware, groupModelAllowlist, compositeTarget, actionRequirement, requireGroupAnthropic, handler)
 			return
 		}
-		r.Handle(method, path, middleware.GatewayProtocol(), limit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, actionRequirement, requireGroupAnthropic, handler)
+		r.Handle(method, path, middleware.GatewayProtocol(), limit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), routingAdmission, groupModelAllowlist, compositeTarget, actionRequirement, requireGroupAnthropic, handler)
 	}
 	rootRoute(http.MethodPost, "/files", bodyLimit, h.Resource.UploadFile)
 	rootRoute(http.MethodGet, "/files", bodyLimit, h.Resource.ListFiles)
@@ -352,7 +354,7 @@ func RegisterGatewayRoutes(
 	rootRoute(http.MethodPost, "/messages", bodyLimit, messagesHandler)
 	rootRoute(http.MethodPost, "/responses", bodyLimit, responsesHandler)
 	// /v1/sub2api/billing 在分组/白名单准入之前注册；根别名保持同一中间件序列。
-	r.GET("/sub2api/billing", middleware.GatewayProtocol(), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), h.Gateway.KeyBillingInfo)
+	r.GET("/sub2api/billing", middleware.GatewayProtocol(), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), routingAdmission, h.Gateway.KeyBillingInfo)
 	// Native DashScope uses the same authenticated, allowlisted composite route
 	// chain. Unknown families are explicitly rejected by the native handler.
 	for _, method := range []string{http.MethodPost, http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
@@ -388,9 +390,9 @@ func RegisterGatewayRoutes(
 	rootRoute(http.MethodPost, "/messages/count_tokens", bodyLimit, countTokensHandler)
 	codexDirect := r.Group("/backend-api/codex")
 	if extensionMiddleware != nil {
-		codexDirect.Use(middleware.GatewayProtocol(), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), extensionMiddleware, groupModelAllowlist, compositeTarget, actionRequirement, requireGroupAnthropic)
+		codexDirect.Use(middleware.GatewayProtocol(), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), routingAdmission, extensionMiddleware, groupModelAllowlist, compositeTarget, actionRequirement, requireGroupAnthropic)
 	} else {
-		codexDirect.Use(middleware.GatewayProtocol(), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, actionRequirement, requireGroupAnthropic)
+		codexDirect.Use(middleware.GatewayProtocol(), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), routingAdmission, groupModelAllowlist, compositeTarget, actionRequirement, requireGroupAnthropic)
 	}
 	{
 		codexDirect.POST("/realtime/calls", h.OpenAIGateway.Live)
@@ -446,7 +448,7 @@ func RegisterGatewayRoutes(
 	rootRoute(http.MethodPost, "/x_search", bodyLimit, service.GatewaySearchHandler(h.Gateway.XSearch))
 
 	// Antigravity 模型列表
-	r.GET("/antigravity/models", middleware.GatewayProtocol(), gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.Gateway.AntigravityModels)
+	r.GET("/antigravity/models", middleware.GatewayProtocol(), gin.HandlerFunc(apiKeyAuth), routingAdmission, requireGroupAnthropic, h.Gateway.AntigravityModels)
 
 	// Antigravity 专用路由（仅使用 antigravity 账户，不混合调度）
 	antigravityV1 := r.Group("/antigravity/v1")
@@ -456,7 +458,7 @@ func RegisterGatewayRoutes(
 	antigravityV1.Use(opsErrorLogger)
 	antigravityV1.Use(endpointNorm)
 	antigravityV1.Use(middleware.ForcePlatform(service.PlatformAntigravity))
-	antigravityV1.Use(gin.HandlerFunc(apiKeyAuth))
+	antigravityV1.Use(gin.HandlerFunc(apiKeyAuth), routingAdmission)
 	antigravityV1.Use(groupModelAllowlist)
 	antigravityV1.Use(actionRequirement)
 	antigravityV1.Use(requireGroupAnthropic)
@@ -474,7 +476,7 @@ func RegisterGatewayRoutes(
 	antigravityV1Beta.Use(opsErrorLogger)
 	antigravityV1Beta.Use(endpointNorm)
 	antigravityV1Beta.Use(middleware.ForcePlatform(service.PlatformAntigravity))
-	antigravityV1Beta.Use(middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg))
+	antigravityV1Beta.Use(middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg), routingAdmission)
 	antigravityV1Beta.Use(groupModelAllowlist)
 	antigravityV1Beta.Use(actionRequirement)
 	antigravityV1Beta.Use(requireGroupGoogle)

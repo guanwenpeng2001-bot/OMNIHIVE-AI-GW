@@ -3,6 +3,7 @@ package playground
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,7 +42,7 @@ func New(g *Gateway, trustForwarded bool) *Handler {
 func (h *Handler) store() pg.Store { return pg.Store{DB: h.Gateway.DB} }
 func Register(parent *gin.RouterGroup, h *Handler, session ...gin.HandlerFunc) {
 	p := parent.Group("/workspaces/:workspace_id/projects/:project_id", append([]gin.HandlerFunc{identityhttp.TenantHeaders}, session...)...)
-	p.POST("/playground/runs", h.route("playground.run", h.submit))
+	p.POST("/playground/runs", middleware.GatewayRoutingConstraints(), h.route("playground.run", h.submit))
 	p.GET("/playground/runs/by-idempotency-key", h.route("playground.read", func(c *gin.Context, a identity.Access) error {
 		key := c.GetHeader("Idempotency-Key")
 		if key == "" || len(key) > 200 {
@@ -73,7 +74,7 @@ func Register(parent *gin.RouterGroup, h *Handler, session ...gin.HandlerFunc) {
 		}
 		return err
 	}))
-	p.POST("/requests/:id/replay", h.route("requests.replay", h.submit))
+	p.POST("/requests/:id/replay", middleware.GatewayRoutingConstraints(), h.route("requests.replay", h.submit))
 }
 func (h *Handler) route(action string, fn func(*gin.Context, identity.Access) error) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -187,6 +188,9 @@ func (h *Handler) submit(c *gin.Context, a identity.Access) error {
 	in, fp, err := pg.Parse(body, key, parent)
 	if err != nil {
 		return err
+	}
+	if layer := service.GatewayRequestRoutingLayer(ctx); layer != nil {
+		fp = sha256.Sum256(append(fp[:], layer.Version...))
 	}
 	middleware.SetAuditExtra(c, map[string]any{
 		"raw_events_requested": in.Options.Raw, "text_preview_requested": in.Options.Retain,

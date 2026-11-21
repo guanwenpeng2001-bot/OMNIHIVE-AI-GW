@@ -269,9 +269,12 @@ func (j runJournal) Dispatch(ctx context.Context, e journal.AdmittedExecution, n
 }
 func (g *Gateway) admit(p prepared, r pg.Summary, reg *journal.Registration) (context.Context, *service.GatewayRequestPlan, func(), error) {
 	j := runJournal{journal.New(g.DB), r, p.account, g.DB, func(ctx context.Context) error {
-		fresh, err := g.Policies.PlanExecution(ctx, p.frozen, p.scenario, nil, p.decision.Seed)
+		fresh, err := g.Policies.PlanExecution(ctx, p.frozen, p.scenario, service.GatewayRequestRoutingLayer(p.ctx), p.decision.Seed)
 		if err != nil {
 			return err
+		}
+		if fresh.Selected == nil && service.HasGatewayRoutingConstraints(p.ctx) {
+			return policy.NativePolicyDenied
 		}
 		if fresh.Selected == nil || fresh.Selected.CandidateID != p.decision.Selected.CandidateID || fresh.Selected.FundingSource != p.decision.Selected.FundingSource {
 			return journal.ErrDispatch

@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
 )
 
@@ -54,6 +56,23 @@ func WithGatewayRoutingHeaders(ctx context.Context, headers http.Header) (contex
 	}
 	layer := policy.Layer{Version: fmt.Sprintf("request_%x", sha256.Sum256(payload)), Definition: d}
 	return context.WithValue(ctx, nativeRequestLayerKey{}, &layer), nil
+}
+
+func GatewayRequestRoutingLayer(ctx context.Context) *policy.Layer {
+	layer, _ := ctx.Value(nativeRequestLayerKey{}).(*policy.Layer)
+	return layer
+}
+
+func CheckGatewayRoutingPolicy(ctx context.Context, cfg *config.Config, model string, deferredWebSocket bool) (context.Context, error) {
+	// Responses WS selects its model per frame. Its scheduler checks each turn.
+	if deferredWebSocket && model == "" {
+		_, scoped := scope.From(ctx)
+		if _, ready := nativePolicyStores.Load(cfg); scoped && ready {
+			return ctx, nil
+		}
+		return ctx, policy.NativePolicyDenied
+	}
+	return withNativePolicyAccounts(ctx, cfg, model)
 }
 
 func HasGatewayRoutingConstraints(ctx context.Context) bool {

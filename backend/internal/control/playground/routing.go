@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"slices"
 	"time"
 
@@ -136,11 +137,14 @@ func (g *Gateway) route(ctx context.Context, a scope.Authorized, group int64, s 
 	}
 	var seed [8]byte
 	_, _ = rand.Read(seed[:])
-	decision, err := g.Policies.PlanExecution(ctx, a, s, nil, binary.BigEndian.Uint64(seed[:]))
+	decision, err := g.Policies.PlanExecution(ctx, a, s, service.GatewayRequestRoutingLayer(ctx), binary.BigEndian.Uint64(seed[:]))
 	if err != nil {
 		return decision, 0, err
 	}
 	if decision.Selected == nil {
+		if service.HasGatewayRoutingConstraints(ctx) {
+			return decision, 0, policy.NativePolicyDenied
+		}
 		return decision, 0, unavailableModel
 	}
 	b, ok := ids[decision.Selected.CandidateID]
