@@ -20,6 +20,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/gatewayerror"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httputil"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/tidwall/gjson"
 )
 
 // Limit the global middleware to public gateway routes. Management endpoints
@@ -155,7 +156,8 @@ func beginJournaledExecution(c *gin.Context, capturer gatewayPlanCapturer, key *
 		return func() {}, false
 	}
 	reg := journal.RegistrationFrom(c.Request.Context())
-	finish := beginRegisteredGatewayRequestPlan(c, capturer, key, model, protocol, switches, reg, geminiSwitches...)
+	nonstreamText := (protocol == "anthropic" || protocol == "responses" || protocol == "chat_completions") && !gjson.GetBytes(body, "stream").Bool()
+	finish := beginRegisteredGatewayRequestPlan(c, capturer, key, model, protocol, switches, reg, nonstreamText, geminiSwitches...)
 	return finish, checkGatewayAdmission(c, writeError)
 }
 
@@ -209,7 +211,7 @@ func beginGatewayRequestPlan(c *gin.Context, capturer gatewayPlanCapturer, key *
 		c.Request = c.Request.WithContext(ctx)
 		return func() {}
 	}
-	finish := beginRegisteredGatewayRequestPlan(c, capturer, key, model, protocol, switches, journal.RegistrationFrom(c.Request.Context()), geminiSwitches...)
+	finish := beginRegisteredGatewayRequestPlan(c, capturer, key, model, protocol, switches, journal.RegistrationFrom(c.Request.Context()), false, geminiSwitches...)
 	if !checkGatewayAdmission(c, gatewayerror.Write) {
 		// Also fence in-flight work if callers propagate the context beyond
 		// the ordinary early return.
@@ -220,13 +222,14 @@ func beginGatewayRequestPlan(c *gin.Context, capturer gatewayPlanCapturer, key *
 	return finish
 }
 
-func beginRegisteredGatewayRequestPlan(c *gin.Context, capturer gatewayPlanCapturer, key *service.APIKey, model, protocol string, switches int, registration *journal.Registration, geminiSwitches ...int) func() {
+func beginRegisteredGatewayRequestPlan(c *gin.Context, capturer gatewayPlanCapturer, key *service.APIKey, model, protocol string, switches int, registration *journal.Registration, nonstreamText bool, geminiSwitches ...int) func() {
 	if protocol == "anthropic" && isGeminiMessagesBridge(c) {
 		protocol = "gemini"
 	}
 	finishBudget := installAttemptBudget(c)
 	spec := service.GatewayRequestSpec{WorkspaceID: key.WorkspaceID, UserID: key.UserID, APIKeyID: key.ID, Route: c.Request.URL.Path, Protocol: protocol, Model: model, MaxAccountSwitches: switches}
 	spec.Registration = registration
+	spec.NonStreamingText = nonstreamText
 	if protocol == "media" && c.Request.Method == http.MethodPost && strings.Contains(c.Request.URL.Path, "/videos/") {
 		spec.ExecutionKind = "job"
 	}
@@ -253,6 +256,9 @@ func beginRegisteredGatewayRequestPlan(c *gin.Context, capturer gatewayPlanCaptu
 		stop()
 		if streamTransportCommitted(c) && c.Writer.Size() > 0 && !gatewayStreamHasOnlyHeartbeats(c) {
 			plan.ReviewInterruptedStream(context.WithoutCancel(ctx))
+		}
+		if nonstreamText && c.Writer.Status() == http.StatusBadGateway {
+			plan.ReviewFailedGeneration(context.WithoutCancel(ctx))
 		}
 		if ctx.Err() != nil {
 			plan.Cancel()

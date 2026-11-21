@@ -22,6 +22,7 @@ import (
 // GatewayRequestSpec contains values, never hydrated identities or credentials.
 // Route describes the inbound contract; attempts retain their own upstream route.
 type GatewayRequestSpec struct {
+	NonStreamingText                                  bool
 	Registration                                      *journal.Registration
 	UpstreamAccountID                                 int64
 	WorkspaceID                                       int64

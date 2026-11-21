@@ -322,7 +322,7 @@ func TestCompatibleReviewMalformedGenerationStillFails(t *testing.T) {
 			require.Zero(t, receipts.settles)
 			if !stream {
 				require.Equal(t, 502, rec.Code)
-				require.Empty(t, receipts.receipts)
+				requireReviewOnly(t, receipts)
 			} else {
 				require.Len(t, receipts.receipts, 1)
 				for _, receipt := range receipts.receipts {

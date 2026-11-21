@@ -67,6 +67,19 @@ func (p *GatewayRequestPlan) ReviewInterruptedStream(ctx context.Context) {
 	p.persistUnresolvedUsage(ctx, true)
 }
 
+// ReviewFailedGeneration closes an accepted non-stream attempt whose adapter
+// failed before handing any usage evidence to settlement.
+func (p *GatewayRequestPlan) ReviewFailedGeneration(ctx context.Context) {
+	attempts := p.Attempts()
+	if p.settlement == nil || len(attempts) == 0 {
+		return
+	}
+	last := attempts[len(attempts)-1]
+	if last.Outcome == "transport_response" && last.Status >= 200 && last.Status < 300 && p.Record() {
+		p.persistUnresolvedUsage(ctx, false)
+	}
+}
+
 func (p *GatewayRequestPlan) persistUnresolvedUsage(ctx context.Context, stream bool) {
 	attempts := p.Attempts()
 	if len(attempts) == 0 {
