@@ -25,6 +25,13 @@ export default {
       invoiceDesc: 'Provide your Order ID, billing entity name, and tax or receipt details when contacting support.',
       invoiceSupportLink: 'Request via Human Support'
     },
+    paymentDisabled: {
+      title: 'Online Payment Is Currently Disabled',
+      description: 'The site administrator has not enabled online top-ups or subscriptions at this time. You can still redeem a balance code, return to the dashboard, or contact support.',
+      redeemAction: 'Redeem Code',
+      dashboardAction: 'Back to Dashboard',
+      supportAction: 'Human Support'
+    },
     legal: {
       retry: 'Retry',
       settingsLoadFailedHint: 'Unable to load site legal and registration settings. Please retry before continuing.',

@@ -929,4 +929,25 @@ describe('PaymentView subscription feature flag', () => {
     expect(wrapper.findAllComponents(SubscriptionPlanCard).length).toBeGreaterThan(0)
     wrapper.unmount()
   })
+
+  it('shows an explicit payment-disabled notice instead of redirecting when payment_enabled is false [E1-7]', async () => {
+    getCheckoutInfo.mockClear()
+    routerReplace.mockClear()
+    appStoreState.setPublicSettings({ payment_enabled: false })
+    const wrapper = shallowMount(PaymentView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          BillingNav: true,
+          RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' }
+        }
+      }
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="payment-disabled-notice"]').exists()).toBe(true)
+    expect(routerReplace).not.toHaveBeenCalled()
+    expect(getCheckoutInfo).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
 })

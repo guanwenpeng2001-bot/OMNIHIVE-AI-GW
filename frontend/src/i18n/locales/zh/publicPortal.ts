@@ -25,6 +25,13 @@ export default {
       invoiceDesc: '联系支持时请附上订单编号（Order ID）、开票抬头及所需票据/税务信息。',
       invoiceSupportLink: '通过人工支持申请票据'
     },
+    paymentDisabled: {
+      title: '当前未开启在线支付',
+      description: '站点管理员暂未启用在线充值或订阅支付功能。您仍可使用兑换码充值、返回控制台或联系人工支持。',
+      redeemAction: '前往兑换码',
+      dashboardAction: '返回控制台',
+      supportAction: '人工支持'
+    },
     legal: {
       retry: '重试',
       settingsLoadFailedHint: '无法加载站点条款与注册配置，请重试后再继续操作。',
