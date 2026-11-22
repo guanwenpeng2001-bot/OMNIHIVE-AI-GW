@@ -13,13 +13,17 @@ package tlsfingerprint
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestDialerBasicConnection tests that the dialer can establish TLS connections.
@@ -407,4 +411,52 @@ func fetchFingerprint(t *testing.T, profile *Profile) *TLSInfo {
 	}
 
 	return &fpResp.TLS
+}
+
+func TestProxyNegotiationHonorsCancellation(t *testing.T) {
+	for _, scheme := range []string{"http", "socks5"} {
+		t.Run(scheme, func(t *testing.T) {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			defer listener.Close()
+			u := &url.URL{Scheme: scheme, Host: listener.Addr().String()}
+			dial := NewHTTPProxyDialer(nil, u).DialTLSContext
+			if scheme == "socks5" {
+				dial = NewSOCKS5ProxyDialer(nil, u).DialTLSContext
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			result := make(chan error, 1)
+			go func() {
+				conn, err := dial(ctx, "tcp", "example.test:443")
+				if conn != nil {
+					_ = conn.Close()
+				}
+				result <- err
+			}()
+			require.NoError(t, listener.(*net.TCPListener).SetDeadline(time.Now().Add(3*time.Second)))
+			peer, err := listener.Accept()
+			require.NoError(t, err)
+			defer peer.Close()
+			require.NoError(t, peer.SetDeadline(time.Now().Add(3*time.Second)))
+			var first [1]byte
+			_, err = io.ReadFull(peer, first[:])
+			require.NoError(t, err)
+			if scheme == "http" {
+				_, err = io.WriteString(peer, "HTTP/1.1 200")
+				require.NoError(t, err)
+			}
+			cancel()
+			select {
+			case err := <-result:
+				require.ErrorIs(t, err, context.Canceled)
+				var proxyErr *ProxyConnectError
+				require.False(t, errors.As(err, &proxyErr))
+			case <-time.After(time.Second):
+				t.Fatal("dial still waiting for the proxy")
+			}
+			_, err = io.Copy(io.Discard, peer)
+			require.NoError(t, err, "peer must observe the tunnel close")
+		})
+	}
 }

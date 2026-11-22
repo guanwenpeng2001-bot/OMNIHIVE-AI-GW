@@ -13,6 +13,26 @@ import (
 
 var ErrNotConfigured = errors.New("redis session store not configured")
 
+// Keep an existing claim valid if the caller refreshes the same session ID.
+var setSession = redis.NewScript(`
+redis.call("SET", KEYS[1], ARGV[1], "PX", ARGV[2])
+redis.call("PEXPIRE", KEYS[2], ARGV[2])
+return 1
+`)
+
+// Redis evaluates expiry and both keys at the same instant inside the script.
+var consumeSession = redis.NewScript(`
+local ttl = redis.call("PTTL", KEYS[1])
+if ttl == -2 then return 0 end
+local claimed = redis.call("SETNX", KEYS[2], "1")
+if ttl == -1 then
+  redis.call("PERSIST", KEYS[2])
+else
+  redis.call("PEXPIRE", KEYS[2], math.max(ttl, 1))
+end
+return claimed
+`)
+
 // Store persists JSON sessions and single-use markers under one namespace.
 type Store struct {
 	rdb    *redis.Client
@@ -52,7 +72,7 @@ func (s *Store) Set(ctx context.Context, id string, value any) error {
 	if err != nil {
 		return err
 	}
-	return s.rdb.Set(ctx, s.dataKey(id), raw, s.ttl).Err()
+	return setSession.Run(ctx, s.rdb, []string{s.dataKey(id), s.usedKey(id)}, raw, max(s.ttl.Milliseconds(), 1)).Err()
 }
 
 func (s *Store) Get(ctx context.Context, id string, dest any) (bool, error) {
@@ -105,21 +125,6 @@ func (s *Store) TryConsume(ctx context.Context, id string) (bool, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	ttl := s.ttl
-	if remaining, err := s.rdb.TTL(ctx, s.dataKey(id)).Result(); err == nil && remaining > 0 {
-		ttl = remaining
-	}
-	ok, err := s.rdb.SetNX(ctx, s.usedKey(id), "1", ttl).Result()
-	if err != nil || !ok {
-		return ok, err
-	}
-	exists, err := s.rdb.Exists(ctx, s.dataKey(id)).Result()
-	if err != nil {
-		return false, err
-	}
-	if exists == 0 {
-		_ = s.rdb.Del(ctx, s.usedKey(id)).Err()
-		return false, nil
-	}
-	return true, nil
+	claimed, err := consumeSession.Run(ctx, s.rdb, []string{s.dataKey(id), s.usedKey(id)}).Int()
+	return claimed == 1, err
 }

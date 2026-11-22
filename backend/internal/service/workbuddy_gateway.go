@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strconv"
@@ -71,23 +72,32 @@ func (s *OpenAIGatewayService) workBuddyFailover(ctx context.Context, a *Account
 	if !workBuddyQuotaError(resp.StatusCode, body) {
 		return nil
 	}
-	until := time.Now().Add(time.Minute)
-	if seconds, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && seconds > 0 {
-		if seconds > 86400 {
-			seconds = 86400
-		}
-		until = time.Now().Add(time.Duration(seconds) * time.Second)
-	}
+	until := workBuddyCooldownUntil(resp.Header, time.Now())
 	s.BlockAccountScheduling(a, until, "workbuddy_quota")
 	stateCtx, cancel := openAIAccountStateContext(ctx)
 	defer cancel()
+	var persistErr error
 	if s.rateLimitService != nil && s.rateLimitService.accountRepo != nil {
-		_ = s.rateLimitService.accountRepo.SetTempUnschedulable(stateCtx, a.ID, until, "workbuddy_quota")
+		persistErr = s.rateLimitService.accountRepo.SetTempUnschedulable(stateCtx, a.ID, until, "workbuddy_quota")
 	} else if s.accountRepo != nil {
-		_ = s.accountRepo.SetTempUnschedulable(stateCtx, a.ID, until, "workbuddy_quota")
+		persistErr = s.accountRepo.SetTempUnschedulable(stateCtx, a.ID, until, "workbuddy_quota")
+	}
+	if persistErr != nil {
+		slog.Warn("WorkBuddy quota cooldown persistence failed", "account_id", a.ID, "until", until)
 	}
 	failure := s.newOpenAIAccountFailoverError(a, http.StatusTooManyRequests, resp.Header, body, "WorkBuddy quota temporarily exhausted", true, false)
 	return failure
+}
+
+func workBuddyCooldownUntil(header http.Header, now time.Time) time.Time {
+	value := strings.TrimSpace(header.Get("Retry-After"))
+	if seconds, err := strconv.ParseInt(value, 10, 64); err == nil && seconds > 0 {
+		return now.Add(time.Duration(min(seconds, 86400)) * time.Second)
+	}
+	if reset, err := http.ParseTime(value); err == nil && reset.After(now) {
+		return now.Add(min(reset.Sub(now), 24*time.Hour))
+	}
+	return now.Add(time.Minute)
 }
 
 type workBuddyStreamError struct{ payload []byte }
@@ -99,10 +109,17 @@ func (*workBuddyStreamError) Error() string { return "WorkBuddy stream returned 
 func aggregateWorkBuddyChat(r io.Reader) ([]byte, error) {
 	scanner := bufio.NewScanner(io.LimitReader(r, (32<<20)+1))
 	scanner.Buffer(make([]byte, 64*1024), 4<<20)
+	type toolCall struct {
+		ID        string
+		Type      string
+		Name      strings.Builder
+		Arguments strings.Builder
+	}
 	type choice struct {
+		Text    map[string]*strings.Builder
 		Message map[string]any
 		Finish  any
-		Tools   map[int]map[string]any
+		Tools   map[int]*toolCall
 	}
 	choices := map[int]*choice{}
 	out := map[string]any{"object": "chat.completion"}
@@ -156,7 +173,7 @@ func aggregateWorkBuddyChat(r io.Reader) ([]byte, error) {
 			idx := int(n)
 			c := choices[idx]
 			if c == nil {
-				c = &choice{Message: map[string]any{"role": "assistant", "content": ""}, Tools: map[int]map[string]any{}}
+				c = &choice{Text: map[string]*strings.Builder{}, Message: map[string]any{"role": "assistant", "content": ""}, Tools: map[int]*toolCall{}}
 				choices[idx] = c
 			}
 			if f := entry["finish_reason"]; f != nil {
@@ -165,8 +182,10 @@ func aggregateWorkBuddyChat(r io.Reader) ([]byte, error) {
 			delta, _ := entry["delta"].(map[string]any)
 			for _, key := range []string{"content", "reasoning_content", "refusal"} {
 				if v, ok := delta[key].(string); ok {
-					old, _ := c.Message[key].(string)
-					c.Message[key] = old + v
+					if c.Text[key] == nil {
+						c.Text[key] = &strings.Builder{}
+					}
+					c.Text[key].WriteString(v)
 				}
 			}
 			tools, _ := delta["tool_calls"].([]any)
@@ -179,26 +198,20 @@ func aggregateWorkBuddyChat(r io.Reader) ([]byte, error) {
 				ti := int(tn)
 				dest := c.Tools[ti]
 				if dest == nil {
-					dest = map[string]any{"type": "function", "function": map[string]any{"name": "", "arguments": ""}}
+					dest = &toolCall{Type: "function"}
 					c.Tools[ti] = dest
 				}
-				for _, k := range []string{"id", "type"} {
-					if v, ok := t[k].(string); ok && v != "" {
-						dest[k] = v
-					}
+				if id, _ := t["id"].(string); id != "" {
+					dest.ID = id
+				}
+				if kind, _ := t["type"].(string); kind != "" {
+					dest.Type = kind
 				}
 				fn, _ := t["function"].(map[string]any)
-				target, ok := dest["function"].(map[string]any)
-				if !ok {
-					target = map[string]any{"name": "", "arguments": ""}
-					dest["function"] = target
-				}
-				for _, k := range []string{"name", "arguments"} {
-					if v, ok := fn[k].(string); ok {
-						prev, _ := target[k].(string)
-						target[k] = prev + v
-					}
-				}
+				name, _ := fn["name"].(string)
+				args, _ := fn["arguments"].(string)
+				dest.Name.WriteString(name)
+				dest.Arguments.WriteString(args)
 			}
 		}
 	}
@@ -219,6 +232,9 @@ func aggregateWorkBuddyChat(r io.Reader) ([]byte, error) {
 		if c.Finish == nil {
 			return nil, errors.New("WorkBuddy stream ended without finish reason")
 		}
+		for key, value := range c.Text {
+			c.Message[key] = value.String()
+		}
 		if len(c.Tools) > 0 {
 			toolIndices := []int{}
 			for i := range c.Tools {
@@ -227,7 +243,12 @@ func aggregateWorkBuddyChat(r io.Reader) ([]byte, error) {
 			sort.Ints(toolIndices)
 			tools := []any{}
 			for _, i := range toolIndices {
-				tools = append(tools, c.Tools[i])
+				call := c.Tools[i]
+				tool := map[string]any{"type": call.Type, "function": map[string]string{"name": call.Name.String(), "arguments": call.Arguments.String()}}
+				if call.ID != "" {
+					tool["id"] = call.ID
+				}
+				tools = append(tools, tool)
 			}
 			c.Message["tool_calls"] = tools
 			if c.Message["content"] == "" {
@@ -243,6 +264,10 @@ func aggregateWorkBuddyChat(r io.Reader) ([]byte, error) {
 // Inspect the first event before committing a downstream response, allowing a
 // quota error carried under HTTP 200 to move to the next account in the pool.
 func (s *OpenAIGatewayService) normalizeWorkBuddyResponse(ctx context.Context, a *Account, resp *http.Response, stream bool) (*http.Response, error) {
+	// HTTP headers precede both first-frame inspection and synchronous aggregation.
+	if received, ok := ctx.Value(responseHeaderTimerKey{}).(func()); ok {
+		received()
+	}
 	if resp.StatusCode >= 400 || !strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
 		body, err := io.ReadAll(io.LimitReader(resp.Body, (8<<20)+1))
 		_ = resp.Body.Close()

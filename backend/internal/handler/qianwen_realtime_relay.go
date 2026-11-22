@@ -2,9 +2,11 @@ package handler
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -15,6 +17,7 @@ import (
 	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"go.uber.org/zap"
+	"golang.org/x/net/http/httpguts"
 )
 
 func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
@@ -32,8 +35,16 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 		h.errorResponse(c, 401, "authentication_error", "Invalid user context")
 		return
 	}
-	if !isOpenAIWSUpgradeRequest(c.Request) {
+	r := c.Request
+	if !r.ProtoAtLeast(1, 1) || !httpguts.HeaderValuesContainsToken(r.Header.Values("Connection"), "upgrade") ||
+		!httpguts.HeaderValuesContainsToken(r.Header.Values("Upgrade"), "websocket") {
 		h.errorResponse(c, 426, "invalid_request_error", "WebSocket upgrade required")
+		return
+	}
+	keys := r.Header.Values("Sec-WebSocket-Key")
+	keyBytes, keyErr := base64.StdEncoding.DecodeString(strings.TrimSpace(r.Header.Get("Sec-WebSocket-Key")))
+	if r.Method != http.MethodGet || r.Header.Get("Sec-WebSocket-Version") != "13" || len(keys) != 1 || keyErr != nil || len(keyBytes) != 16 {
+		h.errorResponse(c, 400, "invalid_request_error", "Invalid WebSocket handshake")
 		return
 	}
 	// Reject browser cross-origin handshakes before dialing or acquiring leases.

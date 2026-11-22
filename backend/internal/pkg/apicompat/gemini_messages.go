@@ -134,6 +134,16 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 							parts = append(parts, map[string]any{"text": text})
 						}
 					}
+				case "thinking":
+					text, _ := bm["thinking"].(string)
+					signature, _ := bm["signature"].(string)
+					if gRole == "model" && (text != "" || signature != "") {
+						part := map[string]any{"thought": true, "text": text}
+						if signature != "" {
+							part["thoughtSignature"] = signature
+						}
+						parts = append(parts, part)
+					}
 				case "tool_use":
 					id, _ := bm["id"].(string)
 					name, _ := bm["name"].(string)

@@ -137,6 +137,7 @@ type antigravityCompatStreamSession struct {
 	firstTokenMs   *int
 	startTime      time.Time
 	meaningfulData bool
+	sawStop        bool
 }
 
 func newAntigravityCompatStreamSession(
@@ -188,6 +189,7 @@ func (s *antigravityCompatStreamSession) result(clientDisconnect bool) *antigrav
 		usage:            s.usage,
 		firstTokenMs:     s.firstTokenMs,
 		clientDisconnect: clientDisconnect,
+		usageIncomplete:  !s.sawStop,
 	}
 }
 
@@ -218,6 +220,7 @@ func (s *antigravityCompatStreamSession) consumeClaudeData(eventType, payload st
 	if event.Message != nil {
 		mergeAnthropicUsage(s.usage, event.Message.Usage)
 	}
+	s.sawStop = s.sawStop || event.Type == "message_stop"
 	s.emitOrBuffer(event)
 }
 
@@ -319,6 +322,10 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStream(
 			if !open {
 				if !session.hasMeaningfulData() && !writer.Disconnected() {
 					return nil, antigravityCompatEmptyStreamError()
+				}
+				if !session.sawStop {
+					writeAntigravityCompatStreamError(c, adapter, writer, "incomplete_stream")
+					return session.collectResult(false), io.ErrUnexpectedEOF
 				}
 				return session.finish()
 			}
@@ -440,10 +447,10 @@ func (s *AntigravityGatewayService) handleAntigravityCompatReadError(
 	if errors.Is(err, bufio.ErrTooLong) {
 		logger.LegacyPrintf("service.antigravity_gateway", "SSE line too long (%s): max_size=%d error=%v", prefix, maxLineSize, err)
 		writeAntigravityCompatStreamError(c, session.adapter, session.writer, "response_too_large")
-		return session.result(false), err
+		return session.collectResult(false), err
 	}
 	writeAntigravityCompatStreamError(c, session.adapter, session.writer, "stream_read_error")
-	return nil, fmt.Errorf("stream read error: %w", err)
+	return session.collectResult(false), fmt.Errorf("stream read error: %w", err)
 }
 
 func writeAntigravityCompatStreamError(

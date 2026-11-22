@@ -19,6 +19,7 @@ import (
 // boundedStreamContext bounds header waiting while preserving request cancellation
 // and its total deadline throughout generation.
 type boundedStreamContextKey struct{}
+type responseHeaderTimerKey struct{}
 
 func streamHeaderTimeout(cfg *config.Config, openAI bool) time.Duration {
 	seconds := 120
@@ -39,7 +40,9 @@ func boundedStreamContext(parent context.Context, headerTimeout time.Duration) (
 	ctx, cancel := context.WithCancel(parent)
 	ctx = context.WithValue(ctx, boundedStreamContextKey{}, true)
 	header := time.AfterFunc(headerTimeout, cancel)
-	return ctx, func() { header.Stop() }, func() { header.Stop(); cancel() }
+	headersReceived := func() { header.Stop() }
+	ctx = context.WithValue(ctx, responseHeaderTimerKey{}, headersReceived)
+	return ctx, headersReceived, func() { header.Stop(); cancel() }
 }
 
 // upstreamFrameReader reuses the protocol parser and bounds the complete frame,

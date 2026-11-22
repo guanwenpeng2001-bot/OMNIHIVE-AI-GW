@@ -3,7 +3,6 @@
 package liveattestation
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -80,15 +80,24 @@ func (p *darwinProvider) resolveRuntime(ctx context.Context) (string, string, st
 		nodePath:   "bundled Node.js runtime",
 		modulePath: "DeviceCheck native module",
 	} {
-		if info, statErr := os.Stat(filePath); statErr != nil || info.IsDir() {
+		if info, statErr := os.Stat(filePath); statErr != nil || !info.Mode().IsRegular() {
 			return "", "", "", fmt.Errorf("%w: ChatGPT app is missing its %s", ErrChatGPTAppMissing, label)
 		}
+		if err := verifyRuntimePath(filePath); err != nil {
+			return "", "", "", err
+		}
 	}
-	bundleID, err := readBundleIdentifier(ctx, appPath)
-	if err != nil {
-		return "", "", "", err
+	// The bundle seal authenticates resources in addition to the main executable.
+	const requirement = `anchor apple generic and identifier "com.openai.chat" and certificate leaf[subject.OU] = "2DC432GLL2"`
+	if err := exec.CommandContext(ctx, "/usr/bin/codesign", "--verify", "--strict", "-R="+requirement, appPath).Run(); err != nil {
+		return "", "", "", fmt.Errorf("verify ChatGPT application signature: %w", err)
 	}
-	return nodePath, modulePath, bundleID, nil
+	for _, path := range []string{nodePath, modulePath} {
+		if err := exec.CommandContext(ctx, "/usr/bin/codesign", "--verify", "--strict", path).Run(); err != nil {
+			return "", "", "", fmt.Errorf("verify ChatGPT runtime signature: %w", err)
+		}
+	}
+	return nodePath, modulePath, "com.openai.chat", nil
 }
 
 func (p *darwinProvider) Generate(ctx context.Context) (string, error) {
@@ -114,8 +123,8 @@ func (p *darwinProvider) Generate(ctx context.Context) (string, error) {
 		"OMNIHIVE_ATTESTATION_BUNDLE_ID=" + bundleID,
 		"OMNIHIVE_ATTESTATION_SIGNALS=" + string(signalsJSON),
 	}
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	stdout := attestationOutput{limit: 16 * 1024}
+	stderr := attestationOutput{limit: 240}
 	command.Stdout = &stdout
 	command.Stderr = &stderr
 	if err := command.Run(); err != nil {
@@ -123,16 +132,14 @@ func (p *darwinProvider) Generate(ctx context.Context) (string, error) {
 			return "", errors.New("ChatGPT DeviceCheck token generation timed out")
 		}
 		reason := strings.TrimSpace(stderr.String())
-		if len(reason) > 240 {
-			reason = reason[:240]
-		}
+
 		if reason == "" {
 			reason = err.Error()
 		}
 		return "", fmt.Errorf("ChatGPT DeviceCheck token generation failed: %s", reason)
 	}
 	header := strings.TrimSpace(stdout.String())
-	if len(header) < 20 || len(header) > 16*1024 || !json.Valid([]byte(header)) {
+	if stdout.overflow || len(header) < 20 || !json.Valid([]byte(header)) {
 		return "", errors.New("ChatGPT DeviceCheck returned a malformed attestation")
 	}
 	return header, nil
@@ -148,24 +155,26 @@ func (p *darwinProvider) findApplication() (string, error) {
 	return "", ErrChatGPTAppMissing
 }
 
-func readBundleIdentifier(ctx context.Context, appPath string) (string, error) {
-	infoPlist := filepath.Join(appPath, "Contents", "Info.plist")
-	output, err := exec.CommandContext(
-		ctx,
-		"/usr/bin/plutil",
-		"-extract",
-		"CFBundleIdentifier",
-		"raw",
-		infoPlist,
-	).Output()
-	if err != nil {
-		return "", fmt.Errorf("%w: cannot read its bundle identifier", ErrChatGPTAppMissing)
+// Check each ancestor to prevent an untrusted local user replacing a checked
+// binary or redirecting a module path outside the signed bundle.
+func verifyRuntimePath(path string) error {
+	for {
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		stat := info.Sys().(*syscall.Stat_t)
+		// Group 80 is the macOS administrators group (e.g. /Applications).
+		if info.Mode()&os.ModeSymlink != 0 || (stat.Uid != 0 && stat.Uid != uint32(os.Geteuid())) ||
+			info.Mode().Perm()&0002 != 0 || (info.Mode().Perm()&0020 != 0 && stat.Gid != 80) {
+			return errors.New("untrusted ChatGPT runtime path")
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			return nil
+		}
+		path = parent
 	}
-	bundleID := strings.TrimSpace(string(output))
-	if !strings.HasPrefix(bundleID, "com.openai.") {
-		return "", errors.New("the installed ChatGPT app has an unexpected bundle identifier")
-	}
-	return bundleID, nil
 }
 
 func (p *darwinProvider) readSignals(ctx context.Context) (deviceSignals, error) {

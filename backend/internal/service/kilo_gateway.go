@@ -108,6 +108,19 @@ func prepareKiloChat(a *Account, body []byte) ([]byte, string, error) {
 	return out, model, err
 }
 
+func clampKiloCacheFields(body []byte, limit int, fields ...string) []byte {
+	for _, field := range fields {
+		path := "usage." + field
+		count := gjson.GetBytes(body, path).Int()
+		if count < 0 {
+			body, _ = sjson.SetBytes(body, path, 0)
+		} else if count > int64(limit) {
+			body, _ = sjson.SetBytes(body, path, limit)
+		}
+	}
+	return body
+}
+
 // Clamp only the documented router defect. Cost decimals, output and reasoning
 // counters remain byte-for-byte untouched; every bridge meters the same corrected
 // input count. Do not invent a successful usage report when counters are absent.
@@ -121,11 +134,14 @@ func normalizeKiloPayload(body []byte, model string, accounts ...*Account) []byt
 			body, _ = sjson.SetBytes(body, "usage.total_tokens", 256000+gjson.GetBytes(body, "usage.completion_tokens").Int())
 		}
 		// Cached input is a subset of prompt input, never a larger billable bucket.
-		for _, path := range []string{"usage.prompt_tokens_details.cached_tokens", "usage.prompt_tokens_details.cache_write_tokens"} {
-			if gjson.GetBytes(body, path).Int() > 256000 {
-				body, _ = sjson.SetBytes(body, path, 256000)
-			}
-		}
+		usage := gjson.GetBytes(body, "usage")
+		read := min(openAICacheReadTokensFromUsage(usage), 256000)
+		body = clampKiloCacheFields(body, read, "input_tokens_details.cached_tokens", "prompt_tokens_details.cached_tokens",
+			"cache_read_input_tokens", "cache_read_tokens", "cached_tokens", "prompt_cache_hit_tokens")
+		body = clampKiloCacheFields(body, 256000-read, "prompt_tokens_details.cache_creation_input_tokens",
+			"input_tokens_details.cache_write_tokens", "prompt_tokens_details.cache_write_tokens",
+			"input_tokens_details.cache_creation_tokens", "prompt_tokens_details.cache_creation_tokens",
+			"cache_write_tokens", "cache_creation_input_tokens", "cache_write_input_tokens", "cache_creation_tokens")
 	}
 	if !gjson.GetBytes(body, "error").Exists() && gjson.GetBytes(body, "type").String() != "error" && !gjson.GetBytes(body, "metadata.raw").Exists() {
 		return body
