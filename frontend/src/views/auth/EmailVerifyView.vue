@@ -111,11 +111,25 @@
           />
         </div>
 
+        <LoginAgreementPrompt
+          v-if="agreementRefreshRequired && currentAgreementEnabled"
+          :enabled="currentAgreementEnabled"
+          :accepted="currentAgreementAccepted"
+          :documents="currentAgreementDocuments"
+          :mode="currentAgreementMode"
+          :updated-at="currentAgreementUpdatedAt"
+          :visible="showAgreementModal"
+          @accept="acceptRefreshedAgreement"
+          @reject="rejectRefreshedAgreement"
+          @open="showAgreementModal = true"
+          @close="showAgreementModal = false"
+        />
+
         <!-- Submit Button -->
         <div class="auth-actions">
         <button
           type="submit"
-          :disabled="isLoading || !verifyCode || (pendingOAuthCreateTurnstileRequired && !createAccountTurnstileToken)"
+          :disabled="isLoading || !verifyCode || (pendingOAuthCreateTurnstileRequired && !createAccountTurnstileToken) || (agreementRefreshRequired && currentAgreementEnabled && !currentAgreementAccepted && currentAgreementMode !== 'checkbox')"
           class="btn btn-primary w-full"
         >
           <svg
@@ -157,7 +171,7 @@
             type="button"
             @click="handleResendCode"
             :disabled="
-              isSendingCode || (turnstileEnabled && showResendTurnstile && !resendTurnstileToken)
+              isSendingCode || (turnstileActive && showResendTurnstile && !resendTurnstileToken)
             "
             class="btn btn-outline disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -192,7 +206,12 @@ import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
 import Icon from '@/components/icons/Icon.vue'
 import TurnstileWidget from '@/components/CaptchaChallenge.vue'
+import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
+import { resolveActiveCaptchaProvider } from '@/components/auth/captchaProvider'
+import { resolveAgreementState } from '@/features/public/legal'
+import { sanitizeInternalRedirect } from '@/router/redirect'
 import { useAuthStore, useAppStore } from '@/stores'
+import type { LoginAgreementDocument } from '@/types'
 import {
   persistOAuthTokenContext,
   getPublicSettings,
@@ -263,6 +282,14 @@ const invitationCode = ref<string>('')
 const affCode = ref<string>('')
 const loginAgreementAccepted = ref<boolean | undefined>(undefined)
 const loginAgreementRevision = ref<string | undefined>(undefined)
+const agreementRefreshRequired = ref<boolean>(false)
+const currentAgreementEnabled = ref<boolean>(false)
+const currentAgreementMode = ref<'modal' | 'checkbox' | string>('modal')
+const currentAgreementUpdatedAt = ref<string>('')
+const currentAgreementRevision = ref<string>('')
+const currentAgreementDocuments = ref<LoginAgreementDocument[]>([])
+const currentAgreementAccepted = ref<boolean>(false)
+const showAgreementModal = ref<boolean>(false)
 const pendingAuthToken = ref<string>('')
 const pendingAuthTokenField = ref<PendingAuthTokenField>('pending_auth_token')
 const pendingProvider = ref<string>('')
@@ -296,22 +323,23 @@ const resendTencentCaptchaRandstr = ref<string>('')
 const createAccountTurnstileToken = ref<string>('')
 const createAccountTencentCaptchaRandstr = ref<string>('')
 const showResendTurnstile = ref<boolean>(false)
-const aliyunCaptchaReady = computed(
-  () =>
-    aliyunCaptchaEnabled.value &&
-    Boolean(aliyunCaptchaSceneId.value) &&
-    Boolean(aliyunCaptchaPrefix.value)
+const activeCaptchaProvider = computed(() =>
+  resolveActiveCaptchaProvider({
+    turnstileEnabled: turnstileEnabled.value,
+    turnstileSiteKey: turnstileSiteKey.value,
+    tencentEnabled: tencentCaptchaEnabled.value,
+    tencentAppId: tencentCaptchaAppId.value,
+    aliyunEnabled: aliyunCaptchaEnabled.value,
+    aliyunSceneId: aliyunCaptchaSceneId.value,
+    aliyunPrefix: aliyunCaptchaPrefix.value
+  })
 )
+const turnstileActive = computed(() => activeCaptchaProvider.value === 'turnstile')
+const tencentActive = computed(() => activeCaptchaProvider.value === 'tencent')
+const aliyunActive = computed(() => activeCaptchaProvider.value === 'aliyun')
 // 动作触发式验证码（腾讯/阿里云）：重发验证码、创建账号时弹窗验证
-const actionCaptchaEnabled = computed(
-  () =>
-    (tencentCaptchaEnabled.value && Boolean(tencentCaptchaAppId.value)) ||
-    aliyunCaptchaReady.value
-)
-const captchaEnabled = computed(
-  () =>
-    (turnstileEnabled.value && Boolean(turnstileSiteKey.value)) || actionCaptchaEnabled.value
-)
+const actionCaptchaEnabled = computed(() => tencentActive.value || aliyunActive.value)
+const captchaEnabled = computed(() => activeCaptchaProvider.value !== 'none')
 
 const errors = ref({
   code: '',
@@ -322,7 +350,7 @@ const validationToastMessage = computed(
   () => errors.value.code || errors.value.turnstile || ''
 )
 const pendingOAuthCreateTurnstileRequired = computed(
-  () => isPendingOAuthFlow() && turnstileEnabled.value
+  () => isPendingOAuthFlow() && turnstileActive.value
 )
 const pendingOAuthCreateCaptchaEnabled = computed(
   () => isPendingOAuthFlow() && captchaEnabled.value
@@ -346,8 +374,7 @@ onMounted(async () => {
       const registerData = JSON.parse(registerDataStr)
       email.value = registerData.email || ''
       username.value = typeof registerData.username === 'string' ? registerData.username : ''
-      const target = registerData.redirect
-      if (typeof target === 'string' && target.startsWith('/') && !/^\/[\\/]/.test(target) && !/[\r\n\\]/.test(target)) registrationRedirect.value = target
+      registrationRedirect.value = sanitizeInternalRedirect(registerData.redirect, '/dashboard')
       password.value = registerData.password || ''
       initialTurnstileToken.value =
         registerData.tencent_captcha_ticket || registerData.turnstile_token || ''
@@ -366,7 +393,10 @@ onMounted(async () => {
       pendingAuthToken.value = registerData.pending_auth_token || activePendingSession?.token || ''
       pendingAuthTokenField.value = registerData.pending_auth_token_field || activePendingSession?.token_field || 'pending_auth_token'
       pendingProvider.value = registerData.pending_provider || activePendingSession?.provider || ''
-      pendingRedirect.value = registerData.pending_redirect || activePendingSession?.redirect || ''
+      const rawPendingRedirect = registerData.pending_redirect || activePendingSession?.redirect || ''
+      pendingRedirect.value = rawPendingRedirect
+        ? sanitizeInternalRedirect(rawPendingRedirect, '/dashboard')
+        : ''
       pendingAdoptionDecision.value = registerData.pending_adoption_decision
         ? {
             adoptDisplayName: registerData.pending_adoption_decision.adopt_display_name === true,
@@ -381,7 +411,9 @@ onMounted(async () => {
     pendingAuthToken.value = activePendingSession.token
     pendingAuthTokenField.value = activePendingSession.token_field
     pendingProvider.value = activePendingSession.provider
-    pendingRedirect.value = activePendingSession.redirect || ''
+    pendingRedirect.value = activePendingSession.redirect
+      ? sanitizeInternalRedirect(activePendingSession.redirect, '/dashboard')
+      : ''
   }
 
   // Load public settings
@@ -540,12 +572,63 @@ function getPendingOAuthSendCodeSessionResponse(
 }
 
 function persistPendingOAuthSession(provider: string, redirect?: string): void {
+  const safeRedirect = redirect
+    ? sanitizeInternalRedirect(redirect, '/dashboard')
+    : pendingRedirect.value || undefined
   authStore.setPendingAuthSession({
     token: pendingAuthToken.value,
     token_field: pendingAuthTokenField.value,
     provider: provider.trim() || pendingProvider.value.trim(),
-    redirect: redirect || pendingRedirect.value || undefined,
+    redirect: safeRedirect,
   })
+}
+
+async function refreshAgreementForRecovery(): Promise<void> {
+  agreementRefreshRequired.value = true
+  currentAgreementAccepted.value = false
+  try {
+    const settings = await getPublicSettings()
+    const resolved = resolveAgreementState(settings)
+    currentAgreementDocuments.value = resolved.documents
+    currentAgreementEnabled.value = resolved.enabled
+    currentAgreementMode.value = resolved.mode
+    currentAgreementUpdatedAt.value = resolved.updatedAt
+    currentAgreementRevision.value = resolved.revision
+    if (!resolved.enabled) {
+      agreementRefreshRequired.value = false
+      currentAgreementAccepted.value = true
+      loginAgreementAccepted.value = undefined
+      loginAgreementRevision.value = undefined
+    } else {
+      showAgreementModal.value = resolved.mode !== 'checkbox'
+    }
+  } catch (error) {
+    console.error('Failed to refresh agreement settings:', error)
+  }
+}
+
+function acceptRefreshedAgreement(): void {
+  currentAgreementAccepted.value = true
+  showAgreementModal.value = false
+  loginAgreementAccepted.value = true
+  loginAgreementRevision.value = currentAgreementRevision.value
+  const registerDataStr = authStorage.registerDraft.get()
+  if (registerDataStr) {
+    try {
+      const registerData = JSON.parse(registerDataStr) as Record<string, unknown>
+      registerData.login_agreement_accepted = true
+      registerData.login_agreement_revision = currentAgreementRevision.value
+      authStorage.registerDraft.setJSON(registerData)
+    } catch {
+      // Ignore malformed draft payload.
+    }
+  }
+}
+
+function rejectRefreshedAgreement(): void {
+  currentAgreementAccepted.value = false
+  showAgreementModal.value = false
+  loginAgreementAccepted.value = false
 }
 
 // ==================== Send Code ====================
@@ -568,13 +651,13 @@ async function sendCode(): Promise<void> {
       [pendingAuthTokenField.value]: pendingAuthToken.value || undefined,
       // 优先使用重发时新获取的 token（因为初始 token 可能已被使用）
       turnstile_token:
-        turnstileEnabled.value || aliyunCaptchaEnabled.value
+        turnstileActive.value || aliyunActive.value
           ? resendTurnstileToken.value || initialTurnstileToken.value || undefined
           : undefined,
-      tencent_captcha_ticket: tencentCaptchaEnabled.value
+      tencent_captcha_ticket: tencentActive.value
         ? resendTurnstileToken.value || initialTurnstileToken.value || undefined
         : undefined,
-      tencent_captcha_randstr: tencentCaptchaEnabled.value
+      tencent_captcha_randstr: tencentActive.value
         ? resendTencentCaptchaRandstr.value || initialTencentCaptchaRandstr.value || undefined
         : undefined
     } as Parameters<typeof sendVerifyCode>[0]
@@ -617,7 +700,7 @@ async function sendCode(): Promise<void> {
       resendTurnstileToken.value = ''
       resendTencentCaptchaRandstr.value = ''
       turnstileRef.value?.reset()
-      if (!requestSucceeded && turnstileEnabled.value) {
+      if (!requestSucceeded && turnstileActive.value) {
         showResendTurnstile.value = true
       }
     }
@@ -644,12 +727,12 @@ function clearStoredCaptchaProof(): void {
 
 async function handleResendCode(): Promise<void> {
   // Turnstile stays staged; Tencent is acquired from this action.
-  if (turnstileEnabled.value && !showResendTurnstile.value) {
+  if (turnstileActive.value && !showResendTurnstile.value) {
     showResendTurnstile.value = true
     return
   }
 
-  if (turnstileEnabled.value && !resendTurnstileToken.value) {
+  if (turnstileActive.value && !resendTurnstileToken.value) {
     errors.value.turnstile = t('auth.completeVerification')
     return
   }
@@ -680,6 +763,19 @@ function validateForm(): boolean {
 async function handleVerify(): Promise<void> {
   errorMessage.value = ''
 
+  if (agreementRefreshRequired.value && currentAgreementEnabled.value && !currentAgreementAccepted.value) {
+    errorMessage.value = t('publicPortal.legal.agreementRequiredRefresh')
+    if (typeof appStore.showWarning === 'function') {
+      appStore.showWarning(errorMessage.value)
+    } else {
+      appStore.showError(errorMessage.value)
+    }
+    if (currentAgreementMode.value !== 'checkbox') {
+      showAgreementModal.value = true
+    }
+    return
+  }
+
   if (!validateForm()) {
     return
   }
@@ -702,11 +798,11 @@ async function handleVerify(): Promise<void> {
         email: email.value,
         password: password.value,
         verify_code: verifyCode.value.trim(),
-        ...((turnstileEnabled.value || aliyunCaptchaEnabled.value) &&
+        ...((turnstileActive.value || aliyunActive.value) &&
         createAccountTurnstileToken.value
           ? { turnstile_token: createAccountTurnstileToken.value }
           : {}),
-        ...(tencentCaptchaEnabled.value && createAccountTurnstileToken.value
+        ...(tencentActive.value && createAccountTurnstileToken.value
           ? {
               tencent_captcha_ticket: createAccountTurnstileToken.value,
               tencent_captcha_randstr: createAccountTencentCaptchaRandstr.value
@@ -755,11 +851,11 @@ async function handleVerify(): Promise<void> {
         password: password.value,
         verify_code: verifyCode.value.trim(),
         turnstile_token:
-          turnstileEnabled.value || aliyunCaptchaEnabled.value
+          turnstileActive.value || aliyunActive.value
             ? initialTurnstileToken.value || undefined
             : undefined,
-        tencent_captcha_ticket: tencentCaptchaEnabled.value ? initialTurnstileToken.value || undefined : undefined,
-        tencent_captcha_randstr: tencentCaptchaEnabled.value ? initialTencentCaptchaRandstr.value || undefined : undefined,
+        tencent_captcha_ticket: tencentActive.value ? initialTurnstileToken.value || undefined : undefined,
+        tencent_captcha_randstr: tencentActive.value ? initialTencentCaptchaRandstr.value || undefined : undefined,
         promo_code: promoCode.value || undefined,
         invitation_code: invitationCode.value || undefined,
         ...(affCode.value ? { aff_code: affCode.value } : {}),
@@ -780,8 +876,20 @@ async function handleVerify(): Promise<void> {
     appStore.showSuccess(t('auth.accountCreatedSuccess', { siteName: siteName.value }))
 
     // Redirect to dashboard
-    await router.push(pendingRedirect.value || registrationRedirect.value)
+    await router.push(
+      sanitizeInternalRedirect(pendingRedirect.value || registrationRedirect.value, '/dashboard')
+    )
   } catch (error: unknown) {
+    if (extractApiErrorCode(error) === 'LOGIN_AGREEMENT_REQUIRED') {
+      await refreshAgreementForRecovery()
+      errorMessage.value = t('publicPortal.legal.agreementRequiredRefresh')
+      if (typeof appStore.showWarning === 'function') {
+        appStore.showWarning(errorMessage.value)
+      } else {
+        appStore.showError(errorMessage.value)
+      }
+      return
+    }
     errorMessage.value = buildRegistrationErrorMessage(error, t('auth.verifyFailed'))
 
     appStore.showError(errorMessage.value)

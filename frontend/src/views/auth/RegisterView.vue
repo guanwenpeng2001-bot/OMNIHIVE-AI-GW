@@ -40,7 +40,7 @@
 
       <!-- Registration Disabled Message -->
       <div
-        v-if="!publicSettingsError && !registrationEnabled && settingsLoaded"
+        v-if="!publicSettingsError && (!registrationEnabled || backendModeEnabled) && settingsLoaded"
         class="auth-summary"
       >
         <div class="flex items-start gap-3">
@@ -341,7 +341,7 @@
           variant="primary"
           :loading="isLoading"
           block
-          :disabled="registrationActionDisabled || (turnstileEnabled && !turnstileToken)"
+          :disabled="registrationActionDisabled || (turnstileActive && !turnstileToken)"
           class="btn btn-primary w-full"
         >
           <Icon v-if="!isLoading" name="userPlus" size="sm" />
@@ -378,7 +378,7 @@
     </div>
 
     <!-- Footer -->
-    <template v-if="!publicSettingsError && !registrationEnabled && settingsLoaded" #footer>
+    <template v-if="!publicSettingsError && (!registrationEnabled || backendModeEnabled) && settingsLoaded" #footer>
       <p class="text-[var(--muted-foreground)]">
         {{ t('auth.alreadyHaveAccount') }}
         <router-link
@@ -400,9 +400,11 @@ import { AuthLayout } from '@/components/layout'
 import { Badge, Button, Skeleton } from '@/components/ui'
 import OAuthLoginSections from '@/components/auth/OAuthLoginSections.vue'
 import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
+import { resolveActiveCaptchaProvider } from '@/components/auth/captchaProvider'
 import Icon from '@/components/icons/Icon.vue'
 import TurnstileWidget from '@/components/CaptchaChallenge.vue'
 import { useAuthStore, useAppStore } from '@/stores'
+import { sanitizeInternalRedirect } from '@/router/redirect'
 import { authStorage } from '@/api/tokenRefresh'
 import {
   buildOAuthLoginStartURL,
@@ -452,6 +454,7 @@ const confirmPassword = ref('')
 
 // Public settings
 const registrationEnabled = ref<boolean>(true)
+const backendModeEnabled = ref<boolean>(false)
 const emailVerifyEnabled = ref<boolean>(false)
 // Use injected settings on the first render; stay hidden until explicitly enabled.
 const promoCodeEnabled = ref<boolean>(appStore.cachedPublicSettings?.promo_code_enabled === true)
@@ -489,22 +492,23 @@ const showAgreementModal = ref<boolean>(false)
 const turnstileRef = ref<InstanceType<typeof TurnstileWidget> | null>(null)
 const turnstileToken = ref<string>('')
 const tencentCaptchaRandstr = ref<string>('')
-const aliyunCaptchaReady = computed(
-  () =>
-    aliyunCaptchaEnabled.value &&
-    Boolean(aliyunCaptchaSceneId.value) &&
-    Boolean(aliyunCaptchaPrefix.value)
+const activeCaptchaProvider = computed(() =>
+  resolveActiveCaptchaProvider({
+    turnstileEnabled: turnstileEnabled.value,
+    turnstileSiteKey: turnstileSiteKey.value,
+    tencentEnabled: tencentCaptchaEnabled.value,
+    tencentAppId: tencentCaptchaAppId.value,
+    aliyunEnabled: aliyunCaptchaEnabled.value,
+    aliyunSceneId: aliyunCaptchaSceneId.value,
+    aliyunPrefix: aliyunCaptchaPrefix.value
+  })
 )
+const turnstileActive = computed(() => activeCaptchaProvider.value === 'turnstile')
+const tencentActive = computed(() => activeCaptchaProvider.value === 'tencent')
+const aliyunActive = computed(() => activeCaptchaProvider.value === 'aliyun')
 // 动作触发式验证码（腾讯/阿里云）：提交、OAuth 启动时弹窗验证
-const actionCaptchaEnabled = computed(
-  () =>
-    (tencentCaptchaEnabled.value && Boolean(tencentCaptchaAppId.value)) ||
-    aliyunCaptchaReady.value
-)
-const captchaEnabled = computed(
-  () =>
-    (turnstileEnabled.value && Boolean(turnstileSiteKey.value)) || actionCaptchaEnabled.value
-)
+const actionCaptchaEnabled = computed(() => tencentActive.value || aliyunActive.value)
+const captchaEnabled = computed(() => activeCaptchaProvider.value !== 'none')
 
 // Promo code validation
 const promoValidating = ref<boolean>(false)
@@ -515,6 +519,7 @@ const promoValidation = reactive({
   message: ''
 })
 let promoValidateTimeout: ReturnType<typeof setTimeout> | null = null
+let promoValidationSequence = 0
 
 // Invitation code validation
 const invitationValidating = ref<boolean>(false)
@@ -556,12 +561,16 @@ const validationToastMessage = computed(() =>
 
 const showOAuthLogin = computed(
   () =>
-    linuxdoOAuthEnabled.value ||
-    dingtalkOAuthEnabled.value ||
-    wechatOAuthEnabled.value ||
-    oidcOAuthEnabled.value ||
-    githubOAuthEnabled.value ||
-    googleOAuthEnabled.value
+    settingsLoaded.value &&
+    !publicSettingsError.value &&
+    registrationEnabled.value &&
+    !backendModeEnabled.value &&
+    (linuxdoOAuthEnabled.value ||
+      dingtalkOAuthEnabled.value ||
+      wechatOAuthEnabled.value ||
+      oidcOAuthEnabled.value ||
+      githubOAuthEnabled.value ||
+      googleOAuthEnabled.value)
 )
 
 const agreementGateActive = computed(
@@ -598,6 +607,7 @@ async function loadPublicSettings(): Promise<boolean> {
   try {
     const settings = await getPublicSettings()
     registrationEnabled.value = settings.registration_enabled
+    backendModeEnabled.value = settings.backend_mode_enabled === true
     emailVerifyEnabled.value = settings.email_verify_enabled
     promoCodeEnabled.value = settings.promo_code_enabled
     invitationCodeEnabled.value = settings.invitation_code_enabled
@@ -677,10 +687,14 @@ watch(
 onUnmounted(() => {
   if (promoValidateTimeout) {
     clearTimeout(promoValidateTimeout)
+    promoValidateTimeout = null
   }
   if (invitationValidateTimeout) {
     clearTimeout(invitationValidateTimeout)
+    invitationValidateTimeout = null
   }
+  promoValidationSequence++
+  invitationValidationSequence++
 })
 
 // ==================== Login Agreement ====================
@@ -726,6 +740,11 @@ function rejectLoginAgreement(): void {
 
 function handlePromoCodeInput(): void {
   const code = formData.promo_code.trim()
+  promoValidationSequence++
+  if (promoValidateTimeout) {
+    clearTimeout(promoValidateTimeout)
+    promoValidateTimeout = null
+  }
 
   // Clear previous validation
   promoValidation.valid = false
@@ -738,23 +757,22 @@ function handlePromoCodeInput(): void {
     return
   }
 
-  // Debounce validation
-  if (promoValidateTimeout) {
-    clearTimeout(promoValidateTimeout)
-  }
+  promoValidating.value = true
 
   promoValidateTimeout = setTimeout(() => {
+    promoValidateTimeout = null
     validatePromoCodeDebounced(code)
   }, 500)
 }
 
 async function validatePromoCodeDebounced(code: string): Promise<void> {
   if (!code.trim()) return
-
+  const sequence = ++promoValidationSequence
   promoValidating.value = true
 
   try {
     const result = await validatePromoCode(code)
+    if (sequence !== promoValidationSequence) return
 
     if (result.valid) {
       promoValidation.valid = true
@@ -769,12 +787,15 @@ async function validatePromoCodeDebounced(code: string): Promise<void> {
       promoValidation.message = getPromoErrorMessage(result.error_code)
     }
   } catch (error) {
+    if (sequence !== promoValidationSequence) return
     console.error('Failed to validate promo code:', error)
     promoValidation.valid = false
     promoValidation.invalid = true
     promoValidation.message = t('auth.promoCodeInvalid')
   } finally {
-    promoValidating.value = false
+    if (sequence === promoValidationSequence) {
+      promoValidating.value = false
+    }
   }
 }
 
@@ -906,7 +927,9 @@ async function acquireActionProof(): Promise<boolean> {
 }
 
 async function handleOAuthStart(request: OAuthLoginStart): Promise<void> {
-  if (registrationActionDisabled.value) return
+  if (registrationActionDisabled.value || !registrationEnabled.value || backendModeEnabled.value) {
+    return
+  }
   if (agreementGateActive.value) {
     appStore.showWarning(t('legal.loginAgreementPrompt.registerRequiredWarning'))
     if (loginAgreementMode.value !== 'checkbox') {
@@ -927,7 +950,7 @@ async function handleOAuthStart(request: OAuthLoginStart): Promise<void> {
 
     const result = await startOAuthLogin(
       request,
-      tencentCaptchaEnabled.value
+      tencentActive.value
         ? {
             tencent_captcha_ticket: proof.token,
             tencent_captcha_randstr: proof.randstr
@@ -1038,7 +1061,7 @@ function validateForm(): boolean {
   }
 
   // Turnstile validation
-  if (turnstileEnabled.value && !turnstileToken.value) {
+  if (turnstileActive.value && !turnstileToken.value) {
     errors.turnstile = t('auth.completeVerification')
     isValid = false
   }
@@ -1049,7 +1072,7 @@ function validateForm(): boolean {
 // ==================== Form Handlers ====================
 
 async function handleRegister(): Promise<void> {
-  if (registrationActionDisabled.value || !registrationEnabled.value) return
+  if (registrationActionDisabled.value || !registrationEnabled.value || backendModeEnabled.value) return
 
   // Clear previous error
   errorMessage.value = ''
@@ -1122,9 +1145,9 @@ async function handleRegister(): Promise<void> {
         ...(typeof route.query.redirect === 'string' ? { redirect: safeRedirect(route.query.redirect) } : {}),
         password: formData.password,
         turnstile_token:
-          turnstileEnabled.value || aliyunCaptchaEnabled.value ? turnstileToken.value : undefined,
-        tencent_captcha_ticket: tencentCaptchaEnabled.value ? turnstileToken.value : undefined,
-        tencent_captcha_randstr: tencentCaptchaEnabled.value ? tencentCaptchaRandstr.value : undefined,
+          turnstileActive.value || aliyunActive.value ? turnstileToken.value : undefined,
+        tencent_captcha_ticket: tencentActive.value ? turnstileToken.value : undefined,
+        tencent_captcha_randstr: tencentActive.value ? tencentCaptchaRandstr.value : undefined,
         promo_code: formData.promo_code || undefined,
         invitation_code: formData.invitation_code.trim() || undefined,
         ...(affCode ? { aff_code: affCode } : {}),
@@ -1142,9 +1165,9 @@ async function handleRegister(): Promise<void> {
       ...(formData.username.trim() ? { username: formData.username.trim() } : {}),
       password: formData.password,
       turnstile_token:
-        turnstileEnabled.value || aliyunCaptchaEnabled.value ? turnstileToken.value : undefined,
-      tencent_captcha_ticket: tencentCaptchaEnabled.value ? turnstileToken.value : undefined,
-      tencent_captcha_randstr: tencentCaptchaEnabled.value ? tencentCaptchaRandstr.value : undefined,
+        turnstileActive.value || aliyunActive.value ? turnstileToken.value : undefined,
+      tencent_captcha_ticket: tencentActive.value ? turnstileToken.value : undefined,
+      tencent_captcha_randstr: tencentActive.value ? tencentCaptchaRandstr.value : undefined,
       promo_code: formData.promo_code || undefined,
       invitation_code: formData.invitation_code.trim() || undefined,
       ...(affCode ? { aff_code: affCode } : {}),
@@ -1183,7 +1206,7 @@ async function handleRegister(): Promise<void> {
 }
 
 function safeRedirect(value: unknown): string {
-  return typeof value === 'string' && value.startsWith('/') && !/^\/[\\/]/.test(value) && !/[\r\n\\]/.test(value) ? value : '/dashboard'
+  return sanitizeInternalRedirect(value, '/dashboard')
 }
 
 function buildRegistrationErrorMessage(error: unknown, fallback: string): string {

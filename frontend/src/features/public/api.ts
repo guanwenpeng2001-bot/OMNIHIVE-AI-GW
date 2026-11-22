@@ -1,4 +1,19 @@
 import { apiClient } from '@/api/client'
+import type { components } from '@/api/generated/openapi'
+import { normalizeApiError } from '@/utils/apiError'
+
+export interface PublicRequestOptions {
+  signal?: AbortSignal
+}
+
+export function isSnapshotExpiredError(err: unknown): boolean {
+  const normalized = normalizeApiError(err)
+  if (normalized.status === 409 || normalized.status === 410) {
+    return true
+  }
+  const reason = String(normalized.reason || '').toUpperCase()
+  return reason === 'SNAPSHOT_EXPIRED'
+}
 
 export interface PublicRate {
   amount: string
@@ -78,19 +93,7 @@ export interface PublicTimeBand {
   multiplier: string
 }
 
-export interface PublicCatalogMetrics {
-  window?: string | null
-  window_start?: string
-  window_end?: string
-  source?: string
-  requests?: string | null
-  ttft_samples?: string | null
-  speed_samples?: string | null
-  success_rate?: number | null
-  ttft_p50_ms?: number | null
-  output_tokens_per_second?: number | null
-  state?: 'insufficient_samples' | 'partial' | 'available' | 'unavailable' | 'withheld' | string
-}
+export type PublicCatalogMetrics = components['schemas']['CatalogMetrics']
 
 export interface PublicCatalogBenchmark {
   benchmark_id: string
@@ -178,17 +181,7 @@ export interface PublicCatalogEstimate {
   rounding_adjustment?: string | null
 }
 
-export interface PublicCompareInput {
-  model_ids: string[]
-  protocol?: string
-  action?: string
-  scenario?: {
-    input_tokens?: string
-    cached_input_tokens?: string
-    output_tokens?: string
-    requests?: string
-  }
-}
+export type PublicCompareInput = components['schemas']['CatalogCompareInput']
 
 export interface PublicCompareRow {
   model_id: string
@@ -355,38 +348,45 @@ function matchesCanonicalModelSlug(item: PublicModelSummary, idOrSlug: string): 
 
 async function fetchPublicModelDirect(
   idOrSlug: string,
-  catalogVersion?: string
+  catalogVersion?: string,
+  requestOptions?: PublicRequestOptions
 ): Promise<PublicModelDetail> {
   const { data } = await apiClient.get(
     `/api/v2/public/models/${encodeURIComponent(idOrSlug)}`,
     {
-      params: withoutImplicitTimezone(catalogVersion ? { catalog_version: catalogVersion } : {})
+      params: withoutImplicitTimezone(catalogVersion ? { catalog_version: catalogVersion } : {}),
+      ...(requestOptions?.signal ? { signal: requestOptions.signal } : {})
     }
   )
   return (data?.data ?? data) as PublicModelDetail
 }
 
-export async function listPublicModels(params: ListParams): Promise<PublicModelPage> {
+export async function listPublicModels(
+  params: ListParams,
+  requestOptions?: PublicRequestOptions
+): Promise<PublicModelPage> {
   const { data } = await apiClient.get('/api/v2/public/models', {
     params: withoutImplicitTimezone(arrayParams(params)),
-    paramsSerializer: { indexes: null }
+    paramsSerializer: { indexes: null },
+    ...(requestOptions?.signal ? { signal: requestOptions.signal } : {})
   })
   return (data?.data ?? data) as PublicModelPage
 }
 
 export async function getPublicModel(
   idOrSlug: string,
-  catalogVersion?: string
+  catalogVersion?: string,
+  requestOptions?: PublicRequestOptions
 ): Promise<PublicModelDetail> {
   const target = normalizeModelIdentifier(idOrSlug)
   try {
-    return await fetchPublicModelDirect(target, catalogVersion)
+    return await fetchPublicModelDirect(target, catalogVersion, requestOptions)
   } catch (err) {
     if (STABLE_MODEL_ID_RE.test(target) || !isNotFoundError(err)) {
       throw err
     }
 
-    const primaryPage = await listPublicModels({ q: target, limit: 50 })
+    const primaryPage = await listPublicModels({ q: target, limit: 50 }, requestOptions)
     let matched = (primaryPage.items ?? []).find((item) =>
       matchesCanonicalModelSlug(item, target)
     )
@@ -395,7 +395,7 @@ export async function getPublicModel(
       const slashIndex = target.indexOf('/')
       const modelTail = target.slice(slashIndex + 1).trim()
       if (modelTail) {
-        const tailPage = await listPublicModels({ q: modelTail, limit: 50 })
+        const tailPage = await listPublicModels({ q: modelTail, limit: 50 }, requestOptions)
         matched = (tailPage.items ?? []).find((item) =>
           matchesCanonicalModelSlug(item, target)
         )
@@ -403,7 +403,7 @@ export async function getPublicModel(
     }
 
     if (matched?.id && matched.id !== target) {
-      return fetchPublicModelDirect(matched.id, catalogVersion)
+      return fetchPublicModelDirect(matched.id, catalogVersion, requestOptions)
     }
     throw err
   }
@@ -411,45 +411,63 @@ export async function getPublicModel(
 
 export async function comparePublicModels(
   modelIds: string[],
-  options?: Omit<PublicCompareInput, 'model_ids'>
+  options?: Omit<PublicCompareInput, 'model_ids'>,
+  requestOptions?: PublicRequestOptions
 ): Promise<PublicCompareResponse> {
   const payload: PublicCompareInput = {
     model_ids: modelIds,
     ...(options?.protocol ? { protocol: options.protocol } : {}),
     ...(options?.action ? { action: options.action } : {}),
-    ...(options?.scenario ? { scenario: options.scenario } : {})
+    ...(options?.scenario ? { scenario: options.scenario } : {}),
+    ...(options?.price_at ? { price_at: options.price_at } : {})
   }
-  const { data } = await apiClient.post('/api/v2/public/models/compare', payload)
+  const { data } = requestOptions?.signal
+    ? await apiClient.post('/api/v2/public/models/compare', payload, {
+        signal: requestOptions.signal
+      })
+    : await apiClient.post('/api/v2/public/models/compare', payload)
   return (data?.data ?? data) as PublicCompareResponse
 }
 
-export async function getPublicStatus(window?: PublicStatusWindow): Promise<PublicStatusResponse> {
+export async function getPublicStatus(
+  window?: PublicStatusWindow,
+  requestOptions?: PublicRequestOptions
+): Promise<PublicStatusResponse> {
   const { data } = await apiClient.get('/api/v2/public/status', {
-    params: withoutImplicitTimezone(window ? { window } : {})
+    params: withoutImplicitTimezone(window ? { window } : {}),
+    ...(requestOptions?.signal ? { signal: requestOptions.signal } : {})
   })
   return (data?.data ?? data) as PublicStatusResponse
 }
 
-export async function listPublicIncidents(params?: {
-  from?: string
-  to?: string
-  cursor?: string
-  limit?: number
-}): Promise<PublicIncidentPage> {
+export async function listPublicIncidents(
+  params?: {
+    from?: string
+    to?: string
+    cursor?: string
+    limit?: number
+  },
+  requestOptions?: PublicRequestOptions
+): Promise<PublicIncidentPage> {
   const { data } = await apiClient.get('/api/v2/public/status/incidents', {
     params: withoutImplicitTimezone({
       from: params?.from || undefined,
       to: params?.to || undefined,
       cursor: params?.cursor || undefined,
       limit: params?.limit ?? 20
-    })
+    }),
+    ...(requestOptions?.signal ? { signal: requestOptions.signal } : {})
   })
   return (data?.data ?? data) as PublicIncidentPage
 }
 
-export async function getPublicIncident(id: string): Promise<PublicStatusIncident> {
+export async function getPublicIncident(
+  id: string,
+  requestOptions?: PublicRequestOptions
+): Promise<PublicStatusIncident> {
   const { data } = await apiClient.get(`/api/v2/public/status/incidents/${encodeURIComponent(id)}`, {
-    params: withoutImplicitTimezone()
+    params: withoutImplicitTimezone(),
+    ...(requestOptions?.signal ? { signal: requestOptions.signal } : {})
   })
   return (data?.data ?? data) as PublicStatusIncident
 }

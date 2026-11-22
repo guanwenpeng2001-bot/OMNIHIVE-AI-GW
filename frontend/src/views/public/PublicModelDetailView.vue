@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { extractApiErrorMessage } from '@/utils/apiError'
-import { computed, onMounted, ref, watch } from 'vue'
+import { sanitizeUrl } from '@/utils/url'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { applyRouteSeo } from '@/features/public/seo'
+import { setDynamicRouteTitle } from '@/router/title'
 import { useRoute, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import PublicShell from '@/components/layout/PublicShell.vue'
@@ -12,6 +14,7 @@ import ErrorState from '@/components/ui/ErrorState.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
 import Tooltip from '@/components/ui/Tooltip.vue'
 import type { UiTone } from '@/components/ui/types'
+import { useAppStore } from '@/stores'
 import {
   availabilityStateLabel,
   availabilityStateTone,
@@ -49,13 +52,30 @@ interface FactRow {
 const { locale } = useI18n()
 const isZh = computed(() => String(locale?.value ?? '').startsWith('zh'))
 const route = useRoute()
+let appStore: ReturnType<typeof useAppStore> | null = null
+try {
+  appStore = useAppStore()
+} catch {
+  appStore = null
+}
 const detail = ref<PublicModelDetail | null>(null)
 const model = computed(() => detail.value?.model)
 let request = 0
+let activeAbortController: AbortController | null = null
 const loading = ref(true)
 const error = ref<unknown>(null)
 const snippetTab = ref<'curl' | 'ts' | 'python'>('curl')
 const showUndeclaredDetails = ref(false)
+
+const siteName = computed(() => {
+  const configured = appStore?.brandConfig?.siteName || appStore?.siteName
+  return configured && configured.trim() ? configured.trim() : 'OmniHive'
+})
+
+const safeDocumentationUrl = computed(() => {
+  const raw = detail.value?.documentation_url
+  return raw ? sanitizeUrl(raw) : ''
+})
 
 const modelId = computed(() => {
   const rawParam = route.params.id
@@ -86,8 +106,223 @@ const gatewayOrigin = computed(() => {
 
 const invocationModelName = computed(() => model.value?.model || model.value?.id || modelId.value)
 
+type SnippetKind = 'chat' | 'embedding' | 'image' | 'audio_stt' | 'audio_tts' | 'video'
+
+const snippetKind = computed<SnippetKind>(() => {
+  const mods = detailModalities.value
+  const actions = (model.value?.actions ?? []).map((entry) => entry.toLowerCase())
+  if (mods.includes('text') || actions.some((entry) => entry === 'chat' || entry === 'text.chat' || entry === 'text.completion')) {
+    return 'chat'
+  }
+  if (mods.includes('embedding') || actions.some((entry) => entry.includes('embedding'))) {
+    return 'embedding'
+  }
+  if (mods.includes('image') || actions.some((entry) => entry.startsWith('image'))) {
+    return 'image'
+  }
+  if (mods.includes('audio') || actions.some((entry) => entry.startsWith('audio') || entry.includes('speech') || entry.includes('stt') || entry.includes('tts'))) {
+    if (actions.some((entry) => entry.includes('stt') || entry.includes('transcri'))) {
+      return 'audio_stt'
+    }
+    return 'audio_tts'
+  }
+  if (mods.includes('video') || actions.some((entry) => entry.startsWith('video'))) {
+    return 'video'
+  }
+  return 'chat'
+})
+
 const integrationSnippet = computed(() => {
   const m = invocationModelName.value
+  const kind = snippetKind.value
+  if (kind === 'embedding') {
+    if (snippetTab.value === 'ts') {
+      return `import OpenAI from 'openai'
+
+const client = new OpenAI({
+  baseURL: '${gatewayOrigin.value}/v1',
+  apiKey: process.env.OMNIHIVE_API_KEY
+})
+
+const embedding = await client.embeddings.create({
+  model: '${m}',
+  input: 'Semantic search query text'
+})
+console.log(embedding.data[0]?.embedding.length)`
+    }
+    if (snippetTab.value === 'python') {
+      return `from openai import OpenAI
+import os
+
+client = OpenAI(
+    base_url="${gatewayOrigin.value}/v1",
+    api_key=os.environ["OMNIHIVE_API_KEY"],
+)
+
+resp = client.embeddings.create(
+    model="${m}",
+    input="Semantic search query text",
+)
+print(len(resp.data[0].embedding))`
+    }
+    return `curl ${gatewayOrigin.value}/v1/embeddings \\
+  -H "Authorization: Bearer $OMNIHIVE_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "${m}",
+    "input": "Semantic search query text"
+  }'`
+  }
+  if (kind === 'image') {
+    if (snippetTab.value === 'ts') {
+      return `import OpenAI from 'openai'
+
+const client = new OpenAI({
+  baseURL: '${gatewayOrigin.value}/v1',
+  apiKey: process.env.OMNIHIVE_API_KEY
+})
+
+const result = await client.images.generate({
+  model: '${m}',
+  prompt: 'Minimal architectural illustration of an AI gateway'
+})
+console.log(result.data?.[0]?.url)`
+    }
+    if (snippetTab.value === 'python') {
+      return `from openai import OpenAI
+import os
+
+client = OpenAI(
+    base_url="${gatewayOrigin.value}/v1",
+    api_key=os.environ["OMNIHIVE_API_KEY"],
+)
+
+resp = client.images.generate(
+    model="${m}",
+    prompt="Minimal architectural illustration of an AI gateway",
+)
+print(resp.data[0].url)`
+    }
+    return `curl ${gatewayOrigin.value}/v1/images/generations \\
+  -H "Authorization: Bearer $OMNIHIVE_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "${m}",
+    "prompt": "Minimal architectural illustration of an AI gateway"
+  }'`
+  }
+  if (kind === 'audio_stt') {
+    if (snippetTab.value === 'ts') {
+      return `import fs from 'node:fs'
+import OpenAI from 'openai'
+
+const client = new OpenAI({
+  baseURL: '${gatewayOrigin.value}/v1',
+  apiKey: process.env.OMNIHIVE_API_KEY
+})
+
+const transcript = await client.audio.transcriptions.create({
+  model: '${m}',
+  file: fs.createReadStream('sample.mp3')
+})
+console.log(transcript.text)`
+    }
+    if (snippetTab.value === 'python') {
+      return `from openai import OpenAI
+import os
+
+client = OpenAI(
+    base_url="${gatewayOrigin.value}/v1",
+    api_key=os.environ["OMNIHIVE_API_KEY"],
+)
+
+with open("sample.mp3", "rb") as audio_file:
+    transcript = client.audio.transcriptions.create(model="${m}", file=audio_file)
+print(transcript.text)`
+    }
+    return `curl ${gatewayOrigin.value}/v1/audio/transcriptions \\
+  -H "Authorization: Bearer $OMNIHIVE_API_KEY" \\
+  -F "model=${m}" \\
+  -F "file=@sample.mp3"`
+  }
+  if (kind === 'audio_tts') {
+    if (snippetTab.value === 'ts') {
+      return `import OpenAI from 'openai'
+
+const client = new OpenAI({
+  baseURL: '${gatewayOrigin.value}/v1',
+  apiKey: process.env.OMNIHIVE_API_KEY
+})
+
+const speech = await client.audio.speech.create({
+  model: '${m}',
+  voice: 'alloy',
+  input: 'Welcome to OmniHive unified inference gateway.'
+})
+console.log((await speech.arrayBuffer()).byteLength)`
+    }
+    if (snippetTab.value === 'python') {
+      return `from openai import OpenAI
+import os
+
+client = OpenAI(
+    base_url="${gatewayOrigin.value}/v1",
+    api_key=os.environ["OMNIHIVE_API_KEY"],
+)
+
+resp = client.audio.speech.create(
+    model="${m}",
+    voice="alloy",
+    input="Welcome to OmniHive unified inference gateway.",
+)
+resp.stream_to_file("speech.mp3")`
+    }
+    return `curl ${gatewayOrigin.value}/v1/audio/speech \\
+  -H "Authorization: Bearer $OMNIHIVE_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "${m}",
+    "voice": "alloy",
+    "input": "Welcome to OmniHive unified inference gateway."
+  }' --output speech.mp3`
+  }
+  if (kind === 'video') {
+    if (snippetTab.value === 'ts') {
+      return `const response = await fetch('${gatewayOrigin.value}/v1/videos/generations', {
+  method: 'POST',
+  headers: {
+    Authorization: \`Bearer \${process.env.OMNIHIVE_API_KEY}\`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    model: '${m}',
+    prompt: 'A serene sunrise over coastal cliffs, cinematic lighting'
+  })
+})
+console.log(await response.json())`
+    }
+    if (snippetTab.value === 'python') {
+      return `import os, requests
+
+resp = requests.post(
+    "${gatewayOrigin.value}/v1/videos/generations",
+    headers={"Authorization": f"Bearer {os.environ['OMNIHIVE_API_KEY']}"},
+    json={
+        "model": "${m}",
+        "prompt": "A serene sunrise over coastal cliffs, cinematic lighting",
+    },
+    timeout=60,
+)
+print(resp.json())`
+    }
+    return `curl ${gatewayOrigin.value}/v1/videos/generations \\
+  -H "Authorization: Bearer $OMNIHIVE_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "${m}",
+    "prompt": "A serene sunrise over coastal cliffs, cinematic lighting"
+  }'`
+  }
   if (snippetTab.value === 'ts') {
     return `import OpenAI from 'openai'
 
@@ -155,12 +390,45 @@ function boolFactRow(key: string, label: string, val?: boolean | null, source?: 
   }
 }
 
+const NO_TRAIN_EXACT = new Set([
+  'no',
+  'none',
+  'never',
+  'false',
+  'disabled',
+  'off',
+  'no_training',
+  'not_trained',
+  'never_trained',
+  'zero_training',
+  'opt_out',
+  'opted_out',
+  'excluded',
+  'zero_data_retention',
+  'zdr'
+])
+const NEGATED_OPT_OUT_PATTERN =
+  /(?:^|[\s,;_-])(?:can[\s_-]*not|cannot|unable[\s_-]+to|no)[\s_-]+opt[\s_-]+out(?:$|[\s,;_-])/
+const NO_TRAIN_PATTERNS = [
+  /(?:^|[\s,;_-])(never|none|false)(?:$|[\s,;_-])/,
+  /(?:^|[\s,;_-])no(?:[\s_-]+(?:training|train|data[\s_-]+training))?(?:$|[\s,;_-])/,
+  /(?:^|[\s,;_-])not[\s_-]+(?:used[\s_-]+for[\s_-]+)?train(?:ed|ing)?(?:$|[\s,;_-])/,
+  /(?:^|[\s,;_-])(?:opted|opt)[\s_-]+out(?:$|[\s,;_-])/
+]
+
+function isNoTrainingDeclaration(raw: string): boolean {
+  const normalized = raw.trim().toLowerCase()
+  if (!normalized) return false
+  if (NEGATED_OPT_OUT_PATTERN.test(normalized)) return false
+  if (NO_TRAIN_EXACT.has(normalized)) return true
+  return NO_TRAIN_PATTERNS.some((pattern) => pattern.test(normalized))
+}
+
 const trainingGovernance = computed<FactRow>(() => {
   const endpoints = detail.value?.endpoints ?? []
   const declared = endpoints.find((ep) => ep.training && ep.training !== 'unknown')
   if (declared) {
-    const normalized = declared.training.toLowerCase()
-    const noTrain = normalized.includes('never') || normalized.includes('none') || normalized.includes('false') || normalized.includes('opt_out') || normalized.includes('no')
+    const noTrain = isNoTrainingDeclaration(declared.training)
     return {
       key: 'training',
       label: isZh.value ? '请求数据用于训练' : 'Training on data',
@@ -284,6 +552,34 @@ const detailAvailability = computed(() => {
 
 const activeReferencePrice = computed(() => detail.value?.reference_price ?? model.value?.reference_price ?? null)
 
+function hasLiveRate(kind: 'input' | 'output'): boolean {
+  if (model.value?.price_state === 'free') return true
+  return Boolean(kind === 'input' ? model.value?.input_rate : model.value?.output_rate)
+}
+
+function referencePriceSubtitle(kind: 'input' | 'output'): string | null {
+  const refRate =
+    kind === 'input' ? activeReferencePrice.value?.input_rate : activeReferencePrice.value?.output_rate
+  if (!refRate) return null
+  const source = activeReferencePrice.value?.source?.trim()
+  if (hasLiveRate(kind)) {
+    const formatted = publicTokenPrice(refRate, 'adaptive', isZh.value)
+    if (!formatted || formatted === '—') return null
+    if (source) {
+      return isZh.value
+        ? `参考定价 · ${formatted}（${source}）`
+        : `Reference price · ${formatted} (${source})`
+    }
+    return isZh.value ? `参考定价 · ${formatted}` : `Reference price · ${formatted}`
+  }
+  if (source) {
+    return isZh.value
+      ? `参考来源：${source}（非最终结算价）`
+      : `Reference source: ${source} (indicative only)`
+  }
+  return isZh.value ? '公开参考价，非最终结算价' : 'Indicative reference price, not final billing rate'
+}
+
 function displayPrice(kind: 'input' | 'output'): string {
   if (model.value?.price_state === 'free') return isZh.value ? '免费' : 'Free'
   const rate = kind === 'input' ? model.value?.input_rate : model.value?.output_rate
@@ -299,38 +595,59 @@ function displayPrice(kind: 'input' | 'output'): string {
   return publicTokenPrice(rate, 'adaptive', isZh.value)
 }
 
+function syncDetailSeo(): void {
+  const loaded = detail.value?.model
+  if (!loaded) return
+  const modelTitle = loaded.display_name || loaded.model
+  const activeSiteName = siteName.value
+  setDynamicRouteTitle('PublicModelDetail', modelId.value, modelTitle)
+  applyRouteSeo({
+    title: `${modelTitle} - ${activeSiteName}`,
+    description: isZh.value
+      ? `${modelTitle} 的上下文窗口、支持能力、定价与实时延迟指标。`
+      : `Context window, capabilities, pricing, and live latency telemetry for ${modelTitle}.`,
+    canonicalPath: `/model-plaza/${encodeURIComponent(loaded.model || loaded.id)}`,
+    siteName: activeSiteName
+  })
+}
+
 async function load(): Promise<void> {
   const currentRequest = ++request
+  activeAbortController?.abort()
+  const controller = new AbortController()
+  activeAbortController = controller
+  detail.value = null
+  setDynamicRouteTitle('PublicModelDetail', '', null)
   loading.value = true
   error.value = null
   showUndeclaredDetails.value = false
   try {
-    const response = await getPublicModel(modelId.value)
+    const response = await getPublicModel(modelId.value, undefined, { signal: controller.signal })
     if (currentRequest === request) {
       detail.value = response
-      const loaded = response?.model
-      if (loaded) {
-        const modelTitle = loaded.display_name || loaded.model
-        const siteName = 'OmniHive'
-        applyRouteSeo({
-          title: `${modelTitle} - ${siteName}`,
-          description: isZh.value
-            ? `${modelTitle} 的上下文窗口、支持能力、定价与实时延迟指标。`
-            : `Context window, capabilities, pricing, and live latency telemetry for ${modelTitle}.`,
-          canonicalPath: `/model-plaza/${encodeURIComponent(loaded.model || loaded.id)}`,
-          siteName
-        })
-      }
+      syncDetailSeo()
     }
   } catch (err) {
+    if (controller.signal.aborted) return
     if (currentRequest === request) error.value = err
   } finally {
-    if (currentRequest === request) loading.value = false
+    if (currentRequest === request) {
+      loading.value = false
+      if (activeAbortController === controller) {
+        activeAbortController = null
+      }
+    }
   }
 }
 
 watch(modelId, () => void load())
+watch([siteName, isZh], () => syncDetailSeo())
 onMounted(() => void load())
+onBeforeUnmount(() => {
+  activeAbortController?.abort()
+  activeAbortController = null
+  setDynamicRouteTitle('PublicModelDetail', '', null)
+})
 </script>
 
 <template>
@@ -424,8 +741,8 @@ onMounted(() => void load())
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <a
-            v-if="detail?.documentation_url"
-            :href="detail.documentation_url"
+            v-if="safeDocumentationUrl"
+            :href="safeDocumentationUrl"
             target="_blank"
             rel="noopener noreferrer"
             class="oh-focus-ring inline-flex h-9 items-center rounded-oh-md border border-oh-default bg-oh-surface px-3.5 text-xs font-medium text-oh-secondary hover:border-oh-strong hover:text-oh-primary"
@@ -449,8 +766,8 @@ onMounted(() => void load())
           <p class="mt-2 font-mono text-lg font-semibold tabular-nums text-oh-primary">
             {{ displayPrice('input') }}
           </p>
-          <p v-if="activeReferencePrice?.input_rate" class="mt-1 text-xs text-oh-muted">
-            {{ isZh ? '参考定价' : 'Reference price' }} · {{ publicTokenPrice(activeReferencePrice.input_rate, 'adaptive', isZh) }}
+          <p v-if="referencePriceSubtitle('input')" class="mt-1 text-xs text-oh-muted">
+            {{ referencePriceSubtitle('input') }}
           </p>
           <p v-if="detail?.price_source" class="mt-1 font-mono text-[11px] text-oh-muted">
             {{ isZh ? `定价源：${formatPriceSourceLabel(detail.price_source, true)}` : `Source: ${formatPriceSourceLabel(detail.price_source, false)}` }}
@@ -464,8 +781,8 @@ onMounted(() => void load())
           <p class="mt-2 font-mono text-lg font-semibold tabular-nums text-oh-primary">
             {{ displayPrice('output') }}
           </p>
-          <p v-if="activeReferencePrice?.output_rate" class="mt-1 text-xs text-oh-muted">
-            {{ isZh ? '参考定价' : 'Reference price' }} · {{ publicTokenPrice(activeReferencePrice.output_rate, 'adaptive', isZh) }}
+          <p v-if="referencePriceSubtitle('output')" class="mt-1 text-xs text-oh-muted">
+            {{ referencePriceSubtitle('output') }}
           </p>
           <p v-if="detail?.price_version" class="mt-1 truncate font-mono text-[11px] text-oh-muted" :title="detail.price_version">
             {{ isZh ? `费率快照 ${formatShortVersion(detail.price_version)}` : `Snapshot ${formatShortVersion(detail.price_version)}` }}
@@ -527,6 +844,17 @@ onMounted(() => void load())
       </section>
 
       <section class="mb-6 min-w-0 max-w-full overflow-x-auto rounded-oh-md border border-oh-default bg-oh-surface">
+        <div
+          v-if="detailAvailability?.state === 'catalog_only'"
+          role="note"
+          class="border-b border-oh-default bg-oh-subtle/60 px-4 py-2.5 text-xs text-oh-secondary"
+        >
+          {{
+            isZh
+              ? '该模型当前为平台目录按需接入状态（Catalog Only），暂未绑定实时上游渠道。以下示例供接入参考，请在控制台联系管理员启用后再发起生产调用。'
+              : 'This model is currently listed as catalog-only (on demand) without an active upstream route. Use the snippet below for reference once an administrator enables routing.'
+          }}
+        </div>
         <div class="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-oh-default px-4 py-2.5">
           <div class="flex min-w-0 flex-wrap items-center gap-2">
             <h2 class="text-xs font-semibold uppercase tracking-wider text-oh-secondary">

@@ -1,6 +1,6 @@
 <template>
   <TurnstileWidget
-    v-if="turnstileEnabled && turnstileSiteKey"
+    v-if="activeProvider === 'turnstile'"
     ref="turnstileRef"
     :site-key="turnstileSiteKey"
     @verify="(token) => emit('verify', token, '')"
@@ -8,16 +8,16 @@
     @error="emit('error')"
   />
   <TencentCaptchaGate
-    v-else-if="tencentEnabled && tencentAppId"
+    v-else-if="activeProvider === 'tencent'"
     ref="tencentRef"
     :app-id="tencentAppId"
     :region="tencentRegion"
   />
   <AliyunCaptchaWidget
-    v-else-if="aliyunEnabled && aliyunSceneId && aliyunPrefix"
+    v-else-if="activeProvider === 'aliyun'"
     ref="aliyunRef"
-    :scene-id="aliyunSceneId"
-    :prefix="aliyunPrefix"
+    :scene-id="aliyunSceneId!"
+    :prefix="aliyunPrefix!"
     :region="aliyunRegion === 'sgp' ? 'sgp' : 'cn'"
     @verify="(param: string) => emit('verify', param, '')"
     @expire="emit('expire')"
@@ -26,10 +26,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import TurnstileWidget from '@/components/TurnstileWidget.vue'
 import TencentCaptchaGate from '@/components/TencentCaptchaGate.vue'
 import AliyunCaptchaWidget from '@/components/AliyunCaptchaWidget.vue'
+import { resolveActiveCaptchaProvider } from '@/components/auth/captchaProvider'
 
 // ActionCaptchaResult 动作触发式验证（腾讯/阿里云弹窗）的结果：
 // 腾讯 token=ticket、randstr 非空；阿里云 token=captchaVerifyParam、randstr 恒为空。
@@ -60,6 +61,7 @@ const emit = defineEmits<{
 const turnstileRef = ref<InstanceType<typeof TurnstileWidget> | null>(null)
 const tencentRef = ref<InstanceType<typeof TencentCaptchaGate> | null>(null)
 const aliyunRef = ref<InstanceType<typeof AliyunCaptchaWidget> | null>(null)
+const activeProvider = computed(() => resolveActiveCaptchaProvider(props))
 
 function reset(): void {
   turnstileRef.value?.reset()
@@ -70,7 +72,7 @@ function reset(): void {
 // verifyAction 弹出当前启用的动作触发式验证码（腾讯/阿里云）并等待结果；
 // 用户关闭弹窗返回 null，验证异常 emit('error') 并返回 null。
 async function verifyAction(): Promise<ActionCaptchaResult | null> {
-  if (props.tencentEnabled && props.tencentAppId) {
+  if (activeProvider.value === 'tencent') {
     try {
       const proof = (await tencentRef.value?.verify()) ?? null
       if (!proof) return null
@@ -80,7 +82,7 @@ async function verifyAction(): Promise<ActionCaptchaResult | null> {
       return null
     }
   }
-  if (props.aliyunEnabled && props.aliyunSceneId && props.aliyunPrefix) {
+  if (activeProvider.value === 'aliyun') {
     try {
       const param = (await aliyunRef.value?.verify()) ?? null
       if (!param) return null

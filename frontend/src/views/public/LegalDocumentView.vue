@@ -23,10 +23,10 @@
           </template>
         </RouterLink>
         <RouterLink
-          to="/login"
+          :to="isAuthenticated ? dashboardPath : '/login'"
           class="btn btn-primary flex-shrink-0"
         >
-          {{ t('home.login') }}
+          {{ isAuthenticated ? t('landing.dashboard') : t('home.login') }}
         </RouterLink>
       </div>
     </header>
@@ -134,8 +134,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { getActivePinia } from 'pinia'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { useI18n } from 'vue-i18n'
@@ -143,6 +144,7 @@ import Icon from '@/components/icons/Icon.vue'
 import { getLocale } from '@/i18n'
 import { sanitizeUrl } from '@/utils/url'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 import {
   canonicalLegalDocumentId,
   DEFAULT_LEGAL_NAV_SLOTS,
@@ -159,6 +161,9 @@ type LegalDocumentIcon = 'document' | 'shield' | 'globe' | 'cog'
 const route = useRoute()
 const { t } = useI18n()
 const appStore = useAppStore()
+const authStore = getActivePinia() ? useAuthStore() : null
+const isAuthenticated = computed(() => Boolean(authStore?.isAuthenticated))
+const dashboardPath = computed(() => (authStore?.isAdmin ? '/admin/dashboard' : '/dashboard'))
 const loadedPublicSettings = ref(appStore.cachedPublicSettings)
 const settings = computed(() => loadedPublicSettings.value ?? appStore.cachedPublicSettings)
 const loading = ref(!settings.value)
@@ -322,6 +327,20 @@ onMounted(async () => {
   }
   await loadSettings()
 })
+
+watch(
+  [isAdminComplianceDocument, documentId],
+  async ([isAdminDoc]) => {
+    if (isAdminDoc) {
+      loading.value = false
+      loadError.value = false
+      return
+    }
+    if (!settings.value && !loading.value) {
+      await loadSettings()
+    }
+  }
+)
 </script>
 
 <style scoped>

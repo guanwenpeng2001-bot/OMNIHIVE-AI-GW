@@ -90,25 +90,42 @@ const BACKEND_MODE_CALLBACK_PATHS = new Set([
 
 const BACKEND_MODE_PENDING_AUTH_PATHS = new Set(['/register', '/email-verify'])
 
+export function normalizeRoutePath(path: string): string {
+  const trimmed = (path || '').trim()
+  if (!trimmed || trimmed === '/') return '/'
+  return trimmed.replace(/\/+$/, '') || '/'
+}
+
+export function isModelPlazaPath(path: string): boolean {
+  const normalized = normalizeRoutePath(path)
+  return (
+    normalized === '/model-plaza' ||
+    normalized.startsWith('/model-plaza/') ||
+    normalized === '/models' ||
+    normalized === '/pricing'
+  )
+}
+
 export function isBackendModePublicRouteAllowed(
   path: string,
   hasPendingAuthSession: boolean,
   allowDevGallery = false
 ): boolean {
-  if (allowDevGallery && path.startsWith('/__design')) {
+  const normalized = normalizeRoutePath(path)
+  if (allowDevGallery && normalized.startsWith('/__design')) {
     return true
   }
   if (
     BACKEND_MODE_ALLOWED_PREFIXES.some(
-      (allowedPath) => path === allowedPath || path.startsWith(allowedPath)
+      (allowedPath) => normalized === allowedPath || normalized.startsWith(`${allowedPath}/`)
     )
   ) {
     return true
   }
-  if (BACKEND_MODE_CALLBACK_PATHS.has(path)) {
+  if (BACKEND_MODE_CALLBACK_PATHS.has(normalized)) {
     return true
   }
-  if (hasPendingAuthSession && BACKEND_MODE_PENDING_AUTH_PATHS.has(path)) {
+  if (hasPendingAuthSession && BACKEND_MODE_PENDING_AUTH_PATHS.has(normalized)) {
     return true
   }
   return false
@@ -302,7 +319,7 @@ export function evaluateRoutePolicy(
       }
     }
 
-    if (context.path === '/model-plaza' || context.path === '/models' || spec.featureFlag === 'modelPlaza') {
+    if (isModelPlazaPath(context.path) || spec.featureFlag === 'modelPlaza') {
       const plazaEval = evaluateFeatureFlagPolicy('modelPlaza', context)
       if (plazaEval.state === 'disabled') {
         return plazaEval

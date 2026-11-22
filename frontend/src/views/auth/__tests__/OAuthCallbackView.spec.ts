@@ -12,6 +12,7 @@ const {
   copyToClipboardMock,
   exchangePendingOAuthCompletionMock,
   getPublicSettingsMock,
+  login2FAMock,
   apiPostMock,
 } = vi.hoisted(() => ({
   routeState: {
@@ -31,6 +32,7 @@ const {
   copyToClipboardMock: vi.fn(),
   exchangePendingOAuthCompletionMock: vi.fn(),
   getPublicSettingsMock: vi.fn(),
+  login2FAMock: vi.fn(),
   apiPostMock: vi.fn(),
 }))
 
@@ -69,6 +71,7 @@ vi.mock('@/api/auth', async () => {
     ...actual,
     exchangePendingOAuthCompletion: (...args: any[]) => exchangePendingOAuthCompletionMock(...args),
     getPublicSettings: (...args: any[]) => getPublicSettingsMock(...args),
+    login2FA: (...args: any[]) => login2FAMock(...args),
     persistOAuthTokenContext: vi.fn(),
   }
 })
@@ -98,6 +101,7 @@ describe('OAuthCallbackView', () => {
     copyToClipboardMock.mockReset()
     exchangePendingOAuthCompletionMock.mockReset()
     getPublicSettingsMock.mockReset()
+    login2FAMock.mockReset()
     getPublicSettingsMock.mockResolvedValue({ login_agreement_enabled: false, login_agreement_documents: [] })
     apiPostMock.mockReset()
     window.sessionStorage.clear()
@@ -309,5 +313,49 @@ describe('OAuthCallbackView', () => {
       login_agreement_accepted: true,
       login_agreement_revision: 'rev-oauth-1'
     }))
+  })
+
+  it('handles BE3-01 requires_2fa challenge and sanitizes backslash redirect on completion (P1-2, BE3-01)', async () => {
+    routeState.path = '/auth/oauth/callback'
+    routeState.query = { code: 'pending_code_1' }
+    exchangePendingOAuthCompletionMock.mockResolvedValueOnce({
+      requires_2fa: true,
+      temp_token: 'temp_totp_token_1',
+      user_email_masked: 'a***@example.com',
+      redirect: '/\\evil.com'
+    })
+    login2FAMock.mockResolvedValueOnce({
+      access_token: 'verified_access_token',
+      token_type: 'Bearer'
+    })
+
+    const wrapper = mount(OAuthCallbackView, {
+      global: {
+        stubs: {
+          TotpLoginModal: {
+            props: ['tempToken', 'userEmailMasked'],
+            emits: ['verify', 'cancel'],
+            methods: {
+              setVerifying: vi.fn(),
+              setError: vi.fn()
+            },
+            template: '<button type="button" data-testid="totp-verify-btn" @click="$emit(\'verify\', \'123456\')">verify</button>'
+          }
+        }
+      }
+    })
+    await vi.dynamicImportSettled()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="totp-verify-btn"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="totp-verify-btn"]').trigger('click')
+    await flushPromises()
+
+    expect(login2FAMock).toHaveBeenCalledWith({
+      temp_token: 'temp_totp_token_1',
+      totp_code: '123456'
+    })
+    expect(setTokenMock).toHaveBeenCalledWith('verified_access_token')
+    expect(routerReplaceMock).toHaveBeenCalledWith('/dashboard')
   })
 })
