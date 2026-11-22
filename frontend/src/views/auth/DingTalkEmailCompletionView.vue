@@ -27,6 +27,15 @@
       </div>
     </template>
   </AuthLayout>
+
+  <TotpLoginModal
+    v-if="show2FAModal"
+    ref="totpModalRef"
+    :temp-token="totpTempToken"
+    :user-email-masked="totpUserEmailMasked"
+    @verify="handle2FAVerify"
+    @cancel="handle2FACancel"
+  />
 </template>
 
 <script setup lang="ts">
@@ -36,12 +45,15 @@ import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
+import TotpLoginModal from '@/components/auth/TotpLoginModal.vue'
 import PendingOAuthCreateAccountForm, {
   type PendingOAuthCreateAccountPayload
 } from '@/components/auth/PendingOAuthCreateAccountForm.vue'
 import { apiClient } from '@/api/client'
 import { useAuthStore, useAppStore } from '@/stores'
+import { sanitizeInternalRedirect } from '@/router/redirect'
 import {
+  login2FA,
   persistOAuthTokenContext,
   type PendingOAuthExchangeResponse
 } from '@/api/auth'
@@ -56,16 +68,16 @@ const appStore = useAppStore()
 
 const isSubmitting = ref(false)
 const accountActionError = ref('')
+const show2FAModal = ref(false)
+const totpTempToken = ref('')
+const totpUserEmailMasked = ref('')
+const totpRedirectTarget = ref('/dashboard')
+const totpModalRef = ref<InstanceType<typeof TotpLoginModal> | null>(null)
 
 const initialEmail = (route.query.email as string | undefined) || ''
 
 function sanitizeRedirectPath(path: string | null | undefined): string {
-  if (!path) return '/dashboard'
-  if (!path.startsWith('/')) return '/dashboard'
-  if (path.startsWith('//')) return '/dashboard'
-  if (path.includes('://')) return '/dashboard'
-  if (path.includes('\n') || path.includes('\r')) return '/dashboard'
-  return path
+  return sanitizeInternalRedirect(path, '/dashboard')
 }
 
 function getRequestErrorMessage(error: unknown, fallback: string): string {
@@ -84,6 +96,9 @@ async function handleCreateAccount(payload: PendingOAuthCreateAccountPayload) {
         step?: string
         redirect?: string
         existing_account_bindable?: boolean
+        requires_2fa?: boolean
+        temp_token?: string
+        user_email_masked?: string
       }
     >(
       '/auth/oauth/pending/create-account',
@@ -109,6 +124,14 @@ async function handleCreateAccount(payload: PendingOAuthCreateAccountPayload) {
     )
 
     const redirect = sanitizeRedirectPath(data.redirect || (route.query.redirect as string | undefined))
+
+    if (data.requires_2fa === true && data.temp_token) {
+      totpTempToken.value = data.temp_token
+      totpUserEmailMasked.value = data.user_email_masked || ''
+      totpRedirectTarget.value = redirect
+      show2FAModal.value = true
+      return
+    }
 
     if (data.access_token) {
       persistOAuthTokenContext(data)
@@ -143,11 +166,41 @@ function navigateToBindLogin(email: string) {
   const query: Record<string, string> = { bind: '1' }
   if (email) query.email = email
   const redirect = route.query.redirect as string | undefined
-  if (redirect) query.redirect = redirect
+  if (redirect) query.redirect = sanitizeRedirectPath(redirect)
   router.replace({ path: '/auth/dingtalk/callback', query })
 }
 
 function handleSwitchToBind(email: string) {
   navigateToBindLogin(email)
+}
+
+async function handle2FAVerify(totpCode: string) {
+  if (totpModalRef.value) {
+    totpModalRef.value.setVerifying(true)
+  }
+  try {
+    const response = await login2FA({ temp_token: totpTempToken.value, totp_code: totpCode })
+    show2FAModal.value = false
+    persistOAuthTokenContext(response)
+    await authStore.setToken(response.access_token)
+    clearAllAffiliateReferralCodes()
+    appStore.showSuccess(t('auth.loginSuccess'))
+    await router.replace(sanitizeRedirectPath(totpRedirectTarget.value))
+  } catch (e: unknown) {
+    const message = getRequestErrorMessage(e, t('profile.totp.loginFailed'))
+    if (totpModalRef.value) {
+      totpModalRef.value.setError(message)
+      totpModalRef.value.setVerifying(false)
+    } else {
+      accountActionError.value = message
+    }
+  }
+}
+
+function handle2FACancel() {
+  show2FAModal.value = false
+  totpTempToken.value = ''
+  totpUserEmailMasked.value = ''
+  void router.replace('/login')
 }
 </script>

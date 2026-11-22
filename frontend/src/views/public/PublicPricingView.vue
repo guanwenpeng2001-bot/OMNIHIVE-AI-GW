@@ -32,7 +32,12 @@ import {
   scaleRateToPerMillion,
   type ExactRational
 } from '@/features/shared/pricePresentation'
-import { listPublicModels, type ListParams, type PublicModelSummary } from '@/features/public/api'
+import {
+  isSnapshotExpiredError,
+  listPublicModels,
+  type ListParams,
+  type PublicModelSummary
+} from '@/features/public/api'
 
 type ViewMode = 'table' | 'cards'
 
@@ -47,6 +52,10 @@ const asOf = ref<string | null>(null)
 const loading = ref(true)
 const loadingMore = ref(false)
 const error = ref<unknown>(null)
+const paginationError = ref<unknown>(null)
+const paginationSnapshotExpired = ref(false)
+const snapshotResetAttempts = ref(0)
+const MAX_SNAPSHOT_RESET_ATTEMPTS = 3
 const query = ref('')
 const sort = ref<NonNullable<ListParams['sort']>>('price_input')
 const availabilityState = ref<'all' | 'live' | 'catalog_only'>('all')
@@ -283,7 +292,9 @@ const modalityChips = computed(() => [
   { value: 'text', label: isZh.value ? '文本 Text' : 'Text' },
   { value: 'image', label: isZh.value ? '视觉 Image' : 'Image' },
   { value: 'audio', label: isZh.value ? '音频 Audio' : 'Audio' },
-  { value: 'video', label: isZh.value ? '视频 Video' : 'Video' }
+  { value: 'video', label: isZh.value ? '视频 Video' : 'Video' },
+  { value: 'embedding', label: isZh.value ? '向量 Embedding' : 'Embeddings' },
+  { value: 'realtime', label: isZh.value ? '实时 Realtime' : 'Realtime' }
 ])
 
 const activeFilters = computed(
@@ -303,6 +314,8 @@ const availabilityFilterOptions = computed(() => [
 async function load(reset = true): Promise<void> {
   if (!reset && (loading.value || loadingMore.value || !nextCursor.value)) return
   const current = ++requestSeq
+  paginationError.value = null
+  paginationSnapshotExpired.value = false
   if (reset) {
     appliedQuery = query.value.trim()
     loading.value = true
@@ -338,8 +351,21 @@ async function load(reset = true): Promise<void> {
     models.value = reset ? page.items ?? [] : [...models.value, ...(page.items ?? [])]
     nextCursor.value = page.next_cursor ?? null
     asOf.value = page.as_of ?? null
+    if (reset) {
+      snapshotResetAttempts.value = 0
+    }
   } catch (err) {
-    if (current === requestSeq) error.value = err
+    if (current === requestSeq) {
+      if (reset) {
+        error.value = err
+      } else {
+        paginationError.value = err
+        if (isSnapshotExpiredError(err)) {
+          paginationSnapshotExpired.value = true
+          nextCursor.value = null
+        }
+      }
+    }
   } finally {
     if (current === requestSeq) {
       loading.value = false
@@ -348,7 +374,18 @@ async function load(reset = true): Promise<void> {
   }
 }
 
+function retryPagination(): void {
+  if (paginationSnapshotExpired.value) {
+    if (snapshotResetAttempts.value >= MAX_SNAPSHOT_RESET_ATTEMPTS) return
+    snapshotResetAttempts.value += 1
+    void load(true)
+    return
+  }
+  void load(false)
+}
+
 function togglePricingFilter(kind: 'modality' | 'provider', item: string): void {
+  snapshotResetAttempts.value = 0
   const target = kind === 'modality' ? selectedModalities : selectedProviders
   target.value = target.value.includes(item)
     ? target.value.filter((entry) => entry !== item)
@@ -357,6 +394,7 @@ function togglePricingFilter(kind: 'modality' | 'provider', item: string): void 
 }
 
 function resetFilters(): void {
+  snapshotResetAttempts.value = 0
   query.value = ''
   availabilityState.value = 'all'
   selectedProviders.value = []
@@ -366,6 +404,7 @@ function resetFilters(): void {
 }
 
 function selectAvailabilityState(next: 'all' | 'live' | 'catalog_only'): void {
+  snapshotResetAttempts.value = 0
   availabilityState.value = next
   void load()
 }
@@ -406,9 +445,12 @@ function priceStateBadge(model: PublicModelSummary): { label: string; tone: 'suc
 }
 
 function handleShortcut(event: KeyboardEvent): void {
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-    const tag = (document.activeElement as HTMLElement | null)?.tagName
-    if (tag === 'INPUT' || tag === 'TEXTAREA') return
+  if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key === '/') {
+    const activeEl = document.activeElement as HTMLElement | null
+    const tag = activeEl?.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || activeEl?.isContentEditable) {
+      return
+    }
     event.preventDefault()
     searchContainerRef.value?.querySelector('input')?.focus()
   }
@@ -682,7 +724,7 @@ onBeforeUnmount(() => {
             v-model="query"
             type="search"
             clearable
-            :placeholder="isZh ? '筛选模型或供应商费率… (⌘K)' : 'Filter model or provider rates... (⌘K)'"
+            :placeholder="isZh ? '筛选模型或供应商费率… (/)' : 'Filter model or provider rates... (/)'"
             @keydown.enter="load()"
             @clear="load()"
           />
@@ -891,7 +933,13 @@ onBeforeUnmount(() => {
                   :content="isZh ? '该模型未按输入 Token 单列费率，点击查看详情中的分段或按次费率' : 'No per-token input rate declared; open model details for band or request pricing'"
                   placement="left"
                 >
-                  <Badge tone="unknown" size="xs" variant="subtle">{{ isZh ? '详见模型页' : 'See detail' }}</Badge>
+                  <RouterLink
+                    :to="`/model-plaza/${encodeURIComponent(model.id)}`"
+                    data-testid="pricing-see-detail-input"
+                    class="oh-focus-ring inline-flex rounded-oh-xs"
+                  >
+                    <Badge tone="unknown" size="xs" variant="subtle">{{ isZh ? '详见模型页' : 'See detail' }}</Badge>
+                  </RouterLink>
                 </Tooltip>
               </td>
               <td class="px-4 py-3 text-right font-mono tabular-nums text-oh-primary">
@@ -908,7 +956,13 @@ onBeforeUnmount(() => {
                   :content="isZh ? '该模型未按输出 Token 单列费率，点击查看详情中的分段或按次费率' : 'No per-token output rate declared; open model details for band or request pricing'"
                   placement="left"
                 >
-                  <Badge tone="unknown" size="xs" variant="subtle">{{ isZh ? '详见模型页' : 'See detail' }}</Badge>
+                  <RouterLink
+                    :to="`/model-plaza/${encodeURIComponent(model.id)}`"
+                    data-testid="pricing-see-detail-output"
+                    class="oh-focus-ring inline-flex rounded-oh-xs"
+                  >
+                    <Badge tone="unknown" size="xs" variant="subtle">{{ isZh ? '详见模型页' : 'See detail' }}</Badge>
+                  </RouterLink>
                 </Tooltip>
               </td>
             </tr>
@@ -923,7 +977,7 @@ onBeforeUnmount(() => {
           :to="`/model-plaza/${encodeURIComponent(model.id)}`"
           class="oh-focus-ring group flex flex-col justify-between rounded-oh-md border border-oh-default bg-oh-surface p-4 transition-colors hover:border-oh-strong"
         >
-          <div class="flex items-start justify-between gap-2">
+          <div class="flex flex-col gap-2">
             <div class="min-w-0">
               <p class="truncate font-medium text-oh-primary group-hover:text-oh-accent-text">
                 {{ model.display_name || model.model }}
@@ -932,7 +986,7 @@ onBeforeUnmount(() => {
                 {{ publicValue(model.provider, isZh ? '未声明' : 'Undeclared') }} · {{ formatContextTokens(model.context_tokens) }}
               </p>
             </div>
-            <div class="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+            <div class="flex flex-wrap items-center gap-1.5">
               <Badge :tone="priceStateBadge(model).tone" size="xs" variant="subtle">
                 {{ priceStateBadge(model).label }}
               </Badge>
@@ -964,7 +1018,31 @@ onBeforeUnmount(() => {
         </RouterLink>
       </div>
 
-      <div v-if="nextCursor" class="mt-6 flex justify-center">
+      <ErrorState
+        v-if="paginationError"
+        compact
+        class="mt-4"
+        :title="
+          paginationSnapshotExpired
+            ? (isZh ? '目录快照已更新' : 'Catalog snapshot expired')
+            : (isZh ? '加载更多费率失败' : 'Could not load more rates')
+        "
+        :message="
+          paginationSnapshotExpired
+            ? (isZh
+                ? '模型目录已发布新快照，请刷新最新费率列表。'
+                : 'A newer catalog snapshot was published. Reload to view the latest rates.')
+            : extractApiErrorMessage(paginationError, '')
+        "
+        :retryable="!paginationSnapshotExpired || snapshotResetAttempts < MAX_SNAPSHOT_RESET_ATTEMPTS"
+        :retry-label="
+          paginationSnapshotExpired
+            ? (isZh ? '刷新最新费率' : 'Reload latest rates')
+            : (isZh ? '重试加载' : 'Retry')
+        "
+        @retry="retryPagination()"
+      />
+      <div v-if="nextCursor && !paginationError" class="mt-6 flex justify-center">
         <Button variant="secondary" :loading="loadingMore" @click="load(false)">
           {{ isZh ? '加载更多费率' : 'Load more rates' }}
         </Button>

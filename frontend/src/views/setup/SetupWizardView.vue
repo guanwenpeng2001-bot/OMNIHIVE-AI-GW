@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import PublicShell from '@/components/layout/PublicShell.vue'
 import BrandMark from '@/components/layout/BrandMark.vue'
@@ -44,6 +44,80 @@ const redisConnected = ref(false)
 const installing = ref(false)
 const confirmPassword = ref('')
 const serviceReady = ref(false)
+const dbPortDraft = ref('5432')
+const redisPortDraft = ref('6379')
+const redisDbDraft = ref('0')
+let disposed = false
+let restartPollTimer: ReturnType<typeof setTimeout> | null = null
+let restartRedirectTimer: ReturnType<typeof setTimeout> | null = null
+let restartAbortController: AbortController | null = null
+
+const ADMIN_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function parseBoundedInt(raw: string, min: number, max: number): number | null {
+  const trimmed = raw.trim()
+  if (!/^\d+$/.test(trimmed)) return null
+  const parsed = Number.parseInt(trimmed, 10)
+  if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) return null
+  return parsed
+}
+
+function handleDbPortInput(val: string | number): void {
+  const next = String(val ?? '')
+  dbPortDraft.value = next
+  const parsed = parseBoundedInt(next, 1, 65535)
+  if (parsed !== null) {
+    formData.database.port = parsed
+  } else {
+    dbConnected.value = false
+  }
+}
+
+function handleDbPortBlur(): void {
+  const parsed = parseBoundedInt(dbPortDraft.value, 1, 65535)
+  if (parsed !== null) {
+    formData.database.port = parsed
+    dbPortDraft.value = String(parsed)
+  }
+}
+
+function handleRedisPortInput(val: string | number): void {
+  const next = String(val ?? '')
+  redisPortDraft.value = next
+  const parsed = parseBoundedInt(next, 1, 65535)
+  if (parsed !== null) {
+    formData.redis.port = parsed
+  } else {
+    redisConnected.value = false
+  }
+}
+
+function handleRedisPortBlur(): void {
+  const parsed = parseBoundedInt(redisPortDraft.value, 1, 65535)
+  if (parsed !== null) {
+    formData.redis.port = parsed
+    redisPortDraft.value = String(parsed)
+  }
+}
+
+function handleRedisDbInput(val: string | number): void {
+  const next = String(val ?? '')
+  redisDbDraft.value = next
+  const parsed = parseBoundedInt(next, 0, 15)
+  if (parsed !== null) {
+    formData.redis.db = parsed
+  } else {
+    redisConnected.value = false
+  }
+}
+
+function handleRedisDbBlur(): void {
+  const parsed = parseBoundedInt(redisDbDraft.value, 0, 15)
+  if (parsed !== null) {
+    formData.redis.db = parsed
+    redisDbDraft.value = String(parsed)
+  }
+}
 
 function getCurrentPort(): number {
   if (typeof window === 'undefined') return 8080
@@ -110,6 +184,24 @@ watch(
   }
 )
 
+const isDbPortValid = computed(() => parseBoundedInt(dbPortDraft.value, 1, 65535) !== null)
+const isRedisPortValid = computed(() => parseBoundedInt(redisPortDraft.value, 1, 65535) !== null)
+const isRedisDbValid = computed(() => parseBoundedInt(redisDbDraft.value, 0, 15) !== null)
+
+const adminEmailError = computed(() => {
+  const email = formData.admin.email.trim()
+  if (!email) return undefined
+  return ADMIN_EMAIL_RE.test(email) ? undefined : t('auth.invalidEmail')
+})
+
+const isAdminStepValid = computed(() =>
+  Boolean(
+    ADMIN_EMAIL_RE.test(formData.admin.email.trim()) &&
+      formData.admin.password.length >= 8 &&
+      formData.admin.password === confirmPassword.value
+  )
+)
+
 const stepperItems = computed<UiStepItem[]>(() => [
   {
     id: 'database',
@@ -133,7 +225,7 @@ const stepperItems = computed<UiStepItem[]>(() => [
     id: 'complete',
     title: t('setup.ready.title'),
     description: 'Apply & Boot',
-    disabled: installSuccess.value
+    disabled: installSuccess.value || !dbConnected.value || !redisConnected.value || !isAdminStepValid.value
   }
 ])
 
@@ -155,15 +247,11 @@ const passwordMismatchError = computed(() =>
 const canProceed = computed(() => {
   switch (currentStep.value) {
     case 0:
-      return dbConnected.value
+      return dbConnected.value && isDbPortValid.value
     case 1:
-      return redisConnected.value
+      return redisConnected.value && isRedisPortValid.value && isRedisDbValid.value
     case 2:
-      return Boolean(
-        formData.admin.email.trim() &&
-          formData.admin.password.length >= 8 &&
-          formData.admin.password === confirmPassword.value
-      )
+      return isAdminStepValid.value
     default:
       return true
   }
@@ -194,6 +282,12 @@ function handleStepSelect(_step: UiStepItem, index: number): void {
 }
 
 async function testDatabaseConnection(): Promise<void> {
+  const parsedPort = parseBoundedInt(dbPortDraft.value, 1, 65535)
+  if (parsedPort === null) {
+    errorMessage.value = t('setup.connectionFailed')
+    return
+  }
+  formData.database.port = parsedPort
   testingDb.value = true
   clearError()
   dbConnected.value = false
@@ -208,6 +302,14 @@ async function testDatabaseConnection(): Promise<void> {
 }
 
 async function testRedisConnection(): Promise<void> {
+  const parsedPort = parseBoundedInt(redisPortDraft.value, 1, 65535)
+  const parsedDb = parseBoundedInt(redisDbDraft.value, 0, 15)
+  if (parsedPort === null || parsedDb === null) {
+    errorMessage.value = t('setup.connectionFailed')
+    return
+  }
+  formData.redis.port = parsedPort
+  formData.redis.db = parsedDb
   testingRedis.value = true
   clearError()
   redisConnected.value = false
@@ -228,6 +330,10 @@ function nextStep(): void {
 }
 
 async function performInstall(): Promise<void> {
+  if (!dbConnected.value || !redisConnected.value || !isAdminStepValid.value) {
+    return
+  }
+  formData.admin.email = formData.admin.email.trim()
   installing.value = true
   clearError()
   try {
@@ -251,35 +357,74 @@ function retryCurrentStepAction(): void {
   }
 }
 
+function sleepWithCancel(ms: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (disposed) {
+      resolve(false)
+      return
+    }
+    restartPollTimer = setTimeout(() => {
+      restartPollTimer = null
+      resolve(!disposed)
+    }, ms)
+  })
+}
+
 async function waitForServiceRestart(): Promise<void> {
   const maxAttempts = 60
   const interval = 1000
-  await new Promise((resolve) => setTimeout(resolve, 3000))
+  if (!(await sleepWithCancel(3000))) return
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (disposed) return
+    restartAbortController?.abort()
+    const controller = new AbortController()
+    restartAbortController = controller
     try {
       const response = await fetch(buildGatewayUrl('/setup/status'), {
         method: 'GET',
-        cache: 'no-store'
+        cache: 'no-store',
+        signal: controller.signal
       })
+      if (disposed) return
       if (response.ok) {
         const data = await response.json()
+        if (disposed) return
         if (data.data && !data.data.needs_setup) {
           serviceReady.value = true
-          setTimeout(() => {
+          restartRedirectTimer = setTimeout(() => {
+            restartRedirectTimer = null
+            if (disposed) return
             window.location.href = '/login'
           }, 1500)
           return
         }
       }
     } catch {
+      if (disposed) return
       // Service restarting; continue polling.
     }
-    await new Promise((resolve) => setTimeout(resolve, interval))
+    if (!(await sleepWithCancel(interval))) return
   }
 
-  errorMessage.value = t('setup.status.timeout')
+  if (!disposed) {
+    errorMessage.value = t('setup.status.timeout')
+  }
 }
+
+onBeforeUnmount(() => {
+  disposed = true
+  if (restartPollTimer) {
+    clearTimeout(restartPollTimer)
+    restartPollTimer = null
+  }
+  if (restartRedirectTimer) {
+    clearTimeout(restartRedirectTimer)
+    restartRedirectTimer = null
+  }
+  restartAbortController?.abort()
+  restartAbortController = null
+})
 </script>
 
 <template>
@@ -347,12 +492,13 @@ async function waitForServiceRestart(): Promise<void> {
             />
             <Input
               id="setup-db-port"
-              :model-value="formData.database.port"
+              :model-value="dbPortDraft"
               type="number"
               :label="t('setup.database.port')"
               placeholder="5432"
               mono
-              @update:model-value="(val) => (formData.database.port = Number(val) || 5432)"
+              @update:model-value="handleDbPortInput"
+              @blur="handleDbPortBlur"
             />
           </div>
 
@@ -436,12 +582,13 @@ async function waitForServiceRestart(): Promise<void> {
             />
             <Input
               id="setup-redis-port"
-              :model-value="formData.redis.port"
+              :model-value="redisPortDraft"
               type="number"
               :label="t('setup.redis.port')"
               placeholder="6379"
               mono
-              @update:model-value="(val) => (formData.redis.port = Number(val) || 6379)"
+              @update:model-value="handleRedisPortInput"
+              @blur="handleRedisPortBlur"
             />
           </div>
 
@@ -466,12 +613,13 @@ async function waitForServiceRestart(): Promise<void> {
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Input
               id="setup-redis-db"
-              :model-value="formData.redis.db"
+              :model-value="redisDbDraft"
               type="number"
               :label="t('setup.redis.database')"
               placeholder="0"
               mono
-              @update:model-value="(val) => (formData.redis.db = Number(val) || 0)"
+              @update:model-value="handleRedisDbInput"
+              @blur="handleRedisDbBlur"
             />
             <div class="flex items-center rounded-oh-md border border-oh-default bg-oh-subtle px-3.5 py-2.5">
               <Switch
@@ -519,6 +667,7 @@ async function waitForServiceRestart(): Promise<void> {
             type="email"
             :label="t('setup.admin.email')"
             placeholder="admin@example.com"
+            :error="adminEmailError"
             autocomplete="email"
             required
           />
@@ -529,7 +678,7 @@ async function waitForServiceRestart(): Promise<void> {
             type="password"
             :label="t('setup.admin.password')"
             :placeholder="t('setup.admin.passwordPlaceholder')"
-            hint="Minimum 8 characters"
+            :hint="t('setup.admin.passwordPlaceholder')"
             autocomplete="new-password"
             revealable
             required

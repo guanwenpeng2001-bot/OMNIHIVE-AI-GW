@@ -88,7 +88,7 @@ export function formatPublicTimestamp(iso?: string | null): string {
 }
 
 export function formatMetricsWindow(
-  metrics?: PublicCatalogMetrics | null,
+  metrics?: (Partial<PublicCatalogMetrics> & { window?: string | null }) | null,
   isZh = false
 ): string {
   const fallback = isZh ? '未观测' : 'Unobserved'

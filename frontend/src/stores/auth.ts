@@ -21,6 +21,7 @@ import type {
 
 const AUTO_REFRESH_INTERVAL = 60 * 1000 // 60 seconds for user data refresh
 const TOKEN_REFRESH_BUFFER = 120 * 1000 // 120 seconds before expiry to refresh token
+const MAX_SET_TIMEOUT_DELAY_MS = 2_147_483_647 // 32-bit signed int limit (~24.8 days)
 
 type PendingAuthTokenField = 'pending_auth_token' | 'pending_oauth_token'
 
@@ -103,13 +104,13 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       savedUser = JSON.parse(authStorage.user.get() || 'null')
     } catch { /* Invalid peer state is unauthenticated; never erase the peer's storage. */ }
-    const sameUser = user.value?.id === savedUser?.id
+    const { run_mode: savedRunMode, ...savedUserData } = savedUser || ({} as User & { run_mode?: 'standard' | 'simple' })
     token.value = savedToken && savedUser ? savedToken : null
-    user.value = token.value ? savedUser : null
+    user.value = token.value ? savedUserData : null
     refreshTokenValue.value = token.value ? authStorage.refreshToken.get() : null
     const expiresAt = Number(authStorage.expiresAt.get())
     tokenExpiresAt.value = token.value && expiresAt > 0 ? expiresAt : null
-    runMode.value = savedUser?.run_mode || (sameUser && user.value ? runMode.value : 'standard')
+    runMode.value = token.value && savedRunMode === 'simple' ? 'simple' : 'standard'
     pendingAuthSession.value = getPersistedPendingAuthSession()
     if (token.value) {
       startAutoRefresh()
@@ -159,8 +160,14 @@ export const useAuthStore = defineStore('auth', () => {
 
     if (savedToken && savedUser) {
       try {
+        const parsedUser = JSON.parse(savedUser) as (User & { run_mode?: 'standard' | 'simple' }) | null
+        if (!parsedUser || typeof parsedUser !== 'object') {
+          throw new Error('Invalid persisted user payload')
+        }
+        const { run_mode: savedRunMode, ...userData } = parsedUser
         token.value = savedToken
-        user.value = JSON.parse(savedUser)
+        user.value = userData
+        runMode.value = savedRunMode === 'simple' ? 'simple' : 'standard'
         refreshTokenValue.value = savedRefreshToken
         tokenExpiresAt.value = savedExpiresAt ? parseInt(savedExpiresAt, 10) : null
 
@@ -229,6 +236,13 @@ export const useAuthStore = defineStore('auth', () => {
     if (refreshInMs <= 0) {
       // Token is about to expire or already expired, refresh immediately
       performTokenRefresh()
+      return
+    }
+
+    if (refreshInMs > MAX_SET_TIMEOUT_DELAY_MS) {
+      tokenRefreshTimeoutId = setTimeout(() => {
+        scheduleTokenRefreshAt(expiresAtMs)
+      }, MAX_SET_TIMEOUT_DELAY_MS)
       return
     }
 
@@ -377,7 +391,9 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = userData
 
     authStorage.token.set(response.access_token)
-    authStorage.user.setJSON(userData)
+    authStorage.user.setJSON(
+      runMode.value === 'simple' ? { ...userData, run_mode: 'simple' } : userData
+    )
     clearPendingAuthSession()
     advanceAuthSession()
 
@@ -527,7 +543,9 @@ export const useAuthStore = defineStore('auth', () => {
       const { run_mode: _run_mode, ...userData } = response.data
       user.value = userData
 
-      authStorage.user.setJSON(userData)
+      authStorage.user.setJSON(
+        runMode.value === 'simple' ? { ...userData, run_mode: 'simple' } : userData
+      )
 
       return userData
     } catch (error) {

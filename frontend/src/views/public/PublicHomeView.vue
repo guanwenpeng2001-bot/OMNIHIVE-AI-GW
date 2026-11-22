@@ -6,21 +6,36 @@ import PublicShell from '@/components/layout/PublicShell.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
 import Badge from '@/components/ui/Badge.vue'
-import { useAuthStore } from '@/stores/auth'
+import { useAppStore, useAuthStore } from '@/stores'
 import {
   matchesModalityFilter,
   resolveAvailabilityState,
   statusStateLabel,
   statusStateTone
 } from '@/features/public/format'
-import { listPublicModels, getPublicStatus, type PublicStatusResponse } from '@/features/public/api'
+import {
+  listPublicModels,
+  getPublicStatus,
+  type PublicModelSummary,
+  type PublicStatusResponse
+} from '@/features/public/api'
 
 const { locale } = useI18n()
 const isZh = computed(() => String(locale?.value ?? '').startsWith('zh'))
 const authStore = useAuthStore()
+let appStore: ReturnType<typeof useAppStore> | null = null
+try {
+  appStore = useAppStore()
+} catch {
+  appStore = null
+}
+const modelPlazaVisible = computed(
+  () => appStore?.cachedPublicSettings?.model_plaza_enabled !== false
+)
 const modelCountText = ref<string | null>(null)
 const providerCountText = ref<string | null>(null)
-const sampleModelId = ref('openai/gpt-5.6-sol')
+const sampleModelId = ref('gpt-4o')
+const sampleProvider = ref('openai')
 const status = ref<PublicStatusResponse | null>(null)
 const snippetTab = ref<'curl' | 'openai' | 'anthropic'>('curl')
 
@@ -91,44 +106,62 @@ const steps = computed(() =>
     : ['Create a project-scoped API key or enroll BYOK', 'Call any published model via standard SDKs', 'Inspect route trace, live latency, and exact receipt']
 )
 
+function resolveSampleProvider(model?: PublicModelSummary | null): string {
+  const explicit = model?.provider?.trim()
+  if (explicit && explicit.toLowerCase() !== 'unknown') {
+    return explicit
+  }
+  const identifier = model?.model?.trim() || ''
+  if (identifier.includes('/')) {
+    const prefix = identifier.split('/')[0]?.trim()
+    if (prefix) return prefix
+  }
+  return 'openai'
+}
+
 onMounted(() => {
-  void Promise.allSettled([
-    listPublicModels({ limit: 100, sort: 'name' }),
-    listPublicModels({ availability_state: 'live', limit: 10, sort: 'name' })
-  ])
-    .then(([catalogResult, liveResult]) => {
-      const catalogItems =
-        catalogResult.status === 'fulfilled' ? (catalogResult.value.items ?? []) : []
-      const liveItems =
-        liveResult.status === 'fulfilled' ? (liveResult.value.items ?? []) : []
-      const preferredLive =
-        liveItems.find(
-          (m) => resolveAvailabilityState(m) !== 'catalog_only' && matchesModalityFilter(m, 'text')
-        ) ??
-        liveItems.find((m) => resolveAvailabilityState(m) !== 'catalog_only') ??
-        liveItems[0] ??
-        catalogItems.find(
-          (m) => resolveAvailabilityState(m) === 'live' && matchesModalityFilter(m, 'text')
-        ) ??
-        catalogItems.find((m) => resolveAvailabilityState(m) === 'live') ??
-        catalogItems.find((m) => matchesModalityFilter(m, 'text')) ??
-        catalogItems[0]
-      if (preferredLive?.model) {
-        sampleModelId.value = preferredLive.model
-      }
-      if (catalogResult.status === 'fulfilled') {
-        const page = catalogResult.value
-        modelCountText.value = page.next_cursor ? `${catalogItems.length}+` : String(catalogItems.length)
-        const providers = new Set(
-          catalogItems.map((item) => item.provider).filter((p) => p && p !== 'unknown')
-        )
-        providerCountText.value =
-          page.next_cursor && providers.size > 0 ? `${providers.size}+` : String(providers.size)
-      }
-    })
-    .finally(() => {
-      loadingCatalog.value = false
-    })
+  if (modelPlazaVisible.value) {
+    void Promise.allSettled([
+      listPublicModels({ limit: 100, sort: 'availability' }),
+      listPublicModels({ availability_state: 'live', modality: ['text'], limit: 10, sort: 'name' })
+    ])
+      .then(([catalogResult, liveTextResult]) => {
+        const catalogItems =
+          catalogResult.status === 'fulfilled' ? (catalogResult.value.items ?? []) : []
+        const liveTextItems =
+          liveTextResult.status === 'fulfilled' ? (liveTextResult.value.items ?? []) : []
+        const preferredLive =
+          liveTextItems.find(
+            (m) => resolveAvailabilityState(m) !== 'catalog_only' && matchesModalityFilter(m, 'text')
+          ) ??
+          catalogItems.find(
+            (m) => resolveAvailabilityState(m) === 'live' && matchesModalityFilter(m, 'text')
+          ) ??
+          liveTextItems.find((m) => resolveAvailabilityState(m) !== 'catalog_only') ??
+          catalogItems.find((m) => resolveAvailabilityState(m) === 'live') ??
+          catalogItems.find((m) => matchesModalityFilter(m, 'text')) ??
+          liveTextItems[0] ??
+          catalogItems[0]
+        if (preferredLive?.model) {
+          sampleModelId.value = preferredLive.model
+          sampleProvider.value = resolveSampleProvider(preferredLive)
+        }
+        if (catalogResult.status === 'fulfilled') {
+          const page = catalogResult.value
+          modelCountText.value = page.next_cursor ? `${catalogItems.length}+` : String(catalogItems.length)
+          const providers = new Set(
+            catalogItems.map((item) => item.provider).filter((p) => p && p !== 'unknown')
+          )
+          providerCountText.value =
+            page.next_cursor && providers.size > 0 ? `${providers.size}+` : String(providers.size)
+        }
+      })
+      .finally(() => {
+        loadingCatalog.value = false
+      })
+  } else {
+    loadingCatalog.value = false
+  }
 
   void getPublicStatus().then((response) => {
     status.value = response
@@ -175,10 +208,18 @@ const ctaTarget = () => (authStore.isAuthenticated ? '/dashboard' : '/login')
             <RouterLink :to="ctaTarget()" class="oh-focus-ring inline-flex h-10 items-center rounded-oh-md bg-oh-accent px-4 text-sm font-semibold text-oh-accent-ink hover:bg-oh-accent-hover active:bg-oh-accent-active">
               {{ authStore.isAuthenticated ? (isZh ? '进入控制台' : 'Open Console') : (isZh ? '立即开始' : 'Get started') }}
             </RouterLink>
-            <RouterLink to="/model-plaza" class="oh-focus-ring inline-flex h-10 items-center rounded-oh-md border border-oh-default bg-oh-surface px-4 text-sm font-medium text-oh-primary hover:border-oh-strong hover:bg-oh-hover">
+            <RouterLink
+              v-if="modelPlazaVisible"
+              to="/model-plaza"
+              class="oh-focus-ring inline-flex h-10 items-center rounded-oh-md border border-oh-default bg-oh-surface px-4 text-sm font-medium text-oh-primary hover:border-oh-strong hover:bg-oh-hover"
+            >
               {{ isZh ? '浏览模型广场' : 'Browse models' }}
             </RouterLink>
-            <RouterLink to="/pricing" class="oh-focus-ring inline-flex h-10 items-center rounded-oh-md border border-transparent px-3 text-sm font-medium text-oh-secondary hover:text-oh-primary">
+            <RouterLink
+              v-if="modelPlazaVisible"
+              to="/pricing"
+              class="oh-focus-ring inline-flex h-10 items-center rounded-oh-md border border-transparent px-3 text-sm font-medium text-oh-secondary hover:text-oh-primary"
+            >
               {{ isZh ? '查看透明定价 →' : 'View pricing →' }}
             </RouterLink>
           </div>
@@ -241,7 +282,7 @@ const ctaTarget = () => (authStore.isAuthenticated ? '/dashboard' : '/login')
 
 <span class="text-oh-accent-text">HTTP/2 200</span>
 <span class="text-oh-muted">x-execution-id:</span> 7ca789de-e632
-<span class="text-oh-muted">x-provider:</span> {{ sampleModelId.split('/')[0] || 'openai' }}</code></pre>
+<span class="text-oh-muted">x-provider:</span> {{ sampleProvider }}</code></pre>
           </div>
         </div>
       </div>
@@ -268,7 +309,11 @@ const ctaTarget = () => (authStore.isAuthenticated ? '/dashboard' : '/login')
             }}
           </p>
         </div>
-        <RouterLink to="/model-plaza" class="oh-focus-ring inline-flex h-9 items-center rounded-oh-md border border-oh-default bg-oh-surface px-4 text-sm font-medium text-oh-primary hover:border-oh-strong hover:bg-oh-hover">
+        <RouterLink
+          v-if="modelPlazaVisible"
+          to="/model-plaza"
+          class="oh-focus-ring inline-flex h-9 items-center rounded-oh-md border border-oh-default bg-oh-surface px-4 text-sm font-medium text-oh-primary hover:border-oh-strong hover:bg-oh-hover"
+        >
           {{ isZh ? '查看全部模型' : 'See all models' }}
         </RouterLink>
       </div>

@@ -4,6 +4,39 @@ import type { CustomMenuItem } from '@/types'
 import type { SiteBillingMode } from '@/utils/siteBillingMode'
 import { resolveBrandSiteName } from './brandConfig'
 
+interface DynamicRouteTitleEntry {
+  routeName: string
+  key: string
+  title: string
+}
+
+let activeDynamicRouteTitle: DynamicRouteTitleEntry | null = null
+
+function normalizeDynamicRouteKey(raw: unknown): string {
+  const value = Array.isArray(raw) ? raw.join('/') : String(raw ?? '')
+  try {
+    return decodeURIComponent(value).trim()
+  } catch {
+    return value.trim()
+  }
+}
+
+export function setDynamicRouteTitle(routeName: string, key: string, title: string | null): void {
+  const normalizedKey = normalizeDynamicRouteKey(key)
+  const normalizedTitle = title?.trim() || ''
+  if (!normalizedTitle) {
+    if (
+      activeDynamicRouteTitle &&
+      activeDynamicRouteTitle.routeName === routeName &&
+      (!normalizedKey || activeDynamicRouteTitle.key === normalizedKey)
+    ) {
+      activeDynamicRouteTitle = null
+    }
+    return
+  }
+  activeDynamicRouteTitle = { routeName, key: normalizedKey, title: normalizedTitle }
+}
+
 function isCurrentLocaleZh(): boolean {
   const globalComposer = i18n?.global as { locale?: { value?: string } | string } | undefined
   const rawLocale = globalComposer?.locale
@@ -95,13 +128,20 @@ export function resolveRouteDocumentTitle(
   const menuItem = route.name === 'CustomPage' && id
     ? customMenuItems.find((item) => item.id === id)
     : undefined
+  const dynamicTitle =
+    activeDynamicRouteTitle &&
+    String(route.name ?? '') === activeDynamicRouteTitle.routeName &&
+    normalizeDynamicRouteKey(route.params.id) === activeDynamicRouteTitle.key
+      ? activeDynamicRouteTitle.title
+      : ''
   const menuTitle = menuItem?.label.trim()
+  const overrideTitle = menuTitle || dynamicTitle
   const { titleKey } = resolveRouteMetaKeys(route, options)
 
   return resolveDocumentTitle(
-    menuTitle || route.meta.title,
+    overrideTitle || route.meta.title,
     siteName,
-    menuTitle ? undefined : titleKey,
-    menuTitle ? undefined : route.meta.titleZh
+    overrideTitle ? undefined : titleKey,
+    overrideTitle ? undefined : route.meta.titleZh
   )
 }

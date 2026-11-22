@@ -38,6 +38,7 @@
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import type { OAuthLoginStart } from '@/api/auth'
+import { sanitizeInternalRedirect } from '@/router/redirect'
 import { resolveAffiliateReferralCode, storeOAuthAffiliateCode } from '@/utils/oauthAffiliate'
 
 const props = withDefaults(defineProps<{
@@ -55,7 +56,7 @@ const route = useRoute()
 const { t } = useI18n()
 
 function startLogin(): void {
-  const redirectTo = (route.query.redirect as string) || '/dashboard'
+  const redirectTo = sanitizeInternalRedirect(route.query.redirect, '/dashboard')
   storeOAuthAffiliateCode(resolveAffiliateReferralCode(props.affCode, route.query.aff, route.query.aff_code))
   emit('start', { provider: 'dingtalk', params: { redirect: redirectTo } })
 }
