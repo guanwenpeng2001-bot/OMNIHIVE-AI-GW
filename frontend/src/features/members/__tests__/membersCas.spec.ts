@@ -84,9 +84,23 @@ describe('members CAS & role projections', () => {
       },
       'member'
     )
-    expect(readOnly.canViewMembers).toBe(true)
+    expect(readOnly.canViewMembers).toBe(false)
     expect(readOnly.canManageGrants).toBe(false)
     expect(readOnly.canManageProjects).toBe(false)
+
+    const memberViewer = projectMemberPermissions(
+      {
+        actor_id: 'u_2',
+        workspace_id: 'ws_1',
+        project_id: 'proj_1',
+        actions: ['members.read'],
+        scope_version: 'sv_11',
+        expires_at: '2026-11-20T00:00:00Z'
+      },
+      'member'
+    )
+    expect(memberViewer.canViewMembers).toBe(true)
+    expect(memberViewer.canManageGrants).toBe(false)
 
     const admin = projectMemberPermissions(null, 'admin')
     expect(admin.canManageGrants).toBe(true)

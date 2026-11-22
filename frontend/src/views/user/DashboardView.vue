@@ -170,8 +170,12 @@
                 </p>
               </div>
               <div class="flex flex-wrap items-center gap-2">
-                <button type="button" class="btn btn-secondary btn-sm" @click="navigateTo('/keys')">{{ isZh ? '创建密钥' : 'Create API Key' }}</button>
-                <button type="button" class="btn btn-primary btn-sm" @click="navigateTo('/playground')">Playground →</button>
+                <button v-if="canCreateApiKey" type="button" class="btn btn-secondary btn-sm" @click="navigateTo('/keys')">{{ isZh ? '创建密钥' : 'Create API Key' }}</button>
+                <button v-if="canRunPlayground" type="button" class="btn btn-primary btn-sm" @click="navigateTo('/playground')">Playground →</button>
+                <template v-if="!canCreateApiKey && !canRunPlayground">
+                  <button type="button" class="btn btn-secondary btn-sm" @click="navigateTo('/workspaces')">{{ isZh ? '查看工作空间' : 'View Workspaces' }}</button>
+                  <button type="button" class="btn btn-primary btn-sm" @click="navigateTo('/model-plaza')">{{ isZh ? '浏览模型广场 →' : 'Browse Model Plaza →' }}</button>
+                </template>
               </div>
             </div>
             <UserDashboardStats v-if="stats" :time-zone="reportTimeZone" :stats="stats" :balance="user?.balance || 0" :is-simple="authStore.isSimpleMode" :platform-quotas="platformQuotas" />
@@ -183,16 +187,16 @@
             </div>
             <UserDashboardCharts v-show="!historyGap && !chartError" :time-zone="reportTimeZone" v-model:startDate="startDate" v-model:endDate="endDate" v-model:granularity="granularity" :loading="loadingCharts" :trend="trendData" :models="modelStats" @dateRangeChange="loadCharts" @granularityChange="loadCharts" @refresh="refreshAll" />
             <UsageStatsState :state="recentState"><UserDashboardRecentUsage :time-zone="reportTimeZone" :data="recentUsage" :loading="loadingUsage" /></UsageStatsState>
-            <UserDashboardQuickActions />
+            <UserDashboardQuickActions :can-create-key="canCreateApiKey" :can-view-usage="canViewUsage" />
           </template>
           <div class="grid gap-4 md:grid-cols-3">
             <button type="button" class="card interactive p-4 text-left" @click="navigateTo('/usage')">
               <span class="flex justify-between"><b>{{ isZh ? '我的用量' : 'My Usage' }}</b><span class="opacity-40">›</span></span>
               <span class="mt-1 block text-sm opacity-60">{{ isZh ? '你的请求、成本与额度' : 'Your requests, spend & quota' }}</span><span class="mt-4 block font-mono text-xl font-bold tabular-nums">{{ stats ? money(stats.total_actual_cost) : '—' }}</span>
             </button>
-            <button type="button" class="card interactive p-4 text-left" @click="navigateTo('/purchase')">
+            <button type="button" data-testid="dashboard-billing-card" class="card interactive p-4 text-left" @click="navigateTo(paymentFeatureEnabled ? '/purchase' : '/billing')">
               <span class="flex justify-between"><b>{{ isZh ? '账单' : 'Billing' }}</b><span class="opacity-40">›</span></span>
-              <span class="mt-1 block text-sm opacity-60">{{ isZh ? `按量付费 · 余额 ${money(user?.balance)}` : `Pay-as-you-go · Balance ${money(user?.balance)}` }}</span><span class="mt-4 block font-mono text-xl font-bold tabular-nums">{{ money(user?.balance) }}</span>
+              <span class="mt-1 block text-sm opacity-60">{{ paymentFeatureEnabled ? (isZh ? `按量付费 · 余额 ${money(user?.balance)}` : `Pay-as-you-go · Balance ${money(user?.balance)}`) : (isZh ? `用量与额度 · 余额 ${money(user?.balance)}` : `Costs & Quota · Balance ${money(user?.balance)}`) }}</span><span class="mt-4 block font-mono text-xl font-bold tabular-nums">{{ money(user?.balance) }}</span>
             </button>
             <button type="button" class="card interactive p-4 text-left" @click="navigateTo('/monitor')">
               <span class="flex justify-between"><b>{{ isZh ? '渠道状态' : 'Channel Status' }}</b><span class="opacity-40">›</span></span>
@@ -296,6 +300,7 @@ import UsageStatsState from '@/components/common/UsageStatsState.vue'
 import Drawer from '@/components/ui/Drawer.vue'
 import { historyGapFromError, withTrendGaps, type HistoryGap } from '@/views/trendGaps'
 import { useAuthStore } from '@/stores/auth'
+import { useAppStore } from '@/stores/app'
 import { usageAPI, type UserDashboardStats as UserStatsType } from '@/api/usage'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
@@ -307,11 +312,13 @@ import type { UsageLog, TrendDataPoint, ModelStat, PlatformQuotaItem } from '@/t
 import { getMyPlatformQuotas } from '@/api/user'
 import { buildGatewayUrl } from '@/api/url'
 import { buildClientBaseUrl } from '@/utils/url'
+import { FeatureFlags, resolveFeatureFlag } from '@/utils/featureFlags'
+import { formatExactMoney } from '@/utils/money'
 import { classifyConsoleError, type ConsoleAsyncNotice } from '@/features/console/asyncState'
 import ConsoleAsyncBanner from '@/features/console/components/ConsoleAsyncBanner.vue'
 import ConsoleScopeBar from '@/features/console/components/ConsoleScopeBar.vue'
 import { EM_DASH, formatNullablePercent } from '@/features/console/format'
-import { useConsoleScope } from '@/features/console/scope'
+import { identityApi, useConsoleScope } from '@/features/console/scope'
 
 const reportProps = defineProps<{ timeZone?: string }>()
 const reportTimeZone = resolveReportTimeZone(reportProps.timeZone)
@@ -320,6 +327,22 @@ const { t, locale } = useI18n()
 const isZh = computed(() => String(locale?.value || '').startsWith('zh'))
 const instance = getCurrentInstance()
 const scope = useConsoleScope()
+let appStore: ReturnType<typeof useAppStore> | null = null
+try {
+  appStore = useAppStore()
+} catch {
+  appStore = null
+}
+const paymentFeatureEnabled = computed(() =>
+  resolveFeatureFlag(appStore?.cachedPublicSettings, FeatureFlags.payment)
+)
+const projectAccessLoaded = ref(false)
+const projectActions = ref<string[]>([])
+const hasProjectAction = (action: string) =>
+  projectActions.value.includes('*') || projectActions.value.includes(action)
+const canCreateApiKey = computed(() => !projectAccessLoaded.value || hasProjectAction('keys.write'))
+const canRunPlayground = computed(() => !projectAccessLoaded.value || hasProjectAction('playground.run'))
+const canViewUsage = computed(() => !projectAccessLoaded.value || hasProjectAction('usage.read'))
 const tabItems = computed<Array<{ id: 'activity' | 'usage' | 'logs' | 'audit'; label: string }>>(() => [
   { id: 'activity', label: isZh.value ? '活动概览' : 'Overview' },
   { id: 'usage', label: isZh.value ? '我的用量' : 'Usage' },
@@ -518,7 +541,7 @@ const loadOnboarding = async () => {
   }
 }
 const openPersonalAuditDrawer = () => { auditDrawerOpen.value = true }
-const money = (value?: number) => typeof value === 'number' && Number.isFinite(value) ? `$${value.toFixed(4)}` : '—'
+const money = (value?: number) => formatExactMoney(value, 'USD', EM_DASH)
 const historyGap = ref<HistoryGap | null>(null)
 const statsState = ref<'known' | 'unknown' | 'error'>('known')
 const chartError = ref(false)
@@ -632,6 +655,28 @@ const loadScopedReliabilitySample = async () => {
     const wsId = scope.activeWorkspaceId.value
     const projId = scope.activeProjectId.value
     if (!wsId || !projId) return
+    if (typeof identityApi.getProjectAccess === 'function') {
+      try {
+        const access = await identityApi.getProjectAccess(wsId, projId)
+        if (Array.isArray(access?.actions)) {
+          projectActions.value = access.actions
+          projectAccessLoaded.value = true
+        }
+      } catch (err) {
+        const status = (err as { status?: number; response?: { status?: number } })?.status ??
+          (err as { response?: { status?: number } })?.response?.status
+        if (status === 403) {
+          projectActions.value = []
+          projectAccessLoaded.value = true
+        }
+      }
+    }
+    if (projectAccessLoaded.value && !hasProjectAction('requests.read')) {
+      scopedSampleCount.value = 0
+      scopedSucceededCount.value = 0
+      scopedFailureOrUnknownCount.value = 0
+      return
+    }
     const { apiClient } = await import('@/api/client')
     const { data } = await apiClient.get<{ items?: Array<{ outcome?: string }> }>(
       buildGatewayUrl(`/api/v2/workspaces/${wsId}/projects/${projId}/requests`),

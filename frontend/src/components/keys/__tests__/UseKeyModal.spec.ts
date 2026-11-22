@@ -1093,3 +1093,20 @@ describe('UseKeyModal', () => {
     expect(config).toContain(`model = "${expectedModel}"`)
     wrapper.unmount()
   })
+
+  it('keeps Codex model manifest fetch disabled when apiKey is placeholder <YOUR_API_KEY>', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: { show: true, apiKey: '<YOUR_API_KEY>', baseUrl: 'https://example.com/v1', platform: 'openai' },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' }, Icon: true } }
+    })
+    const codexTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('keys.useKeyModal.cliTabs.codexCli')
+    )
+    expect(codexTab).toBeDefined()
+    await codexTab!.trigger('click')
+    await nextTick()
+
+    const fetchBtn = wrapper.get('[data-testid="codex-model-catalog-fetch"]')
+    expect(fetchBtn.attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })

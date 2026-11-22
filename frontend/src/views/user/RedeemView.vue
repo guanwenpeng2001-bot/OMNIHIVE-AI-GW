@@ -129,7 +129,7 @@
                   <p>{{ redeemResult.message }}</p>
                   <div class="mt-3 space-y-1 font-mono tabular-nums">
                     <p v-if="redeemResult.type === 'balance'" class="font-medium">
-                      {{ t('redeem.added') }}: ${{ redeemResult.value.toFixed(2) }}
+                      {{ t('redeem.added') }}: {{ formatExactMoney(redeemResult.value, 'USD') }}
                     </p>
                     <p v-else-if="redeemResult.type === 'concurrency'" class="font-medium">
                       {{ t('redeem.added') }}: {{ redeemResult.value }}
@@ -146,7 +146,7 @@
                     </p>
                     <p v-if="redeemResult.new_balance !== undefined">
                       {{ t('redeem.newBalance') }}:
-                      <span class="font-semibold">${{ redeemResult.new_balance.toFixed(2) }}</span>
+                      <span class="font-semibold">{{ formatExactMoney(redeemResult.new_balance, 'USD') }}</span>
                     </p>
                     <p v-if="redeemResult.new_concurrency !== undefined">
                       {{ t('redeem.newConcurrency') }}:
@@ -413,6 +413,7 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import BillingNav from '@/features/billing/components/BillingNav.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { formatDateTime } from '@/utils/format'
+import { formatExactMoney } from '@/utils/money'
 
 const { t } = useI18n()
 const authStore = useAuthStore()

@@ -67,6 +67,8 @@ const loadingList = ref(false)
 const loadingMore = ref(false)
 const pageNotice = ref<ConsoleAsyncNotice | null>(null)
 const rowBusyId = ref<string | null>(null)
+const canManageByok = ref(true)
+const canReadKeys = ref(true)
 let loadGeneration = 0
 
 // Modal state (create & policy)
@@ -102,6 +104,10 @@ const enabledProviderClasses = computed(() =>
   providerClasses.value.filter((item) => item.supported && item.enabled)
 )
 
+const hasByokManagePermission = computed(
+  () => canManageByok.value && pageNotice.value?.kind !== 'permission'
+)
+
 const scopeErrorNotice = computed<ConsoleAsyncNotice | null>(() => {
   if (!scopeError.value) return null
   return classifyConsoleError(scopeError.value, {
@@ -111,7 +117,7 @@ const scopeErrorNotice = computed<ConsoleAsyncNotice | null>(() => {
 })
 
 async function loadProjectKeysSilently(wsId: string, projId: string): Promise<void> {
-  if (!wsId || !projId) {
+  if (!wsId || !projId || !canReadKeys.value) {
     projectKeys.value = []
     return
   }
@@ -123,15 +129,58 @@ async function loadProjectKeysSilently(wsId: string, projId: string): Promise<vo
   }
 }
 
+async function refreshByokAccess(wsId: string, projId: string): Promise<boolean> {
+  if (!wsId || !projId || typeof identityApi.getProjectAccess !== 'function') {
+    canManageByok.value = true
+    canReadKeys.value = true
+    return true
+  }
+  try {
+    const access = await identityApi.getProjectAccess(wsId, projId)
+    const actions = Array.isArray(access?.actions) ? access.actions : []
+    const allowAll = actions.includes('*')
+    canManageByok.value = allowAll || actions.includes('credentials.byok.manage')
+    canReadKeys.value = allowAll || actions.includes('keys.read')
+    return canManageByok.value
+  } catch (err) {
+    const status = (err as { status?: number; response?: { status?: number } })?.status ??
+      (err as { response?: { status?: number } })?.response?.status
+    if (status === 403) {
+      canManageByok.value = false
+      canReadKeys.value = false
+      return false
+    }
+    canManageByok.value = true
+    canReadKeys.value = true
+    return true
+  }
+}
+
 async function loadSurface(reset = true): Promise<void> {
   const wsId = activeWorkspaceId.value
   const projId = activeProjectId.value
   if (!wsId) return
+  if (reset && projId) {
+    await refreshByokAccess(wsId, projId)
+  }
   if (activeTab.value === 'project' && !projId) {
     credentials.value = []
     nextCursor.value = null
     providerClasses.value = []
     pageNotice.value = null
+    return
+  }
+  if (activeTab.value === 'project' && !canManageByok.value) {
+    credentials.value = []
+    nextCursor.value = null
+    providerClasses.value = []
+    projectKeys.value = []
+    loadingList.value = false
+    loadingMore.value = false
+    pageNotice.value = classifyConsoleError(
+      { status: 403, reason: 'INSUFFICIENT_GRANT' },
+      { isZh: isZh.value, requiredGrantFallback: 'credentials.byok.manage' }
+    )
     return
   }
   if (!reset && (!nextCursor.value || loadingMore.value)) return
@@ -214,6 +263,7 @@ function removeLocalCredential(id: string): void {
 }
 
 function openCreateModal(): void {
+  if (!hasByokManagePermission.value) return
   formMode.value = 'create'
   editingCredential.value = null
   formErrorNotice.value = null
@@ -439,7 +489,7 @@ onMounted(async () => {
             variant="primary"
             size="sm"
             data-testid="byok-enroll-btn"
-            :disabled="!activeWorkspaceId || (activeTab === 'project' && !activeProjectId)"
+            :disabled="!hasByokManagePermission || !activeWorkspaceId || (activeTab === 'project' && !activeProjectId)"
             @click="openCreateModal"
           >
             {{
@@ -546,9 +596,11 @@ onMounted(async () => {
                   : 'Enroll your own OpenAI, Anthropic, Gemini, or compatible keys at the workspace level and scope them across projects and keys.')
           "
           :action-label="
-            activeTab === 'project'
-              ? (isZh ? '登记首个项目密钥' : 'Enroll First Project Key')
-              : (isZh ? '登记首个工作空间密钥' : 'Enroll First Workspace Key')
+            hasByokManagePermission
+              ? (activeTab === 'project'
+                  ? (isZh ? '登记首个项目密钥' : 'Enroll First Project Key')
+                  : (isZh ? '登记首个工作空间密钥' : 'Enroll First Workspace Key'))
+              : undefined
           "
           @action="openCreateModal"
         />
@@ -600,7 +652,7 @@ onMounted(async () => {
                   variant="secondary"
                   size="xs"
                   data-testid="byok-verify-btn"
-                  :disabled="cred.state === 'revoked' || rowBusyId !== null"
+                  :disabled="!hasByokManagePermission || cred.state === 'revoked' || rowBusyId !== null"
                   :loading="rowBusyId === cred.id"
                   @click="handleVerifyProbe(cred)"
                 >
@@ -610,7 +662,7 @@ onMounted(async () => {
                   variant="secondary"
                   size="xs"
                   data-testid="byok-policy-btn"
-                  :disabled="cred.state === 'revoked' || rowBusyId !== null"
+                  :disabled="!hasByokManagePermission || cred.state === 'revoked' || rowBusyId !== null"
                   @click="openPolicyModal(cred)"
                 >
                   {{ isZh ? '编辑策略' : 'Edit Policy' }}
@@ -676,14 +728,14 @@ onMounted(async () => {
                 <Switch
                   :model-value="cred.allow_platform_fallback"
                   size="sm"
-                  :disabled="cred.state === 'revoked' || rowBusyId === cred.id"
+                  :disabled="!hasByokManagePermission || cred.state === 'revoked' || rowBusyId === cred.id"
                   :label="isZh ? '平台池回退' : 'Platform Fallback'"
                   @update:model-value="handleQuickPatch(cred, { allow_platform_fallback: $event })"
                 />
                 <Switch
                   :model-value="cred.include_external_in_budget"
                   size="sm"
-                  :disabled="cred.state === 'revoked' || rowBusyId === cred.id"
+                  :disabled="!hasByokManagePermission || cred.state === 'revoked' || rowBusyId === cred.id"
                   :label="isZh ? '计入预算' : 'In Budget'"
                   @update:model-value="handleQuickPatch(cred, { include_external_in_budget: $event })"
                 />
@@ -699,7 +751,7 @@ onMounted(async () => {
         </div>
 
         <ByokServiceAccountsPanel
-          v-if="activeTab === 'project' && activeProjectId"
+          v-if="activeTab === 'project' && activeProjectId && hasByokManagePermission"
           :workspace-id="activeWorkspaceId"
           :project-id="activeProjectId"
           :project-keys="projectKeys"

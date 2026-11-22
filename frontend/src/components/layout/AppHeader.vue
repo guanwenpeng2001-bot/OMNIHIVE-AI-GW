@@ -60,6 +60,9 @@ const showModelPlazaEntry = computed(
 const subscriptionFeatureEnabled = computed(() =>
   isFeatureFlagEnabled(FeatureFlags.subscription)
 )
+const paymentFeatureEnabled = computed(() =>
+  isFeatureFlagEnabled(FeatureFlags.payment)
+)
 
 const avatarUrl = computed(() => user.value?.avatar_url?.trim() || '')
 const rawBalance = computed(() => user.value?.balance)
@@ -344,7 +347,7 @@ onBeforeUnmount(() => {
 
         <router-link
           v-if="user && !authStore.isSimpleMode"
-          to="/purchase"
+          :to="paymentFeatureEnabled ? '/purchase' : '/billing'"
           data-testid="header-balance-pill"
           class="oh-focus-ring hidden h-8 items-center gap-1.5 rounded-oh-md border border-oh-default bg-oh-surface px-2.5 font-mono text-xs tabular-nums text-oh-primary transition-colors hover:border-oh-strong md:inline-flex"
           :title="totalBalance !== null ? `Total ${formatMoneyValue(totalBalance)}` : undefined"

@@ -601,4 +601,66 @@ describe('PlaygroundView 3-pane workbench', () => {
     expect(wrapper.find('[data-testid="playground-goto-admin-catalog-A"]').exists()).toBe(true)
     wrapper.unmount()
   })
+
+  it('renders explicit read-only option and guidance banner when route ?model= points to a catalog_only model', async () => {
+    mocks.authUser = { id: '1', role: 'user' }
+    vi.spyOn(identityApi, 'getProjectAccess').mockResolvedValue({
+      actor_id: '1',
+      workspace_id: '2',
+      project_id: '9',
+      actions: ['projects.read', 'models.read', 'playground.run'],
+      scope_version: '1',
+      expires_at: '2026-11-20T00:00:00Z'
+    })
+
+    const wrapper = mount(PlaygroundView, {
+      props: { teleportDisabled: true },
+      global: {
+        mocks: {
+          $route: { query: { model: 'catalog-only-model-x' } }
+        }
+      }
+    })
+    await flushPromises()
+
+    const selectEl = wrapper.get('[data-testid="select-model-a"]')
+    expect((selectEl.element as HTMLSelectElement).value).toBe('catalog-only-model-x')
+    expect(wrapper.get('[data-testid="playground-catalog-only-notice-A"]').text()).toContain('catalog-only-model-x')
+
+    await wrapper.get('[data-testid="switch-routed-model-A"]').trigger('click')
+    await flushPromises()
+    expect((selectEl.element as HTMLSelectElement).value).toBe('gpt-5.4-mini')
+    expect(wrapper.find('[data-testid="playground-catalog-only-notice-A"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('hides /byok quick action on 422 NO_ELIGIBLE_ENDPOINT for members lacking credentials.byok.manage', async () => {
+    mocks.authUser = { id: '1', role: 'user' }
+    vi.spyOn(identityApi, 'getProjectAccess').mockResolvedValue({
+      actor_id: '1',
+      workspace_id: '2',
+      project_id: '9',
+      actions: ['keys.read', 'playground.run'],
+      scope_version: '1',
+      expires_at: '2026-11-20T00:00:00Z'
+    })
+    mocks.submitRun.mockRejectedValue({
+      status: 422,
+      reason: 'NO_ELIGIBLE_ENDPOINT',
+      message: 'No verified endpoint supports this call in the selected scope.'
+    })
+
+    const wrapper = mount(PlaygroundView, { props: { teleportDisabled: true } })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="message-input-0"]').setValue('Test endpoint')
+    await wrapper.get('[data-testid="playground-run-trigger"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="confirm-playground-funding"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="playground-goto-byok-A"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="playground-contact-admin-A"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
 })

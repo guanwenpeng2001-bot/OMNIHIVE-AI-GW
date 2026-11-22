@@ -98,6 +98,7 @@
             ({{ preferredProject.name }})
           </button>
           <RouterLink
+            v-if="showQuickActionKeys"
             :to="`/workspaces/${selected.id}/keys`"
             data-testid="quick-action-keys"
             class="btn btn-secondary btn-sm text-xs"
@@ -105,6 +106,7 @@
             {{ t('nav.apiKeys') }}
           </RouterLink>
           <RouterLink
+            v-if="showQuickActionPlayground"
             to="/playground"
             data-testid="quick-action-playground"
             class="btn btn-secondary btn-sm text-xs"
@@ -112,6 +114,7 @@
             {{ isZh ? '调试台' : 'Playground' }}
           </RouterLink>
           <RouterLink
+            v-if="showQuickActionUsage"
             to="/usage"
             data-testid="quick-action-usage"
             class="btn btn-secondary btn-sm text-xs"
@@ -119,6 +122,7 @@
             {{ t('nav.usage') }}
           </RouterLink>
           <RouterLink
+            v-if="showQuickActionTasks"
             to="/tasks"
             data-testid="quick-action-tasks"
             class="btn btn-secondary btn-sm text-xs"
@@ -213,9 +217,9 @@
           @retry="loadProjects(selected.id, true)"
         />
 
-        <!-- Create Project Bar (admin only, div container instead of form) -->
+        <!-- Create Project Bar (admin or projects.write grant, div container instead of form) -->
         <div
-          v-if="selected.role === 'admin'"
+          v-if="canManageProjects"
           class="flex flex-wrap items-center gap-2 rounded-[var(--oh-r-md,8px)] border border-[var(--border)] bg-[var(--surface-2)] p-3"
         >
           <input
@@ -312,7 +316,7 @@
                       {{ t('workspaces.activateScope') }}
                     </button>
                     <button
-                      v-if="selected.role === 'admin' && (proj.state ?? 'active') === 'active'"
+                      v-if="canManageProjects && (proj.state ?? 'active') === 'active'"
                       type="button"
                       :data-testid="`start-rename-project-${proj.id}`"
                       class="btn btn-secondary btn-sm px-2 py-1 text-xs"
@@ -321,7 +325,7 @@
                       {{ t('workspaces.renameProject') }}
                     </button>
                     <button
-                      v-if="selected.role === 'admin' && (proj.state ?? 'active') === 'active'"
+                      v-if="canManageProjects && (proj.state ?? 'active') === 'active'"
                       type="button"
                       :data-testid="`archive-project-${proj.id}`"
                       class="btn btn-secondary btn-sm px-2 py-1 text-xs text-[var(--oh-danger,#dc2626)]"
@@ -496,6 +500,23 @@ const newProjectName = ref('')
 const renamingProjectId = ref<string | null>(null)
 const renameProjectDraft = ref('')
 let projectRequestSeq = 0
+const projectActions = ref<string[]>([])
+const projectAccessLoaded = ref(false)
+let accessRequestSeq = 0
+
+function hasProjectAction(action: string): boolean {
+  return projectActions.value.includes('*') || projectActions.value.includes(action)
+}
+
+const canManageProjects = computed(
+  () =>
+    selected.value?.role === 'admin' ||
+    (projectAccessLoaded.value && (hasProjectAction('projects.write') || hasProjectAction('projects.create')))
+)
+const showQuickActionKeys = computed(() => !projectAccessLoaded.value || hasProjectAction('keys.read'))
+const showQuickActionPlayground = computed(() => !projectAccessLoaded.value || hasProjectAction('playground.run'))
+const showQuickActionUsage = computed(() => !projectAccessLoaded.value || hasProjectAction('usage.read'))
+const showQuickActionTasks = computed(() => !projectAccessLoaded.value || hasProjectAction('tasks.read'))
 const workspaceName = ref('')
 const userID = ref<number | null>(null)
 const memberRole = ref<WorkspaceMember['role']>('member')
@@ -601,11 +622,44 @@ async function loadMembers() {
   }
 }
 
+async function loadActiveProjectAccess(workspaceId: string, projectId: string | null | undefined) {
+  const seq = ++accessRequestSeq
+  if (!workspaceId || !projectId || typeof identityApi.getProjectAccess !== 'function') {
+    projectAccessLoaded.value = false
+    projectActions.value = []
+    return
+  }
+  try {
+    const access = await identityApi.getProjectAccess(workspaceId, projectId)
+    if (seq !== accessRequestSeq) return
+    if (Array.isArray(access?.actions)) {
+      projectActions.value = access.actions
+      projectAccessLoaded.value = true
+    } else {
+      projectAccessLoaded.value = false
+      projectActions.value = []
+    }
+  } catch (err) {
+    if (seq !== accessRequestSeq) return
+    const status = (err as { status?: number; response?: { status?: number } })?.status ??
+      (err as { response?: { status?: number } })?.response?.status
+    if (status === 403) {
+      projectActions.value = []
+      projectAccessLoaded.value = true
+    } else {
+      projectAccessLoaded.value = false
+      projectActions.value = []
+    }
+  }
+}
+
 async function loadProjects(workspaceID: number | null | undefined, explicit = false) {
   const seq = ++projectRequestSeq
   projectsNotice.value = null
   if (!workspaceID) {
     projects.value = []
+    projectAccessLoaded.value = false
+    projectActions.value = []
     return
   }
   if (!explicit && !(auth as { user?: { id?: number } }).user?.id) {
@@ -634,6 +688,11 @@ async function loadProjects(workspaceID: number | null | undefined, explicit = f
         persistConsoleScope(initialScope)
         activeScope.value = initialScope
       }
+      const targetProjectId =
+        activeScope.value.workspaceId === String(workspaceID)
+          ? (activeScope.value.projectId ?? preferredProject.value?.id ?? null)
+          : (preferredProject.value?.id ?? null)
+      void loadActiveProjectAccess(String(workspaceID), targetProjectId)
     }
   } catch (err) {
     if (seq === projectRequestSeq) {
@@ -652,6 +711,8 @@ async function loadProjects(workspaceID: number | null | undefined, explicit = f
 
 function onWorkspaceSelectionChange() {
   projects.value = []
+  projectAccessLoaded.value = false
+  projectActions.value = []
   renamingProjectId.value = null
   void loadMembers()
   void loadProjects(selectedID.value, false)
@@ -665,6 +726,7 @@ function activateScope(workspaceId: string, projectId: string | null) {
   }
   persistConsoleScope(next)
   activeScope.value = next
+  void loadActiveProjectAccess(workspaceId, projectId)
   scopeConfirmedNotice.value = {
     kind: 'confirmed',
     title: projectId
