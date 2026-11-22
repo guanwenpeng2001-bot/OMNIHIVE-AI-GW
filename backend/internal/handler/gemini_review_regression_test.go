@@ -53,11 +53,19 @@ func (u *geminiReviewUpstream) Do(req *http.Request, proxy string, id int64, con
 
 func TestGeminiReviewEmbeddingSelection(t *testing.T) {
 	for _, action := range []string{"embedContent", "batchEmbedContents"} {
-		for _, family := range []string{"embeddings", "responses"} {
-			t.Run(action+"/"+family, func(t *testing.T) {
+		for _, scenario := range []struct {
+			name   string
+			family string
+			priced bool
+		}{
+			{"embeddings", "embeddings", true},
+			{"responses", "responses", true},
+			{"unpriced", "embeddings", false},
+		} {
+			t.Run(action+"/"+scenario.name, func(t *testing.T) {
 				cfg := &config.Config{RunMode: config.RunModeSimple}
 				account := preparedGatewayFixtureAccount(service.Account{ID: 7, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Credentials: map[string]any{"api_key": "fixture"}, AccountGroups: []service.AccountGroup{{AccountID: 7, GroupID: 3}}})
-				account.Extra[service.UpstreamModelCatalogExtraKey] = service.AccountModelCatalogSnapshot{Complete: true, DiscoveredModels: []string{"custom-embedding"}, EligibleModels: []service.AccountCatalogModel{{ID: "custom-embedding", Endpoints: []string{family}, EvidenceKind: "fixture"}}}
+				account.Extra[service.UpstreamModelCatalogExtraKey] = service.AccountModelCatalogSnapshot{Complete: true, DiscoveredModels: []string{"custom-embedding"}, EligibleModels: []service.AccountCatalogModel{{ID: "custom-embedding", Endpoints: []string{scenario.family}, EvidenceKind: "fixture"}}}
 				repo := &geminiReviewAccountRepo{openAIWSUsageHandlerAccountRepoStub: openAIWSUsageHandlerAccountRepoStub{account: account}}
 				usage := &cursorRouteUsageRepo{}
 				receipts := newHunyuanSTTReceiptRepository()
@@ -67,6 +75,10 @@ func TestGeminiReviewEmbeddingSelection(t *testing.T) {
 				defer billing.Stop()
 				h := NewOpenAIGatewayHandler(svc, service.NewConcurrencyService(&fakeConcurrencyCache{}), billing, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg)
 				group := &service.Group{ID: 3, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true}
+				if scenario.priced {
+					inputPrice := 0.000002
+					group.ModelPricing = []service.ChannelModelPricing{{Models: []string{"custom-embedding"}, BillingMode: service.BillingModeToken, InputPrice: &inputPrice}}
+				}
 				body := `{"content":{"parts":[{"text":"hello"}]}}`
 				if action == "batchEmbedContents" {
 					body = `{"requests":[{"content":{"parts":[{"text":"hello"}]}}]}`
@@ -77,9 +89,18 @@ func TestGeminiReviewEmbeddingSelection(t *testing.T) {
 				plan := service.GatewayRequestPlanFromContext(c.Request.Context())
 				require.NotNil(t, plan)
 				require.Equal(t, "embeddings", plan.Snapshot().Protocol)
-				if family == "responses" {
+				if scenario.family == "responses" {
 					require.NotEqual(t, 200, rec.Code, rec.Body.String())
 					require.Zero(t, upstream.calls)
+					return
+				}
+				if !scenario.priced {
+					require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+					require.Contains(t, rec.Body.String(), "No applicable pricing is available for this model")
+					require.Zero(t, upstream.calls)
+					require.Empty(t, usage.logs)
+					require.Empty(t, receipts.receipts)
+					require.False(t, plan.State().UsageClaimed)
 					return
 				}
 				require.Equal(t, 200, rec.Code, rec.Body.String())
