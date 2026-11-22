@@ -20,7 +20,7 @@ func TestModelRegistryCatalogFactsAllTasks(t *testing.T) {
 		detail := catalog.Project(catalog.Perspective{}, catalog.Input{Registry: []catalog.RegistryModel{entry}, Models: []catalog.Candidate{{Provider: entry.Provider, Model: entry.Model}}}, catalog.Window{}, now).Details[0]
 		require.Equal(t, "Display "+entry.Model, detail.Model.DisplayName)
 		require.EqualValues(t, 1234, *detail.Model.Context)
-		require.Equal(t, "catalog_only", detail.Model.AvailabilityState)
+		require.Equal(t, "requires_scope", detail.Model.AvailabilityState)
 		require.Equal(t, "requires_scope", detail.Model.RouteState)
 		require.Equal(t, "unpriced", detail.Model.PriceState)
 		if entry.Model == "unknown" {
@@ -31,9 +31,30 @@ func TestModelRegistryCatalogFactsAllTasks(t *testing.T) {
 			require.NotEmpty(t, detail.Model.Actions)
 		}
 		for _, fact := range detail.Facts {
-			require.Equal(t, "approved_registry", fact.Source)
+			require.Equal(t, catalog.SourcePreset, fact.Source)
 		}
 	}
+}
+
+func TestModelRegistryCatalogFactsRetainPerFieldOrigins(t *testing.T) {
+	yes := true
+	snapshot := &ModelRegistrySnapshot{
+		presets: []PlatformModelPreset{{Platform: PlatformOpenAI, ProviderProfile: "openai", Models: []PlatformPresetModel{{ID: "mixed", ContextWindow: 1234}}}},
+		capabilities: &ModelCapabilitySnapshot{records: map[string]CapabilityRecord{
+			capabilityKey("openai", "mixed"): {Provider: PlatformOpenAI, Profile: "openai", ModelID: "mixed", Source: "models.dev", LiteLLMCapabilityFields: LiteLLMCapabilityFields{SupportsFunctionCalling: &yes, SupportsVision: &yes, SupportsReasoning: &yes, SupportsPromptCaching: &yes}},
+		}},
+	}
+	rows := snapshot.CatalogFacts(time.Now())
+	require.Len(t, rows, 1)
+	facts := rows[0].Facts
+	require.Equal(t, catalog.SourcePreset, facts.Source)
+	require.Equal(t, catalog.SourcePreset, facts.Provenance["context_tokens"].SourceKind)
+	for _, field := range []string{"tools", "vision", "reasoning", "prompt_caching"} {
+		require.Equal(t, catalog.SourceBuiltin, facts.Provenance[field].SourceKind, field)
+		require.Equal(t, "approved", facts.Provenance[field].Approval)
+	}
+	require.NotContains(t, facts.Provenance, "pdf", "missing capability remains unknown")
+	require.True(t, catalog.PublicEvidence(facts.Evidence))
 }
 
 func TestModelRegistryCatalogFactsCapabilityOnlyIsolatedAndImmutable(t *testing.T) {

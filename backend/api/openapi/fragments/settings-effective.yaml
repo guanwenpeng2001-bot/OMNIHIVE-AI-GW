@@ -1,0 +1,103 @@
+paths:
+  /api/v1/admin/settings/effective:
+    get:
+      operationId: getEffectiveSettings
+      summary: Inspect redacted effective configuration and its authority (platform administrator)
+      responses:
+        '200':
+          description: Effective settings snapshot; sensitive values are always null
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data: {$ref: '#/components/schemas/EffectiveSettings'}
+        default:
+          description: Administrator authorization, validation, or storage error
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message]
+                properties:
+                  code: {type: integer}
+                  message: {type: string}
+                  reason: {type: string}
+                  metadata: {type: object, additionalProperties: {type: string}}
+
+  /api/v1/admin/settings/reset:
+    post:
+      operationId: resetSettingOverrides
+      summary: Atomically remove allowed overrides under an optimistic settings version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ResetSettingOverridesInput'}
+      responses:
+        '200':
+          description: Reset completed; OAuth credentials reset as an entire provider group
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data: {$ref: '#/components/schemas/EffectiveSettings'}
+        '409':
+          description: SETTING_VERSION_CONFLICT; reload and review before submitting again
+        default:
+          description: Administrator authorization, validation, or storage error
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message]
+                properties:
+                  code: {type: integer}
+                  message: {type: string}
+                  reason: {type: string}
+                  metadata: {type: object, additionalProperties: {type: string}}
+
+components:
+  schemas:
+    SettingEffectiveValue:
+      type: object
+      required: [key, group, effective_value, source, override_state, default_value, default_version, setting_version, applied_version, restart_required, can_reset, sensitive, configured, validation_state, blocked_by]
+      properties:
+        key: {type: string}
+        group: {type: string}
+        effective_value: {description: Typed value; always null for secrets}
+        source: {type: string}
+        override_state: {type: string}
+        default_value: {description: Registry default; always null for secrets}
+        default_version: {type: string}
+        setting_version: {type: string}
+        applied_version: {type: string}
+        restart_required: {type: boolean}
+        can_reset: {type: boolean}
+        sensitive: {type: boolean}
+        configured: {type: boolean}
+        key_id: {type: string}
+        validation_state: {type: string}
+        blocked_by: {type: array, items: {type: string}}
+    EffectiveSettings:
+      type: object
+      required: [setting_version, items, reset_groups]
+      properties:
+        setting_version: {type: string}
+        items: {type: array, items: {$ref: '#/components/schemas/SettingEffectiveValue'}}
+        reset_groups: {type: array, items: {type: string}}
+    ResetSettingOverridesInput:
+      type: object
+      required: [expected_version, groups, keys]
+      additionalProperties: false
+      properties:
+        expected_version: {type: string, minLength: 1}
+        groups: {type: array, items: {type: string}}
+        keys: {type: array, items: {type: string}}

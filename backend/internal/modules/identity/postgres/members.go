@@ -73,5 +73,47 @@ func (s *Store) MemberGrants(ctx context.Context, actor, workspace, user int64) 
 		return g, found(err)
 	}
 	g.EffectiveAt = g.EffectiveAt.UTC()
+	g.ProjectGrants = []identity.ProjectGrant{}
+	rows, err := tx.QueryContext(ctx, `SELECT g.project_id,array_agg(g.action ORDER BY g.action)
+ FROM project_grants g JOIN projects p ON p.id=g.project_id AND p.workspace_id=g.workspace_id AND p.archived_at IS NULL
+ WHERE g.workspace_id=$1 AND g.user_id=$2 GROUP BY g.project_id ORDER BY g.project_id`, workspace, user)
+	if err != nil {
+		return g, err
+	}
+	for rows.Next() {
+		var grant identity.ProjectGrant
+		if err := rows.Scan(&grant.ProjectID, pq.Array(&grant.Actions)); err != nil {
+			rows.Close()
+			return g, err
+		}
+		g.ProjectGrants = append(g.ProjectGrants, grant)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return g, err
+	}
+	rows.Close()
+	access, err := evaluate(ctx, tx, actor, workspace, 0, "members.grants.write")
+	if err != nil {
+		return g, err
+	}
+	rows, err = tx.QueryContext(ctx, `SELECT action FROM identity_actions WHERE action=ANY($1) AND category IN ('member','project','key') ORDER BY action`, pq.Array(access.Actions))
+	if err != nil {
+		return g, err
+	}
+	g.DelegableActions = []string{}
+	for rows.Next() {
+		var action string
+		if err := rows.Scan(&action); err != nil {
+			rows.Close()
+			return g, err
+		}
+		g.DelegableActions = append(g.DelegableActions, action)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return g, err
+	}
+	rows.Close()
 	return g, tx.Commit()
 }

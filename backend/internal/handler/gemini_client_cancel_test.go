@@ -80,7 +80,7 @@ func newGeminiClientCancelFixture(t *testing.T) *geminiClientCancelFixture {
 func (fixture *geminiClientCancelFixture) serve(t *testing.T, route, path, body string, call func(*gin.Context)) (*httptest.ResponseRecorder, int64) {
 	t.Helper()
 	setupOpsErrorLogTestQueue(t, 4)
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	router := gin.New()
 	router.Use(OpsErrorLoggerMiddleware(ops))
 	router.POST(route, func(ginContext *gin.Context) {

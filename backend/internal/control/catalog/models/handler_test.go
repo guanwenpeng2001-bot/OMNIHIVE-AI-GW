@@ -156,7 +156,8 @@ func TestCatalogOnlyMultimodalHTTPFilters(t *testing.T) {
 	require.NoError(t, json.Unmarshal(res.Body.Bytes(), &response))
 	require.Len(t, response.Data.Items, 1)
 	model := response.Data.Items[0]
-	require.Equal(t, "catalog_only", model.AvailabilityState)
+	require.Equal(t, "requires_scope", model.AvailabilityState)
+	require.Equal(t, "draft", model.PublicationState)
 	require.Equal(t, "listed", model.CatalogState)
 	require.Equal(t, "unpriced", model.PriceState)
 	require.Equal(t, "requires_scope", model.RouteState)

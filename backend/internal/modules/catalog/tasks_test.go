@@ -17,7 +17,11 @@ func TestCatalogOnlyPresentationKeepsRoutingAndPricesSeparate(t *testing.T) {
 	in := Input{Models: []Candidate{{Provider: "gemini", Model: "gemini-1.5-flash", Offers: []Offer{{Access: true, CatalogOnly: true}}}}}
 	for _, perspective := range []Perspective{{}, {Workspace: 1, Project: 2}} {
 		detail := Project(perspective, in, Window{}, now).Details[0]
-		require.Equal(t, "catalog_only", detail.Model.AvailabilityState)
+		expectedAvailability := "unknown"
+		if perspective.Public() {
+			expectedAvailability = "requires_scope"
+		}
+		require.Equal(t, expectedAvailability, detail.Model.AvailabilityState)
 		require.Equal(t, "listed", detail.Model.CatalogState)
 		require.Equal(t, "unpriced", detail.Model.PriceState)
 		require.Nil(t, detail.Model.Input)
@@ -34,11 +38,15 @@ func TestCatalogOnlyPresentationKeepsRoutingAndPricesSeparate(t *testing.T) {
 	}
 	rate, err := money.NewRate("USD", "0.02", "input_token", "1")
 	require.NoError(t, err)
-	live := Offer{GroupID: 9, Access: true, Eligible: true, Price: Price{State: "priced", Source: "public_plaza_reference", Input: &rate}}
+	live := Offer{GroupID: 9, Access: true, Eligible: true, VerifiedLive: true, Price: Price{State: "priced", Source: "public_plaza_reference", Input: &rate}}
 	in.Models[0].Offers = append(in.Models[0].Offers, live)
 	for _, perspective := range []Perspective{{}, {Workspace: 1, Project: 2}} {
 		detail := Project(perspective, in, Window{}, now).Details[0]
-		require.Equal(t, "live", detail.Model.AvailabilityState)
+		expectedAvailability := "live"
+		if perspective.Public() {
+			expectedAvailability = "requires_scope"
+		}
+		require.Equal(t, expectedAvailability, detail.Model.AvailabilityState)
 		require.Equal(t, "priced", detail.Model.PriceState)
 		require.Equal(t, &rate, detail.Model.Input)
 		require.Nil(t, detail.ReferencePrice)
@@ -94,7 +102,7 @@ func TestCatalogOpenAPIContractAlignment(t *testing.T) {
 
 	modelMap, ok := detailMap["model"].(map[string]any)
 	require.True(t, ok)
-	require.Equal(t, "catalog_only", modelMap["availability_state"])
+	require.Equal(t, "requires_scope", modelMap["availability_state"])
 	for key := range modelMap {
 		require.Contains(t, spec.Components.Schemas["ModelSummary"].Properties, key, "ModelSummary missing runtime key %q", key)
 	}

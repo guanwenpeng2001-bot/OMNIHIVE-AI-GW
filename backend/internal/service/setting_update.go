@@ -43,6 +43,12 @@ func (s *SettingService) UpdateSettingsOmitting(ctx context.Context, settings *S
 		return err
 	}
 	omitted.dropFrom(updates)
+	if err := s.preserveInheritedSettingValues(ctx, updates); err != nil {
+		return err
+	}
+	if _, changed := updates[SettingKeyModelPlazaEnabled]; changed {
+		updates[settingModelPlazaSourceKey] = "database_override"
+	}
 
 	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
 		return err
@@ -73,6 +79,12 @@ func (s *SettingService) UpdateSettingsWithAuthSourceDefaultsOmitting(ctx contex
 		updates[key] = value
 	}
 	omitted.dropFrom(updates)
+	if err := s.preserveInheritedSettingValues(ctx, updates); err != nil {
+		return err
+	}
+	if _, changed := updates[SettingKeyModelPlazaEnabled]; changed {
+		updates[settingModelPlazaSourceKey] = "database_override"
+	}
 
 	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
 		return err

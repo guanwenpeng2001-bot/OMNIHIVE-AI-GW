@@ -294,7 +294,7 @@ func TestSettingsPUT_DingTalk_SyncAttrKey_RoundTrip(t *testing.T) {
 
 		body := baseValidDingTalkBody()
 		body["dingtalk_connect_corp_restriction_policy"] = "internal_only"
-		// 不传 attr key → 写入层 fallback 到默认值
+		// Empty attr keys inherit defaults without freezing them into DB overrides.
 		body["dingtalk_connect_sync_corp_email_attr_key"] = ""
 		body["dingtalk_connect_sync_display_name_attr_key"] = ""
 		body["dingtalk_connect_sync_dept_attr_key"] = ""
@@ -311,9 +311,28 @@ func TestSettingsPUT_DingTalk_SyncAttrKey_RoundTrip(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, rec.Code)
 
-		// 空值应 fallback 到默认值并持久化
-		require.Equal(t, "dingtalk_email", repo.values[service.SettingKeyDingTalkConnectSyncCorpEmailAttrKey])
-		require.Equal(t, "dingtalk_name", repo.values[service.SettingKeyDingTalkConnectSyncDisplayNameAttrKey])
-		require.Equal(t, "dingtalk_department", repo.values[service.SettingKeyDingTalkConnectSyncDeptAttrKey])
+		for _, key := range []string{
+			service.SettingKeyDingTalkConnectSyncCorpEmailAttrKey,
+			service.SettingKeyDingTalkConnectSyncDisplayNameAttrKey,
+			service.SettingKeyDingTalkConnectSyncDeptAttrKey,
+		} {
+			require.NotContains(t, repo.values, key, "inherited defaults must not become persistent overrides")
+		}
+		assertDefaults := func(body []byte) {
+			var resp response.Response
+			require.NoError(t, json.Unmarshal(body, &resp))
+			data, ok := resp.Data.(map[string]any)
+			require.True(t, ok)
+			require.Equal(t, "dingtalk_email", data["dingtalk_connect_sync_corp_email_attr_key"])
+			require.Equal(t, "dingtalk_name", data["dingtalk_connect_sync_display_name_attr_key"])
+			require.Equal(t, "dingtalk_department", data["dingtalk_connect_sync_dept_attr_key"])
+		}
+		assertDefaults(rec.Body.Bytes())
+		getResponse := httptest.NewRecorder()
+		getContext, _ := gin.CreateTestContext(getResponse)
+		getContext.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/settings", nil)
+		handler.GetSettings(getContext)
+		require.Equal(t, http.StatusOK, getResponse.Code)
+		assertDefaults(getResponse.Body.Bytes())
 	})
 }

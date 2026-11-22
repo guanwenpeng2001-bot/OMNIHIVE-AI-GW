@@ -32,6 +32,7 @@ type Backend interface {
 	ChangeProject(context.Context, int64, int64, int64, int64, string, bool) (domain.Project, error)
 	CreateKey(context.Context, int64, int64, int64, domain.CreateKey, string) (domain.Key, error)
 	SetGrants(context.Context, int64, int64, int64, int64, []int64, []string) (domain.GrantVersion, error)
+	SetProjectGrants(context.Context, int64, int64, int64, int64, int64, []string) (domain.GrantVersion, error)
 }
 
 type Handler struct {
@@ -150,6 +151,7 @@ func Register(parent *gin.RouterGroup, h *Handler, session ...gin.HandlerFunc) {
 	v2 := parent.Group("", chain...)
 	v2.GET("/me/scopes", route(200, h.workspaces))
 	w := v2.Group("/workspaces/:workspace_id")
+	w.GET("/access", route(200, func(r request) (any, error) { return h.store.Evaluate(r.Request.Context(), r.actor, r.w, 0, "") }))
 	w.GET("/projects", route(200, h.projects))
 	w.POST("/projects", route(201, h.createProject))
 	p := w.Group("/projects/:project_id")
@@ -165,6 +167,7 @@ func Register(parent *gin.RouterGroup, h *Handler, session ...gin.HandlerFunc) {
 	w.GET("/members", route(200, h.members))
 	w.GET("/members/:id/grants", route(200, h.memberGrants))
 	w.PUT("/members/:id/grants", route(200, h.setGrants))
+	w.PUT("/members/:id/grants/projects/:project_id", route(200, h.setProjectGrants))
 	w.GET("/operations/:id", route(200, h.operation))
 }
 
@@ -246,6 +249,32 @@ func (h *Handler) setGrants(r request) (any, error) {
 		}
 	}
 	grants, err := h.store.SetGrants(r.Request.Context(), r.actor, r.w, member, v, ids, b.Actions)
+	if err != nil {
+		return nil, err
+	}
+	r.Header("ETag", strconv.Quote(strconv.FormatInt(grants.Version, 10)))
+	return grants, nil
+}
+
+func (h *Handler) setProjectGrants(r request) (any, error) {
+	member, err := identifier(r.Param("id"))
+	if err != nil {
+		return nil, err
+	}
+	v, err := r.version()
+	if err != nil {
+		return nil, err
+	}
+	var b struct {
+		Actions []string `json:"actions"`
+	}
+	if err := r.body(&b); err != nil {
+		return nil, err
+	}
+	if b.Actions == nil {
+		return nil, fault.Invalid("/actions")
+	}
+	grants, err := h.store.SetProjectGrants(r.Request.Context(), r.actor, r.w, member, r.p, v, b.Actions)
 	if err != nil {
 		return nil, err
 	}

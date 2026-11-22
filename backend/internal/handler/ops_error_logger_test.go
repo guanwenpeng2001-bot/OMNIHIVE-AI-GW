@@ -35,6 +35,29 @@ func (r *ingressRejectSettingRepo) Set(context.Context, string, string) error {
 	return nil
 }
 
+// These request/queue tests exercise an installed, readable settings snapshot.
+// A nil settings repository represents an unknown cold start and stays disabled.
+func newReadyOpsServiceForTest(t *testing.T, repo service.OpsRepository) *service.OpsService {
+	t.Helper()
+	ops := service.NewOpsService(repo, &ingressRejectSettingRepo{}, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	require.True(t, ops.IsMonitoringEnabled(t.Context()))
+	require.Equal(t, "ready", ops.RuntimeSettingsRefreshHealth().State)
+	return ops
+}
+
+func takeOpsErrorLogJobForTest(t *testing.T) opsErrorLogJob {
+	t.Helper()
+	// Test queues disable workers and enqueue synchronously. Fail at the missing
+	// record instead of hanging the entire package until its global timeout.
+	select {
+	case job := <-opsErrorLogQueue:
+		return job
+	default:
+		t.Fatal("expected an Ops error record in the test queue")
+		return opsErrorLogJob{}
+	}
+}
+
 type ingressRejectOpsRepo struct {
 	service.OpsRepository
 	insertCalls int
@@ -137,7 +160,7 @@ func TestEnqueueOpsErrorLog_QueueFullDrop(t *testing.T) {
 	opsErrorLogQueue = make(chan opsErrorLogJob, 1)
 	opsErrorLogMu.Unlock()
 
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	entry := &service.OpsInsertErrorLogInput{ErrorPhase: "upstream", ErrorType: "upstream_error"}
 
 	enqueueOpsErrorLog(ops, entry)
@@ -151,7 +174,7 @@ func TestEnqueueOpsErrorLog_QueueFullDrop(t *testing.T) {
 func TestEnqueueOpsErrorLog_EarlyReturnBranches(t *testing.T) {
 	resetOpsErrorLoggerStateForTest(t)
 
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	entry := &service.OpsInsertErrorLogInput{ErrorPhase: "upstream", ErrorType: "upstream_error"}
 
 	// nil 入参分支
@@ -212,7 +235,7 @@ func TestOpsCaptureWriterPool_DropsLargeBuffers(t *testing.T) {
 
 func TestEnqueueOpsErrorLog_SanitizesAndBoundsBodyBeforeQueue(t *testing.T) {
 	setupOpsErrorLogTestQueue(t, 1)
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	secret := strings.Repeat("s", service.OpsErrorLogQueueBodyMaxBytes)
 	entry := &service.OpsInsertErrorLogInput{
 		ErrorPhase: "request",
@@ -221,7 +244,7 @@ func TestEnqueueOpsErrorLog_SanitizesAndBoundsBodyBeforeQueue(t *testing.T) {
 	}
 
 	enqueueOpsErrorLog(ops, entry)
-	job := <-opsErrorLogQueue
+	job := takeOpsErrorLogJobForTest(t)
 	require.LessOrEqual(t, len(job.entry.ErrorBody), service.OpsErrorLogQueueBodyMaxBytes)
 	require.NotContains(t, job.entry.ErrorBody, secret)
 	require.Equal(t, int64(1), OpsErrorLogSanitizedTotal())
@@ -245,6 +268,22 @@ func TestOpsErrorLoggerMiddleware_DoesNotBreakOuterMiddlewares(t *testing.T) {
 		r.ServeHTTP(rec, req)
 	})
 	require.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+func TestOpsErrorLoggerMiddleware_UnknownSettingsDoNotEnableRecording(t *testing.T) {
+	setupOpsErrorLogTestQueue(t, 2)
+	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	require.ErrorIs(t, ops.RequireMonitoringEnabled(t.Context()), service.ErrOpsSettingsUnavailable)
+	require.Equal(t, "unknown", ops.RuntimeSettingsRefreshHealth().State)
+	router := gin.New()
+	router.Use(OpsErrorLoggerMiddleware(ops))
+	router.POST("/v1/responses", func(c *gin.Context) {
+		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"type": "upstream_error", "message": "failed"}})
+	})
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+	require.Equal(t, http.StatusBadGateway, recorder.Code)
+	require.Zero(t, OpsErrorLogQueueLength())
 }
 
 // setupOpsErrorLogTestQueue 阻止 enqueueOpsErrorLog 启动真实 worker，改用可检查的测试队列。
@@ -288,7 +327,7 @@ func TestOpsErrorLoggerMiddleware_HardSkipsIngressRejection(t *testing.T) {
 func TestOpsErrorLoggerMiddleware_DedicatedCyberSessionBlockRecordsExactlyOnce(t *testing.T) {
 	setupOpsErrorLogTestQueue(t, 3)
 	gin.SetMode(gin.TestMode)
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	h := &OpenAIGatewayHandler{opsService: ops}
 	apiKey := &service.APIKey{ID: 41, Key: "sk-dedicated-test"}
 	router := gin.New()
@@ -305,7 +344,7 @@ func TestOpsErrorLoggerMiddleware_DedicatedCyberSessionBlockRecordsExactlyOnce(t
 
 	require.Equal(t, http.StatusForbidden, recorder.Code)
 	require.Equal(t, int64(1), OpsErrorLogQueueLength())
-	job := <-opsErrorLogQueue
+	job := takeOpsErrorLogJobForTest(t)
 	require.Equal(t, "cyber_policy_session_blocked", job.entry.ErrorType)
 	require.Equal(t, http.StatusForbidden, job.entry.StatusCode)
 }
@@ -313,7 +352,7 @@ func TestOpsErrorLoggerMiddleware_DedicatedCyberSessionBlockRecordsExactlyOnce(t
 func TestOpsErrorLoggerMiddleware_OrdinaryPermissionStillRecords(t *testing.T) {
 	setupOpsErrorLogTestQueue(t, 2)
 	gin.SetMode(gin.TestMode)
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	router := gin.New()
 	router.Use(OpsErrorLoggerMiddleware(ops))
 	router.POST("/v1/responses", func(c *gin.Context) {
@@ -326,7 +365,7 @@ func TestOpsErrorLoggerMiddleware_OrdinaryPermissionStillRecords(t *testing.T) {
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
 
 	require.Equal(t, int64(1), OpsErrorLogQueueLength())
-	job := <-opsErrorLogQueue
+	job := takeOpsErrorLogJobForTest(t)
 	require.Equal(t, "permission_error", job.entry.ErrorType)
 	require.Equal(t, http.StatusForbidden, job.entry.StatusCode)
 }
@@ -336,7 +375,7 @@ func TestOpsErrorLoggerMiddleware_RecordsRecoveredUpstreamTelemetryOutsideFailur
 	gin.SetMode(gin.TestMode)
 
 	repo := &ingressRejectOpsRepo{}
-	ops := service.NewOpsService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, repo)
 	router := gin.New()
 	router.Use(OpsErrorLoggerMiddleware(ops))
 	router.POST("/v1/responses", func(c *gin.Context) {
@@ -352,7 +391,7 @@ func TestOpsErrorLoggerMiddleware_RecordsRecoveredUpstreamTelemetryOutsideFailur
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.Equal(t, int64(1), OpsErrorLogQueueLength())
-	job := <-opsErrorLogQueue
+	job := takeOpsErrorLogJobForTest(t)
 	require.Nil(t, job.entry.UpstreamErrors, "raw attempts must be released before async queueing")
 	require.NotNil(t, job.entry.UpstreamErrorsJSON)
 	queuedEvents, err := service.ParseOpsUpstreamErrors(*job.entry.UpstreamErrorsJSON)
@@ -379,7 +418,7 @@ func TestOpsErrorLoggerMiddleware_RecoveredTelemetryFiltersSkipMonitoringAttempt
 	setupOpsErrorLogTestQueue(t, 2)
 	gin.SetMode(gin.TestMode)
 
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	router := gin.New()
 	router.Use(OpsErrorLoggerMiddleware(ops))
 	router.POST("/v1/responses", func(c *gin.Context) {
@@ -394,7 +433,7 @@ func TestOpsErrorLoggerMiddleware_RecoveredTelemetryFiltersSkipMonitoringAttempt
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
 
 	require.Equal(t, int64(1), OpsErrorLogQueueLength())
-	job := <-opsErrorLogQueue
+	job := takeOpsErrorLogJobForTest(t)
 	require.Equal(t, "Recovered upstream error 429: visible retry", job.entry.ErrorMessage)
 	require.NotNil(t, job.entry.UpstreamErrorsJSON)
 	events, err := service.ParseOpsUpstreamErrors(*job.entry.UpstreamErrorsJSON)
@@ -407,7 +446,7 @@ func TestOpsErrorLoggerMiddleware_RecoveredTelemetrySkipsAllHiddenAttempts(t *te
 	setupOpsErrorLogTestQueue(t, 2)
 	gin.SetMode(gin.TestMode)
 
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	router := gin.New()
 	router.Use(OpsErrorLoggerMiddleware(ops))
 	router.POST("/v1/responses", func(c *gin.Context) {
@@ -428,7 +467,7 @@ func TestOpsErrorLoggerMiddleware_RecoveredTelemetrySkipsAllHiddenAttempts(t *te
 func TestOpsErrorLoggerMiddleware_IntermediateSkipMonitoringDoesNotHideFinalVisibleFailure(t *testing.T) {
 	setupOpsErrorLogTestQueue(t, 2)
 	gin.SetMode(gin.TestMode)
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	router := gin.New()
 	router.Use(OpsErrorLoggerMiddleware(ops))
 	router.POST("/v1/responses", func(c *gin.Context) {
@@ -442,7 +481,7 @@ func TestOpsErrorLoggerMiddleware_IntermediateSkipMonitoringDoesNotHideFinalVisi
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
 	require.Equal(t, int64(1), OpsErrorLogQueueLength())
-	job := <-opsErrorLogQueue
+	job := takeOpsErrorLogJobForTest(t)
 	require.Equal(t, http.StatusServiceUnavailable, job.entry.StatusCode)
 	require.Equal(t, "visible final", job.entry.ErrorMessage)
 }
@@ -451,7 +490,7 @@ func TestOpsErrorLoggerMiddleware_CapturesSplitResponsesFailedSSE(t *testing.T) 
 	setupOpsErrorLogTestQueue(t, 2)
 	gin.SetMode(gin.TestMode)
 
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	router := gin.New()
 	router.Use(OpsErrorLoggerMiddleware(ops))
 	router.POST("/v1/responses", func(c *gin.Context) {
@@ -468,7 +507,7 @@ func TestOpsErrorLoggerMiddleware_CapturesSplitResponsesFailedSSE(t *testing.T) 
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.Equal(t, int64(1), OpsErrorLogQueueLength())
-	job := <-opsErrorLogQueue
+	job := takeOpsErrorLogJobForTest(t)
 	require.Equal(t, http.StatusTooManyRequests, job.entry.StatusCode)
 	require.Equal(t, "rate_limit_error", job.entry.ErrorType)
 	require.Contains(t, job.entry.ErrorMessage, "Too many pending requests")
@@ -539,7 +578,7 @@ func TestOpsErrorLoggerMiddleware_StreamFailureUsesTerminalErrorOverAttemptConte
 	setupOpsErrorLogTestQueue(t, 2)
 	gin.SetMode(gin.TestMode)
 
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	router := gin.New()
 	router.Use(OpsErrorLoggerMiddleware(ops))
 	router.POST("/v1/responses", func(c *gin.Context) {
@@ -556,7 +595,7 @@ func TestOpsErrorLoggerMiddleware_StreamFailureUsesTerminalErrorOverAttemptConte
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.Equal(t, int64(1), OpsErrorLogQueueLength())
-	job := <-opsErrorLogQueue
+	job := takeOpsErrorLogJobForTest(t)
 	require.Equal(t, http.StatusBadRequest, job.entry.StatusCode)
 	require.Equal(t, "invalid_request_error", job.entry.ErrorType)
 	require.NotNil(t, job.entry.UpstreamStatusCode)
@@ -569,7 +608,7 @@ func TestOpsErrorLoggerMiddleware_PrefersContextRequestID(t *testing.T) {
 	setupOpsErrorLogTestQueue(t, 2)
 	gin.SetMode(gin.TestMode)
 
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	router := gin.New()
 	router.Use(OpsErrorLoggerMiddleware(ops))
 	router.POST("/v1/responses", func(c *gin.Context) {
@@ -583,7 +622,7 @@ func TestOpsErrorLoggerMiddleware_PrefersContextRequestID(t *testing.T) {
 	router.ServeHTTP(recorder, request)
 
 	require.Equal(t, int64(1), OpsErrorLogQueueLength())
-	job := <-opsErrorLogQueue
+	job := takeOpsErrorLogJobForTest(t)
 	require.Equal(t, "context-request-id", job.entry.RequestID)
 }
 
@@ -610,13 +649,13 @@ func TestLogOpsStreamError_RecordsInBandConcurrencyLimit(t *testing.T) {
 	service.MarkOpsStreamError(c, "rate_limit_error",
 		"Concurrency limit exceeded for account, please retry later", http.StatusTooManyRequests)
 
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	logOpsStreamError(c, ops, http.StatusOK)
 
 	require.Equal(t, int64(1), OpsErrorLogEnqueuedTotal())
 	require.Equal(t, int64(1), OpsErrorLogQueueLength())
 
-	job := <-opsErrorLogQueue
+	job := takeOpsErrorLogJobForTest(t)
 	require.NotNil(t, job.entry)
 	require.Equal(t, "rate_limit_error", job.entry.ErrorType)
 	require.Equal(t, "request", job.entry.ErrorPhase)
@@ -645,10 +684,10 @@ func TestLogOpsStreamError_UpstreamFailureCountsTowardsSLA(t *testing.T) {
 		http.StatusBadGateway,
 	)
 
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	logOpsStreamError(c, ops, http.StatusOK)
 
-	job := <-opsErrorLogQueue
+	job := takeOpsErrorLogJobForTest(t)
 	require.NotNil(t, job.entry)
 	require.Equal(t, http.StatusBadGateway, job.entry.StatusCode)
 	require.Equal(t, "upstream_error", job.entry.ErrorType)
@@ -667,7 +706,7 @@ func TestLogOpsStreamError_NoopWhenNotMarked(t *testing.T) {
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	logOpsStreamError(c, ops, http.StatusOK)
 
 	require.Equal(t, int64(0), OpsErrorLogEnqueuedTotal())
@@ -684,7 +723,7 @@ func TestLogOpsStreamError_SkipWhenPassthroughSkipMonitoring(t *testing.T) {
 	service.MarkOpsStreamError(c, "upstream_error", "Upstream request failed", http.StatusBadGateway)
 	c.Set(service.OpsSkipPassthroughKey, true)
 
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	logOpsStreamError(c, ops, http.StatusOK)
 
 	require.Equal(t, int64(0), OpsErrorLogEnqueuedTotal())
@@ -740,12 +779,12 @@ func TestLogOpsStreamError_RecordsOneFailurePerWebSocketTurn(t *testing.T) {
 	require.Len(t, streamErrors, 2)
 	require.Equal(t, 1, streamErrors[0].Turn)
 	require.Equal(t, 2, streamErrors[1].Turn)
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	logOpsStreamError(c, ops, http.StatusSwitchingProtocols)
 
 	require.Equal(t, int64(2), OpsErrorLogQueueLength())
-	first := <-opsErrorLogQueue
-	second := <-opsErrorLogQueue
+	first := takeOpsErrorLogJobForTest(t)
+	second := takeOpsErrorLogJobForTest(t)
 	require.Equal(t, "turn one failed", first.entry.ErrorMessage)
 	require.Equal(t, http.StatusTooManyRequests, first.entry.StatusCode)
 	require.Equal(t, "turn two failed", second.entry.ErrorMessage)
@@ -907,7 +946,7 @@ func TestOpsErrorLoggerMiddleware_LocalModelConfigurationFields(t *testing.T) {
 	setupOpsErrorLogTestQueue(t, 1)
 	gin.SetMode(gin.TestMode)
 
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	router := gin.New()
 	router.Use(OpsErrorLoggerMiddleware(ops))
 	router.POST("/v1/chat/completions", func(c *gin.Context) {
@@ -937,7 +976,7 @@ func TestOpsErrorLoggerMiddleware_LocalModelConfigurationFields(t *testing.T) {
 
 	require.Equal(t, http.StatusNotFound, w.Code)
 	require.JSONEq(t, `{"error":{"type":"model_not_found","message":"Model \"gpt-missing\" is not supported by any configured account in this group"}}`, w.Body.String())
-	job := <-opsErrorLogQueue
+	job := takeOpsErrorLogJobForTest(t)
 	require.Equal(t, http.StatusNotFound, job.entry.StatusCode)
 	require.Equal(t, "routing", job.entry.ErrorPhase)
 	require.True(t, job.entry.IsBusinessLimited)
@@ -1787,7 +1826,7 @@ func TestOpsCaptureWriter_TerminalMetadataSurvivesBodyCaptureTruncation(t *testi
 func TestOpsErrorLoggerMiddleware_LargeTerminalFrameUsesEventFallback(t *testing.T) {
 	setupOpsErrorLogTestQueue(t, 2)
 	gin.SetMode(gin.TestMode)
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	router := gin.New()
 	router.Use(OpsErrorLoggerMiddleware(ops))
 	router.POST("/v1/responses", func(c *gin.Context) {
@@ -1800,7 +1839,7 @@ func TestOpsErrorLoggerMiddleware_LargeTerminalFrameUsesEventFallback(t *testing
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.Equal(t, int64(1), OpsErrorLogQueueLength())
-	job := <-opsErrorLogQueue
+	job := takeOpsErrorLogJobForTest(t)
 	require.Equal(t, http.StatusBadGateway, job.entry.StatusCode)
 	require.Equal(t, "upstream_error", job.entry.ErrorType)
 	require.Equal(t, "upstream stream failed", job.entry.ErrorMessage)
@@ -1812,7 +1851,7 @@ func TestOpsErrorLoggerMiddleware_LargeTerminalFrameUsesEventFallback(t *testing
 func TestOpsErrorLoggerMiddleware_DetectsTerminalDataAtEOFWithoutBlankLine(t *testing.T) {
 	setupOpsErrorLogTestQueue(t, 2)
 	gin.SetMode(gin.TestMode)
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	router := gin.New()
 	router.Use(OpsErrorLoggerMiddleware(ops))
 	router.POST("/v1/responses", func(c *gin.Context) {
@@ -1824,7 +1863,7 @@ func TestOpsErrorLoggerMiddleware_DetectsTerminalDataAtEOFWithoutBlankLine(t *te
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.Equal(t, int64(1), OpsErrorLogQueueLength())
-	job := <-opsErrorLogQueue
+	job := takeOpsErrorLogJobForTest(t)
 	require.Equal(t, http.StatusForbidden, job.entry.StatusCode)
 	require.Equal(t, "permission_error", job.entry.ErrorType)
 	require.Equal(t, "denied", job.entry.ErrorMessage)
@@ -2017,10 +2056,10 @@ func TestLogOpsStreamError_NonStreamInBandContentPolicy(t *testing.T) {
 		NonStream:      true,
 	})
 
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	logOpsStreamError(c, ops, http.StatusOK)
 
-	job := <-opsErrorLogQueue
+	job := takeOpsErrorLogJobForTest(t)
 	require.NotNil(t, job.entry)
 	require.False(t, job.entry.Stream)
 	require.Equal(t, "invalid_request_error", job.entry.ErrorType)
@@ -2059,11 +2098,11 @@ func TestLogOpsStreamError_RequestScopedIgnoresResidualUpstreamContext(t *testin
 		RequestScoped:  true,
 	})
 
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	logOpsStreamError(c, ops, http.StatusOK)
 
 	require.Equal(t, int64(1), OpsErrorLogQueueLength())
-	job := <-opsErrorLogQueue
+	job := takeOpsErrorLogJobForTest(t)
 	require.NotNil(t, job.entry)
 	require.Equal(t, "invalid_request_error", job.entry.ErrorType)
 	require.Equal(t, "request", job.entry.ErrorPhase)
@@ -2083,7 +2122,7 @@ func TestOpsErrorLoggerMiddleware_RequestScopedInBandErrorKeepsRecoveredTelemetr
 	setupOpsErrorLogTestQueue(t, 4)
 	gin.SetMode(gin.TestMode)
 
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	router := gin.New()
 	router.Use(OpsErrorLoggerMiddleware(ops))
 	router.POST("/v1beta/models/gemini-3.7-flash:generateContent", func(c *gin.Context) {
@@ -2108,7 +2147,7 @@ func TestOpsErrorLoggerMiddleware_RequestScopedInBandErrorKeepsRecoveredTelemetr
 	require.Equal(t, http.StatusOK, recorder.Code)
 
 	require.Equal(t, int64(2), OpsErrorLogQueueLength())
-	inBand := <-opsErrorLogQueue
+	inBand := takeOpsErrorLogJobForTest(t)
 	require.Equal(t, "invalid_request_error", inBand.entry.ErrorType)
 	require.Equal(t, "request", inBand.entry.ErrorPhase)
 	require.Equal(t, "client", inBand.entry.ErrorOwner)
@@ -2118,7 +2157,7 @@ func TestOpsErrorLoggerMiddleware_RequestScopedInBandErrorKeepsRecoveredTelemetr
 	require.Nil(t, inBand.entry.UpstreamStatusCode)
 	require.Nil(t, inBand.entry.UpstreamErrorsJSON)
 
-	recovered := <-opsErrorLogQueue
+	recovered := takeOpsErrorLogJobForTest(t)
 	require.Equal(t, "upstream", recovered.entry.ErrorPhase)
 	require.Equal(t, "provider", recovered.entry.ErrorOwner)
 	require.Equal(t, http.StatusOK, recovered.entry.StatusCode)
@@ -2130,7 +2169,7 @@ func TestOpsErrorLoggerMiddleware_UpstreamInBandFailureStillSingleRow(t *testing
 	setupOpsErrorLogTestQueue(t, 4)
 	gin.SetMode(gin.TestMode)
 
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	router := gin.New()
 	router.Use(OpsErrorLoggerMiddleware(ops))
 	router.POST("/v1beta/models/gemini-3.7-flash:streamGenerateContent", func(c *gin.Context) {
@@ -2149,7 +2188,7 @@ func TestOpsErrorLoggerMiddleware_UpstreamInBandFailureStillSingleRow(t *testing
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-3.7-flash:streamGenerateContent", nil))
 
 	require.Equal(t, int64(1), OpsErrorLogQueueLength())
-	job := <-opsErrorLogQueue
+	job := takeOpsErrorLogJobForTest(t)
 	require.Equal(t, "rate_limit_error", job.entry.ErrorType)
 	require.Equal(t, "upstream", job.entry.ErrorPhase)
 	require.Equal(t, "provider", job.entry.ErrorOwner)
@@ -2208,7 +2247,7 @@ func serveClientClosedRequest(t *testing.T, ops *service.OpsService, prepare fun
 func TestOpsErrorLoggerMiddleware_SkipsPureClientClosed(t *testing.T) {
 	setupOpsErrorLogTestQueue(t, 2)
 	gin.SetMode(gin.TestMode)
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	require.True(t, ops.OpsAdvancedSettingsSnapshot().IgnoreContextCanceled)
 
 	serveClientClosedRequest(t, ops, nil)
@@ -2219,7 +2258,7 @@ func TestOpsErrorLoggerMiddleware_SkipsPureClientClosed(t *testing.T) {
 func TestOpsErrorLoggerMiddleware_RecordsClientClosedAfterUpstreamFailure(t *testing.T) {
 	setupOpsErrorLogTestQueue(t, 2)
 	gin.SetMode(gin.TestMode)
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 
 	serveClientClosedRequest(t, ops, func(ginContext *gin.Context) {
 		ginContext.Set(service.OpsUpstreamErrorsKey, []*service.OpsUpstreamErrorEvent{{
@@ -2228,7 +2267,7 @@ func TestOpsErrorLoggerMiddleware_RecordsClientClosedAfterUpstreamFailure(t *tes
 	})
 
 	require.Equal(t, int64(1), OpsErrorLogQueueLength(), "上游失败后客户端离开仍按上游失败落库")
-	job := <-opsErrorLogQueue
+	job := takeOpsErrorLogJobForTest(t)
 	require.Equal(t, statusClientClosedRequest, job.entry.StatusCode)
 	require.Equal(t, "upstream", job.entry.ErrorPhase)
 	require.NotNil(t, job.entry.UpstreamStatusCode)
@@ -2245,6 +2284,6 @@ func TestOpsErrorLoggerMiddleware_RecordsClientClosedWhenIgnoreContextCanceledDi
 	serveClientClosedRequest(t, ops, nil)
 
 	require.Equal(t, int64(1), OpsErrorLogQueueLength())
-	job := <-opsErrorLogQueue
+	job := takeOpsErrorLogJobForTest(t)
 	require.Equal(t, statusClientClosedRequest, job.entry.StatusCode)
 }

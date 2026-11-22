@@ -35,7 +35,7 @@ func (s *Store) ImportRegistry(ctx context.Context, version string, models []cat
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO catalog_capability_evidence(source,subject,version,maturity,payload)
-	   SELECT 'approved_registry', (row->>'Provider')||':'||(row->>'Model'), $1||':'||encode(sha256(convert_to(row::text,'UTF8')),'hex'),
+	   SELECT row->'Facts'->>'source', (row->>'Provider')||':'||(row->>'Model'), $1||':'||encode(sha256(convert_to(row::text,'UTF8')),'hex'),
 	          row->'Facts'->>'maturity',row
 	   FROM jsonb_array_elements($2::jsonb) row ON CONFLICT DO NOTHING`, version, string(payload))
 	if err != nil {
@@ -54,35 +54,45 @@ func (s *Store) Publish(ctx context.Context, v catalog.Snapshot, registryVersion
 	}
 	_, err = s.db.ExecContext(ctx, `WITH published AS (
 	    INSERT INTO catalog_publications(version,published_at,expires_at,registry_version,payload)
-	    VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING version
+	    VALUES ($1,$2,$3,$4,$5) ON CONFLICT(version) DO UPDATE
+	      SET expires_at=GREATEST(catalog_publications.expires_at,EXCLUDED.expires_at) RETURNING version
 	), provenance AS (
 	    INSERT INTO catalog_capability_evidence(source,subject,version,maturity,payload)
-	    SELECT 'legacy_visibility','public',version,'unknown',$6 FROM published
+	    SELECT 'legacy_visibility','public',version,'unknown',$6 FROM published ON CONFLICT DO NOTHING
 	)
-	INSERT INTO catalog_publication_outbox(version) SELECT version FROM published`, v.Version, now, now.Add(time.Hour), registryVersion, string(data), visibilityProvenance(v))
+	INSERT INTO catalog_publication_outbox(version) SELECT version FROM published ON CONFLICT DO NOTHING`, v.Version, now, now.Add(time.Hour), registryVersion, string(data), visibilityProvenance(v))
 	return err
 }
 
 func validatePublic(v catalog.Snapshot) error {
 	for _, d := range v.Details {
-		if d.Model.Scope != nil || len(d.Endpoints) != 0 || d.Model.AccessState != "requires_scope" ||
+		if d.Model.Scope != nil || len(d.Endpoints) != 0 || len(d.Offers) != 0 || d.Model.AccessState != "requires_scope" ||
 			d.Model.RouteState != "requires_scope" || d.Metrics.Requests != nil || d.Metrics.TTFTSamples != nil ||
 			d.Metrics.SpeedSamples != nil || d.Metrics.SuccessRate != nil || d.Metrics.TTFT != nil || d.Metrics.Speed != nil ||
-			(d.PriceSource != "unavailable" && d.PriceSource != "public_plaza_reference") {
+			!publicSaleSource(d.PriceSource) {
 			return fmt.Errorf("catalog publication is outside the public projection")
 		}
 		for _, f := range d.Facts {
-			if f.Source != "approved_registry" {
+			if !catalog.PublicEvidence(f.Evidence) {
 				return fmt.Errorf("catalog publication includes private evidence")
 			}
 		}
 		for _, c := range d.Capabilities {
-			if c.Source != "approved_registry" {
+			if !catalog.PublicEvidence(c.Evidence) {
 				return fmt.Errorf("catalog publication includes private capability")
 			}
 		}
 	}
 	return nil
+}
+
+func publicSaleSource(source string) bool {
+	switch source {
+	case "unavailable", "public_plaza_reference", "group", "channel", "litellm", "fallback", "mixed_sale", "operator_override", "sale_projection", "official_free:commandcode", "official_free:kilo", "official_free:opencode-go":
+		return true
+	default:
+		return false
+	}
 }
 
 func visibilityProvenance(v catalog.Snapshot) string {

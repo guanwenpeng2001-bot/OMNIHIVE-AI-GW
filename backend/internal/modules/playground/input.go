@@ -22,15 +22,16 @@ type Options struct {
 	Retain bool  `json:"retain_text_preview,omitempty"`
 }
 type Submit struct {
-	Registration *journal.Registration `json:"-"`
-	Key          int64                 `json:"api_key_id,string"`
-	Payer        int64                 `json:"payer_user_id,string,omitempty"`
-	Model        string                `json:"model_id,omitempty"`
-	Protocol     string                `json:"protocol,omitempty"`
-	Action       string                `json:"action,omitempty"`
-	Input        map[string]any        `json:"input"`
-	Options      Options               `json:"options,omitempty"`
-	Consent      bool                  `json:"funding_acknowledged"`
+	Registration         *journal.Registration `json:"-"`
+	Key                  int64                 `json:"api_key_id,string"`
+	Payer                int64                 `json:"payer_user_id,string,omitempty"`
+	Model                string                `json:"model_id,omitempty"`
+	Protocol             string                `json:"protocol,omitempty"`
+	Action               string                `json:"action,omitempty"`
+	Input                map[string]any        `json:"input"`
+	Options              Options               `json:"options,omitempty"`
+	Consent              bool                  `json:"funding_acknowledged"`
+	ExpectedPriceVersion string                `json:"expected_price_version,omitempty"`
 }
 
 func (s Submit) Streaming() bool { return s.Options.Stream == nil || *s.Options.Stream }
@@ -55,6 +56,9 @@ func Parse(body []byte, key, parent string) (Submit, [32]byte, error) {
 	}
 	if s.Key <= 0 {
 		return s, fp, fault.Invalid("/api_key_id")
+	}
+	if len(s.ExpectedPriceVersion) > 200 || strings.TrimSpace(s.ExpectedPriceVersion) != s.ExpectedPriceVersion {
+		return s, fp, fault.Invalid("/expected_price_version")
 	}
 	if !s.Consent {
 		return s, fp, fault.Invalid("/funding_acknowledged")

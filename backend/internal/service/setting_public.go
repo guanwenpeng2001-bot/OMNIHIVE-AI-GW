@@ -404,8 +404,8 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 
 		SubscriptionEnabled: !isFalseSettingValue(settings[SettingKeySubscriptionEnabled]),
 
-		ModelPlazaEnabled:       settings[SettingKeyModelPlazaEnabled] == "true",
-		ModelPlazaRequireAuth:   settings[SettingKeyModelPlazaRequireAuth] == "true",
+		ModelPlazaEnabled:       ModelPlazaRuntimeFromValues(settings).Enabled,
+		ModelPlazaRequireAuth:   ModelPlazaRuntimeFromValues(settings).RequireAuth,
 		PluginManagementEnabled: settings[SettingKeyPluginManagementEnabled] == "true",
 
 		AffiliateEnabled: settings[SettingKeyAffiliateEnabled] == "true",
@@ -564,11 +564,7 @@ func (s *SettingService) GetModelPlazaRuntime(ctx context.Context) ModelPlazaRun
 	if err != nil {
 		return ModelPlazaRuntime{Enabled: false}
 	}
-	return ModelPlazaRuntime{
-		Enabled:     vals[SettingKeyModelPlazaEnabled] == "true",
-		RequireAuth: vals[SettingKeyModelPlazaRequireAuth] == "true",
-		Description: vals[SettingKeyModelPlazaDescription],
-	}
+	return ModelPlazaRuntimeFromValues(vals)
 }
 
 // IsUserErrorViewAllowed reads the user-facing error-requests visibility switch

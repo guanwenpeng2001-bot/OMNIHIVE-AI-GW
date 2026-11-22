@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -456,7 +457,11 @@ func TestProxyNegotiationHonorsCancellation(t *testing.T) {
 				t.Fatal("dial still waiting for the proxy")
 			}
 			_, err = io.Copy(io.Discard, peer)
-			require.NoError(t, err, "peer must observe the tunnel close")
+			// A canceled tunnel with unread CONNECT bytes may close with RST
+			// instead of FIN. Both prove the peer is closed; a timeout does not.
+			if err != nil {
+				require.ErrorIs(t, err, syscall.ECONNRESET, "peer must observe the tunnel close")
+			}
 		})
 	}
 }

@@ -207,6 +207,12 @@ func TestWriteConfigFileKeepsDefaultUserConcurrency(t *testing.T) {
 	if !strings.Contains(string(data), "user_concurrency: 5") {
 		t.Fatalf("config missing default user concurrency, got:\n%s", string(data))
 	}
+	if !strings.Contains(string(data), "model_catalog_refresh_enabled: false") {
+		t.Fatal("new installs must persist the catalog refresh choice before creating the install lock")
+	}
+	if !strings.Contains(string(data), "format: json") {
+		t.Fatal("new installs must persist the canonical JSON logging default")
+	}
 }
 
 func TestWriteConfigFileIncludesRedisUsername(t *testing.T) {

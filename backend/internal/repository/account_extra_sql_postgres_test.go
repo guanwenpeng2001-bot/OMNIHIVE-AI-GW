@@ -36,6 +36,7 @@ func accountExtraPostgresFixture(t *testing.T) (*sql.DB, *accountRepository) {
 	CREATE TABLE scheduler_outbox (
 		id bigserial PRIMARY KEY, event_type text, account_id bigint, group_id bigint, payload jsonb, dedup_key text
 	);
+	CREATE TABLE provider_connections(account_id bigint PRIMARY KEY,workspace_id bigint DEFAULT 1,legacy_dirty boolean NOT NULL DEFAULT false);
 	CREATE UNIQUE INDEX ON scheduler_outbox (dedup_key) WHERE dedup_key IS NOT NULL`)
 	require.NoError(t, err)
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))

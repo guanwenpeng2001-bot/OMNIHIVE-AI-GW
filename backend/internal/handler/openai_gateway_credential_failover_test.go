@@ -346,7 +346,7 @@ func TestOpsClassificationTreatsCredentialFailureAsAuthNotInference(t *testing.T
 func TestOpsRecoveredCredentialFailoverDoesNotCreateRequestError(t *testing.T) {
 	setupOpsErrorLogTestQueue(t, 2)
 	gin.SetMode(gin.TestMode)
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	router := gin.New()
 	router.Use(OpsErrorLoggerMiddleware(ops))
 	router.GET("/openai/v1/responses", func(c *gin.Context) {
@@ -378,7 +378,7 @@ func TestOpsRecoveredCredentialFailoverDoesNotCreateRequestError(t *testing.T) {
 func TestOpsWebSocketCredentialFailoverSuccessDoesNotCreateRequestError(t *testing.T) {
 	setupOpsErrorLogTestQueue(t, 2)
 	gin.SetMode(gin.TestMode)
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	router := gin.New()
 	router.Use(OpsErrorLoggerMiddleware(ops))
 	router.GET("/openai/v1/responses", func(c *gin.Context) {
@@ -409,7 +409,7 @@ func TestOpsWebSocketCredentialFailoverSuccessDoesNotCreateRequestError(t *testi
 func TestOpsWebSocketCredentialFailoverExhaustedIsRecorded(t *testing.T) {
 	setupOpsErrorLogTestQueue(t, 2)
 	gin.SetMode(gin.TestMode)
-	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops := newReadyOpsServiceForTest(t, nil)
 	router := gin.New()
 	router.Use(OpsErrorLoggerMiddleware(ops))
 	router.GET("/openai/v1/responses", func(c *gin.Context) {

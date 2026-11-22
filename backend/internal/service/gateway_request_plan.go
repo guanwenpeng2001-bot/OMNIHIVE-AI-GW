@@ -17,6 +17,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/journal"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/lifecycle"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/routing/trace"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
 )
 
 // GatewayRequestSpec contains values, never hydrated identities or credentials.
@@ -126,7 +127,9 @@ func NewGatewayRequestPlan(spec GatewayRequestSpec) *GatewayRequestPlan {
 
 func newGatewayRequestPlanWithRegistry(spec GatewayRequestSpec, registry *ModelRegistry) *GatewayRequestPlan {
 	snapshot := registry.Snapshot()
-	spec.ModelVersion = snapshot.Version()
+	if spec.ModelVersion == "" {
+		spec.ModelVersion = snapshot.Version()
+	}
 	return &GatewayRequestPlan{registrySnapshot: snapshot, spec: spec, leases: make(map[*gatewayPlanLease]struct{})}
 }
 
@@ -139,6 +142,16 @@ func (p *GatewayRequestPlan) Snapshot() GatewayRequestSpec {
 		return GatewayRequestSpec{}
 	}
 	return p.spec
+}
+
+func (p *GatewayRequestPlan) PriceContext(provider, model string) pricing.PriceContext {
+	s := p.Snapshot()
+	pc := pricing.PriceContext{WorkspaceID: s.WorkspaceID, ActorID: s.UserID, PayerID: s.UserID, KeyID: s.APIKeyID,
+		GroupID: s.BillingGroupID, Provider: provider, Model: model, Funding: "wallet", CatalogVersion: s.ModelVersion, PricingAt: s.PricingAt}
+	if p != nil && p.budgetScope.KeyID == s.APIKeyID && p.budgetScope.KeyOwnerID == s.UserID {
+		pc.ActorID, pc.ProjectID, pc.PolicyVersion = p.budgetScope.ActorID, p.budgetScope.ProjectID, p.budgetScope.Version
+	}
+	return pc
 }
 
 // Attempts reports the existing ingress root budget; a plan never creates a
@@ -556,6 +569,10 @@ func captureGatewayRequestPlan(ctx context.Context, spec GatewayRequestSpec, set
 	if existing := GatewayRequestPlanFromContext(ctx); existing != nil {
 		return ctx, existing
 	}
+	bundle := salePricingFromContext(ctx)
+	if bundle != nil {
+		spec.PricingAt = bundle.at
+	}
 	if spec.PricingAt.IsZero() {
 		spec.PricingAt = time.Now()
 	}
@@ -572,6 +589,15 @@ func captureGatewayRequestPlan(ctx context.Context, spec GatewayRequestSpec, set
 		}
 	}
 	p := NewGatewayRequestPlan(spec)
+	if bundle != nil {
+		if bundle.version == "" || spec.PriceVersion != bundle.version || spec.Model != bundle.model ||
+			spec.APIKeyID != bundle.keyID || spec.UserID != bundle.payerID || spec.BillingGroupID != bundle.group.ID ||
+			(bundle.workspaceID > 0 && spec.WorkspaceID != bundle.workspaceID) || channels != bundle.channels {
+			p.admissionErr = ErrSalePriceChanged
+			return WithGatewayRequestPlan(ctx, p), p
+		}
+		p.registrySnapshot = bundle.registry
+	}
 	ConfigureAttemptBudget(ctx, spec.MaxAccountSwitches)
 	p.budget = AttemptBudgetFromContext(ctx)
 	if p.budget != nil {
@@ -587,15 +613,16 @@ func captureGatewayRequestPlan(ctx context.Context, spec GatewayRequestSpec, set
 		settings := settings.getGatewayForwardingSettingsCached(ctx)
 		p.forwarding = &settings
 	}
-	p.billing = billing
-	if billing != nil && billing.pricingService != nil {
-		prices := billing.pricingService
-		prices.mu.RLock()
-		frozen := &PricingService{cfg: prices.cfg, pricingData: prices.pricingData, registrySnapshot: p.registrySnapshot, localHash: prices.localHash, customFilesHash: prices.customFilesHash, lastUpdated: prices.lastUpdated, pricingRevision: prices.pricingRevision}
-		frozen.baseNameIndex.Store(prices.baseNameIndex.Load())
-		p.spec.PriceVersion = prices.localHash + ":" + prices.customFilesHash
-		prices.mu.RUnlock()
-		p.billing = &BillingService{cfg: billing.cfg, pricingService: frozen, fallbackPrices: billing.fallbackPrices}
+	if bundle != nil {
+		p.billing = bundle.billing
+	} else {
+		p.billing = frozenBillingService(billing, p.registrySnapshot, p.spec.PricingAt)
+	}
+	if p.billing != nil && p.billing.pricingService != nil {
+		prices := p.billing.pricingService
+		if p.spec.PriceVersion == "" {
+			p.spec.PriceVersion = prices.localHash + ":" + prices.customFilesHash
+		}
 	}
 	ctx = WithAffinityBindingState(ctx)
 	p.affinityState = AffinityBindingStateFromContext(ctx)
@@ -616,6 +643,9 @@ func (f gatewayPlanFactory) capture(ctx context.Context, spec GatewayRequestSpec
 		return ctx, existing
 	}
 	ctx, p := captureGatewayRequestPlan(ctx, spec, f.settings, f.billing, f.channels)
+	if p.admissionErr != nil {
+		return ctx, p
+	}
 	p.settlement, p.catalogRepo, p.budgetRate = f.settlement, f.catalog, f.budgetRate
 	return p.admitExecution(ctx, spec.ExecutionID)
 }
@@ -816,6 +846,9 @@ func (s *OpenAIGatewayService) CaptureAsyncImageTaskPlan(ctx context.Context, sp
 func (s *BillingService) forGatewayRequest(ctx context.Context) *BillingService {
 	if p := GatewayRequestPlanFromContext(ctx); p != nil && p.billing != nil {
 		return p.billing
+	}
+	if bundle := salePricingFromContext(ctx); bundle != nil && bundle.billing != nil {
+		return bundle.billing
 	}
 	return s
 }

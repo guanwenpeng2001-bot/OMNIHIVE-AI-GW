@@ -44,29 +44,33 @@ func selectModel(s catalog.Snapshot, id string, _ bool) (catalog.Detail, error) 
 	return catalog.Detail{}, unavailableModel
 }
 func (g *Gateway) route(ctx context.Context, a scope.Authorized, group int64, s policy.Scenario, version string, m catalog.Detail, funding string) (trace.DecisionTrace, int64, error) {
-	now := time.Now().UTC()
+	now := service.SalePricingInstant(ctx, time.Now().UTC())
 	graph := policy.Graph{Snapshot: snapshot.CandidateSnapshot{ID: uuid.NewString(), AsOf: now, CatalogVersion: version}, ExpiresAt: now.Add(time.Minute), Facts: map[string]policy.Evidence{}}
-	if m.PriceVersion != nil {
-		graph.Snapshot.PriceVersion = *m.PriceVersion
-	}
-	// Price restrictions need an exact payer-authorized publication. A
-	// catalog reference is a display estimate and leaves this fact unknown.
-	perspective := catalog.Perspective{Actor: a.FundingUserID, Workspace: a.WorkspaceID, Project: a.ProjectID, AccessVersion: a.Version}
-	versions, err := (pricing.VersionStore{DB: g.DB}).At(ctx, quotes.PublicationScope(perspective, m.Model.ID), now)
+	// Key quotes and execution consume exactly the same provider/group sale.
+	pc := pricing.PriceContext{WorkspaceID: a.WorkspaceID, ProjectID: a.ProjectID, ActorID: a.ActorID, PayerID: a.FundingUserID, KeyID: a.KeyID, GroupID: group, Provider: m.Model.Provider, Model: m.Model.Model, ModelID: m.Model.ID, Funding: "wallet", PolicyVersion: a.Version, CatalogVersion: version, PricingAt: now}
+	price, err := quotes.ResolveSaleVersion(ctx, pricing.VersionStore{DB: g.DB}, pc, m)
 	if err != nil {
 		return trace.DecisionTrace{}, 0, err
 	}
-	price, err := pricing.Resolve(pricing.Candidates{Published: versions}, now)
+	if price.ID == "" {
+		return trace.DecisionTrace{}, 0, &fault.Fault{Status: 422, Reason: "SALE_PRICE_UNAVAILABLE", Message: "A complete sale price is required before execution."}
+	}
+	graph.Snapshot.PriceVersion = price.ID
+	usage, err := (quotes.Scenario{Input: s.Input, Output: s.Output, Requests: "1"}).Usage()
 	if err != nil {
 		return trace.DecisionTrace{}, 0, err
+	}
+	estimate, err := (pricing.Frozen{Version: price, Usage: usage, At: now, Context: price.EvaluationContext}).Calculate()
+	if err != nil {
+		return trace.DecisionTrace{}, 0, err
+	}
+	if estimate.State != "estimated" && estimate.State != "free" {
+		return trace.DecisionTrace{}, 0, &fault.Fault{Status: 422, Reason: "SALE_PRICE_INCOMPLETE", Message: "The sale price does not cover this request's billing dimensions."}
 	}
 	var rate *money.Amount
-	if price != nil {
-		graph.Snapshot.PriceVersion = price.ID
-		rate, err = policy.ExactInputRate(*price, now, s.Input, "")
-		if err != nil {
-			return trace.DecisionTrace{}, 0, err
-		}
+	rate, err = policy.ExactInputRate(price, now, s.Input, "")
+	if err != nil {
+		return trace.DecisionTrace{}, 0, err
 	}
 	// Only attest candidates in the selected billing group. BE-10 rechecks
 	// credential/proxy versions and ownership against these verification IDs.

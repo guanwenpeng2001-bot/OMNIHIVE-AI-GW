@@ -48,6 +48,15 @@ func TestPiCapabilitySupplementFormat(t *testing.T) {
 }
 
 func TestPiCapabilitySupplementPreservesOmniHiveFacts(t *testing.T) {
+	previous := approvedModels.Load()
+	t.Cleanup(func() { approvedModels.Store(previous) })
+	// Reviewed facts enter through the registry projection, never by decoding
+	// catalog.json in this module. Include an explicit suppressed specification.
+	context := int64(1048576)
+	PublishApprovedInventory("reviewed-fixture", []RegistryModel{
+		{Provider: "gemini", Model: "gemini-3-pro-preview", Facts: ModelFacts{Facts: Facts{Context: &context, ContextKind: "total", Modalities: []string{"text", "image", "audio", "video", "pdf"}}, Evidence: Evidence{Source: SourceBuiltin}}, Capabilities: []Capability{{Protocol: "gemini_generate"}}},
+		{Provider: "moonshotai-cn", Model: "kimi-k2.6", Facts: ModelFacts{Evidence: Evidence{Source: SourceBuiltin}}},
+	})
 	var supplement struct {
 		Records []builtinModel `json:"records"`
 	}
@@ -64,7 +73,7 @@ func TestPiCapabilitySupplementPreservesOmniHiveFacts(t *testing.T) {
 	require.False(t, reviewed.fromPi)
 	require.Equal(t, int64(1048576), reviewed.Context)
 	require.Equal(t, []string{"text", "image", "audio", "video", "pdf"}, reviewed.Inputs)
-	require.Equal(t, []string{"text"}, reviewed.Outputs)
+	require.Empty(t, reviewed.Outputs, "the projection does not invent a separate output-modality fact")
 	require.Equal(t, []string{"generateContent"}, BuiltinMethods(reviewed.Provider, reviewed.Model))
 
 	custom := models[[2]string{"openai", "agy-cli/gemini-4-carbon"}]
@@ -105,6 +114,8 @@ func TestPiCapabilitySupplementProjectsNewModelWithExactProvider(t *testing.T) {
 	require.EqualValues(t, 1000000, *detail.Model.Context)
 	require.Len(t, detail.Facts, 1)
 	facts := detail.Facts[0]
+	require.Equal(t, SourcePI, facts.Source)
+	require.Equal(t, "reference", facts.Provenance["context_tokens"].Approval)
 	require.Equal(t, "total", facts.ContextKind)
 	require.Equal(t, new(int64(8192)), facts.Output)
 	require.Equal(t, new(false), facts.Reasoning)

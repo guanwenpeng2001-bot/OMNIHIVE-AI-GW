@@ -117,7 +117,7 @@ func TestOpsScheduledReportLegacyTemplateReceivesSummaryHTML(t *testing.T) {
 	require.NoError(t, err)
 
 	svc := &OpsScheduledReportService{
-		opsService:   &OpsService{opsRepo: &opsRepoMock{}},
+		opsService:   newReadyOpsServiceForTest(t, &opsRepoMock{}),
 		emailService: emailService,
 	}
 	report := &opsScheduledReport{

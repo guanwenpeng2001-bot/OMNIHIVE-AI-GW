@@ -131,11 +131,14 @@ func Matches(c catalog.Capability, action, protocol string) bool {
 	return c.State != "stale" && (action == "" || c.Action == action) && (protocol == "" || c.Protocol == protocol)
 }
 
-func Reference(d catalog.Detail, at time.Time) (pricing.Version, error) {
+func SaleProjection(d catalog.Detail, at time.Time) (pricing.Version, error) {
+	if d.PriceKind == "reference" || pricing.IsReferenceSource(d.PriceSource) {
+		return pricing.Version{}, pricing.ErrReferencePrice
+	}
 	if d.PriceVersion == nil || (d.ContextBasis != "" && d.ContextBasis != "whole_request") || (d.Model.PriceState != "priced" && d.Model.PriceState != "free") {
 		return pricing.Version{}, nil
 	}
-	v := pricing.Version{ID: *d.PriceVersion, Source: d.PriceSource, Currency: "USD"}
+	v := pricing.Version{Kind: "sale", ID: *d.PriceVersion, Source: d.PriceSource, Currency: "USD"}
 	if d.Model.Input != nil {
 		v.Rules = append(v.Rules, pricing.Rule{Kind: "input", Rate: *d.Model.Input})
 	}
@@ -167,8 +170,8 @@ func Reference(d catalog.Detail, at time.Time) (pricing.Version, error) {
 		v.Schedules = append(v.Schedules, pricing.Schedule{Timezone: window.Timezone, Start: window.Start, End: window.End,
 			WeekdaysOnly: window.WeekdaysOnly, Multiplier: window.Multiplier})
 	}
-	// Reference price cards supply evidence for the current snapshot only.
-	v.EffectiveFrom = at
+	// Admission time belongs to Frozen/PriceContext, not the immutable tariff
+	// content. Historical fallback is explicitly denied by Estimate.
 	return v, nil
 }
 
@@ -194,7 +197,9 @@ type Service struct {
 
 type Quote struct {
 	pricing.Result
-	Scope *catalog.EffectiveScope `json:"effective_scope,omitempty"`
+	Scope        *catalog.EffectiveScope `json:"effective_scope,omitempty"`
+	PriceContext *pricing.PriceContext   `json:"price_context,omitempty"`
+	ExpiresAt    *time.Time              `json:"expires_at,omitempty"`
 }
 
 func (s Service) Quote(ctx context.Context, p catalog.Perspective, in Input) (Quote, error) {
@@ -248,8 +253,14 @@ func (s Service) Quote(ctx context.Context, p catalog.Perspective, in Input) (Qu
 			if err != nil {
 				return Quote{}, err
 			}
-			cost, err := (pricing.Frozen{Version: version, Usage: usage, At: snap.AsOf}).Calculate()
-			return Quote{Result: cost, Scope: scope}, err
+			pc := pricing.PriceContext{WorkspaceID: p.Workspace, ProjectID: p.Project, ActorID: p.Actor, KeyID: key,
+				Provider: d.Model.Provider, Model: d.Model.Model, ModelID: d.Model.ID, Funding: "wallet", PolicyVersion: p.AccessVersion, CatalogVersion: snap.Version, PricingAt: snap.AsOf}
+			if version.EvaluationContext != nil {
+				pc = *version.EvaluationContext
+			}
+			cost, err := (pricing.Frozen{Version: version, Usage: usage, At: snap.AsOf, Context: &pc}).Calculate()
+			expires := snap.AsOf.Add(time.Minute)
+			return Quote{Result: cost, Scope: scope, PriceContext: &pc, ExpiresAt: &expires}, err
 		}
 	}
 	return Quote{}, fault.NotFound

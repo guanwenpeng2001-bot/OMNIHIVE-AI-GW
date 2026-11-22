@@ -35,12 +35,21 @@ func (a Access) Require(action string) error {
 }
 
 type Key struct {
-	ID         int64   `json:"id,string"`
-	Name       string  `json:"name"`
-	Prefix     string  `json:"prefix"`
-	Credential *string `json:"credential"`
-	OwnerID    int64   `json:"owner_id,string"`
-	Version    int64   `json:"version,string"`
+	ID                int64       `json:"id,string"`
+	Name              string      `json:"name"`
+	Prefix            string      `json:"prefix"`
+	Credential        *string     `json:"credential"`
+	OwnerID           int64       `json:"owner_id,string"`
+	Version           int64       `json:"version,string"`
+	Status            string      `json:"status"`
+	ExpiresAt         *time.Time  `json:"expires_at"`
+	EvaluatedAt       time.Time   `json:"evaluated_at"`
+	Actions           []string    `json:"actions"`
+	ModelAccess       ModelAccess `json:"model_access"`
+	GroupID           *int64      `json:"group_id,string"`
+	Platform          string      `json:"platform"`
+	ExcludedModels    []string    `json:"excluded_models"`
+	ModelPolicySource string      `json:"model_policy_source"`
 }
 
 type KeyGroup struct {
@@ -63,13 +72,15 @@ type CreateKey struct {
 }
 
 type KeyPolicy struct {
-	Platform         string
-	AllowedGroups    []int64
-	GroupID          int64
-	GroupRPMOverride *int
-	Scope            scope.Authorized
-	Actions, Models  []string
-	Mode             string
+	Platform          string
+	AllowedGroups     []int64
+	GroupID           int64
+	GroupRPMOverride  *int
+	Scope             scope.Authorized
+	Actions, Models   []string
+	Mode              string
+	ExcludedModels    []string
+	ModelPolicySource string
 }
 
 func (p *KeyPolicy) Allows(action string, models []string) bool {
@@ -78,6 +89,11 @@ func (p *KeyPolicy) Allows(action string, models []string) bool {
 	}
 	if action == "models.read" || action == "usage.read" || action == "tasks.read" {
 		return true
+	}
+	for _, model := range models {
+		if slices.Contains(p.ExcludedModels, model) || (p.Platform != "" && slices.Contains(p.ExcludedModels, catalog.StableID(p.Platform, model))) {
+			return false
+		}
 	}
 	switch p.Mode {
 	case "inherit":
@@ -170,6 +186,20 @@ type Member struct {
 
 type MemberGrants struct {
 	GrantVersion
-	ProjectIDs []string `json:"project_ids"`
-	Actions    []string `json:"actions"`
+	ProjectIDs       []string       `json:"project_ids"`
+	Actions          []string       `json:"actions"`
+	ProjectGrants    []ProjectGrant `json:"project_grants"`
+	DelegableActions []string       `json:"delegable_actions"`
+}
+
+// ProjectGrant preserves the association that the legacy Cartesian projection loses.
+type ProjectGrant struct {
+	ProjectID int64    `json:"project_id,string"`
+	Actions   []string `json:"actions"`
+}
+
+type KeyUse struct {
+	OwnerID  int64
+	GroupID  int64
+	Platform string
 }

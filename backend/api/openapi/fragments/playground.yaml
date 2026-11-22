@@ -73,6 +73,35 @@ paths:
       responses:
         '200': {$ref: '#/components/responses/PlaygroundExecution'}
         default: {$ref: '#/components/responses/RequestsError'}
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/requests/{id}/replay-context:
+    parameters:
+      - {$ref: '#/components/parameters/IdentityWorkspaceID'}
+      - {$ref: '#/components/parameters/IdentityProjectID'}
+      - {$ref: '#/components/parameters/RequestsID'}
+    get:
+      operationId: playgroundReplayContext
+      summary: Resolve the source model and protocol before quoting a replay
+      x-required-grant: requests.replay
+      responses:
+        '200':
+          description: Source metadata without retained request content
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {const: success}
+                  data:
+                    type: object
+                    required: [request_id, model_id, protocol]
+                    properties:
+                      request_id: {type: string}
+                      model_id: {type: string}
+                      protocol: {$ref: '#/components/schemas/PlaygroundProtocol'}
+        default: {$ref: '#/components/responses/RequestsError'}
+
 components:
   parameters:
     PlaygroundRunID:
@@ -130,6 +159,10 @@ components:
         input: {type: object, additionalProperties: true}
         options: {$ref: '#/components/schemas/PlaygroundOptions'}
         funding_acknowledged: {const: true}
+        expected_price_version:
+          type: string
+          maxLength: 200
+          description: Optional accepted quote version; a different execution price is rejected before admission.
     PlaygroundSubmit:
       type: object
       additionalProperties: false
@@ -143,6 +176,10 @@ components:
         input: {type: object, additionalProperties: true, description: 'Native Chat or Messages messages, Responses input, or Gemini contents. Maximum body size 256 KiB.'}
         options: {$ref: '#/components/schemas/PlaygroundOptions'}
         funding_acknowledged: {const: true}
+        expected_price_version:
+          type: string
+          maxLength: 200
+          description: Optional accepted quote version; a different execution price is rejected before admission.
     PlaygroundSummary:
       type: object
       required: [run_id, request_id, protocol, state, last_seq, content_retained, status_url, detail_url, payer_user_id, settlement_state]

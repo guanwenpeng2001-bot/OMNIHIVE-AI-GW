@@ -26,6 +26,9 @@ func TestCompatibleBillingPlanBulkSQL(t *testing.T) {
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			matcher := sqlmock.QueryMatcherFunc(func(_, query string) error {
+				if strings.Contains(query, "account_configuration_owner_lock") {
+					return nil
+				}
 				merge := "credentials = COALESCE(credentials, '{}'::jsonb) || $1::jsonb"
 				if scenario.clear {
 					merge = "credentials = (COALESCE(credentials, '{}'::jsonb) || $1::jsonb) - 'billing_plan'"
@@ -46,7 +49,10 @@ func TestCompatibleBillingPlanBulkSQL(t *testing.T) {
 			}()
 			// A zero-row result avoids scheduler side effects; this test inspects the
 			// actual repository query and parameter binding without executing writes.
+			mock.ExpectBegin()
+			expectAccountConfigurationPreflight(mock)
 			mock.ExpectExec("update").WithArgs(sqlmock.AnyArg(), pq.Array([]int64{12})).WillReturnResult(sqlmock.NewResult(0, 0))
+			mock.ExpectCommit()
 			repository := &accountRepository{sql: database}
 			_, err = repository.BulkUpdate(domain.WithWorkspaceScope(context.Background(), 9), []int64{12}, service.AccountBulkUpdate{Credentials: scenario.patch})
 			require.NoError(t, err)

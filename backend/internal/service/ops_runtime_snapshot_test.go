@@ -184,6 +184,49 @@ func TestOpsRuntimeSettingsRefreshFailuresKeepLastKnownGoodSnapshot(t *testing.T
 	if !sink.persistAccessLogs.Load() {
 		t.Fatal("failed refresh overwrote last known access-log setting")
 	}
+	if svc.RuntimeSettingsRefreshHealth().State != "stale" {
+		t.Fatal("retained configuration must be diagnosed as stale")
+	}
+}
+
+func TestOpsRuntimeSettingsColdFailureIsUnknownAndDisabled(t *testing.T) {
+	repo := &opsRuntimeRefreshRepo{values: map[string]string{}}
+	repo.fail.Store(true)
+	svc := &OpsService{settingRepo: repo}
+	svc.initRuntimeSettings(context.Background())
+	if svc.IsMonitoringEnabled(context.Background()) {
+		t.Fatal("a failed cold load must not enable monitoring")
+	}
+	if !errors.Is(svc.RequireMonitoringEnabled(context.Background()), ErrOpsSettingsUnavailable) {
+		t.Fatal("unknown settings must be distinguished from an explicit disable")
+	}
+	if svc.RuntimeSettingsRefreshHealth().State != "unknown" {
+		t.Fatal("failed cold load must be observable as unknown")
+	}
+	svc.storeAdvancedSettingsSnapshot(defaultOpsAdvancedSettings())
+	if svc.IsMonitoringEnabled(context.Background()) {
+		t.Fatal("an advanced-settings update must not guess the monitoring switch")
+	}
+	repo.fail.Store(false)
+	if err := svc.RefreshRuntimeSettings(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !svc.IsMonitoringEnabled(context.Background()) || svc.RuntimeSettingsRefreshHealth().State != "ready" {
+		t.Fatal("a successful refresh must apply and diagnose the inherited default")
+	}
+}
+
+func TestOpsRuntimeSettingsInvalidOverrideDoesNotEnableMonitoring(t *testing.T) {
+	repo := &opsRuntimeRefreshRepo{values: map[string]string{SettingKeyOpsMonitoringEnabled: "false"}}
+	svc := &OpsService{settingRepo: repo}
+	svc.initRuntimeSettings(context.Background())
+	repo.set(SettingKeyOpsMonitoringEnabled, "unexpected")
+	if err := svc.RefreshRuntimeSettings(context.Background()); err == nil {
+		t.Fatal("invalid monitoring override was accepted")
+	}
+	if svc.IsMonitoringEnabled(context.Background()) || svc.RuntimeSettingsRefreshHealth().State != "stale" {
+		t.Fatal("invalid input must retain the verified disabled state and mark it stale")
+	}
 }
 
 func TestOpsRuntimeSettingsRefreshStopEndsLifecycle(t *testing.T) {

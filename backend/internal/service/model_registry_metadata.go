@@ -96,7 +96,7 @@ func (s *ModelRegistrySnapshot) CatalogFacts(now time.Time) []catalog.RegistryMo
 			if observed.IsZero() {
 				observed, _ = time.Parse(time.RFC3339Nano, preset.CheckedAt)
 			}
-			evidence := catalog.Observation("approved_registry", catalogRegistryMaturity(model.Lifecycle), observed, time.Time{}, now)
+			evidence := catalog.Observation(catalog.SourcePreset, catalogRegistryMaturity(model.Lifecycle), observed, time.Time{}, now)
 			metadata := lookupCapabilityMetadata(s.capabilities, preset.ProviderProfile, model.ID).Metadata
 			facts := catalog.Facts{
 				Context: knownCatalogLimit(model.ContextWindow), ContextKind: model.ContextLimitKind,
@@ -119,7 +119,23 @@ func (s *ModelRegistrySnapshot) CatalogFacts(now time.Time) []catalog.RegistryMo
 				capabilities = append(capabilities, catalog.Capability{Action: action, Protocol: protocol, Mode: "unknown",
 					Tools: "unknown", Stream: "unknown", Evidence: evidence, Limitations: []string{}})
 			}
-			out = append(out, catalog.RegistryModel{Provider: preset.Platform, Model: model.ID, Canonical: model.CanonicalModelID, DisplayName: model.DisplayName, Facts: catalog.ModelFacts{Facts: facts, Evidence: evidence}, Capabilities: capabilities, Actions: taskActions})
+			projected := catalog.ModelFacts{Facts: facts, Evidence: evidence}
+			catalog.AttachProvenance(&projected, s.Version(), "approved", "verified_registry_snapshot")
+			// Limits and methods above come from the preset. These optional
+			// flags came from the capability lookup and retain that field origin.
+			for field, metadataField := range map[string]string{"tools": "supports_function_calling", "vision": "supports_vision", "reasoning": "reasoning", "prompt_caching": "supports_prompt_caching", "pdf": "supports_pdf"} {
+				provenance, present := projected.Provenance[field]
+				if !present {
+					continue
+				}
+				provenance.SourceKind = catalog.SourceBuiltin
+				if metadata.FieldEvidence[metadataField].Source == "platform-preset" {
+					provenance.SourceKind = catalog.SourcePreset
+				}
+				provenance.SelectedReason = "verified_capability_registry"
+				projected.Provenance[field] = provenance
+			}
+			out = append(out, catalog.RegistryModel{Provider: preset.Platform, Model: model.ID, Canonical: model.CanonicalModelID, DisplayName: model.DisplayName, Facts: projected, Capabilities: capabilities, Actions: taskActions})
 		}
 	}
 	// Capability-only exact records also belong to the approved platform
@@ -165,8 +181,29 @@ func (s *ModelRegistrySnapshot) CatalogFacts(now time.Time) []catalog.RegistryMo
 			if facts.Context == nil && record.MaxInputTokens != nil && *record.MaxInputTokens > 0 {
 				facts.Context, facts.ContextKind = record.MaxInputTokens, "input"
 			}
-			out = append(out, catalog.RegistryModel{Provider: platform, Model: record.ModelID, Actions: actions,
-				Facts: catalog.ModelFacts{Facts: facts, Evidence: catalog.Observation("approved_registry", "unknown", observed, time.Time{}, now)}})
+			source := catalog.SourceBuiltin
+			if record.Source == "platform-preset" {
+				source = catalog.SourcePreset
+			}
+			evidence := catalog.Observation(source, "unknown", observed, time.Time{}, now)
+			capabilities := []catalog.Capability{}
+			for _, method := range record.SupportedMethods {
+				action, protocol, adapter := catalog.GatewayAction(method)
+				if adapter != "" && domain.PlatformAction(domain.ActionIdentity{Platform: platform, HostedAccountType: domain.HostedAccountType(platform)}, adapter).Status == domain.ActionImplemented {
+					capabilities = append(capabilities, catalog.Capability{Action: action, Protocol: protocol, Mode: "unknown", Tools: "unknown", Stream: "unknown", Limitations: []string{}, Evidence: evidence})
+				}
+			}
+			out = append(out, catalog.RegistryModel{Provider: platform, Model: record.ModelID, Actions: actions, Capabilities: capabilities,
+				Facts: catalog.ModelFacts{Facts: facts, Evidence: evidence}})
+		}
+	}
+	for i := range out {
+		if out[i].Facts.Provenance == nil {
+			catalog.AttachProvenance(&out[i].Facts, s.Version(), "approved", "verified_registry_snapshot")
+		}
+		for j := range out[i].Capabilities {
+			capability := &out[i].Capabilities[j]
+			capability.Provenance = map[string]catalog.Provenance{"protocol": {SourceKind: capability.Source, SourceRevision: s.Version(), FieldPath: "protocol", Approval: "approved", SelectedReason: "verified_registry_snapshot"}}
 		}
 	}
 	return out

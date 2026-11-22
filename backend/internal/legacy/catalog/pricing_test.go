@@ -11,12 +11,13 @@ import (
 
 func TestPublicPlazaPriceUsesStoredPerTokenAmounts(t *testing.T) {
 	input, output, cache, tierInput, request := 0.000008, 0.00004, 0.0000004, 0.000012, 0.25
-	price := priceFor(service.PlazaModel{Pricing: &service.ChannelModelPricing{
+	price := priceFor(service.PlazaModel{PriceSource: service.PricingSourceChannel, Pricing: &service.ChannelModelPricing{
 		BillingMode: service.BillingModeToken, InputPrice: &input, OutputPrice: &output,
 		CacheReadPrice: &cache, PerRequestPrice: &request,
 		Intervals: []service.PricingInterval{{MinTokens: 128000, InputPrice: &tierInput}},
 	}}, service.PlazaGroup{RateMultiplier: 1}, nil, true)
-	require.Equal(t, "public_plaza_reference", price.Source)
+	require.Equal(t, service.PricingSourceChannel, price.Source)
+	require.Equal(t, "sale", price.Kind)
 	require.Len(t, price.Additional, 3)
 	for _, tc := range []struct {
 		rate        *money.Rate

@@ -41,14 +41,16 @@ type Schedule struct {
 }
 
 type Version struct {
-	ID             string         `json:"id"`
-	Source         string         `json:"source"`
-	Currency       money.Currency `json:"currency"`
-	EffectiveFrom  time.Time      `json:"effective_from"`
-	EffectiveUntil *time.Time     `json:"effective_until,omitempty"`
-	Rules          []Rule         `json:"rules"`
-	Schedules      []Schedule     `json:"schedules,omitempty"`
-	Multipliers    []money.Amount `json:"multipliers,omitempty"`
+	EvaluationContext *PriceContext  `json:"-"`
+	Kind              string         `json:"kind,omitempty"`
+	ID                string         `json:"id"`
+	Source            string         `json:"source"`
+	Currency          money.Currency `json:"currency"`
+	EffectiveFrom     time.Time      `json:"effective_from"`
+	EffectiveUntil    *time.Time     `json:"effective_until,omitempty"`
+	Rules             []Rule         `json:"rules"`
+	Schedules         []Schedule     `json:"schedules,omitempty"`
+	Multipliers       []money.Amount `json:"multipliers,omitempty"`
 }
 
 type Candidates struct {
@@ -99,13 +101,28 @@ func Unpriced() Result {
 }
 
 type Frozen struct {
-	Version Version   `json:"version"`
-	Usage   Usage     `json:"usage"`
-	At      time.Time `json:"as_of"`
+	Context *PriceContext `json:"price_context,omitempty"`
+	Version Version       `json:"version"`
+	Usage   Usage         `json:"usage"`
+	At      time.Time     `json:"as_of"`
 }
 
 func (f Frozen) Calculate() (Result, error) {
 	v := f.Version
+	if err := v.ValidateExecutable(); err != nil {
+		return Unpriced(), err
+	}
+	if f.Context != nil {
+		if err := f.Context.Validate(); err != nil {
+			return Unpriced(), err
+		}
+		if !f.At.Equal(f.Context.PricingAt) {
+			return Unpriced(), errors.New("pricing context instant mismatch")
+		}
+		if f.Context.Funding == "wallet" && (v.Kind == "external_cost" || v.Kind == "platform_fee") {
+			return Unpriced(), errors.New("non-sale tariff cannot authorize wallet charging")
+		}
+	}
 	if v.ID == "" || !v.active(f.At) {
 		return Unpriced(), nil
 	}

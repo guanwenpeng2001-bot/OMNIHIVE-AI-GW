@@ -80,6 +80,7 @@ const contextProbeDelta = 1000
 //
 // 非 token 计费模式返回 (nil, nil)；模型无任何定价来源时返回 ErrModelPricingUnavailable。
 func (s *BillingService) ResolveContextPricingSchedule(ctx context.Context, resolver *ModelPricingResolver, in ContextPricingScheduleInput) (*ContextPricingSchedule, error) {
+	s = s.forGatewayRequest(ctx)
 	if s == nil || resolver == nil {
 		return nil, errContextPricingResolverRequired
 	}
@@ -105,6 +106,7 @@ func (s *BillingService) ResolveContextPricingSchedule(ctx context.Context, reso
 
 	req := TokenCostRequest{
 		displayProbe:   true,
+		PricingAt:      SalePricingInstant(ctx, time.Time{}),
 		Ctx:            ctx,
 		Model:          in.Model,
 		Group:          in.Group,
@@ -235,7 +237,11 @@ func (s *BillingService) contextPricingBreakpoints(resolver *ModelPricingResolve
 	// 该路径无既有计费时点（ContextPricingScheduleInput 无时间字段），显式传
 	// 当前时刻；此处 pricing 仅取 LongContextInputThreshold 等时间无关字段，
 	// DeepSeek pro→Flash 切换不影响断点结果。
-	pricing = s.applyModelSpecificPricingPolicyEx(model, pricing, true, timezone.Now())
+	at := s.frozenPricingAt
+	if at.IsZero() {
+		at = timezone.Now()
+	}
+	pricing = s.applyModelSpecificPricingPolicyEx(model, pricing, true, at)
 	if pricing.LongContextInputThreshold <= 0 {
 		return plan
 	}

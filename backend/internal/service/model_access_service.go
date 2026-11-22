@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 )
@@ -17,12 +18,7 @@ var (
 )
 
 // Models deliberately has no omitempty: null inherits and [] denies all.
-type ModelAccessRule struct {
-	AccessGroupID *int64   `json:"access_group_id"`
-	Models        []string `json:"models"`
-	Exclude       []string `json:"exclude"`
-	Revision      int64    `json:"revision"`
-}
+type ModelAccessRule = identity.ModelRule
 
 type ModelAccessGroup struct {
 	ID         int64    `json:"id"`
@@ -96,29 +92,9 @@ func validAccessModels(models []string) bool {
 // ResolveModelAccessRule only intersects. A named set cannot grant a model
 // absent from the routing group; binding still checks the original public name.
 func ResolveModelAccessRule(rule ModelAccessRule, named []string) []string {
-	models := rule.Models
-	if rule.AccessGroupID != nil {
-		if models == nil {
-			models = named
-		} else {
-			models = intersectAccessModels(models, named)
-		}
-	}
-	if models == nil {
-		return nil
-	}
-	result := []string{}
-	excluded := make(map[string]bool, len(rule.Exclude))
-	for _, model := range rule.Exclude {
-		excluded[model] = true
-	}
-	for _, model := range models {
-		if !excluded[model] {
-			result = append(result, model)
-		}
-	}
-	return result
+	return identity.ResolveModelRule(rule, named)
 }
+
 func intersectAccessModels(models, allowed []string) []string {
 	permitted := make(map[string]bool, len(allowed))
 	for _, model := range allowed {

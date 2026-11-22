@@ -15,7 +15,7 @@ func TestOpsDiagnosticsSuppressionContract(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(map[bool]string{false: "http", true: "sse"}[stream], func(t *testing.T) {
 			setupOpsErrorLogTestQueue(t, 2)
-			ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+			ops := newReadyOpsServiceForTest(t, nil)
 			router := gin.New()
 			router.Use(OpsErrorLoggerMiddleware(ops))
 			router.POST("/v1/responses", func(c *gin.Context) {

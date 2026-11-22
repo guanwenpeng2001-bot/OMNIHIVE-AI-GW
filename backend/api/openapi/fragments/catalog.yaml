@@ -50,6 +50,11 @@ paths:
           type: array
           items:
             type: string
+      - name: publication_state
+        in: query
+        schema:
+          type: string
+          enum: [draft, published, withdrawn]
       - name: availability_state
         in: query
         schema:
@@ -57,6 +62,10 @@ paths:
           enum:
           - live
           - catalog_only
+          - requires_scope
+          - unknown
+          - unavailable
+          - eligible
       - name: sort
         in: query
         schema:
@@ -214,6 +223,11 @@ paths:
           type: array
           items:
             type: string
+      - name: publication_state
+        in: query
+        schema:
+          type: string
+          enum: [draft, published, withdrawn]
       - name: availability_state
         in: query
         schema:
@@ -221,6 +235,10 @@ paths:
           enum:
           - live
           - catalog_only
+          - requires_scope
+          - unknown
+          - unavailable
+          - eligible
       - name: sort
         in: query
         schema:
@@ -337,6 +355,34 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CatalogCompareInput'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/model-diagnostics/{model_id}:
+    parameters:
+    - $ref: '#/components/parameters/IdentityWorkspaceID'
+    - $ref: '#/components/parameters/IdentityProjectID'
+    - name: model_id
+      in: path
+      required: true
+      schema: {type: string, pattern: '^m_[a-f0-9]{32}$'}
+    get:
+      operationId: getModelDiagnostics
+      description: Project model operations view; requires models.read and connections.read.
+      responses:
+        '200':
+          description: Authorized model provenance, discovery, groups, sales tariffs and publication
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {const: success}
+                  data: {$ref: '#/components/schemas/AdminModelDiagnostics'}
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/IdentityError'}
 components:
   parameters:
     CatalogModelID:
@@ -389,6 +435,15 @@ components:
         amount:
           type: string
           pattern: ^-?(0|[1-9][0-9]*)(\.[0-9]+)?$
+    CatalogProvenance:
+      type: object
+      required: [source_kind, source_revision, field_path, approval, selected_reason]
+      properties:
+        source_kind: {type: string}
+        source_revision: {type: string}
+        field_path: {type: string}
+        approval: {type: string, enum: [approved, reference, unreviewed]}
+        selected_reason: {type: string}
     CatalogEvidence:
       type: object
       required:
@@ -398,6 +453,9 @@ components:
       - expires_at
       - state
       properties:
+        provenance:
+          type: object
+          additionalProperties: {$ref: '#/components/schemas/CatalogProvenance'}
         source:
           type: string
         maturity:
@@ -455,6 +513,9 @@ components:
       - pdf
       - modalities
       properties:
+        provenance:
+          type: object
+          additionalProperties: {$ref: '#/components/schemas/CatalogProvenance'}
         source:
           type: string
         maturity:
@@ -545,6 +606,9 @@ components:
       - adapter_version
       - limitations
       properties:
+        provenance:
+          type: object
+          additionalProperties: {$ref: '#/components/schemas/CatalogProvenance'}
         verified_extension_actions:
           type: array
           uniqueItems: true
@@ -674,6 +738,15 @@ components:
       - observed_at
       - evidence_state
       properties:
+        origins:
+          type: array
+          items: {type: string}
+        publication_state: {type: string, enum: [draft, published, withdrawn]}
+        billing_state: {type: string, enum: [priced, scope_required, multiple_offers, missing, partial_rate, conflict, conditional]}
+        billing_reason: {type: string}
+        price_source: {type: string}
+        reference_price: {$ref: '#/components/schemas/CatalogReferencePrice'}
+        metrics: {$ref: '#/components/schemas/CatalogMetrics'}
         id:
           type: string
         model:
@@ -721,6 +794,10 @@ components:
           enum:
           - live
           - catalog_only
+          - requires_scope
+          - unknown
+          - unavailable
+          - eligible
         access_state:
           type: string
           enum:
@@ -898,6 +975,9 @@ components:
       - additional_rates
       - time_bands
       properties:
+        price_kind: {type: string, enum: [reference]}
+        billing_state: {type: string}
+        billing_reason: {type: string}
         state:
           type: string
         source:
@@ -924,6 +1004,72 @@ components:
             items:
               $ref: '#/components/schemas/CatalogTimeBand'
           - type: 'null'
+    CatalogSalePrice:
+      type: object
+      required: [state, source, input_rate, output_rate, additional_rates, time_bands]
+      properties:
+        provenance:
+          type: object
+          additionalProperties: {$ref: '#/components/schemas/CatalogProvenance'}
+        price_kind: {type: string, enum: [sale]}
+        state: {type: string}
+        source: {type: string}
+        billing_state: {type: string}
+        billing_reason: {type: string}
+        input_rate:
+          anyOf:
+          - {$ref: '#/components/schemas/CatalogRate'}
+          - {type: 'null'}
+        output_rate:
+          anyOf:
+          - {$ref: '#/components/schemas/CatalogRate'}
+          - {type: 'null'}
+        additional_rates:
+          type: array
+          items: {$ref: '#/components/schemas/CatalogRateBand'}
+        time_bands:
+          type: array
+          items: {$ref: '#/components/schemas/CatalogTimeBand'}
+        context_basis: {type: string}
+    CatalogOfferDiagnostic:
+      type: object
+      required: [group_id, account_ids, access, eligible, discovered_only, sale_price]
+      properties:
+        accounts:
+          type: array
+          items: {$ref: '#/components/schemas/CatalogAccountDiagnostic'}
+        group_id: {type: string}
+        account_ids:
+          type: array
+          items: {type: string}
+        access: {type: boolean}
+        eligible: {type: boolean}
+        discovered_only: {type: boolean}
+        sale_price: {$ref: '#/components/schemas/CatalogSalePrice'}
+    CatalogAccountDiagnostic:
+      type: object
+      required: [account_id, discovery_state, connection_state, observed_at]
+      properties:
+        account_id: {type: string}
+        discovery_state: {type: string, enum: [unknown, fresh, stale]}
+        connection_state: {type: string, enum: [unknown, active, verification_failed, verification_stale]}
+        observed_at:
+          anyOf:
+          - {type: string, format: date-time}
+          - {type: 'null'}
+    AdminModelDiagnostics:
+      type: object
+      required: [model, field_evidence, offers, catalog_version, evaluated_at]
+      properties:
+        model: {$ref: '#/components/schemas/ModelSummary'}
+        field_evidence:
+          type: array
+          items: {$ref: '#/components/schemas/CatalogModelFacts'}
+        offers:
+          type: array
+          items: {$ref: '#/components/schemas/CatalogOfferDiagnostic'}
+        catalog_version: {type: string}
+        evaluated_at: {type: string, format: date-time}
     ModelDetail:
       type: object
       required:
@@ -941,6 +1087,14 @@ components:
       - documentation_url
       - redactions
       properties:
+        price_provenance:
+          type: object
+          additionalProperties: {$ref: '#/components/schemas/CatalogProvenance'}
+        offers:
+          description: Project-only model diagnostics; requires connections.read. Never included in public responses.
+          type: array
+          items: {$ref: '#/components/schemas/CatalogOfferDiagnostic'}
+        price_kind: {type: string, enum: [sale]}
         model:
           $ref: '#/components/schemas/ModelSummary'
         reference_price:

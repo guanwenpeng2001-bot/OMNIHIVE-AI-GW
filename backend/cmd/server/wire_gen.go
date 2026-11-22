@@ -402,7 +402,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	operations := provideIdentityOperations(connectionsStore, restoreRuntime, requestsHandler, billingHandler, byokStore, auditStore, paymentsHandler, verificationStore)
 	identityHandler := identity.New(store2, operations, cfg)
 	connectionsHandler := connections2.New(connectionsStore)
-	modelsHandler := models.NewWithPricing(reader, store2, cfg, db)
+	modelsHandler := models.NewWithPricingAndKeys(reader, store2, cfg, db, apiKeyService)
 	verificationHandler := catalogVerificationHandlerProvider(verificationStore)
 	restoreHandler := restore2.New(restoreRuntime)
 	policyStore := policies.NewStore(db, cfg)

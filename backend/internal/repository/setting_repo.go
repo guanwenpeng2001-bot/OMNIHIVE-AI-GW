@@ -2,6 +2,12 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"sort"
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
@@ -101,5 +107,56 @@ func (r *settingRepository) GetAll(ctx context.Context) (map[string]string, erro
 
 func (r *settingRepository) Delete(ctx context.Context, key string) error {
 	_, err := r.client.Setting.Delete().Where(setting.KeyEQ(key)).Exec(ctx)
+	return err
+}
+
+func settingSnapshotVersion(rows []*ent.Setting) string {
+	ordered := append([]*ent.Setting(nil), rows...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Key < ordered[j].Key })
+	digest := sha256.New()
+	for _, row := range ordered {
+		// Never expose a hash of secret values. Revisions use only row identity
+		// and committed update timestamps, including deletion/addition changes.
+		fmt.Fprintf(digest, "%d:%s:%d\n", row.ID, row.Key, row.UpdatedAt.UnixNano())
+	}
+	return hex.EncodeToString(digest.Sum(nil))
+}
+
+func (r *settingRepository) GetAllVersioned(ctx context.Context) (map[string]string, string, error) {
+	rows, err := r.client.Setting.Query().All(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	values := make(map[string]string, len(rows))
+	for _, row := range rows {
+		values[row.Key] = row.Value
+	}
+	return values, settingSnapshotVersion(rows), nil
+}
+
+func (r *settingRepository) ResetOverrides(ctx context.Context, keys []string, expectedVersion string) error {
+	tx, err := r.client.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	rows, err := tx.Setting.Query().All(ctx)
+	if err != nil {
+		return err
+	}
+	if settingSnapshotVersion(rows) != expectedVersion {
+		return service.ErrSettingVersionConflict
+	}
+	if _, err := tx.Setting.Delete().Where(setting.KeyIn(keys...)).Exec(ctx); err != nil {
+		return settingResetError(err)
+	}
+	return settingResetError(tx.Commit())
+}
+
+func settingResetError(err error) error {
+	var state interface{ SQLState() string }
+	if errors.As(err, &state) && (state.SQLState() == "40001" || state.SQLState() == "40P01") {
+		return service.ErrSettingVersionConflict
+	}
 	return err
 }

@@ -8,14 +8,28 @@ import (
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
 )
 
 type Perspective struct {
 	Actor, Workspace, Project, AccessVersion int64
-	EndpointMetadata                         bool
+	// PricingActor is the authorized credential owner whose personal rate
+	// applies. It never replaces Actor for membership or action evaluation.
+	PricingActor     int64
+	EndpointMetadata bool
+	Audience         string
+	ScopeKind        string
 }
 
-func (p Perspective) Public() bool { return p.Project == 0 }
+func (p Perspective) Public() bool {
+	if p.Audience != "" {
+		return p.Audience == "public"
+	}
+	if p.ScopeKind != "" {
+		return false
+	}
+	return p.Project == 0 // compatibility for existing embedded callers only
+}
 
 type publicViewerAuthKey struct{}
 
@@ -35,11 +49,12 @@ type EffectiveScope struct {
 }
 
 type Evidence struct {
-	Source     string     `json:"source"`
-	Maturity   string     `json:"maturity"`
-	ObservedAt *time.Time `json:"observed_at"`
-	ExpiresAt  *time.Time `json:"expires_at"`
-	State      string     `json:"state"`
+	Source     string                `json:"source"`
+	Maturity   string                `json:"maturity"`
+	ObservedAt *time.Time            `json:"observed_at"`
+	ExpiresAt  *time.Time            `json:"expires_at"`
+	State      string                `json:"state"`
+	Provenance map[string]Provenance `json:"provenance,omitempty"`
 }
 
 func Observation(source, maturity string, observed, expires time.Time, now time.Time) Evidence {
@@ -109,6 +124,8 @@ type Endpoint struct {
 }
 
 type Offer struct {
+	AccountIDs       []string
+	Accounts         []AccountDiagnostic
 	GroupID          int64
 	Access, Eligible bool
 	CatalogOnly      bool
@@ -117,11 +134,13 @@ type Offer struct {
 	Endpoints        []Endpoint
 	Capabilities     []Capability
 	Price            Price
+	VerifiedLive     bool
 }
 
 type Candidate struct {
 	Provider, Model string
 	Offers          []Offer
+	Published       bool
 }
 
 type Input struct {
@@ -164,16 +183,28 @@ type TimeBand struct {
 }
 
 type Price struct {
-	State        string      `json:"state"`
-	Source       string      `json:"source"`
-	Input        *money.Rate `json:"input_rate"`
-	Output       *money.Rate `json:"output_rate"`
-	Additional   []RateBand  `json:"additional_rates"`
-	ContextBasis string      `json:"context_basis,omitempty"`
-	TimeBands    []TimeBand  `json:"time_bands"`
+	Provenance   map[string]Provenance `json:"provenance,omitempty"`
+	Kind         string                `json:"price_kind,omitempty"`
+	BillingState string                `json:"billing_state,omitempty"`
+	Reason       string                `json:"billing_reason,omitempty"`
+	Context      *pricing.PriceContext `json:"price_context,omitempty"`
+	State        string                `json:"state"`
+	Source       string                `json:"source"`
+	Input        *money.Rate           `json:"input_rate"`
+	Output       *money.Rate           `json:"output_rate"`
+	Additional   []RateBand            `json:"additional_rates"`
+	ContextBasis string                `json:"context_basis,omitempty"`
+	TimeBands    []TimeBand            `json:"time_bands"`
 }
 
 type Summary struct {
+	ReferencePrice    *Price          `json:"reference_price,omitempty"`
+	PriceSource       string          `json:"price_source"`
+	Metrics           *Metrics        `json:"metrics,omitempty"`
+	Origins           []string        `json:"origins"`
+	PublicationState  string          `json:"publication_state"`
+	BillingState      string          `json:"billing_state"`
+	BillingReason     string          `json:"billing_reason,omitempty"`
 	ID                string          `json:"id"`
 	Model             string          `json:"model"`
 	DisplayName       string          `json:"display_name"`
@@ -206,23 +237,48 @@ type Benchmark struct {
 }
 
 type Detail struct {
-	ReferencePrice   *Price          `json:"reference_price,omitempty"`
-	EligibleGroups   []int64         `json:"-"`
-	Model            Summary         `json:"model"`
-	Aliases          []string        `json:"aliases"`
-	Facts            []ModelFacts    `json:"model_facts"`
-	Capabilities     []Capability    `json:"capabilities"`
-	Endpoints        []Endpoint      `json:"endpoints"`
-	PriceVersion     *string         `json:"price_version"`
-	PriceSource      string          `json:"price_source"`
-	AdditionalRates  []RateBand      `json:"additional_rates"`
-	ContextBasis     string          `json:"context_basis,omitempty"`
-	TimeBands        []TimeBand      `json:"time_bands"`
-	Metrics          Metrics         `json:"metrics"`
-	Benchmarks       []Benchmark     `json:"benchmarks"`
-	Compatibility    []Compatibility `json:"compatibility,omitempty"`
-	DocumentationURL *string         `json:"documentation_url"`
-	Redactions       []string        `json:"redactions"`
+	LegacyAvailability string                `json:"-"`
+	PriceProvenance    map[string]Provenance `json:"price_provenance,omitempty"`
+	Offers             []OfferDiagnostic     `json:"offers,omitempty"`
+	GroupPrices        map[int64]Price       `json:"-"`
+	PriceKind          string                `json:"price_kind"`
+	ReferencePrice     *Price                `json:"reference_price,omitempty"`
+	EligibleGroups     []int64               `json:"-"`
+	Model              Summary               `json:"model"`
+	Aliases            []string              `json:"aliases"`
+	Facts              []ModelFacts          `json:"model_facts"`
+	Capabilities       []Capability          `json:"capabilities"`
+	Endpoints          []Endpoint            `json:"endpoints"`
+	PriceVersion       *string               `json:"price_version"`
+	PriceSource        string                `json:"price_source"`
+	AdditionalRates    []RateBand            `json:"additional_rates"`
+	ContextBasis       string                `json:"context_basis,omitempty"`
+	TimeBands          []TimeBand            `json:"time_bands"`
+	Metrics            Metrics               `json:"metrics"`
+	Benchmarks         []Benchmark           `json:"benchmarks"`
+	Compatibility      []Compatibility       `json:"compatibility,omitempty"`
+	DocumentationURL   *string               `json:"documentation_url"`
+	Redactions         []string              `json:"redactions"`
+}
+
+// OfferDiagnostic is emitted only with connections.read in the evaluated
+// project. Public projections never expose account/group identifiers or tariffs
+// from a different project.
+type OfferDiagnostic struct {
+	GroupID        int64               `json:"group_id,string"`
+	AccountIDs     []string            `json:"account_ids"`
+	Accounts       []AccountDiagnostic `json:"accounts"`
+	Access         bool                `json:"access"`
+	Eligible       bool                `json:"eligible"`
+	DiscoveredOnly bool                `json:"discovered_only"`
+	Price          Price               `json:"sale_price"`
+}
+
+type AccountDiagnostic struct {
+	AccountID       string     `json:"account_id"`
+	DiscoveryState  string     `json:"discovery_state"`
+	ConnectionState string     `json:"connection_state"`
+	ObservedAt      *time.Time `json:"observed_at"`
 }
 
 type Snapshot struct {

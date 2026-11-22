@@ -41,7 +41,7 @@ func TestCompositeRouteFailureOpsClassification(t *testing.T) {
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			setupOpsErrorLogTestQueue(t, 2)
-			var settings service.SettingRepository
+			var settings service.SettingRepository = &ingressRejectSettingRepo{}
 			if scenario.recordCancellation {
 				settings = &opsAdvancedSettingsRepoStub{advanced: `{"ignore_context_canceled":false}`}
 			}

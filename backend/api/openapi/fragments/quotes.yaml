@@ -77,10 +77,30 @@ components:
         raw_amount: { type: string }
         numerator: { type: string }
         denominator: { type: string }
+    PriceContext:
+      type: object
+      required: [provider, model, funding, pricing_at]
+      properties:
+        workspace_id: {type: string}
+        project_id: {type: string}
+        actor_id: {type: string}
+        payer_id: {type: string, description: Credential owner whose personal sale rate applies.}
+        key_id: {type: string}
+        group_id: {type: string}
+        account_id: {type: string}
+        provider: {type: string}
+        model: {type: string}
+        model_id: {type: string}
+        funding: {type: string, enum: [wallet, byok, platform_fee]}
+        policy_version: {type: string}
+        catalog_version: {type: string}
+        pricing_at: {type: string, format: date-time}
     ExactQuote:
       type: object
       required: [state, price_version, source, estimated_charge, components, rounding_adjustment, effective_scope]
       properties:
+        price_context: {$ref: '#/components/schemas/PriceContext'}
+        expires_at: {type: string, format: date-time}
         state: { type: string, enum: [estimated, free, unpriced] }
         price_version: { type: [string, 'null'] }
         source: { type: [string, 'null'] }

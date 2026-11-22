@@ -41,6 +41,7 @@ var (
 	// Official GPT Image 2.5 token rates (2026-09-08):
 	// https://developers.openai.com/api/docs/pricing#image-generation-models
 	openAIGPTImage25FallbackPricing = &LiteLLMModelPricing{
+		sourceOrigin:            PricingSourceFallback,
 		InputCostPerToken:       5e-06,
 		CacheReadInputTokenCost: 1.25e-06,
 		InputCostPerImageToken:  8e-06, CacheReadInputImageTokenCost: 2e-06,
@@ -50,6 +51,7 @@ var (
 		SupportsPromptCaching:   true,
 	}
 	openAIGPT54FallbackPricing = &LiteLLMModelPricing{
+		sourceOrigin:            PricingSourceFallback,
 		InputCostPerToken:       2.5e-06, // $2.5 per MTok
 		OutputCostPerToken:      1.5e-05, // $15 per MTok
 		CacheReadInputTokenCost: 2.5e-07, // $0.25 per MTok
@@ -58,6 +60,7 @@ var (
 		SupportsPromptCaching:   true,
 	}
 	openAIGPT6AstraFallbackPricing = &LiteLLMModelPricing{
+		sourceOrigin:                        PricingSourceFallback,
 		InputCostPerToken:                   1e-05,
 		InputCostPerTokenPriority:           2e-05,
 		OutputCostPerToken:                  5e-05,
@@ -75,6 +78,7 @@ var (
 		SupportsPromptCaching:               true,
 	}
 	openAIGPT56SolFallbackPricing = &LiteLLMModelPricing{
+		sourceOrigin:                        PricingSourceFallback,
 		InputCostPerToken:                   5e-06,
 		InputCostPerTokenPriority:           1e-05,
 		OutputCostPerToken:                  3e-05,
@@ -89,6 +93,7 @@ var (
 		SupportsPromptCaching:               true,
 	}
 	openAIGPT56TerraFallbackPricing = &LiteLLMModelPricing{
+		sourceOrigin:                        PricingSourceFallback,
 		InputCostPerToken:                   2e-06,
 		InputCostPerTokenPriority:           4e-06,
 		OutputCostPerToken:                  1.2e-05,
@@ -103,6 +108,7 @@ var (
 		SupportsPromptCaching:               true,
 	}
 	openAIGPT56LunaFallbackPricing = &LiteLLMModelPricing{
+		sourceOrigin:                        PricingSourceFallback,
 		InputCostPerToken:                   2e-07,
 		InputCostPerTokenPriority:           4e-07,
 		OutputCostPerToken:                  1.2e-06,
@@ -117,6 +123,7 @@ var (
 		SupportsPromptCaching:               true,
 	}
 	openAIGPT54MiniFallbackPricing = &LiteLLMModelPricing{
+		sourceOrigin:            PricingSourceFallback,
 		InputCostPerToken:       7.5e-07,
 		OutputCostPerToken:      4.5e-06,
 		CacheReadInputTokenCost: 7.5e-08,
@@ -125,6 +132,7 @@ var (
 		SupportsPromptCaching:   true,
 	}
 	openAIGPT54NanoFallbackPricing = &LiteLLMModelPricing{
+		sourceOrigin:            PricingSourceFallback,
 		InputCostPerToken:       2e-07,
 		OutputCostPerToken:      1.25e-06,
 		CacheReadInputTokenCost: 2e-08,
@@ -137,6 +145,8 @@ var (
 // LiteLLMModelPricing LiteLLM价格数据结构
 // 只保留我们需要的字段，使用指针来处理可能缺失的值
 type LiteLLMModelPricing struct {
+	sourceOrigin  string
+	fieldSources  map[string]string
 	PriceVariants []ModelPriceVariant `json:"price_variants,omitempty"`
 	// sourceQuotes retain missing versus explicit zero for comparisons and billing.
 	// Billing reads field presence only; capability approval never uses them.
@@ -625,7 +635,8 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 	if err := json.Unmarshal(body, &rawData); err != nil {
 		return nil, fmt.Errorf("parse raw JSON: %w", err)
 	}
-	rawData = s.applyPricingOverrides(rawData)
+	overrides := s.loadPricingOverrideEntries()
+	rawData = applyPricingOverrideEntries(rawData, overrides)
 
 	result := make(map[string]*LiteLLMModelPricing)
 	skipped := 0
@@ -658,6 +669,8 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		}
 
 		pricing := &LiteLLMModelPricing{
+			sourceOrigin:          PricingSourceLiteLLM,
+			fieldSources:          map[string]string{},
 			sourceQuotes:          pricingEntryQuotes(modelName, rawEntry),
 			exactTokenRates:       readExactTokenRates(rawEntry),
 			PriceVariants:         cloneModelPriceVariants(entry.PriceVariants),
@@ -667,6 +680,16 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 			SupportsServiceTier:   entry.SupportsServiceTier,
 			TokenPricingAbsent:    tokenPricingAbsent,
 		}
+		var fields, patch map[string]json.RawMessage
+		_ = json.Unmarshal(rawEntry, &fields)
+		_ = json.Unmarshal(overrides[modelName], &patch)
+		for field := range fields {
+			pricing.fieldSources[field] = PricingSourceLiteLLM
+			if value, ok := patch[field]; ok && string(value) != "null" {
+				pricing.fieldSources[field] = "operator_override"
+			}
+		}
+		pricing.sourceOrigin = pricingSourceSummary(pricing.fieldSources)
 
 		if entry.InputCostPerToken != nil {
 			pricing.InputCostPerToken = *entry.InputCostPerToken
@@ -924,6 +947,10 @@ func warnOrphanCacheTierFields(entries []string) {
 // 统一并入——若在此处抢先建条目，纯 override 条目会挡住回退文件中同名完整条目的合并。
 func (s *PricingService) applyPricingOverrides(rawData map[string]json.RawMessage) map[string]json.RawMessage {
 	overrides := s.loadPricingOverrideEntries()
+	return applyPricingOverrideEntries(rawData, overrides)
+}
+
+func applyPricingOverrideEntries(rawData, overrides map[string]json.RawMessage) map[string]json.RawMessage {
 	if len(overrides) == 0 {
 		return rawData
 	}
@@ -1023,6 +1050,12 @@ func (s *PricingService) mergeOverrideOnlyModels(data map[string]*LiteLLMModelPr
 	// 对已存在条目做的自我修补是幂等的，不会二次改值。
 	if body, err := json.Marshal(leftover); err == nil {
 		if parsed, err := s.parsePricingData(body); err == nil {
+			for _, value := range parsed {
+				for field := range value.fieldSources {
+					value.fieldSources[field] = "operator_override"
+				}
+				value.sourceOrigin = "operator_override"
+			}
 			maps.Copy(data, parsed)
 		}
 	}
@@ -1114,6 +1147,12 @@ func (s *PricingService) mergeFallbackPricingData(data map[string]*LiteLLMModelP
 		if _, ok := data[modelName]; ok {
 			continue
 		}
+		for field, source := range pricing.fieldSources {
+			if source == PricingSourceLiteLLM {
+				pricing.fieldSources[field] = PricingSourceFallback
+			}
+		}
+		pricing.sourceOrigin = pricingSourceSummary(pricing.fieldSources)
 		data[modelName] = pricing
 		merged++
 	}
@@ -1255,6 +1294,11 @@ func (s *PricingService) validatePricingURL(raw string) (string, error) {
 
 // GetModelPricing 获取模型价格（带模糊匹配）
 func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing {
+	bound, err := s.BoundPricingModel("", modelName)
+	if err != nil {
+		return nil
+	}
+	modelName = bound
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -1264,6 +1308,11 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 
 	// 标准化模型名称（同时兼容 "models/xxx"、VertexAI 资源名等前缀）
 	modelLower := strings.ToLower(strings.TrimSpace(modelName))
+	// A bound provider/model key is a complete identity. Canonical spelling
+	// aliases must not replace an explicit tariff from another namespace.
+	if price := s.pricingData[modelLower]; price != nil {
+		return price
+	}
 	lookupCandidates := s.buildModelLookupCandidates(modelLower)
 
 	// 1~3. 确定性识别（精确名 / 已知拼写变体 / 去掉日期版本后缀）
@@ -1319,17 +1368,21 @@ func (s *PricingService) lookupIdentifiedModelPricingLocked(lookupCandidates []s
 	baseName := s.extractBaseName(lookupCandidates[0])
 	index := s.baseNameIndex.Load()
 	if index != nil && index.revision == s.pricingRevision {
-		if matches := index.byName[baseName]; len(matches) > 0 {
+		if matches := index.byName[baseName]; len(matches) == 1 {
 			return matches[0]
 		}
 		return nil
 	}
+	var selected *LiteLLMModelPricing
 	for key, pricing := range s.pricingData {
 		if s.extractBaseName(strings.ToLower(key)) == baseName {
-			return pricing
+			if selected != nil && selected != pricing {
+				return nil
+			}
+			selected = pricing
 		}
 	}
-	return nil
+	return selected
 }
 
 // GetIdentifiedModelPricing 在价格表中确定性地识别模型，识别不到时返回 nil。
@@ -1339,12 +1392,20 @@ func (s *PricingService) GetIdentifiedModelPricing(modelName string) *LiteLLMMod
 	if s == nil {
 		return nil
 	}
+	bound, err := s.BoundPricingModel("", modelName)
+	if err != nil {
+		return nil
+	}
+	modelName = bound
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	modelLower := strings.ToLower(strings.TrimSpace(modelName))
 	if modelLower == "" {
 		return nil
+	}
+	if price := s.pricingData[modelLower]; price != nil {
+		return price
 	}
 	return s.lookupIdentifiedModelPricingLocked(s.buildModelLookupCandidates(modelLower))
 }
@@ -1591,12 +1652,21 @@ func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
 		lookups = matched.match
 	}
 	for _, pattern := range lookups {
+		if price := s.pricingData[pattern]; price != nil {
+			return price
+		}
+		var selected *LiteLLMModelPricing
 		for key, pricing := range s.pricingData {
 			keyLower := strings.ToLower(key)
 			if strings.Contains(keyLower, pattern) {
-				logger.LegacyPrintf("service.pricing", "[Pricing] Fuzzy matched %s -> %s", model, key)
-				return pricing
+				if selected != nil && selected != pricing {
+					return nil
+				}
+				selected = pricing
 			}
+		}
+		if selected != nil {
+			return selected
 		}
 	}
 

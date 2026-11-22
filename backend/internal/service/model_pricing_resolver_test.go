@@ -37,9 +37,9 @@ func TestResolve_NoGroupID(t *testing.T) {
 	require.Equal(t, BillingModeToken, resolved.Mode)
 	require.NotNil(t, resolved.BasePricing)
 	require.InDelta(t, 3e-6, resolved.BasePricing.InputPricePerToken, 1e-12)
-	// BillingService.GetModelPricing uses fallback internally, but resolveBasePricing
-	// reports "litellm" when GetModelPricing succeeds (regardless of internal source)
-	require.Equal(t, "litellm", resolved.Source)
+	// The resolver retains the actual source instead of relabeling a successful
+	// hardcoded lookup as a downloaded LiteLLM price.
+	require.Equal(t, PricingSourceFallback, resolved.Source)
 }
 
 func TestResolve_UnknownModel(t *testing.T) {

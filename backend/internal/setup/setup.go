@@ -542,6 +542,10 @@ func writeConfigFile(cfg *SetupConfig) error {
 
 	// Prepare config for YAML (exclude sensitive data and admin config)
 	yamlConfig := struct {
+		ModelCatalogRefreshEnabled bool `yaml:"model_catalog_refresh_enabled"`
+		Log                        struct {
+			Format string `yaml:"format"`
+		} `yaml:"log"`
 		Server   ServerConfig   `yaml:"server"`
 		Database DatabaseConfig `yaml:"database"`
 		Redis    RedisConfig    `yaml:"redis"`
@@ -557,6 +561,10 @@ func writeConfigFile(cfg *SetupConfig) error {
 		} `yaml:"default"`
 		Timezone string `yaml:"timezone"`
 	}{
+		ModelCatalogRefreshEnabled: config.DefaultModelCatalogRefreshEnabled,
+		Log: struct {
+			Format string `yaml:"format"`
+		}{Format: config.DefaultLogFormat},
 		Server:   cfg.Server,
 		Database: cfg.Database,
 		Redis:    cfg.Redis,

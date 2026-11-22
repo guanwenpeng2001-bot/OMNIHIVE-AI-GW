@@ -194,6 +194,37 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/IdentityError'
+  /api/v2/workspaces/{workspace_id}/access:
+    parameters:
+    - $ref: '#/components/parameters/IdentityWorkspaceID'
+    get:
+      operationId: identityWorkspaceAccess
+      summary: Read current actions in workspace aggregate scope
+      parameters: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - code
+                - message
+                - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/IdentityAccess'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
   /api/v2/workspaces/{workspace_id}/projects/{project_id}/access:
     parameters:
     - $ref: '#/components/parameters/IdentityWorkspaceID'
@@ -502,6 +533,53 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/IdentityError'
+  /api/v2/workspaces/{workspace_id}/members/{id}/grants/projects/{project_id}:
+    parameters:
+    - $ref: '#/components/parameters/IdentityWorkspaceID'
+    - $ref: '#/components/parameters/IdentityProjectID'
+    - name: id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/IdentityID'
+    put:
+      operationId: identitySetProjectGrants
+      summary: Replace direct actions for one member and project without altering other projects
+      parameters:
+      - $ref: '#/components/parameters/IdentityVersion'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [actions]
+              properties:
+                actions:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Updated under the member grant version
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/IdentityGrantVersion'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
   /api/v2/workspaces/{workspace_id}/operations/{id}:
     parameters:
     - $ref: '#/components/parameters/IdentityWorkspaceID'
@@ -662,7 +740,10 @@ components:
         workspace_id:
           $ref: '#/components/schemas/IdentityID'
         project_id:
-          $ref: '#/components/schemas/IdentityID'
+          description: Explicit project ID, or zero for workspace aggregate access.
+          anyOf:
+          - $ref: '#/components/schemas/IdentityID'
+          - const: '0'
         actions:
           type: array
           items:
@@ -681,6 +762,15 @@ components:
       - owner_id
       - version
       - credential
+      - status
+      - expires_at
+      - evaluated_at
+      - actions
+      - model_access
+      - excluded_models
+      - model_policy_source
+      - group_id
+      - platform
       properties:
         id:
           $ref: '#/components/schemas/IdentityID'
@@ -696,6 +786,42 @@ components:
           type:
           - string
           - 'null'
+        status:
+          type: string
+          description: Effective credential lifecycle; unknown values must not be treated as executable.
+        expires_at:
+          type: [string, 'null']
+          format: date-time
+        evaluated_at:
+          type: string
+          format: date-time
+        actions:
+          type: array
+          items:
+            type: string
+        model_access:
+          type: object
+          required: [mode, ids]
+          properties:
+            mode:
+              type: string
+              enum: [inherit, allow_list, deny_all]
+            ids:
+              type: array
+              items:
+                type: string
+        group_id:
+          type: [string, 'null']
+        excluded_models:
+          type: array
+          items:
+            type: string
+          description: Effective provider-qualified exclusions; applies even when model_access inherits.
+        model_policy_source:
+          type: string
+          enum: [model_access_rules, legacy_intersection, legacy_only]
+        platform:
+          type: string
     IdentityKeyInput:
       type: object
       required:
@@ -774,6 +900,26 @@ components:
       allOf:
       - $ref: '#/components/schemas/IdentityGrantVersion'
       - $ref: '#/components/schemas/IdentityGrantInput'
+      - type: object
+        required: [project_grants, delegable_actions]
+        properties:
+          project_grants:
+            type: array
+            description: Authoritative paired project actions; legacy arrays are a lossy projection.
+            items:
+              type: object
+              required: [project_id, actions]
+              properties:
+                project_id:
+                  $ref: '#/components/schemas/IdentityID'
+                actions:
+                  type: array
+                  items:
+                    type: string
+          delegable_actions:
+            type: array
+            items:
+              type: string
     IdentityMember:
       type: object
       required: [id, user_id, email, username, role, status, version]

@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"log/slog"
 	"slices"
 	"sort"
 	"strings"
@@ -42,7 +43,8 @@ func (r *Reader) Snapshot(ctx context.Context, p Perspective, asOf time.Time) (S
 	out := Project(p, input, window, asOf)
 	if current && p.Public() && r.publications != nil && r.shouldPublish(out.Version, now) {
 		if err := r.publications.Publish(ctx, out, input.RegistryVersion, now); err != nil {
-			return Snapshot{}, err
+			slog.WarnContext(ctx, "catalog publication failed; returning verified projection", "error", err)
+			return out, nil
 		}
 		r.markPublished(out.Version, now)
 	}
@@ -124,16 +126,27 @@ func canonicalModel(name string, entries []RegistryModel) string {
 func projectModel(p Perspective, m Candidate, entries []RegistryModel, w Window, metrics Metrics) Detail {
 	summary := Summary{
 		ID: StableID(m.Provider, m.Model), Model: m.Model, DisplayName: m.Model, Provider: m.Provider,
-		Maturity: "unknown", CatalogState: "listed", AvailabilityState: "catalog_only", AccessState: "requires_scope", RouteState: "requires_scope",
+		Maturity: "unknown", CatalogState: "listed", AvailabilityState: "unknown", AccessState: "requires_scope", RouteState: "requires_scope",
+		PublicationState: "draft", Origins: []string{},
 		Modalities: []string{}, Protocols: []string{}, Actions: []string{}, Regions: []string{},
 		EvidenceState: "unknown",
 	}
-	d := Detail{Model: summary, Aliases: []string{}, Facts: []ModelFacts{}, Capabilities: []Capability{},
-		Endpoints: []Endpoint{}, AdditionalRates: []RateBand{}, TimeBands: []TimeBand{}, Benchmarks: []Benchmark{}, Redactions: []string{}}
+	if m.Published {
+		summary.PublicationState = "published"
+	}
+	d := Detail{Model: summary, Aliases: []string{}, Facts: []ModelFacts{}, Capabilities: []Capability{}, GroupPrices: map[int64]Price{}, PriceKind: "sale",
+		LegacyAvailability: "catalog_only",
+		Endpoints:          []Endpoint{}, AdditionalRates: []RateBand{}, TimeBands: []TimeBand{}, Benchmarks: []Benchmark{}, Redactions: []string{}}
+	for _, offer := range m.Offers {
+		if !offer.CatalogOnly {
+			d.LegacyAvailability = "live"
+			break
+		}
+	}
 	var contexts []ModelFacts
 	displayName, conflictingName := "", false
 	for _, entry := range entries {
-		if entry.Facts.Source != "approved_registry" {
+		if !PublicEvidence(entry.Facts.Evidence) {
 			continue
 		}
 		if entry.DisplayName != "" {
@@ -151,12 +164,8 @@ func projectModel(p Perspective, m Candidate, entries []RegistryModel, w Window,
 	if displayName != "" && !conflictingName {
 		d.Model.DisplayName = displayName
 	}
-	for _, offer := range m.Offers {
-		if offer.Eligible && !offer.CatalogOnly {
-			d.Model.AvailabilityState = "live"
-		}
-	}
 	if p.Public() {
+		d.Model.AvailabilityState = "requires_scope"
 		d.Redactions = []string{"endpoints", "scoped_evidence", "scoped_metrics", "scoped_prices"}
 		d.Metrics = unavailableMetrics(w, "withheld")
 	} else {
@@ -164,6 +173,18 @@ func projectModel(p Perspective, m Candidate, entries []RegistryModel, w Window,
 		d.Model.AccessState, d.Model.RouteState = "denied", "unknown"
 		var scopedFacts []ModelFacts
 		for _, offer := range m.Offers {
+			if p.EndpointMetadata {
+				d.Offers = append(d.Offers, OfferDiagnostic{GroupID: offer.GroupID, AccountIDs: stringsSorted(offer.AccountIDs), Accounts: unique(offer.Accounts), Access: offer.Access, Eligible: offer.Eligible, DiscoveredOnly: offer.CatalogOnly, Price: offer.Price})
+			}
+			if offer.Access && !offer.CatalogOnly && offer.GroupID > 0 {
+				if existing, ok := d.GroupPrices[offer.GroupID]; ok {
+					if existing.BillingState != "conflict" {
+						d.GroupPrices[offer.GroupID] = commonPrice([]Offer{{Access: true, GroupID: offer.GroupID, Price: existing}, offer}, false)
+					}
+				} else {
+					d.GroupPrices[offer.GroupID] = offer.Price
+				}
+			}
 			if offer.Access && offer.Eligible && !offer.CatalogOnly && offer.GroupID > 0 && !slices.Contains(d.EligibleGroups, offer.GroupID) {
 				d.EligibleGroups = append(d.EligibleGroups, offer.GroupID)
 			}
@@ -172,6 +193,14 @@ func projectModel(p Perspective, m Candidate, entries []RegistryModel, w Window,
 			}
 			if offer.Eligible && !offer.CatalogOnly {
 				d.Model.RouteState = "eligible"
+				if offer.Access {
+					if d.Model.AvailabilityState != "live" {
+						d.Model.AvailabilityState = "eligible"
+					}
+					if offer.VerifiedLive {
+						d.Model.AvailabilityState = "live"
+					}
+				}
 			}
 			scopedFacts = append(scopedFacts, offer.Facts...)
 			d.Capabilities = append(d.Capabilities, offer.Capabilities...)
@@ -206,6 +235,10 @@ func projectModel(p Perspective, m Candidate, entries []RegistryModel, w Window,
 		}
 	}
 	fillBuiltinFacts(&d, contexts)
+	for _, fact := range d.Facts {
+		d.Model.Origins = append(d.Model.Origins, fact.Source)
+	}
+	d.Model.Origins = stringsSorted(d.Model.Origins)
 	d.Facts = unique(d.Facts)
 	d.Capabilities = unique(d.Capabilities)
 	d.Endpoints = mergeEndpoints(d.Endpoints)
@@ -235,10 +268,19 @@ func projectModel(p Perspective, m Candidate, entries []RegistryModel, w Window,
 		d.ReferencePrice = piReferencePrice(d.Model.Provider, d.Model.Model)
 	}
 	d.Model.PriceState, d.Model.Input, d.Model.Output = price.State, price.Input, price.Output
+	d.Model.BillingState, d.Model.BillingReason = price.BillingState, price.Reason
+	if d.Model.BillingState == "" {
+		d.Model.BillingState = "missing"
+		if price.State == "priced" || price.State == "free" {
+			d.Model.BillingState = "priced"
+		}
+	}
 	d.PriceSource, d.ContextBasis = price.Source, price.ContextBasis
+	d.PriceProvenance = price.Provenance
+	d.Model.ReferencePrice, d.Model.PriceSource, d.Model.Metrics = d.ReferencePrice, d.PriceSource, &d.Metrics
 	d.AdditionalRates, d.TimeBands = price.Additional, price.TimeBands
 	if price.State == "priced" || price.State == "free" {
-		version := "ref_" + Digest(price)
+		version := "sale_" + Digest(price)
 		d.PriceVersion = &version
 	}
 	return d
@@ -260,34 +302,48 @@ func commonContext(entries []ModelFacts) *int64 {
 }
 
 func commonPrice(offers []Offer, public bool) Price {
-	unpriced := Price{State: "unpriced", Source: "unavailable", Additional: []RateBand{}, TimeBands: []TimeBand{}}
+	unpriced := Price{Kind: "sale", State: "unpriced", BillingState: "missing", Source: "unavailable", Additional: []RateBand{}, TimeBands: []TimeBand{}}
 
 	var candidate *Price
+	var candidateGroup int64
 	var signature string
 	for i := range offers {
 		offer := &offers[i]
 		if offer.CatalogOnly {
 			continue
 		}
-		if (!public && !offer.Access) || (public && offer.Price.Source != "public_plaza_reference" && offer.Price.State != "error") {
+		if (!public && !offer.Access) || (public && offer.Price.Kind != "sale" && offer.Price.Source != "public_plaza_reference" && offer.Price.State != "error") {
 			continue
 		}
 		switch offer.Price.State {
 		case "error":
 			unpriced.State = "error"
+			unpriced.BillingState, unpriced.Reason = "conflict", "sale_price_error"
 			return unpriced
 		case "priced", "free":
 		default:
 			return unpriced
 		}
-		current := Digest(offer.Price)
+		comparison := offer.Price
+		comparison.Context, comparison.Source = nil, ""
+		comparison.Provenance = nil
+		current := Digest(comparison)
 		if candidate != nil && signature != current {
+			unpriced.BillingState, unpriced.Reason = "multiple_offers", "select_a_key_or_group"
+			if offer.GroupID > 0 && offer.GroupID == candidateGroup {
+				unpriced.BillingState, unpriced.Reason = "conflict", "overlapping_prices_in_group"
+			}
 			return unpriced
 		}
 		candidate, signature = &offer.Price, current
+		candidateGroup = offer.GroupID
 	}
 	if candidate != nil {
-		return *candidate
+		price := *candidate
+		if price.BillingState == "" {
+			price.BillingState = "priced"
+		}
+		return price
 	}
 	return unpriced
 }

@@ -287,7 +287,7 @@ func TestUpdateExtraNilProbeRemovesKeyInsteadOfWritingJSONNull(t *testing.T) {
 
 func TestBulkUpdateNilProbeRemovesKeyInsteadOfWritingJSONNull(t *testing.T) {
 	exec := &recordingSQLExecutor{result: rowsAffectedResult(1)}
-	repo := newAccountRepositoryWithSQL(nil, exec, nil)
+	repo := recordingAccountConfigurationRepository(t, exec)
 
 	_, err := repo.BulkUpdate(context.Background(), []int64{27}, service.AccountBulkUpdate{
 		Extra: map[string]any{service.UpstreamBillingProbeExtraKey: nil},
@@ -300,7 +300,7 @@ func TestBulkUpdateNilProbeRemovesKeyInsteadOfWritingJSONNull(t *testing.T) {
 
 func TestBulkUpdateDisablingProbeRemovesSnapshot(t *testing.T) {
 	exec := &recordingSQLExecutor{result: rowsAffectedResult(1)}
-	repo := newAccountRepositoryWithSQL(nil, exec, nil)
+	repo := recordingAccountConfigurationRepository(t, exec)
 
 	_, err := repo.BulkUpdate(context.Background(), []int64{27}, service.AccountBulkUpdate{
 		Extra: map[string]any{service.UpstreamBillingProbeEnabledExtraKey: false},
@@ -323,6 +323,7 @@ func TestBulkUpdateProbeEligibilityMismatchRollsBack(t *testing.T) {
 
 	enabled := true
 	mock.ExpectBegin()
+	expectAccountConfigurationPreflight(mock)
 	mock.ExpectExec(`(?s)UPDATE accounts SET \(extra, .*\) = .* WHERE id = ANY\(\$2\) AND deleted_at IS NULL AND type = \$3`).
 		WithArgs([]byte(`{"upstream_billing_probe_enabled":true}`), `{27,28}`, service.AccountTypeAPIKey).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -475,6 +476,7 @@ func TestBulkUpdateRollsBackWhenOutboxFails(t *testing.T) {
 
 	name := "renamed"
 	mock.ExpectBegin()
+	expectAccountConfigurationPreflight(mock)
 	mock.ExpectExec(`(?s)UPDATE accounts SET name = \$1.*WHERE id = ANY\(\$2\)`).
 		WithArgs(name, `{27,28}`).
 		WillReturnResult(sqlmock.NewResult(0, 2))

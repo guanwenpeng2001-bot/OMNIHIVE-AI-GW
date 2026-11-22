@@ -18,6 +18,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/protocol"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	pg "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/playground"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/requests"
@@ -75,6 +76,45 @@ func Register(parent *gin.RouterGroup, h *Handler, session ...gin.HandlerFunc) {
 		return err
 	}))
 	p.POST("/requests/:id/replay", middleware.GatewayRoutingConstraints(), h.route("requests.replay", h.submit))
+	p.GET("/requests/:id/replay-context", h.route("requests.replay", h.replayContext))
+}
+
+func replayProtocol(protocol string) string {
+	switch protocol {
+	case "chat_completions":
+		return "openai_chat"
+	case "responses":
+		return "openai_responses"
+	case "anthropic":
+		return "anthropic_messages"
+	case "gemini":
+		return "gemini_generate"
+	default:
+		return protocol
+	}
+}
+
+func (h *Handler) replayContext(c *gin.Context, a identity.Access) error {
+	if err := a.Require("playground.run"); err != nil {
+		return err
+	}
+	d, err := requests.NewStore(h.Gateway.DB).Detail(c.Request.Context(), requests.Projection{Scope: requests.Scope{WorkspaceID: a.WorkspaceID, ProjectID: a.ProjectID}}, c.Param("id"))
+	if err != nil {
+		return err
+	}
+	if d.Protocol == nil || d.RequestedModel == nil {
+		return fault.Invalid("/replay")
+	}
+	snapshot, err := h.Gateway.Catalog.Snapshot(c.Request.Context(), catalog.Perspective{Actor: a.ActorID, Workspace: a.WorkspaceID, Project: a.ProjectID, AccessVersion: a.Version}, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	model, err := selectModel(snapshot, *d.RequestedModel, true)
+	if err != nil {
+		return err
+	}
+	success(c, 200, gin.H{"request_id": c.Param("id"), "model_id": model.Model.ID, "protocol": replayProtocol(*d.Protocol)})
+	return nil
 }
 func (h *Handler) route(action string, fn func(*gin.Context, identity.Access) error) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -215,7 +255,7 @@ func (h *Handler) submit(c *gin.Context, a identity.Access) error {
 		if d.Protocol == nil || d.RequestedModel == nil {
 			return fault.Invalid("/replay")
 		}
-		in.Protocol, in.Model, in.Action = *d.Protocol, *d.RequestedModel, "text.chat"
+		in.Protocol, in.Model, in.Action = replayProtocol(*d.Protocol), *d.RequestedModel, "text.chat"
 		var reused bool
 		e = h.Gateway.DB.QueryRowContext(ctx, "SELECT EXISTS(SELECT FROM playground_runs WHERE request_id::text=$1 AND key_hash=$2)", parent, pg.KeyHash(key)).Scan(&reused)
 		if e != nil {

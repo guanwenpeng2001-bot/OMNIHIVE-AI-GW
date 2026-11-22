@@ -90,7 +90,13 @@ func TestW05PublicCatalogDatabaseSettingsDefaults(t *testing.T) {
 	defer db.Close()
 	settings := plazaDBSettings{db: db}
 	mock.ExpectQuery("SELECT key,value FROM settings").WillReturnRows(sqlmock.NewRows([]string{"key", "value"}))
+	require.Equal(t, service.ModelPlazaRuntime{}, settings.GetModelPlazaRuntime(context.Background()), "new installations without a persisted setting default to disabled")
+	// Existing installations retain the true value persisted by the migration
+	// snapshot; readers honor that value without inventing a legacy default.
+	mock.ExpectQuery("SELECT key,value FROM settings").WillReturnRows(sqlmock.NewRows([]string{"key", "value"}).AddRow("model_plaza_enabled", "true"))
 	require.Equal(t, service.ModelPlazaRuntime{Enabled: true}, settings.GetModelPlazaRuntime(context.Background()))
+	mock.ExpectQuery("SELECT key,value FROM settings").WillReturnRows(sqlmock.NewRows([]string{"key", "value"}).AddRow("model_plaza_enabled", "true").AddRow("model_plaza_require_auth", "true"))
+	require.Equal(t, service.ModelPlazaRuntime{Enabled: true, RequireAuth: true}, settings.GetModelPlazaRuntime(context.Background()))
 	mock.ExpectQuery("SELECT key,value FROM settings").WillReturnRows(sqlmock.NewRows([]string{"key", "value"}).AddRow("model_plaza_enabled", "false").AddRow("model_plaza_require_auth", "true"))
 	require.Equal(t, service.ModelPlazaRuntime{RequireAuth: true}, settings.GetModelPlazaRuntime(context.Background()))
 	mock.ExpectQuery("SELECT key,value FROM settings").WillReturnError(fmt.Errorf("unavailable"))

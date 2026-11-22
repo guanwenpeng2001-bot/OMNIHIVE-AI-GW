@@ -26,6 +26,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog/postgres"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
+	identitypostgres "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
@@ -57,8 +58,17 @@ func NewWithPricing(reader catalog.CatalogReader, access identity.AccessEvaluato
 		h.quotes = quotes.Service{
 			Catalog:   reader,
 			Published: published,
-			Keys:      scopedKeyPriceResolver{db: db, access: access, store: published},
+			Keys:      scopedKeyPriceResolver{db: db, access: access, store: published, reader: reader},
 		}
+	}
+	return h
+}
+
+// NewWithPricingAndKeys connects quote policy to the same service as the gateway.
+func NewWithPricingAndKeys(reader catalog.CatalogReader, access identity.AccessEvaluator, cfg *config.Config, db *sql.DB, keys *service.APIKeyService) *Handler {
+	h := NewWithPricing(reader, access, cfg, db)
+	if db != nil {
+		h.quotes.Keys = scopedKeyPriceResolver{db: db, access: access, store: pricing.VersionStore{DB: db}, keys: keys, reader: reader}
 	}
 	return h
 }
@@ -68,7 +78,7 @@ func NewWithPricing(reader catalog.CatalogReader, access identity.AccessEvaluato
 type plazaDBSettings struct{ db *sql.DB }
 
 func (s plazaDBSettings) GetModelPlazaRuntime(ctx context.Context) service.ModelPlazaRuntime {
-	runtime := service.ModelPlazaRuntime{Enabled: true}
+	values := map[string]string{}
 	rows, err := s.db.QueryContext(ctx, `SELECT key,value FROM settings WHERE key IN ('model_plaza_enabled','model_plaza_require_auth')`)
 	if err != nil {
 		return service.ModelPlazaRuntime{}
@@ -79,17 +89,12 @@ func (s plazaDBSettings) GetModelPlazaRuntime(ctx context.Context) service.Model
 		if rows.Scan(&key, &value) != nil {
 			return service.ModelPlazaRuntime{}
 		}
-		if key == "model_plaza_enabled" {
-			runtime.Enabled = value == "true"
-		}
-		if key == "model_plaza_require_auth" {
-			runtime.RequireAuth = value == "true"
-		}
+		values[key] = value
 	}
 	if rows.Err() != nil {
 		return service.ModelPlazaRuntime{}
 	}
-	return runtime
+	return service.ModelPlazaRuntimeFromValues(values)
 }
 func (h *Handler) publicGuard(session []gin.HandlerFunc) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -119,6 +124,8 @@ type scopedKeyPriceResolver struct {
 	db     *sql.DB
 	access identity.AccessEvaluator
 	store  pricing.VersionStore
+	keys   *service.APIKeyService
+	reader catalog.CatalogReader
 }
 
 func (r scopedKeyPriceResolver) ResolveKeyPrice(ctx context.Context, p catalog.Perspective, keyID int64, d catalog.Detail, protocol, action string, usage pricing.Usage, at time.Time) (pricing.Version, error) {
@@ -128,64 +135,48 @@ func (r scopedKeyPriceResolver) ResolveKeyPrice(ctx context.Context, p catalog.P
 	if _, err := r.access.Evaluate(ctx, p.Actor, p.Workspace, p.Project, "models.read"); err != nil {
 		return pricing.Version{}, err
 	}
-	var exists bool
-	err := r.db.QueryRowContext(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM api_keys k
-			WHERE k.id = $1
-			  AND k.deleted_at IS NULL
-			  AND k.status = 'active'
-			  AND (
-				EXISTS (
-					SELECT 1 FROM project_key_policies pkp
-					WHERE pkp.api_key_id = k.id AND pkp.workspace_id = $2 AND pkp.project_id = $3
-				)
-				OR EXISTS (
-					SELECT 1 FROM project_resources pr
-					WHERE pr.kind = 'api_keys' AND pr.resource_id = k.id AND pr.workspace_id = $2 AND pr.project_id = $3
-				)
-				OR (
-					k.workspace_id = $2
-					AND EXISTS (
-						SELECT 1 FROM projects d
-						WHERE d.workspace_id = $2 AND d.id = $3 AND d.is_default
-					)
-					AND NOT EXISTS (
-						SELECT 1 FROM project_key_policies pkp2
-						WHERE pkp2.api_key_id = k.id AND pkp2.workspace_id = $2 AND pkp2.project_id <> $3
-					)
-					AND NOT EXISTS (
-						SELECT 1 FROM project_resources pr2
-						WHERE pr2.kind = 'api_keys' AND pr2.resource_id = k.id AND pr2.workspace_id = $2 AND pr2.project_id <> $3
-					)
-					AND NOT EXISTS (
-						SELECT 1 FROM identity_scope_quarantine q
-						WHERE q.kind = 'api_keys' AND q.resource_id = k.id
-					)
-				)
-			  )
-		)`, keyID, p.Workspace, p.Project).Scan(&exists)
+	use, err := identitypostgres.New(r.db).AuthorizeKeyUse(ctx, p.Actor, p.Workspace, p.Project, keyID, action, []string{d.Model.Model})
 	if err != nil {
 		return pricing.Version{}, err
 	}
-	if !exists {
+	if use.Platform != "composite" && domain.CanonicalPlatform(use.Platform) != domain.CanonicalPlatform(d.Model.Provider) {
 		return pricing.Version{}, fault.NotFound
 	}
-	versions, err := r.store.At(ctx, quotes.PublicationScope(p, d.Model.ID), at)
-	if err != nil {
+	if r.keys == nil {
+		return pricing.Version{}, fault.Forbidden
+	}
+	ctx = domain.WithWorkspaceScope(ctx, p.Workspace)
+	if err := r.keys.AuthorizePricingModel(ctx, keyID, d.Model.Provider, d.Model.Model); err != nil {
 		return pricing.Version{}, err
 	}
-	if resolved, err := pricing.Resolve(pricing.Candidates{Published: versions}, at); err != nil {
-		return pricing.Version{}, err
-	} else if resolved != nil {
-		return *resolved, nil
+	if use.OwnerID != p.Actor {
+		if r.reader == nil {
+			return pricing.Version{}, &fault.Fault{Status: 503, Reason: "PRICING_UNAVAILABLE", Message: "Credential owner pricing is unavailable."}
+		}
+		payerPerspective := p
+		payerPerspective.PricingActor = use.OwnerID
+		snapshot, err := r.reader.Snapshot(ctx, payerPerspective, at)
+		if err != nil {
+			return pricing.Version{}, err
+		}
+		found := false
+		for _, ownerDetail := range snapshot.Details {
+			if ownerDetail.Model.ID == d.Model.ID {
+				d, found = ownerDetail, true
+				break
+			}
+		}
+		if !found {
+			return pricing.Version{}, fault.NotFound
+		}
 	}
-	return quotes.Reference(d, at)
+	pc := pricing.PriceContext{WorkspaceID: p.Workspace, ProjectID: p.Project, ActorID: p.Actor, PayerID: use.OwnerID, KeyID: keyID, GroupID: use.GroupID,
+		Provider: d.Model.Provider, Model: d.Model.Model, ModelID: d.Model.ID, Funding: "wallet", PolicyVersion: p.AccessVersion, CatalogVersion: d.Model.Version, PricingAt: at}
+	return quotes.ResolveSaleVersion(ctx, r.store, pc, d)
 }
 
 var ProviderSet = wire.NewSet(
-	postgres.New, legacy.NewSource, catalog.NewReader, NewWithPricing,
+	postgres.New, legacy.NewSource, catalog.NewReader, NewWithPricingAndKeys,
 	wire.Bind(new(catalog.Acquisition), new(*legacy.Source)),
 	wire.Bind(new(catalog.CatalogPublisher), new(*postgres.Store)),
 	wire.Bind(new(catalog.CatalogReader), new(*catalog.Reader)),
@@ -204,6 +195,7 @@ func Register(parent *gin.RouterGroup, h *Handler, public, session []gin.Handler
 	project.POST("/quotes", h.serve(func(ctx context.Context, p catalog.Perspective, c *gin.Context) (any, error) {
 		return h.quotes.Handle(ctx, p, c)
 	}))
+	project.GET("/model-diagnostics/:model_id", h.serve(h.diagnostics))
 }
 
 type endpoint func(context.Context, catalog.Perspective, *gin.Context) (any, error)
@@ -237,7 +229,7 @@ func (h *Handler) serve(fn endpoint) gin.HandlerFunc {
 func (h *Handler) perspective(ctx context.Context, c *gin.Context) (catalog.Perspective, error) {
 	workspace := c.Param("workspace_id")
 	if workspace == "" {
-		return catalog.Perspective{Workspace: domain.DefaultWorkspaceID}, nil
+		return catalog.Perspective{Workspace: domain.DefaultWorkspaceID, Audience: "public"}, nil
 	}
 	subject, ok := middleware.GetAuthSubjectFromContext(c)
 	if !ok || subject.UserID <= 0 {
@@ -252,7 +244,7 @@ func (h *Handler) perspective(ctx context.Context, c *gin.Context) (catalog.Pers
 		return catalog.Perspective{}, err
 	}
 	return catalog.Perspective{Actor: a.ActorID, Workspace: a.WorkspaceID, Project: a.ProjectID,
-		AccessVersion: a.Version, EndpointMetadata: a.Require("connections.read") == nil}, nil
+		AccessVersion: a.Version, EndpointMetadata: a.Require("connections.read") == nil, Audience: "scoped", ScopeKind: "project"}, nil
 }
 
 func positiveID(s string) int64 {

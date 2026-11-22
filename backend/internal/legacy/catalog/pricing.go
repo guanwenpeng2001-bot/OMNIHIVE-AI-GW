@@ -5,12 +5,13 @@ import (
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/timezone"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 func priceFor(model service.PlazaModel, group service.PlazaGroup, userRates map[int64]float64, public bool) catalog.Price {
-	price := catalog.Price{State: "unpriced", Source: "unavailable", Additional: []catalog.RateBand{}, TimeBands: []catalog.TimeBand{}}
+	price := catalog.Price{Kind: "sale", State: "unpriced", BillingState: "missing", Source: "unavailable", Additional: []catalog.RateBand{}, TimeBands: []catalog.TimeBand{}}
 	raw := model.Pricing
 	if raw == nil {
 		return price
@@ -114,14 +115,32 @@ func priceFor(model service.PlazaModel, group service.PlazaGroup, userRates map[
 		return catalog.Price{State: "error", Source: "unavailable", Additional: []catalog.RateBand{}, TimeBands: []catalog.TimeBand{}}
 	}
 	if present {
+		price.Provenance = map[string]catalog.Provenance{}
+		for field, rawField := range map[string]string{"input_rate": "input_cost_per_token", "output_rate": "output_cost_per_token", "cache_read": "cache_read_input_token_cost", "cache_write": "cache_creation_input_token_cost", "cache_write_1h": "cache_creation_input_token_cost_above_1hr", "image_input": "input_cost_per_image_token", "image_output": "output_cost_per_image_token"} {
+			if source := model.PriceProvenance[rawField]; source != "" {
+				price.Provenance[field] = catalog.Provenance{SourceKind: source, SourceRevision: model.PriceRevision, FieldPath: field, Approval: "approved", SelectedReason: "effective_operator_sale_rule"}
+			}
+		}
 		price.State = "priced"
 		if !nonzero && ((price.Input != nil && price.Output != nil) ||
 			(request != nil && raw.BillingMode != "" && raw.BillingMode != service.BillingModeToken)) {
 			price.State = "free"
 		}
-		price.Source = "scoped_plaza_reference"
-		if public {
-			price.Source = "public_plaza_reference"
+		price.Source = model.PriceSource
+		if price.Source == "" {
+			price.Source = "sale_projection"
+		}
+		if pricing.IsReferenceSource(price.Source) {
+			return catalog.Price{Kind: "sale", State: "unpriced", BillingState: "missing", Reason: "reference_is_not_a_sale", Source: "unavailable", Additional: []catalog.RateBand{}, TimeBands: []catalog.TimeBand{}}
+		}
+		price.BillingState = "priced"
+		if raw.BillingMode == "" || raw.BillingMode == service.BillingModeToken {
+			if price.Input == nil || price.Output == nil {
+				price.BillingState, price.Reason = "partial_rate", "missing_input_or_output_rate"
+			}
+		}
+		if price.BillingState == "priced" && (len(raw.Intervals) > 0 || len(price.TimeBands) > 0) {
+			price.BillingState = "conditional"
 		}
 		price.ContextBasis = string(model.LongContextBasis)
 	}

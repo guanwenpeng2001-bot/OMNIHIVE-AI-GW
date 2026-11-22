@@ -92,6 +92,11 @@ func TestProjectionRedactsPrivateEvidenceAndPreservesUnknown(t *testing.T) {
 func TestPublicBuiltinMethodPairsAndUnknownModels(t *testing.T) {
 	now := time.Now().UTC()
 	in := Input{Models: []Candidate{{Provider: "openai", Model: "gpt-5"}, {Provider: "openai", Model: "unlisted-gpt-5"}, {Provider: "other", Model: "gpt-5"}}}
+	context := int64(400000)
+	evidence := Evidence{Source: SourceBuiltin, Maturity: "stable", State: "unknown"}
+	in.Registry = []RegistryModel{{Provider: "openai", Model: "gpt-5", Facts: ModelFacts{Facts: Facts{Context: &context, ContextKind: "total", Modalities: []string{"text"}}, Evidence: evidence}, Capabilities: []Capability{
+		{Action: "text.chat", Protocol: "openai_chat", Evidence: evidence}, {Action: "text.chat", Protocol: "openai_responses", Evidence: evidence},
+	}}}
 	for _, detail := range Project(Perspective{}, in, Window{}, now).Details {
 		if detail.Model.Provider != "openai" || detail.Model.Model != "gpt-5" {
 			require.Nil(t, detail.Model.Context)
@@ -105,7 +110,7 @@ func TestPublicBuiltinMethodPairsAndUnknownModels(t *testing.T) {
 		require.Contains(t, detail.Model.Actions, "text.chat")
 		require.NotEmpty(t, detail.Capabilities)
 		for _, capability := range detail.Capabilities {
-			require.Equal(t, "approved_registry", capability.Source)
+			require.Equal(t, SourceBuiltin, capability.Source)
 			require.Nil(t, capability.VerifiedAt)
 		}
 		require.Equal(t, "requires_scope", detail.Model.RouteState)

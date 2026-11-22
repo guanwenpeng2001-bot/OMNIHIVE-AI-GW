@@ -87,7 +87,7 @@ func TestBulkUpdateAndUpdateExtraSQLClearRuntimeObservationsOnIdentityChange(t *
 	}
 	t.Run("bulk_non_secret_credentials", func(t *testing.T) {
 		exec := &credentialGuardRecordingExecutor{recording: recordingSQLExecutor{result: rowsAffectedResult(1)}}
-		repository := newAccountRepositoryWithSQL(nil, exec, nil)
+		repository := recordingAccountConfigurationRepository(t, &exec.recording)
 		count, err := repository.BulkUpdate(context.Background(), []int64{42}, service.AccountBulkUpdate{Credentials: map[string]any{"base_url": "https://replacement.example"}})
 		require.NoError(t, err)
 		require.Equal(t, int64(1), count)

@@ -642,19 +642,8 @@ func (r *accountRepository) updateLockedAccount(
 	// Adoption takes FOR UPDATE on the same account row. Check ownership after
 	// locking it and before changing credentials or triggering the legacy fence.
 	if configurationOnly {
-		rows, err := client.QueryContext(ctx, `SELECT account_id FROM provider_connections WHERE account_id=$1 AND NOT legacy_dirty`, account.ID)
-		if err != nil {
+		if err := requireLegacyAccountConfiguration(ctx, client, []int64{account.ID}); err != nil {
 			return nil, err
-		}
-		managed := rows.Next()
-		if err := rows.Close(); err != nil {
-			return nil, err
-		}
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
-		if managed {
-			return nil, service.ErrAccountConnectionManaged
 		}
 	}
 	current, err := client.Account.Get(ctx, account.ID)
@@ -3472,6 +3461,15 @@ func ollamaCloudUsageSnapshotClearRequested(extra map[string]any) bool {
 }
 
 func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates service.AccountBulkUpdate) (int64, error) {
+	if accountBulkPlanObservation(ctx, ids, updates) && runtimeIdentityGuardRequired(ctx, ids[0]) {
+		var count int64
+		err := r.withRuntimeIdentity(ctx, ids[0], service.AccountRuntimeCacheSuffix(ctx, ids[0]), func(lockedCtx context.Context, repository *accountRepository) error {
+			var err error
+			count, err = repository.BulkUpdate(lockedCtx, ids, updates)
+			return err
+		})
+		return count, err
+	}
 	// Management secrets require the per-account encrypted/reference write path;
 	// the generic bulk JSONB merge must never persist them inline.
 	if hasCredentialSecrets(updates.Credentials) {
@@ -3692,6 +3690,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	contextTx := dbent.TxFromContext(ctx)
 	exec := r.sql
 	var tx *dbent.Tx
+	var sqlTx *sql.Tx
 	if contextTx != nil {
 		exec = contextTx.Client()
 	} else if r.client != nil {
@@ -3704,9 +3703,27 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 			defer func() { _ = tx.Rollback() }()
 			ctx = dbent.NewTxContext(ctx, tx)
 			exec = tx.Client()
+		} else if errors.Is(txErr, dbent.ErrTxStarted) {
+			exec = r.client
 		}
+	} else if database, ok := r.sql.(*sql.DB); ok {
+		var err error
+		sqlTx, err = database.BeginTx(ctx, nil)
+		if err != nil {
+			return 0, err
+		}
+		defer func() { _ = sqlTx.Rollback() }()
+		exec = sqlTx
+	} else if _, transactional := r.sql.(*sql.Tx); !transactional {
+		return 0, errors.New("account configuration transaction is unavailable")
 	}
 
+	planObservation := accountBulkPlanObservation(ctx, ids, updates)
+	if !planObservation {
+		if _, err := lockLegacyAccountConfigurations(ctx, exec, ids); err != nil {
+			return 0, err
+		}
+	}
 	if err := validateBulkCopilotNousCredentials(ctx, exec, ids, updates.Credentials); err != nil {
 		return 0, err
 	}
@@ -3715,7 +3732,27 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 			return 0, err
 		}
 	}
+	if planObservation {
+		// A plan observation is not a credential identity replacement. Keep all
+		// configuration and financial/runtime counters unchanged; the connection
+		// trigger revokes the old verification and publishes a diagnostic event.
+		payload, err := json.Marshal(updates.Credentials)
+		if err != nil {
+			return 0, err
+		}
+		query = "UPDATE accounts SET credentials=COALESCE(credentials,'{}'::jsonb)||$1::jsonb,updated_at=NOW() WHERE id=$2 AND platform='openai' AND deleted_at IS NULL" + workspaceClause(ctx, "workspace_id")
+		args = []any{string(payload), ids[0]}
+		if _, err := exec.ExecContext(ctx, "SELECT set_config('omnihive.connection_observation_account',$1,true)", strconv.FormatInt(ids[0], 10)); err != nil {
+			return 0, err
+		}
+	}
 	result, err := exec.ExecContext(ctx, query, args...)
+	if planObservation {
+		_, clearErr := exec.ExecContext(ctx, "SELECT set_config('omnihive.connection_observation_account','',true)")
+		if err == nil {
+			err = clearErr
+		}
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -3745,6 +3782,11 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	}
 	if tx != nil {
 		if err := tx.Commit(); err != nil {
+			return 0, err
+		}
+	}
+	if sqlTx != nil {
+		if err := sqlTx.Commit(); err != nil {
 			return 0, err
 		}
 	}
@@ -4690,6 +4732,9 @@ func (r *accountRepository) CommitAccountModelCatalog(ctx context.Context, id in
 			return service.ErrAccountModelCatalogConflict
 		}
 		if freezeSelectionBaseline {
+			if err := requireLegacyAccountConfiguration(ctx, tx.Client(), []int64{id}); err != nil {
+				return err
+			}
 			frozenMapping = service.FrozenAccountModelSelection(current, baseline)
 			patch[service.ModelSelectionBaselineFrozenExtraKey] = true
 			if len(frozenMapping) == 0 {
@@ -4778,6 +4823,13 @@ func (r *accountRepository) ReplaceAccountModelSelectionScope(ctx context.Contex
 	defer func() { _ = tx.Rollback() }()
 	// Selection is explicit configuration, independent of discovery snapshots.
 	// Identity and rules still serialize genuine concurrent configuration edits.
+	locked, err := lockLegacyAccountConfigurations(ctx, tx.Client(), []int64{id})
+	if err != nil {
+		return nil, err
+	}
+	if len(locked) != 1 {
+		return nil, service.ErrAccountNotFound
+	}
 	result, err := tx.ExecContext(ctx, `UPDATE accounts SET
  credentials = CASE WHEN $5::boolean THEN jsonb_set(COALESCE(credentials,'{}'::jsonb),'{model_mapping}',$6::jsonb) ELSE credentials END,
  extra = COALESCE(extra,'{}'::jsonb) || jsonb_build_object(

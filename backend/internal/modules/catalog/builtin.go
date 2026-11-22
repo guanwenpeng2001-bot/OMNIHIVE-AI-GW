@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
@@ -28,17 +29,55 @@ type builtinModel struct {
 	Reasoning   *bool    `json:"supports_reasoning"`
 	Vision      *bool    `json:"supports_vision"`
 	fromPi      bool
+	source      string
+	version     string
 }
 
-var builtinModels = sync.OnceValue(func() map[[2]string]builtinModel {
-	var release struct {
-		Records []builtinModel `json:"records"`
+type approvedInventory struct{ models map[[2]string]builtinModel }
+
+var approvedModels atomic.Pointer[approvedInventory]
+
+// PublishApprovedInventory accepts only the already verified registry projection.
+// It is a compatibility index, never a second decoder or approval authority.
+func PublishApprovedInventory(version string, entries []RegistryModel) {
+	index := make(map[[2]string]builtinModel, len(entries))
+	for _, entry := range entries {
+		f := entry.Facts
+		m := builtinModel{Provider: entry.Provider, Model: entry.Model, DisplayName: entry.DisplayName,
+			ContextKind: f.ContextKind, Inputs: slices.Clone(f.Modalities), Reasoning: f.Reasoning, Vision: f.Vision,
+			source: f.Source, version: version}
+		if f.Context != nil {
+			m.Context = *f.Context
+		}
+		if f.Output != nil {
+			m.Output = *f.Output
+		}
+		for _, capability := range entry.Capabilities {
+			switch capability.Protocol {
+			case "openai_chat":
+				m.Methods = append(m.Methods, "chat_completions")
+			case "openai_responses":
+				m.Methods = append(m.Methods, "responses")
+			case "anthropic_messages":
+				m.Methods = append(m.Methods, "messages")
+			case "gemini_generate":
+				m.Methods = append(m.Methods, "generateContent")
+			case "openai_embeddings":
+				m.Methods = append(m.Methods, "embeddings")
+			}
+		}
+		key := [2]string{m.Provider, m.Model}
+		if _, exists := index[key]; !exists {
+			index[key] = m
+		}
 	}
-	if err := json.Unmarshal(modelcapabilities.JSON(), &release); err != nil {
-		panic(err)
-	}
+	approvedModels.Store(&approvedInventory{models: index})
+}
+
+var referenceModels = sync.OnceValue(func() map[[2]string]builtinModel {
 	var pi struct {
 		SchemaVersion int            `json:"schema_version"`
+		SourceVersion string         `json:"source_version"`
 		Records       []builtinModel `json:"records"`
 	}
 	if err := json.Unmarshal(modelcapabilities.PiSupplementJSON(), &pi); err != nil {
@@ -47,11 +86,9 @@ var builtinModels = sync.OnceValue(func() map[[2]string]builtinModel {
 	if pi.SchemaVersion != 1 {
 		panic("unsupported compiled pi capability supplement schema")
 	}
-	index := make(map[[2]string]builtinModel, len(release.Records)+len(supplementalBuiltinModels)+len(pi.Records))
-	for _, record := range release.Records {
-		index[[2]string{record.Provider, record.Model}] = record
-	}
+	index := make(map[[2]string]builtinModel, len(supplementalBuiltinModels)+len(pi.Records))
 	for _, sup := range supplementalBuiltinModels {
+		sup.source, sup.version = SourceOperator, "legacy-supplement-v1"
 		key := [2]string{sup.Provider, sup.Model}
 		if _, exists := index[key]; !exists {
 			index[key] = sup
@@ -61,11 +98,25 @@ var builtinModels = sync.OnceValue(func() map[[2]string]builtinModel {
 		key := [2]string{record.Provider, record.Model}
 		if _, exists := index[key]; !exists {
 			record.fromPi = true
+			record.source, record.version = SourcePI, pi.SourceVersion
 			index[key] = record
 		}
 	}
 	return index
 })
+
+func builtinModels() map[[2]string]builtinModel {
+	index := make(map[[2]string]builtinModel, len(referenceModels()))
+	for key, model := range referenceModels() {
+		index[key] = model
+	}
+	if approved := approvedModels.Load(); approved != nil {
+		for key, model := range approved.models {
+			index[key] = model
+		}
+	}
+	return index
+}
 
 var supplementalBuiltinModels = []builtinModel{
 	{Provider: "openai", Model: "codex/gpt-6.2-astra", Mode: "chat", Context: 400000, ContextKind: "total", Methods: []string{"chat_completions", "responses"}, Inputs: []string{"text", "image"}, Outputs: []string{"text"}},
@@ -89,18 +140,24 @@ var supplementalBuiltinModels = []builtinModel{
 }
 
 func fillBuiltinFacts(d *Detail, contexts []ModelFacts) {
-	m, ok := builtinModels()[[2]string{d.Model.Provider, d.Model.Model}]
-	if !ok {
+	// The acquired revision is the only authority for approved facts. Reference
+	// inventory is allowed to describe otherwise unknown candidates, not replace
+	// deliberate omissions or suppressed fields from a reviewed entry.
+	if slices.ContainsFunc(d.Facts, func(f ModelFacts) bool {
+		return PublicEvidence(f.Evidence) && f.Source != SourcePI && f.Source != SourceOperator
+	}) {
 		return
 	}
-	if m.fromPi && slices.ContainsFunc(d.Facts, func(f ModelFacts) bool { return f.Source == "approved_registry" }) {
+	m, ok := referenceModels()[[2]string{d.Model.Provider, d.Model.Model}]
+	if !ok {
 		return
 	}
 	missingModalities := len(d.Model.Modalities) == 0
 	modalities, actions := TaskPresentation(m.Mode)
 	d.Model.Actions = append(d.Model.Actions, actions...)
 	d.Model.Modalities = append(d.Model.Modalities, modalities...)
-	evidence := Evidence{Source: "approved_registry", Maturity: "unknown", State: "unknown"}
+	evidence := Evidence{Source: m.source, Maturity: "unknown", State: "unknown"}
+	evidence.Provenance = map[string]Provenance{"protocol": {SourceKind: m.source, SourceRevision: m.version, FieldPath: "protocol", Approval: "reference", SelectedReason: "descriptive_reference_only"}}
 	facts := ModelFacts{Evidence: evidence}
 	if m.fromPi {
 		if d.Model.DisplayName == d.Model.Model {
@@ -142,6 +199,7 @@ func fillBuiltinFacts(d *Detail, contexts []ModelFacts) {
 		}
 	}
 	if facts.Context != nil || len(facts.Modalities) != 0 || facts.Output != nil || facts.Reasoning != nil || facts.Vision != nil {
+		AttachProvenance(&facts, m.version, "reference", "fills_unreviewed_candidate")
 		d.Facts = append(d.Facts, facts)
 		if facts.Context != nil {
 			d.Model.Context = facts.Context
@@ -152,7 +210,7 @@ func fillBuiltinFacts(d *Detail, contexts []ModelFacts) {
 		return
 	}
 
-	for _, method := range BuiltinMethods(m.Provider, m.Model) {
+	for _, method := range builtinMethods(m) {
 		action, protocol, adapter := GatewayAction(method)
 		identity := domain.ActionIdentity{Platform: m.Provider, HostedAccountType: domain.HostedAccountType(m.Provider)}
 		if adapter != "" && domain.PlatformAction(identity, adapter).Status == domain.ActionImplemented {
@@ -167,10 +225,20 @@ func fillBuiltinFacts(d *Detail, contexts []ModelFacts) {
 // chat-mode record can supply the provider’s standard text method when the
 // release has no method list. Endpoint availability is checked separately.
 func BuiltinMethods(provider, model string) []string {
-	m, ok := builtinModels()[[2]string{provider, model}]
+	key := [2]string{provider, model}
+	if approved := approvedModels.Load(); approved != nil {
+		if m, ok := approved.models[key]; ok {
+			return builtinMethods(m)
+		}
+	}
+	m, ok := referenceModels()[key]
 	if !ok {
 		return nil
 	}
+	return builtinMethods(m)
+}
+
+func builtinMethods(m builtinModel) []string {
 	methods := m.Methods
 	if len(methods) == 0 && m.Mode == "chat" {
 		switch m.Provider {
@@ -199,6 +267,12 @@ var piTokenPrices = sync.OnceValue(func() map[string]piTokenRates {
 	return prices
 })
 
+var referenceInventoryVersion = sync.OnceValue(func() string {
+	return Digest([2]string{string(modelcapabilities.PiSupplementJSON()), string(modelpricing.PiSupplementJSON())})
+})
+
+func ReferenceInventoryVersion() string { return referenceInventoryVersion() }
+
 func piReferencePrice(provider, model string) *Price {
 	rates, ok := piTokenPrices()[provider+"/"+model]
 	if !ok || rates.Provider != provider {
@@ -212,5 +286,5 @@ func piReferencePrice(provider, model string) *Price {
 	if err != nil {
 		return nil
 	}
-	return &Price{State: "reference", Source: "pi-ai", Input: &in, Output: &out}
+	return &Price{Kind: "reference", State: "reference", Source: "pi-ai", Input: &in, Output: &out}
 }

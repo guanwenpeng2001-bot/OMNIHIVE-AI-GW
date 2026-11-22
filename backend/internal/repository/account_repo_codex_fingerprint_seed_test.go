@@ -17,7 +17,7 @@ import (
 
 func TestBulkUpdateEnsuresCodexFingerprintSeedWithPerRowSQL(t *testing.T) {
 	exec := &recordingSQLExecutor{result: rowsAffectedResult(0)}
-	repo := newAccountRepositoryWithSQL(nil, exec, nil)
+	repo := recordingAccountConfigurationRepository(t, exec)
 
 	_, err := repo.BulkUpdate(context.Background(), []int64{27, 28}, service.AccountBulkUpdate{
 		Extra: map[string]any{
@@ -76,6 +76,7 @@ func TestBulkUpdateCodexFingerprintSeedRollsBackWhenUpdateFails(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	mock.ExpectBegin()
+	expectAccountConfigurationPreflight(mock)
 	// Extra and quota invalidation columns share one correlated subquery.
 	mock.ExpectExec(`(?s)UPDATE accounts SET \(extra, .*\) = .*gen_random_uuid\(\)::text.*WHERE id = ANY\(\$2\) AND deleted_at IS NULL`).
 		WithArgs([]byte(`{"codex_fingerprint_mode":"session"}`), `{27,28}`).
@@ -103,6 +104,7 @@ func TestBulkUpdateCodexFingerprintSeedRollsBackWhenOutboxFails(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	mock.ExpectBegin()
+	expectAccountConfigurationPreflight(mock)
 	mock.ExpectExec(`(?s)UPDATE accounts SET \(extra, .*\) = .*gen_random_uuid\(\)::text.*WHERE id = ANY\(\$2\) AND deleted_at IS NULL`).
 		WithArgs([]byte(`{"codex_fingerprint_mode":"full"}`), `{27,28}`).
 		WillReturnResult(sqlmock.NewResult(0, 2))

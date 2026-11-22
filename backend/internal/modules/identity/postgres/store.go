@@ -172,6 +172,10 @@ func (s *Store) ProjectCredential(ctx context.Context, digest string) (*identity
 		}
 	}
 	p.Actions = allowed
+	p.Mode, p.Models, p.ExcludedModels, p.ModelPolicySource, err = EffectiveKeyModelRule(ctx, tx, a.WorkspaceID, a.KeyID, p.Platform, p.Mode, p.Models)
+	if err != nil {
+		return nil, err
+	}
 	return &p, tx.Commit()
 }
 
@@ -229,7 +233,12 @@ func (s *Store) Keys(ctx context.Context, actor, w, p int64, page identity.Page)
 	if _, err = evaluate(ctx, tx, actor, w, p, "keys.read"); err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT k.id,k.name,CASE WHEN x.api_key_id IS NULL THEN '' ELSE 'oh_p_' END,k.user_id,1
+	rows, err := tx.QueryContext(ctx, `SELECT k.id,k.name,CASE WHEN x.api_key_id IS NULL THEN '' ELSE 'oh_p_' END,k.user_id,1,
+ CASE WHEN k.status<>'active' THEN k.status WHEN k.expires_at<=now() THEN 'expired'
+ WHEN x.member_bound AND x.issued_membership IS NULL THEN 'revoked'
+ WHEN NOT EXISTS(SELECT 1 FROM api_key_credentials c WHERE c.api_key_id=k.id AND c.workspace_id=k.workspace_id AND c.revoked_at IS NULL AND c.status IN ('current','project','grace') AND (c.valid_until IS NULL OR c.valid_until>now())) THEN 'revoked' ELSE 'active' END,
+ k.expires_at,now(),coalesce(x.actions,ARRAY(SELECT action FROM identity_actions WHERE category='key' OR action='models.read' UNION SELECT unnest(ARRAY['audio.tts','video.generate']))),
+ coalesce(x.model_mode,'inherit'),coalesce(x.models,ARRAY[]::text[]),k.group_id,coalesce((SELECT platform FROM groups WHERE id=k.group_id AND workspace_id=k.workspace_id),'')
  FROM api_keys k JOIN projects d ON d.workspace_id=k.workspace_id AND d.is_default
  LEFT JOIN project_key_policies x ON x.api_key_id=k.id AND x.workspace_id=k.workspace_id
  LEFT JOIN project_resources r ON r.resource_id=k.id AND r.kind='api_keys' AND r.workspace_id=k.workspace_id
@@ -241,13 +250,46 @@ func (s *Store) Keys(ctx context.Context, actor, w, p int64, page identity.Page)
 	out := []identity.Key{}
 	for rows.Next() {
 		var k identity.Key
-		if err := rows.Scan(&k.ID, &k.Name, &k.Prefix, &k.OwnerID, &k.Version); err != nil {
+		if err := rows.Scan(&k.ID, &k.Name, &k.Prefix, &k.OwnerID, &k.Version, &k.Status, &k.ExpiresAt, &k.EvaluatedAt, pq.Array(&k.Actions), &k.ModelAccess.Mode, pq.Array(&k.ModelAccess.IDs), &k.GroupID, &k.Platform); err != nil {
 			return nil, err
 		}
 		out = append(out, k)
 	}
 	if err = rows.Err(); err != nil {
 		return nil, err
+	}
+	rows.Close()
+	for i := range out {
+		mode, models, excluded, source, err := EffectiveKeyModelRule(ctx, tx, w, out[i].ID, out[i].Platform, out[i].ModelAccess.Mode, out[i].ModelAccess.IDs)
+		if err != nil {
+			return nil, err
+		}
+		if models == nil {
+			models = []string{}
+		}
+		if excluded == nil {
+			excluded = []string{}
+		}
+		out[i].ModelAccess = identity.ModelAccess{Mode: mode, IDs: models}
+		out[i].ExcludedModels, out[i].ModelPolicySource = excluded, source
+		if out[i].Prefix != identity.ProjectKeyPrefix {
+			continue
+		}
+		access, err := evaluate(ctx, tx, out[i].OwnerID, w, p, "")
+		if err != nil {
+			if errors.Is(err, fault.NotFound) || errors.Is(err, fault.Forbidden) {
+				out[i].Actions = []string{}
+				continue
+			}
+			return nil, err
+		}
+		allowed := []string{}
+		for _, action := range out[i].Actions {
+			if access.Require(action) == nil {
+				allowed = append(allowed, action)
+			}
+		}
+		out[i].Actions = allowed
 	}
 	return out, tx.Commit()
 }

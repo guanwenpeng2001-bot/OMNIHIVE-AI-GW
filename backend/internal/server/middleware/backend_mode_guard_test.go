@@ -49,7 +49,11 @@ func (r *bmSettingRepo) SetMultiple(_ context.Context, settings map[string]strin
 }
 
 func (r *bmSettingRepo) GetAll(_ context.Context) (map[string]string, error) {
-	panic("unexpected GetAll call")
+	values := make(map[string]string, len(r.values))
+	for key, value := range r.values {
+		values[key] = value
+	}
+	return values, nil
 }
 
 func (r *bmSettingRepo) Delete(_ context.Context, _ string) error {

@@ -393,6 +393,9 @@ func (r *accountRepository) bulkUpdateCredentialSecrets(ctx context.Context, ids
 		}
 	}
 	client := clientFromContext(ctx, r.client)
+	if _, err := lockLegacyAccountConfigurations(ctx, client, ids); err != nil {
+		return 0, err
+	}
 	if err := validateBulkCopilotNousCredentials(ctx, client, ids, updates.Credentials); err != nil {
 		return 0, err
 	}

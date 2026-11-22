@@ -17,6 +17,7 @@ import (
 )
 
 var ErrOpsDisabled = infraerrors.NotFound("OPS_DISABLED", "Ops monitoring is disabled")
+var ErrOpsSettingsUnavailable = infraerrors.ServiceUnavailable("OPS_SETTINGS_UNAVAILABLE", "Ops settings have not been verified")
 
 const (
 	opsMaxStoredErrorBodyBytes = 20 * 1024
@@ -36,9 +37,11 @@ type opsRuntimeSettingsSnapshot struct {
 }
 
 type OpsRuntimeSettingsRefreshHealth struct {
-	Running      bool   `json:"running"`
-	SuccessTotal uint64 `json:"success_total"`
-	FailureTotal uint64 `json:"failure_total"`
+	Running       bool   `json:"running"`
+	SuccessTotal  uint64 `json:"success_total"`
+	FailureTotal  uint64 `json:"failure_total"`
+	State         string `json:"state"`
+	LastAppliedAt int64  `json:"last_applied_at,omitempty"`
 }
 
 // OpsService provides ingestion and query APIs for the Ops monitoring module.
@@ -84,6 +87,9 @@ type OpsService struct {
 	runtimeRefreshSuccess        atomic.Uint64
 	runtimeRefreshFailure        atomic.Uint64
 	runtimeRefreshLastFailureLog atomic.Int64
+	runtimeSnapshotKnown         atomic.Bool
+	runtimeSnapshotStale         atomic.Bool
+	runtimeSnapshotAppliedAt     atomic.Int64
 }
 
 // CleanupReloader 由 OpsCleanupService 实现。
@@ -147,11 +153,17 @@ func (s *OpsService) RequireMonitoringEnabled(ctx context.Context) error {
 	if s.IsMonitoringEnabled(ctx) {
 		return nil
 	}
+	if s != nil && (s.cfg == nil || s.cfg.Ops.Enabled) && !s.runtimeSnapshotKnown.Load() {
+		return ErrOpsSettingsUnavailable
+	}
 	return ErrOpsDisabled
 }
 
 func (s *OpsService) IsMonitoringEnabled(ctx context.Context) bool {
 	_ = ctx
+	if s == nil {
+		return false
+	}
 	// Hard switch: disable ops entirely.
 	if s.cfg != nil && !s.cfg.Ops.Enabled {
 		return false
@@ -159,17 +171,19 @@ func (s *OpsService) IsMonitoringEnabled(ctx context.Context) bool {
 	if snapshot := s.runtimeSettings.Load(); snapshot != nil {
 		return snapshot.monitoringEnabled
 	}
-	// Directly assembled test services and failed cold loads remain fail-open,
-	// without turning a request into a settings-table lookup.
-	return true
+	// Unknown cold-start state is not an implicit enablement. Request paths
+	// remain lock-free and never turn this into a database lookup.
+	return false
 }
 
 func parseOpsMonitoringEnabled(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "false", "0", "off", "disabled":
 		return false
-	default:
+	case "", "true", "1", "on", "enabled":
 		return true
+	default:
+		return false
 	}
 }
 
@@ -178,7 +192,7 @@ func (s *OpsService) initRuntimeSettings(ctx context.Context) {
 		return
 	}
 	defaults := defaultOpsAdvancedSettingsForConfig(s.cfg)
-	s.runtimeSettings.Store(&opsRuntimeSettingsSnapshot{monitoringEnabled: true, advanced: *defaults})
+	s.runtimeSettings.Store(&opsRuntimeSettingsSnapshot{monitoringEnabled: false, advanced: *defaults})
 	_ = s.RefreshRuntimeSettings(ctx)
 }
 
@@ -201,11 +215,18 @@ func (s *OpsService) RefreshRuntimeSettings(ctx context.Context) error {
 		SettingKeyOpsRuntimeLogConfig,
 	})
 	if err != nil {
+		s.runtimeSnapshotStale.Store(true)
 		return err
 	}
 
 	monitoringEnabled := true
 	if raw, ok := values[SettingKeyOpsMonitoringEnabled]; ok {
+		switch strings.ToLower(strings.TrimSpace(raw)) {
+		case "", "true", "1", "on", "enabled", "false", "0", "off", "disabled":
+		default:
+			s.runtimeSnapshotStale.Store(true)
+			return infraerrors.ServiceUnavailable("OPS_SETTINGS_INVALID", "Ops monitoring override is invalid")
+		}
 		monitoringEnabled = parseOpsMonitoringEnabled(raw)
 	}
 	advanced := defaultOpsAdvancedSettingsForConfig(s.cfg)
@@ -217,6 +238,9 @@ func (s *OpsService) RefreshRuntimeSettings(ctx context.Context) error {
 	normalizeOpsAdvancedSettings(advanced)
 
 	s.runtimeSettings.Store(&opsRuntimeSettingsSnapshot{monitoringEnabled: monitoringEnabled, advanced: *advanced})
+	s.runtimeSnapshotKnown.Store(true)
+	s.runtimeSnapshotStale.Store(false)
+	s.runtimeSnapshotAppliedAt.Store(time.Now().Unix())
 	if s.systemLogSink != nil {
 		persistAccessLogs := false
 		if raw, ok := values[SettingKeyOpsRuntimeLogConfig]; ok {
@@ -358,10 +382,21 @@ func (s *OpsService) RuntimeSettingsRefreshHealth() OpsRuntimeSettingsRefreshHea
 	if s == nil {
 		return OpsRuntimeSettingsRefreshHealth{}
 	}
+	state := "ready"
+	if !s.runtimeSnapshotKnown.Load() {
+		state = "unknown"
+	} else if s.runtimeSnapshotStale.Load() {
+		state = "stale"
+	}
+	if s.cfg != nil && !s.cfg.Ops.Enabled {
+		state = "deployment_disabled"
+	}
 	return OpsRuntimeSettingsRefreshHealth{
-		Running:      s.runtimeRefreshRunning.Load(),
-		SuccessTotal: s.runtimeRefreshSuccess.Load(),
-		FailureTotal: s.runtimeRefreshFailure.Load(),
+		Running:       s.runtimeRefreshRunning.Load(),
+		SuccessTotal:  s.runtimeRefreshSuccess.Load(),
+		FailureTotal:  s.runtimeRefreshFailure.Load(),
+		State:         state,
+		LastAppliedAt: s.runtimeSnapshotAppliedAt.Load(),
 	}
 }
 
@@ -378,6 +413,9 @@ func (s *OpsService) SetMonitoringEnabled(enabled bool) {
 		next.advanced = current.advanced
 	}
 	s.runtimeSettings.Store(next)
+	s.runtimeSnapshotKnown.Store(true)
+	s.runtimeSnapshotStale.Store(false)
+	s.runtimeSnapshotAppliedAt.Store(time.Now().Unix())
 	s.runtimeSettingsMu.Unlock()
 }
 
@@ -387,7 +425,7 @@ func (s *OpsService) storeAdvancedSettingsSnapshot(cfg *OpsAdvancedSettings) {
 	}
 	s.runtimeSettingsMu.Lock()
 	current := s.runtimeSettings.Load()
-	next := &opsRuntimeSettingsSnapshot{monitoringEnabled: true, advanced: *cfg}
+	next := &opsRuntimeSettingsSnapshot{monitoringEnabled: false, advanced: *cfg}
 	if current != nil {
 		next.monitoringEnabled = current.monitoringEnabled
 	}

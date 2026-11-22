@@ -30,7 +30,7 @@ func NewSource(store *postgres.Store, plaza *service.ModelPlazaService, settings
 
 func (s *Source) Load(ctx context.Context, p catalog.Perspective, window catalog.Window, now time.Time) (catalog.Input, error) {
 	runtime := s.settings.GetModelPlazaRuntime(ctx)
-	if !runtime.Enabled {
+	if p.Public() && !runtime.Enabled {
 		return catalog.Input{}, fault.NotFound
 	}
 	if p.Public() && runtime.RequireAuth && !catalog.PublicViewerAuthenticated(ctx) {
@@ -52,14 +52,18 @@ func (s *Source) Load(ctx context.Context, p catalog.Perspective, window catalog
 		groups, allowedGroups, err = s.scopedGroups(ctx, p)
 		if err == nil {
 			endpoints, err = s.store.EndpointEvidence(ctx, p, endpointAccounts(groups))
-			userRates, priceErr = s.keys.GetUserGroupRates(ctx, p.Actor)
+			payer := p.Actor
+			if p.PricingActor > 0 {
+				payer = p.PricingActor
+			}
+			userRates, priceErr = s.keys.GetUserGroupRates(ctx, payer)
 		}
 	}
 	if err != nil {
 		return catalog.Input{}, err
 	}
 
-	out := catalog.Input{RegistryVersion: snapshot.Version(), Registry: snapshot.CatalogFacts(now), Metrics: make(map[string]catalog.Metrics)}
+	out := catalog.Input{RegistryVersion: snapshot.Version() + ":" + catalog.ReferenceInventoryVersion(), Registry: snapshot.CatalogFacts(now), Metrics: make(map[string]catalog.Metrics)}
 	if err := s.store.ImportRegistry(ctx, out.RegistryVersion, out.Registry); err != nil {
 		return catalog.Input{}, err
 	}
@@ -74,22 +78,53 @@ func (s *Source) Load(ctx context.Context, p catalog.Perspective, window catalog
 				modelAt[id] = i
 				out.Models = append(out.Models, catalog.Candidate{Provider: model.Platform, Model: model.Name})
 			}
+			out.Models[i].Published = out.Models[i].Published || model.Published
 			offer := catalog.Offer{GroupID: group.ID, Access: allowedGroups[group.ID], Eligible: !model.CatalogOnly && (p.Public() || len(model.CatalogBindings) > 0), CatalogOnly: model.CatalogOnly}
 			if !model.CatalogOnly && (p.Public() || offer.Access) {
 				if priceErr == nil {
+					payer := p.Actor
+					if p.PricingActor > 0 {
+						payer = p.PricingActor
+					}
+					if frozen, ok := service.FrozenSaleRate(ctx, payer, group.ID); ok {
+						if userRates == nil {
+							userRates = map[int64]float64{}
+						}
+						userRates[group.ID] = frozen
+					}
 					offer.Price = priceFor(model, group, userRates, p.Public())
 				} else {
 					offer.Price.State = "error"
 				}
 			}
 			for _, binding := range append(slices.Clone(model.CatalogBindings), model.CatalogObservations...) {
+				offer.AccountIDs = append(offer.AccountIDs, strconv.FormatInt(binding.AccountID, 10))
 				e := endpoints[binding.AccountID]
-				offer.Facts = append(offer.Facts, binding.CatalogModelFacts(discoveryExpiry(binding, e), now)...)
+				observed, _ := time.Parse(time.RFC3339Nano, binding.EvidenceObservedAt)
+				observation := catalog.Observation("account_discovery", "unknown", observed, discoveryExpiry(binding, e), now)
+				connectionState := "unknown"
+				if e.ConnectionActive {
+					connectionState = "active"
+				}
+				if e.VerificationFailed {
+					connectionState = "verification_failed"
+				}
+				if !e.VerificationExpiry.IsZero() && !now.Before(e.VerificationExpiry) {
+					connectionState = "verification_stale"
+				}
+				offer.Accounts = append(offer.Accounts, catalog.AccountDiagnostic{AccountID: strconv.FormatInt(binding.AccountID, 10), DiscoveryState: observation.State, ConnectionState: connectionState, ObservedAt: observation.ObservedAt})
+				facts := scopedBindingFacts(binding, discoveryExpiry(binding, e), now)
+				offer.Facts = append(offer.Facts, facts...)
 				if service.AuthoritativeCatalogModelField(binding.Metadata, "task_type") {
 					_, actions := catalog.TaskPresentation(binding.Metadata.TaskType)
 					offer.Actions = append(offer.Actions, actions...)
 				}
 				if endpoint, ok := projectEndpoint(p, model.Platform, binding, e, now); ok {
+					for _, capability := range endpoint.Capabilities {
+						if capability.State == "fresh" && capability.VerifiedAt != nil && !slices.Contains(capability.Limitations, "action_invocation_unmeasured") {
+							offer.VerifiedLive = true
+						}
+					}
 					if offer.Access && p.EndpointMetadata {
 						for i := range endpoint.Capabilities {
 							capability := &endpoint.Capabilities[i]
@@ -126,6 +161,20 @@ func (s *Source) Load(ctx context.Context, p catalog.Perspective, window catalog
 		}
 	}
 	return out, nil
+}
+
+func scopedBindingFacts(binding service.PlazaCatalogBinding, expires, now time.Time) []catalog.ModelFacts {
+	facts := binding.CatalogModelFacts(expires, now)
+	for i := range facts {
+		reason := "scoped_account_observation"
+		if facts[i].Source == "upstream_discovery" {
+			facts[i].Source = "account_discovery"
+		} else if facts[i].Source == "account_declaration" {
+			reason = "scoped_account_declaration"
+		}
+		catalog.AttachProvenance(&facts[i], strconv.FormatInt(binding.SnapshotRevision, 10), "unreviewed", reason)
+	}
+	return facts
 }
 
 func verifiedExtensionActions(c catalog.Capability, labels []string) []string {
@@ -257,6 +306,7 @@ func projectEndpoint(p catalog.Perspective, provider string, b service.PlazaCata
 	}
 	capability := catalog.Capability{Action: action, Protocol: protocol, Mode: mode, Tools: tools, Stream: "unknown", VerifiedAt: verified,
 		Evidence: evidence, Limitations: []string{}}
+	capability.Provenance = map[string]catalog.Provenance{"protocol": {SourceKind: evidence.Source, SourceRevision: strconv.FormatInt(b.SnapshotRevision, 10), FieldPath: "protocol", Approval: "unreviewed", SelectedReason: "scoped_connection_evidence"}}
 	// Connection verification checks authorization and discovery. The model
 	// binding above supplies endpoint eligibility for the advertised action.
 	if verified != nil {

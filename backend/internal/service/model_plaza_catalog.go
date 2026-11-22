@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 )
 
 // ListPublicCatalogGroups adds configured-platform inventory to the live plaza
@@ -101,7 +102,9 @@ func (s *ModelPlazaService) expandConfiguredCatalog(ctx context.Context, groups 
 			// An operator-published name remains listed during a quota outage.
 			for _, model := range PlazaVisibleModels(&channel, group.ID) {
 				configure(model.Platform)
-				add(model.Platform, model.Name)
+				if entry := add(model.Platform, model.Name); entry != nil {
+					entry.Published = true
+				}
 			}
 		}
 		for i := range accounts {
@@ -147,7 +150,13 @@ func (s *ModelPlazaService) expandConfiguredCatalog(ctx context.Context, groups 
 			}
 		}
 		for _, entry := range registry {
-			if platforms[entry.Provider] && entry.Facts.Source == "approved_registry" {
+			if !platforms[entry.Provider] {
+				continue
+			}
+			// The verified snapshot retains each reviewed origin. Community
+			// references and private account observations cannot publish inventory.
+			switch entry.Facts.Source {
+			case "approved_registry", catalog.SourceBuiltin, catalog.SourcePreset:
 				add(entry.Provider, entry.Model)
 			}
 		}

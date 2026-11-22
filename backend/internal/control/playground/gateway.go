@@ -153,7 +153,12 @@ func (g *Gateway) prepare(ctx context.Context, a identity.Access, s pg.Submit, i
 	if base.WorkspaceID != a.WorkspaceID || base.ProjectID != a.ProjectID || base.KeyID != s.Key || base.KeyOwnerID != owner || base.FundingUserID != owner || base.Version != a.Version || k == nil || k.User == nil || k.Group == nil {
 		return p, fault.NotFound
 	}
-	snap, err := g.Catalog.Snapshot(ctx, catalog.Perspective{Actor: a.ActorID, Workspace: a.WorkspaceID, Project: a.ProjectID, AccessVersion: a.Version, EndpointMetadata: true}, time.Now().UTC())
+	ctx = domain.WithWorkspaceScope(ctx, a.WorkspaceID)
+	ctx, k, err = g.Plans.CaptureSalePricing(ctx, k, time.Now().UTC())
+	if err != nil {
+		return p, err
+	}
+	snap, err := g.Catalog.Snapshot(ctx, catalog.Perspective{Actor: a.ActorID, PricingActor: owner, Workspace: a.WorkspaceID, Project: a.ProjectID, AccessVersion: a.Version, Audience: "scoped", ScopeKind: "project", EndpointMetadata: true}, service.SalePricingInstant(ctx, time.Now().UTC()))
 	if err != nil {
 		return p, err
 	}
@@ -222,6 +227,13 @@ func (g *Gateway) prepare(ctx context.Context, a identity.Access, s pg.Submit, i
 		funding = "subscription"
 	}
 	decision, account, err := g.route(ctx, frozen, k.Group.ID, scenario, snap.Version, model, funding)
+	if err != nil {
+		return p, err
+	}
+	if s.ExpectedPriceVersion != "" && decision.PriceVersion != s.ExpectedPriceVersion {
+		return p, &fault.Fault{Status: 409, Reason: "PRICE_QUOTE_CHANGED", Message: "The price changed. Obtain and confirm a new quote before running."}
+	}
+	ctx, err = service.ConfirmSalePricing(ctx, model.Model.Provider, model.Model.Model, decision.PriceVersion)
 	if err != nil {
 		return p, err
 	}

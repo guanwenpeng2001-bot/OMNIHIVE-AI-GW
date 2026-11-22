@@ -21,12 +21,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
 	"golang.org/x/mod/semver"
 )
 
 var (
+	minimumRollbackVersion       = config.MinimumRollbackVersion()
 	errReleaseChecksumMismatch   = errors.New("checksum mismatch")
 	ErrUpdateCheckUnavailable    = infraerrors.ServiceUnavailable("UPDATE_CHECK_UNAVAILABLE", "could not check the latest release")
 	ErrNoUpdateAvailable         = infraerrors.Conflict("ALREADY_UP_TO_DATE", "no update available; current version is latest")
@@ -42,9 +44,6 @@ const (
 	githubRepo             = "guanwenpeng2001-bot/OMNIHIVE-AI-GW"
 	releaseManifestName    = "omnihive-release-manifest.json"
 	maxReleaseManifestSize = 64 * 1024
-
-	// Versions before the OmniHive v2 schema may not serve a migrated database.
-	minimumRollbackVersion = "v0.2.5"
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -345,6 +344,13 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, version string, 
 	if semver.Compare(tag, minimumRollbackVersion) < 0 {
 		return rollbackBelowFloor(tag, minimumRollbackVersion)
 	}
+	floor, err := s.databaseRollbackFloor(ctx)
+	if err != nil {
+		return fmt.Errorf("release database compatibility check failed: %w", err)
+	}
+	if semver.Compare(tag, floor) < 0 {
+		return rollbackBelowFloor(tag, floor)
+	}
 
 	asset, checksum, manifest, err := selectUpdateAssets(tag, releaseAssets)
 	if err != nil {
@@ -411,6 +417,15 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, version string, 
 	// Set executable permission before replacement
 	if err := os.Chmod(newBinaryPath, 0755); err != nil {
 		return fmt.Errorf("chmod failed: %w", err)
+	}
+	// Downloads can be long-running. Recheck a floor advanced by another
+	// migration before either persistent staging or replacement becomes visible.
+	floor, err = s.databaseRollbackFloor(ctx)
+	if err != nil {
+		return fmt.Errorf("release database compatibility recheck failed: %w", err)
+	}
+	if semver.Compare(tag, floor) < 0 {
+		return rollbackBelowFloor(tag, floor)
 	}
 
 	staged, err := s.stagePersistentBinary(exePath, newBinaryPath)
@@ -578,6 +593,13 @@ func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) e
 	if semver.Compare(target, minimumRollbackVersion) < 0 {
 		return rollbackBelowFloor(target, minimumRollbackVersion)
 	}
+	floor, err := s.databaseRollbackFloor(ctx)
+	if err != nil {
+		return fmt.Errorf("rollback database compatibility check failed: %w", err)
+	}
+	if semver.Compare(target, floor) < 0 {
+		return rollbackBelowFloor(target, floor)
+	}
 
 	releases, err := s.fetchRollbackCandidates(ctx)
 	if err != nil {
@@ -610,6 +632,10 @@ func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) e
 // fetchRollbackCandidates fetches recent releases and keeps the newest
 // maxRollbackVersions entries strictly older than the current version.
 func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubRelease, error) {
+	floor, err := s.databaseRollbackFloor(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("rollback database compatibility check failed: %w", err)
+	}
 	releases, err := s.githubClient.FetchRecentReleases(ctx, resolveGitHubRepo(), rollbackFetchPageSize)
 	if err != nil {
 		return nil, err
@@ -622,7 +648,7 @@ func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubR
 			continue
 		}
 		v := releaseVersion(r.TagName)
-		if v == "" || seen[v] || semver.Prerelease(v) != "" || semver.Compare(v, minimumRollbackVersion) < 0 {
+		if v == "" || seen[v] || semver.Prerelease(v) != "" || semver.Compare(v, floor) < 0 {
 			continue
 		}
 		// Only versions strictly older than current (also excludes current itself)
@@ -821,9 +847,11 @@ func (s *UpdateService) verifyReleaseManifest(ctx context.Context, dir string, a
 		return err
 	}
 	var manifest struct {
-		Product                string `json:"product"`
-		Version                string `json:"version"`
-		MinimumRollbackVersion string `json:"minimum_rollback_version"`
+		Product                string          `json:"product"`
+		Version                string          `json:"version"`
+		MinimumRollbackVersion string          `json:"minimum_rollback_version"`
+		SchemaRollbackFloor    json.RawMessage `json:"schema_rollback_floor"`
+		SemanticRollbackFloor  json.RawMessage `json:"semantic_rollback_floor"`
 	}
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return fmt.Errorf("invalid release manifest: %w", err)
@@ -837,6 +865,31 @@ func (s *UpdateService) verifyReleaseManifest(ctx context.Context, dir string, a
 	floor := releaseVersion(manifest.MinimumRollbackVersion)
 	if floor == "" || semver.Prerelease(floor) != "" || semver.Build(floor) != "" {
 		return fmt.Errorf("invalid minimum rollback version %q in release manifest", manifest.MinimumRollbackVersion)
+	}
+	if semver.Compare(floor, minimumRollbackVersion) < 0 {
+		floor = minimumRollbackVersion
+	}
+	for _, optional := range []struct {
+		name string
+		raw  json.RawMessage
+	}{
+		{"schema_rollback_floor", manifest.SchemaRollbackFloor},
+		{"semantic_rollback_floor", manifest.SemanticRollbackFloor},
+	} {
+		if len(optional.raw) == 0 {
+			continue // Older verified manifests carry the compatibility minimum only.
+		}
+		var value string
+		if err := json.Unmarshal(optional.raw, &value); err != nil {
+			return fmt.Errorf("invalid %s in release manifest", optional.name)
+		}
+		candidate := releaseVersion(value)
+		if candidate == "" || semver.Prerelease(candidate) != "" || semver.Build(candidate) != "" {
+			return fmt.Errorf("invalid %s in release manifest", optional.name)
+		}
+		if semver.Compare(candidate, floor) > 0 {
+			floor = candidate
+		}
 	}
 	if semver.Compare(version, floor) < 0 {
 		return rollbackBelowFloor(version, floor)

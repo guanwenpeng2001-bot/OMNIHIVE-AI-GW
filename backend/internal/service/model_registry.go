@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 
 	modelcapabilities "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/resources/model-capabilities"
 )
@@ -64,6 +67,7 @@ var processModelRegistry = sync.OnceValue(func() *ModelRegistry {
 		panic("invalid compiled model registry: " + err.Error())
 	}
 	registry.current.Store(snapshot)
+	catalog.PublishApprovedInventory(snapshot.Version(), snapshot.CatalogFacts(time.Now()))
 	return registry
 })
 

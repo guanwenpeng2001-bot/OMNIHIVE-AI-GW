@@ -24,6 +24,7 @@ import (
 type filter struct {
 	Text, Sort, Access, Route string
 	Availability              string `json:",omitempty"`
+	Publication               string `json:",omitempty"`
 	Values                    map[string][]string
 }
 
@@ -44,7 +45,7 @@ var facetValue = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$`)
 func filters(q url.Values, p catalog.Perspective) (filter, int, error) {
 	f, limit := filter{Sort: "name", Values: map[string][]string{}}, 25
 	for k, values := range q {
-		if k == "availability_state" && (len(values) != 1 || (values[0] != "live" && values[0] != "catalog_only")) {
+		if k == "availability_state" && (len(values) != 1 || !slices.Contains([]string{"live", "catalog_only", "requires_scope", "unknown", "eligible", "unavailable"}, values[0])) {
 			err := fault.Invalid("/availability_state")
 			err.Status = http.StatusBadRequest
 			return f, 0, err
@@ -81,6 +82,11 @@ func filters(q url.Values, p catalog.Perspective) (filter, int, error) {
 			f.Sort = v
 		case "availability_state":
 			f.Availability = v
+		case "publication_state":
+			if v != "published" && v != "draft" && v != "withdrawn" {
+				return f, 0, fault.Invalid("/publication_state")
+			}
+			f.Publication = v
 		case "limit":
 			n, err := strconv.Atoi(v)
 			if err != nil || n < 1 || n > 100 || strconv.Itoa(n) != v {
@@ -157,9 +163,26 @@ func (h *Handler) list(ctx context.Context, p catalog.Perspective, c *gin.Contex
 
 func (f filter) matches(d catalog.Detail) bool {
 	m := d.Model
+	if f.Publication != "" && m.PublicationState != f.Publication {
+		return false
+	}
+	// Retired availability filters remain compatibility queries over the old
+	// offer classification. A public response still requires scope and never
+	// asserts that one of these offers authorizes this caller to run.
+	if m.AvailabilityState == "requires_scope" && (f.Availability == "live" || f.Availability == "catalog_only") {
+		return d.LegacyAvailability == f.Availability && f.matchesWithoutAvailability(d)
+	}
+	if f.Availability == "catalog_only" {
+		return (m.AvailabilityState == "unknown" || m.AvailabilityState == "catalog_only") && f.matchesWithoutAvailability(d)
+	}
 	if f.Availability != "" && m.AvailabilityState != f.Availability {
 		return false
 	}
+	return f.matchesWithoutAvailability(d)
+}
+
+func (f filter) matchesWithoutAvailability(d catalog.Detail) bool {
+	m := d.Model
 	if !catalog.MatchesText(m.Model, f.Text) && !catalog.MatchesText(m.DisplayName, f.Text) && !catalog.MatchesText(m.Provider, f.Text) &&
 		!slices.ContainsFunc(d.Aliases, func(alias string) bool { return catalog.MatchesText(alias, f.Text) }) {
 		return false

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -72,24 +71,8 @@ func price(ctx context.Context, tx *sql.Tx, c Credential, project, account int64
 		estimate.ExternalState = "not_applicable"
 		estimate.IncludeExternal = false
 	}
-	rows, e := tx.QueryContext(ctx, `SELECT tariff FROM exact_price_versions WHERE scope_key=$1 AND effective_from<=$2 AND (effective_until IS NULL OR effective_until>$2) ORDER BY version_id LIMIT 2`, PriceScope(c.Workspace, project, account, source, model), at)
+	versions, e := pricing.VersionsAt(ctx, tx, PriceScope(c.Workspace, project, account, source, model), at)
 	if e != nil {
-		return estimate, f, e
-	}
-	defer rows.Close()
-	var versions []pricing.Version
-	for rows.Next() {
-		var raw []byte
-		var v pricing.Version
-		if e = rows.Scan(&raw); e != nil {
-			return estimate, f, e
-		}
-		if e = json.Unmarshal(raw, &v); e != nil {
-			return estimate, f, e
-		}
-		versions = append(versions, v)
-	}
-	if e = rows.Err(); e != nil {
 		return estimate, f, e
 	}
 	version, e := pricing.Resolve(pricing.Candidates{Published: versions}, at)
@@ -97,7 +80,9 @@ func price(ctx context.Context, tx *sql.Tx, c Credential, project, account int64
 		return estimate, f, e
 	}
 	if version != nil {
-		card := pricing.Frozen{Version: *version, Usage: usage, At: at}
+		priceContext := pricing.PriceContext{WorkspaceID: c.Workspace, ProjectID: project,
+			AccountID: account, Provider: c.Provider, Model: model, Funding: source, PricingAt: at}
+		card := pricing.Frozen{Version: *version, Usage: usage, At: at, Context: &priceContext}
 		result, e := card.Calculate()
 		if e != nil {
 			return estimate, f, e

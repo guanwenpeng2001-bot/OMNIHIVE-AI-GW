@@ -408,7 +408,7 @@ func TestByteplusSnapshotConfigurationPreservation(test *testing.T) {
 
 func TestByteplusBulkSeatChangeClearsOldWindows(test *testing.T) {
 	executor := &recordingSQLExecutor{result: rowsAffectedResult(1)}
-	repo := newAccountRepositoryWithSQL(nil, executor, nil)
+	repo := recordingAccountConfigurationRepository(test, executor)
 	count, err := repo.BulkUpdate(context.Background(), []int64{42}, service.AccountBulkUpdate{Credentials: map[string]any{"byteplus_seat_id": "new-seat"}})
 	require.NoError(test, err)
 	require.Equal(test, int64(1), count)

@@ -6,8 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
+	identitypostgres "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/lib/pq"
 )
@@ -159,6 +163,20 @@ func (r *modelAccessRepository) SaveRule(ctx context.Context, resource string, i
 	if existing.Revision != rule.Revision {
 		return service.ErrModelAccessConflict
 	}
+	if resource == "keys" {
+		var mode, platform string
+		var legacy []string
+		err := tx.QueryRowContext(ctx, `SELECT p.model_mode,p.models,coalesce(g.platform,'') FROM project_key_policies p JOIN api_keys k ON k.id=p.api_key_id AND k.workspace_id=p.workspace_id LEFT JOIN groups g ON g.id=k.group_id AND g.workspace_id=k.workspace_id WHERE p.api_key_id=$1 AND p.workspace_id=$2 FOR SHARE OF p`, identifier, domain.ResourceWorkspaceID(ctx)).Scan(&mode, pq.Array(&legacy), &platform)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if err == nil {
+			rule, err = preserveLegacyKeyModelBoundary(rule, platform, mode, legacy)
+			if err != nil {
+				return err
+			}
+		}
+	}
 	if rule.AccessGroupID != nil {
 		var encoded []byte
 		err = tx.QueryRowContext(ctx, `SELECT models FROM model_access_groups WHERE id=$1 AND workspace_id=$2 FOR SHARE`, *rule.AccessGroupID, domain.ResourceWorkspaceID(ctx)).Scan(&encoded)
@@ -197,6 +215,15 @@ func (r *modelAccessRepository) SaveRule(ctx context.Context, resource string, i
 			}
 		}
 	}
+	if resource == "keys" {
+		if err := identitypostgres.WriteKeyModelRule(ctx, tx, domain.ResourceWorkspaceID(ctx), identifier, rule); err != nil {
+			if errors.Is(err, fault.Conflict) {
+				return service.ErrModelAccessConflict
+			}
+			return err
+		}
+		return tx.Commit()
+	}
 	var models any
 	if rule.Models != nil {
 		encoded, marshalErr := json.Marshal(rule.Models)
@@ -223,6 +250,38 @@ func (r *modelAccessRepository) SaveRule(ctx context.Context, resource string, i
 		return service.ErrModelAccessConflict
 	}
 	return tx.Commit()
+}
+
+// The first v1 edit must not implicitly erase a historical project restriction.
+// Fold that bound into the canonical rule before neutralizing the old columns.
+// A later explicit edit can change the now-visible canonical rule under its CAS.
+func preserveLegacyKeyModelBoundary(rule service.ModelAccessRule, platform, mode string, legacy []string) (service.ModelAccessRule, error) {
+	if mode == "deny_all" {
+		if len(rule.Models) > 0 {
+			return rule, service.ErrModelAccessExpansion
+		}
+		rule.Models = []string{}
+		return rule, nil
+	}
+	if mode != "allow_list" {
+		return rule, nil
+	}
+	if rule.Models == nil {
+		rule.Models = append([]string{}, legacy...)
+		return rule, nil
+	}
+	canonical := func(model string) string {
+		if platform == "" || len(model) == 34 && model[:2] == "m_" {
+			return model
+		}
+		return catalog.StableID(platform, model)
+	}
+	for _, model := range rule.Models {
+		if !slices.ContainsFunc(legacy, func(bound string) bool { return canonical(bound) == canonical(model) }) {
+			return rule, service.ErrModelAccessExpansion
+		}
+	}
+	return rule, nil
 }
 
 // One SQL statement takes a consistent snapshot of all applicable rules and
@@ -279,7 +338,7 @@ func readModelAccessSnapshot(ctx context.Context, executor sqlExecutor, keyID in
 	}
 	_ = rows.Close()
 	if keyID != 0 {
-		groupRows, readErr := executor.QueryContext(ctx, `SELECT resource_group.model_allowlist, CASE WHEN project.api_key_id IS NOT NULL THEN coalesce(resource_group.platform,'') ELSE '' END
+		groupRows, readErr := executor.QueryContext(ctx, `SELECT resource_group.model_allowlist, CASE WHEN project.api_key_id IS NOT NULL THEN coalesce(resource_group.platform,'') ELSE '' END,coalesce(project.model_mode,''),coalesce(project.models,ARRAY[]::text[])
  FROM api_keys api_key LEFT JOIN groups resource_group ON resource_group.id=api_key.group_id AND resource_group.workspace_id=api_key.workspace_id
  LEFT JOIN project_key_policies project ON project.api_key_id=api_key.id AND project.workspace_id=api_key.workspace_id
  WHERE api_key.id=$1 AND api_key.workspace_id=$2 AND api_key.deleted_at IS NULL`, keyID, domain.ResourceWorkspaceID(ctx))
@@ -295,7 +354,9 @@ func readModelAccessSnapshot(ctx context.Context, executor sqlExecutor, keyID in
 			return snapshot, service.ErrModelAccessNotFound
 		}
 		var encoded []byte
-		readErr = groupRows.Scan(&encoded, &snapshot.ProjectKeyPlatform)
+		var legacyMode string
+		var legacyModels []string
+		readErr = groupRows.Scan(&encoded, &snapshot.ProjectKeyPlatform, &legacyMode, pq.Array(&legacyModels))
 		_ = groupRows.Close()
 		if readErr != nil {
 			return snapshot, readErr
@@ -304,6 +365,13 @@ func readModelAccessSnapshot(ctx context.Context, executor sqlExecutor, keyID in
 			if readErr = json.Unmarshal(encoded, &snapshot.KeyGroup); readErr != nil {
 				return snapshot, readErr
 			}
+		}
+		if legacyMode != "" {
+			_, models, excludes, _, ruleErr := identitypostgres.EffectiveKeyModelRule(ctx, executor, domain.ResourceWorkspaceID(ctx), keyID, snapshot.ProjectKeyPlatform, legacyMode, legacyModels)
+			if ruleErr != nil {
+				return snapshot, ruleErr
+			}
+			snapshot.Key, snapshot.KeyExclude = models, excludes
 		}
 	}
 	latest, err := readAccessGeneration(ctx, executor)

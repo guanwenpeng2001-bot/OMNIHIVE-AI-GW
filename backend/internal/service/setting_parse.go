@@ -206,8 +206,8 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeySubscriptionEnabled: "true",
 
 		// Model plaza feature (default disabled; opt-in, public unless require_auth)
-		SettingKeyModelPlazaEnabled:       "false",
-		SettingKeyModelPlazaRequireAuth:   "false",
+		SettingKeyModelPlazaEnabled:       strconv.FormatBool(DefaultModelPlazaEnabled),
+		SettingKeyModelPlazaRequireAuth:   strconv.FormatBool(DefaultModelPlazaRequireAuth),
 		SettingKeyModelPlazaDescription:   "",
 		SettingKeyPluginManagementEnabled: "false",
 
@@ -268,6 +268,13 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyAllowUserViewErrorRequests: "false",
 	}
 
+	// Do not seed deployment-derived values as administrator overrides. Existing
+	// rows are preserved; new installations inherit env/YAML until explicitly set.
+	for _, definition := range s.settingDefinitions() {
+		if definition.canReset {
+			delete(defaults, definition.key)
+		}
+	}
 	return s.settingRepo.SetMultiple(ctx, defaults)
 }
 
@@ -828,8 +835,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.SubscriptionEnabled = !isFalseSettingValue(settings[SettingKeySubscriptionEnabled])
 
 	// Model plaza feature (default: disabled; strict true)
-	result.ModelPlazaEnabled = settings[SettingKeyModelPlazaEnabled] == "true"
-	result.ModelPlazaRequireAuth = settings[SettingKeyModelPlazaRequireAuth] == "true"
+	result.ModelPlazaEnabled = ModelPlazaRuntimeFromValues(settings).Enabled
+	result.ModelPlazaRequireAuth = ModelPlazaRuntimeFromValues(settings).RequireAuth
 	result.ModelPlazaDescription = settings[SettingKeyModelPlazaDescription]
 	result.PluginManagementEnabled = settings[SettingKeyPluginManagementEnabled] == "true"
 

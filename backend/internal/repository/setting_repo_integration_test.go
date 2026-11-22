@@ -4,9 +4,13 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -24,6 +28,89 @@ func (s *SettingRepoSuite) SetupTest() {
 
 func TestSettingRepoSuite(t *testing.T) {
 	suite.Run(t, new(SettingRepoSuite))
+}
+
+func TestSettingOverrideResetRejectsStaleSnapshot(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	repo := NewSettingRepository(testEntClient(t)).(*settingRepository)
+	prefix := "test_reset_" + uuid.NewString() + "_"
+	keys := []string{prefix + "enabled", prefix + "client_id", prefix + "client_secret"}
+	neighbor := prefix + "unrelated"
+	t.Cleanup(func() {
+		for _, key := range append(keys, neighbor) {
+			require.NoError(t, repo.Delete(context.Background(), key))
+		}
+	})
+	require.NoError(t, repo.SetMultiple(ctx, map[string]string{
+		keys[0]: "true", keys[1]: "provider-id", keys[2]: "provider-secret", neighbor: "before",
+	}))
+	_, version, err := repo.GetAllVersioned(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, version)
+	require.NoError(t, repo.Set(ctx, neighbor, "after"))
+	require.ErrorIs(t, repo.ResetOverrides(ctx, keys, version), service.ErrSettingVersionConflict)
+	values, current, err := repo.GetAllVersioned(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "true", values[keys[0]])
+	require.Equal(t, "provider-id", values[keys[1]])
+	require.Equal(t, "provider-secret", values[keys[2]])
+	require.Equal(t, "after", values[neighbor])
+	require.NotEqual(t, version, current)
+
+	require.NoError(t, repo.ResetOverrides(ctx, keys, current))
+	values, resetVersion, err := repo.GetAllVersioned(ctx)
+	require.NoError(t, err)
+	for _, key := range keys {
+		require.NotContains(t, values, key, "a provider reset must remove the entire requested override group")
+	}
+	require.Equal(t, "after", values[neighbor], "reset must preserve unrelated settings")
+	require.NotEqual(t, current, resetVersion)
+	require.ErrorIs(t, repo.ResetOverrides(ctx, keys, current), service.ErrSettingVersionConflict)
+}
+
+func TestSettingOverrideResetConcurrentWriters(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	repo := NewSettingRepository(testEntClient(t)).(*settingRepository)
+	prefix := "test_reset_concurrent_" + uuid.NewString() + "_"
+	keys := []string{prefix + "client_id", prefix + "client_secret"}
+	t.Cleanup(func() {
+		for _, key := range keys {
+			require.NoError(t, repo.Delete(context.Background(), key))
+		}
+	})
+	require.NoError(t, repo.SetMultiple(ctx, map[string]string{keys[0]: "provider-id", keys[1]: "provider-secret"}))
+	_, version, err := repo.GetAllVersioned(ctx)
+	require.NoError(t, err)
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			<-start
+			results <- repo.ResetOverrides(ctx, keys, version)
+		}()
+	}
+	close(start)
+	var successes, conflicts int
+	for i := 0; i < 2; i++ {
+		err := <-results
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, service.ErrSettingVersionConflict):
+			conflicts++
+		default:
+			require.NoError(t, err)
+		}
+	}
+	require.Equal(t, 1, successes, "only one administrator may apply the same reset snapshot")
+	require.Equal(t, 1, conflicts)
+	values, _, err := repo.GetAllVersioned(ctx)
+	require.NoError(t, err)
+	for _, key := range keys {
+		require.NotContains(t, values, key)
+	}
 }
 
 func (s *SettingRepoSuite) TestSetAndGetValue() {

@@ -190,6 +190,9 @@ func (s *ChannelService) loadCache(ctx context.Context) (*channelCache, error) {
 	if plan := GatewayRequestPlanFromContext(ctx); plan != nil && plan.channels == s {
 		return plan.channelSnapshot, plan.channelError
 	}
+	if bundle := salePricingFromContext(ctx); bundle != nil && bundle.channels == s {
+		return bundle.channelSnapshot, nil
+	}
 	if revision, frozen := ctx.Value(visibleModelRevisionKey{}).(visibleModelRevision); frozen && revision.channels == s && revision.channelSnapshot != nil {
 		return revision.channelSnapshot, nil
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	modelcatalog "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"io"
 	"os"
 	"path/filepath"
@@ -205,5 +206,6 @@ func (r *ModelRegistry) ReloadApprovedLocalPackage(directory string) (*ModelRegi
 		return nil, err
 	}
 	r.current.Store(candidate)
+	modelcatalog.PublishApprovedInventory(candidate.Version(), candidate.CatalogFacts(time.Now()))
 	return candidate, nil
 }

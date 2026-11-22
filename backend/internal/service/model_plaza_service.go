@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"maps"
 	"sort"
 	"strings"
 )
@@ -13,8 +14,12 @@ type PlazaModel struct {
 	Name     string
 	Platform string
 	// CatalogOnly is inventory, never an inference or billing authorization.
-	CatalogOnly bool `json:"-"`
-	Pricing     *ChannelModelPricing
+	CatalogOnly     bool              `json:"-"`
+	Published       bool              `json:"-"`
+	PriceSource     string            `json:"-"`
+	PriceRevision   string            `json:"-"`
+	PriceProvenance map[string]string `json:"-"`
+	Pricing         *ChannelModelPricing
 	// LongContextBasis 多档时的计价基准（整单 / 仅超出部分），单档为空。
 	LongContextBasis ContextPricingBasis
 	// TimePricing 计费会生效的分时倍率时段；无分时为 nil。
@@ -135,6 +140,14 @@ func (s *ModelPlazaService) ListProjectCatalogGroups(ctx context.Context, allowe
 }
 
 func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group) bool, selection *PlazaCatalogSelection, fullCatalog bool) ([]PlazaGroup, error) {
+	bundle := salePricingFromContext(ctx)
+	if bundle != nil {
+		copy := *s
+		copy.billingService = bundle.billing
+		copy.pricingService = bundle.billing.pricingService
+		copy.resolver = NewModelPricingResolver(bundle.channels, bundle.billing)
+		s = &copy
+	}
 	var visibility *VisibleModelResolver
 	if s.resolver != nil && s.resolver.channelService != nil {
 		visibility = s.resolver.channelService.visibleModels
@@ -144,13 +157,23 @@ func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group
 	if err != nil {
 		return nil, err
 	}
-	channels, err := s.channelRepo.ListAll(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list channels: %w", err)
+	var channels []Channel
+	if bundle != nil && bundle.channelSnapshot != nil {
+		for _, channel := range bundle.channelSnapshot.byID {
+			channels = append(channels, *channel.Clone())
+		}
+	} else {
+		channels, err = s.channelRepo.ListAll(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list channels: %w", err)
+		}
 	}
 	groups, err := s.groupRepo.ListActive(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list active groups: %w", err)
+	}
+	for i := range groups {
+		groups[i] = *frozenSaleGroup(ctx, &groups[i])
 	}
 
 	if permitted != nil {
@@ -273,6 +296,7 @@ func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group
 				}
 				idx[key] = len(pg.Models)
 				pg.Models = append(pg.Models, PlazaModel{
+					Published:       true,
 					Name:            m.Name,
 					Platform:        m.Platform,
 					Pricing:         m.Pricing,
@@ -398,12 +422,33 @@ func plazaVisibleModelsForGroups(ctx context.Context, resolver *VisibleModelReso
 // token 模型取计费阶梯表（单价与档位均由真实计费函数得出），
 // 图片/按次模型（或阶梯表不可用时）沿用渠道定价与分组图片档位价。
 func (s *ModelPlazaService) fillDisplayPricing(ctx context.Context, m *PlazaModel, g *Group) {
+	if s.resolver != nil {
+		ctx = WithResolvedTargetPlatform(ctx, m.Platform)
+		resolved := s.resolver.Resolve(ctx, PricingInput{Provider: m.Platform, Model: m.Name, Group: g, GroupID: &g.ID})
+		if resolved != nil {
+			if resolved.pricingErr != nil {
+				m.Pricing = nil
+				m.PriceSource = "unavailable"
+				return
+			}
+			m.PriceSource = resolved.Source
+			_, m.PriceRevision = pricingAuditIdentity(resolved)
+			if resolved.BasePricing != nil {
+				m.PriceProvenance = maps.Clone(resolved.BasePricing.FieldSources)
+			}
+		}
+	}
 	if s.billingService != nil && s.resolver != nil {
 		sched, err := s.billingService.ResolveContextPricingSchedule(ctx, s.resolver, ContextPricingScheduleInput{
 			Model:    m.Name,
 			Group:    g,
 			Platform: m.Platform,
 		})
+		if err != nil {
+			m.Pricing = nil
+			m.PriceSource = "unavailable"
+			return
+		}
 		if err == nil && sched != nil && len(sched.Tiers) > 0 {
 			m.Pricing = withDefaultMaxReasoningEffortMultiplier(plazaPricingFromSchedule(m.Pricing, sched), m.Name)
 			if len(sched.Tiers) > 1 {

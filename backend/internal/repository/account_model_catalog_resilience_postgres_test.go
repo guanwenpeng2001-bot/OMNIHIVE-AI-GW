@@ -26,7 +26,10 @@ func TestLegacyCatalogResiliencePostgres(test *testing.T) {
 	ctx := context.Background()
 	// Reuse the migrated test database's shape in an invocation-owned schema.
 	// No migration or test fixture can modify another runner's account rows.
+	// These are legacy accounts with no connection owner. An empty authority
+	// table establishes that fact; a missing table must remain a hard error.
 	_, err := database.ExecContext(ctx, `CREATE TABLE accounts (LIKE public.accounts INCLUDING ALL);
+	CREATE TABLE provider_connections (LIKE public.provider_connections INCLUDING ALL);
 	CREATE TABLE scheduler_outbox (LIKE public.scheduler_outbox INCLUDING ALL);
 	CREATE TABLE account_groups (LIKE public.account_groups INCLUDING ALL);
 	CREATE TABLE groups (LIKE public.groups INCLUDING ALL);

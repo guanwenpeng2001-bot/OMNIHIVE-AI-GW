@@ -145,11 +145,14 @@ func (d *ModelPricingDescriptor) UnitPrice(unit, dimension, conditions string) (
 // ResolveDescriptor uses the same group/channel precedence as billing. It never
 // publishes pricing into the capability registry or guesses sibling lifecycles.
 func (r *ModelPricingResolver) ResolveDescriptor(ctx context.Context, input PricingInput) (*ModelPricingDescriptor, error) {
-	pricingAt := time.Now()
+	pricingAt := SalePricingInstant(ctx, time.Now())
 	if plan := GatewayRequestPlanFromContext(ctx); plan != nil && !plan.Snapshot().PricingAt.IsZero() {
 		pricingAt = plan.Snapshot().PricingAt
 	}
-	platform := ""
+	platform := input.Provider
+	if platform == "" {
+		platform, _ = ResolvedTargetPlatformFromContext(ctx)
+	}
 	if input.Group != nil {
 		platform = channelLookupPlatform(ctx, input.Group.Platform)
 	}
@@ -181,11 +184,14 @@ func (r *ModelPricingResolver) ResolveDescriptor(ctx context.Context, input Pric
 }
 
 func (r *ModelPricingResolver) configuredPriceDescriptor(ctx context.Context, input PricingInput) (*ModelPricingDescriptor, bool, error) {
-	pricingAt := time.Now()
+	pricingAt := SalePricingInstant(ctx, time.Now())
 	if plan := GatewayRequestPlanFromContext(ctx); plan != nil && !plan.Snapshot().PricingAt.IsZero() {
 		pricingAt = plan.Snapshot().PricingAt
 	}
-	platform := ""
+	platform := input.Provider
+	if platform == "" {
+		platform, _ = ResolvedTargetPlatformFromContext(ctx)
+	}
 	if input.Group != nil {
 		platform = channelLookupPlatform(ctx, input.Group.Platform)
 	}
@@ -252,7 +258,7 @@ func (r *ModelPricingResolver) configuredPriceDescriptor(ctx context.Context, in
 				if err := descriptor.normalizeVariants(); err != nil {
 					return nil, false, err
 				}
-				descriptor.Source = PricingSourceLiteLLM
+				descriptor.Source = billing.pricingService.modelPriceSource(input.Model, platform)
 				return descriptor, true, nil
 			}
 		}
@@ -261,9 +267,13 @@ func (r *ModelPricingResolver) configuredPriceDescriptor(ctx context.Context, in
 }
 
 func (s *PricingService) modelPriceVariants(model, platform string) []ModelPriceVariant {
+	bound, err := s.BoundPricingModel(platform, model)
+	if err != nil {
+		return nil
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	entry := s.pricingData[strings.ToLower(strings.TrimSpace(model))]
+	entry := s.pricingData[bound]
 	if entry == nil || platform != "" && entry.LiteLLMProvider != platform {
 		return nil
 	}
@@ -274,6 +284,19 @@ func (s *PricingService) modelPriceVariants(model, platform string) []ModelPrice
 		}
 	}
 	return matches
+}
+
+func (s *PricingService) modelPriceSource(model, platform string) string {
+	bound, err := s.BoundPricingModel(platform, model)
+	if err != nil {
+		return "unavailable"
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if entry := s.pricingData[bound]; entry != nil && entry.sourceOrigin != "" {
+		return entry.sourceOrigin
+	}
+	return PricingSourceLiteLLM
 }
 
 // Index aliases in the existing immutable price map at publication, avoiding a
@@ -369,6 +392,10 @@ func (d *ModelPricingDescriptor) tokenPricing() *ModelPricing {
 				selected.ImageCacheReadPricePerToken = *price.Sales
 			}
 		}
+	}
+	if selected != nil {
+		selected.TokenPricePresence = selected.TokenDimensions
+		completePricingFieldSources(selected)
 	}
 	return selected
 }

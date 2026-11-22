@@ -31,6 +31,7 @@ func captureAccountExtraSQL(t *testing.T, bulk bool, write func(*accountReposito
 	t.Cleanup(func() { _ = client.Close() })
 	if bulk {
 		mock.ExpectBegin()
+		expectAccountConfigurationPreflight(mock)
 		mock.ExpectQuery("SELECT workspace_id, proxy_id, proxy_group_id FROM accounts").
 			WillReturnRows(sqlmock.NewRows([]string{"workspace_id", "proxy_id", "proxy_group_id"}))
 	}

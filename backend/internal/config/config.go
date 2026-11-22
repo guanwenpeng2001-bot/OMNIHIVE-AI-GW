@@ -69,6 +69,7 @@ const DefaultUpstreamResponseReadMaxBytes int64 = 128 * 1024 * 1024
 const DefaultModelsListReadMaxBytes int64 = 8 * 1024 * 1024
 
 type Config struct {
+	sources                   map[string]string
 	BoundedModelProbesEnabled bool `mapstructure:"bounded_model_probes_enabled"`
 	// ModelCatalogRefreshEnabled opts into periodic outbound catalog refreshes.
 	ModelCatalogRefreshEnabled bool `mapstructure:"model_catalog_refresh_enabled"`
@@ -84,6 +85,7 @@ type Config struct {
 	Ops                     OpsConfig                     `mapstructure:"ops"`
 	JWT                     JWTConfig                     `mapstructure:"jwt"`
 	Totp                    TotpConfig                    `mapstructure:"totp"`
+	Secrets                 SecretsConfig                 `mapstructure:"secrets"`
 	WebAuthn                WebAuthnConfig                `mapstructure:"webauthn"`
 	LinuxDo                 LinuxDoConnectConfig          `mapstructure:"linuxdo_connect"`
 	WeChat                  WeChatConnectConfig           `mapstructure:"wechat_connect"`
@@ -1742,6 +1744,12 @@ type TotpConfig struct {
 	EncryptionKeyConfigured bool `mapstructure:"-"`
 }
 
+// SecretsConfig isolates durable integration credentials from TOTP encryption.
+// An empty key preserves legacy ciphertext support without generating a key.
+type SecretsConfig struct {
+	EncryptionKey string `mapstructure:"encryption_key"`
+}
+
 type TurnstileConfig struct {
 	Required bool `mapstructure:"required"`
 }
@@ -1923,6 +1931,17 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	var cfg Config
 	if err := viper.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config error: %w", err)
+	}
+	cfg.sources = captureConfigurationSources()
+	if runtimeenv.HasInstallLock() && cfg.sources["model_catalog_refresh_enabled"] == "registry_default" {
+		// Preserve the implicit pre-v0.3.5 production value. New installations
+		// start disabled; an explicit env/YAML choice always wins.
+		cfg.ModelCatalogRefreshEnabled = true
+		cfg.sources["model_catalog_refresh_enabled"] = "migration_snapshot"
+	}
+	if runtimeenv.HasInstallLock() && cfg.sources["log.format"] == "registry_default" {
+		cfg.Log.Format = "console"
+		cfg.sources["log.format"] = "migration_snapshot"
 	}
 	if trustedProxiesEnvConfigured {
 		cfg.Server.TrustedProxies = normalizeStringSlice(strings.Split(trustedProxiesEnv, ","))
@@ -2106,6 +2125,9 @@ func HasSystemConfig() bool {
 }
 
 func setDefaults() {
+	for key, value := range operationalConfigDefaults {
+		viper.SetDefault(key, value)
+	}
 	viper.SetDefault("run_mode", RunModeStandard)
 
 	// Server
@@ -2128,7 +2150,6 @@ func setDefaults() {
 
 	// Log
 	viper.SetDefault("log.level", "info")
-	viper.SetDefault("log.format", "console")
 	viper.SetDefault("log.service_name", "omnihive")
 	viper.SetDefault("log.env", "production")
 	viper.SetDefault("log.caller", true)
@@ -2151,7 +2172,6 @@ func setDefaults() {
 
 	// WebAuthn / Passkeys are opt-in because every deployment must explicitly
 	// declare its relying-party domain and trusted browser origins.
-	viper.SetDefault("webauthn.enabled", false)
 	viper.SetDefault("webauthn.rp_display_name", "OmniHive")
 	viper.SetDefault("webauthn.rp_id", "")
 	viper.SetDefault("webauthn.rp_origins", []string{})
@@ -2200,78 +2220,14 @@ func setDefaults() {
 	viper.SetDefault("billing.user_platform_quota_sentinel_ttl_seconds", 3600)
 
 	// Turnstile
-	viper.SetDefault("turnstile.required", false)
 
 	// LinuxDo Connect OAuth 登录
-	viper.SetDefault("linuxdo_connect.enabled", false)
-	viper.SetDefault("linuxdo_connect.client_id", "")
-	viper.SetDefault("linuxdo_connect.client_secret", "")
-	viper.SetDefault("linuxdo_connect.authorize_url", "https://connect.linux.do/oauth2/authorize")
-	viper.SetDefault("linuxdo_connect.token_url", "https://connect.linux.do/oauth2/token")
-	viper.SetDefault("linuxdo_connect.userinfo_url", "https://connect.linux.do/api/user")
-	viper.SetDefault("linuxdo_connect.scopes", "user")
-	viper.SetDefault("linuxdo_connect.redirect_url", "")
-	viper.SetDefault("linuxdo_connect.frontend_redirect_url", "/auth/linuxdo/callback")
-	viper.SetDefault("linuxdo_connect.token_auth_method", "client_secret_post")
-	viper.SetDefault("linuxdo_connect.use_pkce", false)
-	viper.SetDefault("linuxdo_connect.userinfo_email_path", "")
-	viper.SetDefault("linuxdo_connect.userinfo_id_path", "")
-	viper.SetDefault("linuxdo_connect.userinfo_username_path", "")
 
 	// WeChat Connect OAuth 登录
-	viper.SetDefault("wechat_connect.enabled", false)
-	viper.SetDefault("wechat_connect.app_id", "")
-	viper.SetDefault("wechat_connect.app_secret", "")
-	viper.SetDefault("wechat_connect.open_app_id", "")
-	viper.SetDefault("wechat_connect.open_app_secret", "")
-	viper.SetDefault("wechat_connect.mp_app_id", "")
-	viper.SetDefault("wechat_connect.mp_app_secret", "")
-	viper.SetDefault("wechat_connect.mobile_app_id", "")
-	viper.SetDefault("wechat_connect.mobile_app_secret", "")
-	viper.SetDefault("wechat_connect.open_enabled", false)
-	viper.SetDefault("wechat_connect.mp_enabled", false)
-	viper.SetDefault("wechat_connect.mobile_enabled", false)
-	viper.SetDefault("wechat_connect.mode", defaultWeChatConnectMode)
-	viper.SetDefault("wechat_connect.scopes", defaultWeChatConnectScopes)
-	viper.SetDefault("wechat_connect.redirect_url", "")
-	viper.SetDefault("wechat_connect.frontend_redirect_url", defaultWeChatConnectFrontendRedirect)
 
 	// Generic OIDC OAuth 登录
-	viper.SetDefault("oidc_connect.enabled", false)
-	viper.SetDefault("oidc_connect.provider_name", "OIDC")
-	viper.SetDefault("oidc_connect.client_id", "")
-	viper.SetDefault("oidc_connect.client_secret", "")
-	viper.SetDefault("oidc_connect.issuer_url", "")
-	viper.SetDefault("oidc_connect.discovery_url", "")
-	viper.SetDefault("oidc_connect.authorize_url", "")
-	viper.SetDefault("oidc_connect.token_url", "")
-	viper.SetDefault("oidc_connect.userinfo_url", "")
-	viper.SetDefault("oidc_connect.jwks_url", "")
-	viper.SetDefault("oidc_connect.scopes", "openid email profile")
-	viper.SetDefault("oidc_connect.redirect_url", "")
-	viper.SetDefault("oidc_connect.frontend_redirect_url", "/auth/oidc/callback")
-	viper.SetDefault("oidc_connect.token_auth_method", "client_secret_post")
-	viper.SetDefault("oidc_connect.use_pkce", true)
-	viper.SetDefault("oidc_connect.validate_id_token", true)
-	viper.SetDefault("oidc_connect.allowed_signing_algs", "RS256,ES256,PS256")
-	viper.SetDefault("oidc_connect.clock_skew_seconds", 120)
-	viper.SetDefault("oidc_connect.require_email_verified", false)
-	viper.SetDefault("oidc_connect.userinfo_email_path", "")
-	viper.SetDefault("oidc_connect.userinfo_id_path", "")
-	viper.SetDefault("oidc_connect.userinfo_username_path", "")
 
 	// DingTalk Connect OAuth 登录
-	viper.SetDefault("dingtalk_connect.enabled", false)
-	viper.SetDefault("dingtalk_connect.authorize_url", "https://login.dingtalk.com/oauth2/auth")
-	viper.SetDefault("dingtalk_connect.token_url", "https://api.dingtalk.com/v1.0/oauth2/userAccessToken")
-	viper.SetDefault("dingtalk_connect.userinfo_url", "https://api.dingtalk.com/v1.0/contact/users/me")
-	viper.SetDefault("dingtalk_connect.scopes", "openid")
-	viper.SetDefault("dingtalk_connect.frontend_redirect_url", "/auth/dingtalk/callback")
-	viper.SetDefault("dingtalk_connect.dingtalk_app_kind", "internal_app")
-	viper.SetDefault("dingtalk_connect.app_type", "public")
-	viper.SetDefault("dingtalk_connect.corp_restriction_policy", "none")
-	viper.SetDefault("dingtalk_connect.require_email", true)
-	viper.SetDefault("dingtalk_connect.username_overwrite_policy", "if_empty")
 
 	// Database
 	viper.SetDefault("database.host", "localhost")
@@ -2349,24 +2305,12 @@ func setDefaults() {
 	viper.SetDefault("batch_image.vertex_gcs_base_url", "")
 
 	// Image storage (async image task result offload to S3-compatible object storage)
-	viper.SetDefault("image_storage.enabled", false)
-	viper.SetDefault("image_storage.region", "auto")
-	viper.SetDefault("image_storage.prefix", "images/")
-	viper.SetDefault("image_storage.force_path_style", false)
-	viper.SetDefault("image_storage.presign_expiry_hours", 24)
-	viper.SetDefault("image_storage.max_download_bytes", 33554432)
 	// Registered with empty defaults so AutomaticEnv can reach them: viper only
 	// decodes keys present in AllKeys(), so a credential that is supplied purely
 	// via IMAGE_STORAGE_* and never appears in config.yaml would be dropped and
 	// silently disable the whole async image feature.
-	viper.SetDefault("image_storage.endpoint", "")
-	viper.SetDefault("image_storage.bucket", "")
-	viper.SetDefault("image_storage.access_key_id", "")
-	viper.SetDefault("image_storage.secret_access_key", "")
-	viper.SetDefault("image_storage.public_base_url", "")
 
 	// Ops (vNext)
-	viper.SetDefault("ops.enabled", true)
 	viper.SetDefault("ops.use_preaggregated_tables", true)
 	viper.SetDefault("ops.cleanup.enabled", true)
 	viper.SetDefault("ops.cleanup.schedule", "0 2 * * *")
@@ -2389,15 +2333,12 @@ func setDefaults() {
 	viper.SetDefault("jwt.refresh_window_minutes", 2)      // 过期前2分钟开始允许刷新
 
 	// TOTP
-	viper.SetDefault("totp.encryption_key", "")
 
 	// Default
 	// Admin credentials are created via the setup flow (web wizard / CLI / AUTO_SETUP).
 	// Do not ship fixed defaults here to avoid insecure "known credentials" in production.
 	viper.SetDefault("default.admin_email", "")
 	viper.SetDefault("default.admin_password", "")
-	viper.SetDefault("default.user_concurrency", 5)
-	viper.SetDefault("default.user_balance", 0)
 	viper.SetDefault("default.api_key_prefix", "sk-")
 	viper.SetDefault("default.rate_multiplier", 1.0)
 
@@ -2481,7 +2422,6 @@ func setDefaults() {
 	viper.SetDefault("idempotency.cleanup_interval_seconds", 60)
 	viper.SetDefault("idempotency.cleanup_batch_size", 500)
 
-	viper.SetDefault("model_catalog_refresh_enabled", true)
 	viper.SetDefault("bounded_model_probes_enabled", false)
 
 	// Gateway
@@ -2743,45 +2683,17 @@ func setEnvReachableDefaults() {
 	_ = viper.BindEnv("server.trusted_proxies", "SERVER_TRUSTED_PROXIES")
 	_ = viper.BindEnv("security.forwarded_client_ip_headers", "SECURITY_FORWARDED_CLIENT_IP_HEADERS")
 
-	// Third-party login providers. These carry client secrets and are exactly
-	// the settings an operator expects to inject via the environment, but every
-	// key here was previously unreachable that way.
-	for _, provider := range []string{"github_oauth", "google_oauth"} {
-		viper.SetDefault(provider+".enabled", false)
-		viper.SetDefault(provider+".client_id", "")
-		viper.SetDefault(provider+".client_secret", "")
-		viper.SetDefault(provider+".authorize_url", "")
-		viper.SetDefault(provider+".token_url", "")
-		viper.SetDefault(provider+".userinfo_url", "")
-		viper.SetDefault(provider+".emails_url", "")
-		viper.SetDefault(provider+".scopes", "")
-		viper.SetDefault(provider+".redirect_url", "")
-		viper.SetDefault(provider+".frontend_redirect_url", "")
-	}
-
-	viper.SetDefault("dingtalk_connect.client_id", "")
-	viper.SetDefault("dingtalk_connect.client_secret", "")
-	viper.SetDefault("dingtalk_connect.internal_corp_id", "")
-	viper.SetDefault("dingtalk_connect.redirect_url", "")
-	viper.SetDefault("dingtalk_connect.bypass_registration", false)
-	viper.SetDefault("dingtalk_connect.username_attribute_key", "")
-	viper.SetDefault("dingtalk_connect.enable_attribute_matching", false)
-	viper.SetDefault("dingtalk_connect.enable_attribute_sync", false)
-	viper.SetDefault("dingtalk_connect.attribute_sync_fields", []string{})
-	viper.SetDefault("dingtalk_connect.attribute_sync_overwrite_policy", "")
-	viper.SetDefault("dingtalk_connect.sync_display_name", false)
-	viper.SetDefault("dingtalk_connect.sync_display_name_attr_key", "")
-	viper.SetDefault("dingtalk_connect.sync_display_name_attr_name", "")
-	viper.SetDefault("dingtalk_connect.sync_dept", false)
-	viper.SetDefault("dingtalk_connect.sync_dept_attr_key", "")
-	viper.SetDefault("dingtalk_connect.sync_dept_attr_name", "")
-	viper.SetDefault("dingtalk_connect.sync_corp_email", false)
-	viper.SetDefault("dingtalk_connect.sync_corp_email_attr_key", "")
-	viper.SetDefault("dingtalk_connect.sync_corp_email_attr_name", "")
 }
 
 func (c *Config) Validate() error { return c.validate(false) }
 func (c *Config) validate(allowMissingJWT bool) error {
+	c.Secrets.EncryptionKey = strings.TrimSpace(c.Secrets.EncryptionKey)
+	if c.Secrets.EncryptionKey != "" {
+		key, err := hex.DecodeString(c.Secrets.EncryptionKey)
+		if err != nil || len(key) != 32 {
+			return fmt.Errorf("secrets.encryption_key must be 32 bytes encoded as 64 hexadecimal characters")
+		}
+	}
 	if c.Gateway.AffinityHMACKey != "" && c.Gateway.AffinityHMACKeyVersion == "" {
 		return fmt.Errorf("gateway.affinity_hmac_key_version is required when gateway.affinity_hmac_key is set")
 	}

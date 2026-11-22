@@ -12,12 +12,14 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/billing/settlement"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
@@ -76,11 +78,16 @@ func TestPaidPlayground(t *testing.T) {
 	ep := "ep_" + catalog.Digest([2]int64{p, account})[:32]
 	model := "model-a"
 	mid := catalog.StableID("openai", model)
-	c := snapshotReader{Version: "cat", Details: []catalog.Detail{{Model: catalog.Summary{ID: mid, Model: model, AccessState: "allowed", RouteState: "eligible"}, Endpoints: []catalog.Endpoint{{ID: ep, Capabilities: []catalog.Capability{{Protocol: "openai_chat", Action: "text.chat", Tools: "supported", VerifiedAt: &now, Evidence: catalog.Evidence{State: "fresh"}}}}}}}}
+	inRate, err := money.NewRate("USD", "0.000001", "input_token", "1")
+	require.NoError(t, err)
+	outRate, err := money.NewRate("USD", "0.000002", "output_token", "1")
+	require.NoError(t, err)
+	sale := catalog.Price{State: "priced", Kind: "sale", Source: "group", Input: &inRate, Output: &outRate}
+	c := snapshotReader{Version: "cat", Details: []catalog.Detail{{Model: catalog.Summary{ID: mid, Provider: "openai", Model: model, AccessState: "allowed", RouteState: "eligible"}, GroupPrices: map[int64]catalog.Price{group: sale}, Endpoints: []catalog.Endpoint{{ID: ep, Capabilities: []catalog.Capability{{Protocol: "openai_chat", Action: "text.chat", Tools: "supported", VerifiedAt: &now, Evidence: catalog.Evidence{State: "fresh"}}}}}}}}
 	cfg := &config.Config{}
 	repo := repository.NewUsageSettlementReceiptRepository(db)
 	financial := service.NewUsageSettlementService(repo, nil, nil)
-	plans := service.ProvideGatewayService(nil, nil, nil, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(nil, nil), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, financial)
+	plans := service.ProvideGatewayService(nil, repository.NewGroupRepository(ent, db), nil, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(nil, nil), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, financial)
 	keys := service.NewAPIKeyService(repository.NewAPIKeyRepository(ent, db), nil, nil, nil, nil, nil, cfg)
 	queue := "playground/" + uuid.NewString()
 	settle := func(request string) error {
@@ -92,7 +99,9 @@ func TestPaidPlayground(t *testing.T) {
 		_, err = repo.Settle(ctx, receiptKey, receipt.Command.RequestFingerprint)
 		return err
 	}
+	var nativeCalls atomic.Int64
 	native := func(c *gin.Context) {
+		nativeCalls.Add(1)
 		if !ctxkey.PrivateGatewayContent(c.Request.Context()) {
 			t.Error("native Playground request is missing its private content marker")
 			c.AbortWithStatus(500)
@@ -170,6 +179,59 @@ func TestPaidPlayground(t *testing.T) {
 	}
 	require.Equal(t, 401, send(ctx, 0, "POST", runs, "one", payload("private-prompt")).Code)
 	require.Equal(t, 404, send(ctx, other, "POST", runs, "one", payload("private-prompt")).Code)
+	stalePrice := strings.Replace(payload("not-sent"), `"action":"text.chat"`, `"expected_price_version":"obsolete","action":"text.chat"`, 1)
+	staleResult := send(ctx, actor, "POST", runs, "stale-price", stalePrice)
+	require.Equal(t, 409, staleResult.Code, staleResult.Body.String())
+	require.Contains(t, staleResult.Body.String(), "PRICE_QUOTE_CHANGED")
+	// Reference-only catalog entries must not create a run, reservation or charge.
+	referenceOnly := c
+	referenceOnly.Details = append([]catalog.Detail{}, c.Details...)
+	referenceOnly.Details[0].GroupPrices = nil
+	ref := sale
+	ref.Kind, ref.Source = "reference", "pi-ai"
+	referenceOnly.Details[0].Model.ReferencePrice = &ref
+	h.Gateway.Catalog = referenceOnly
+	partial := sale
+	partial.Output = nil
+	conflict := sale
+	conflict.State, conflict.BillingState = "unpriced", "price_conflict"
+	conditional := sale
+	conditional.ContextBasis = "unverified_provider_basis"
+	for _, tc := range []struct {
+		name  string
+		price *catalog.Price
+	}{{"reference-only", nil}, {"partial", &partial}, {"conflict", &conflict}, {"conditional", &conditional}} {
+		if tc.price == nil {
+			// The private fixture identity has no platform fallback tariff. Clear
+			// the real group configuration as well as its catalog projection.
+			exec(`UPDATE groups SET model_pricing='[]' WHERE id=$1`, group)
+		} else {
+			exec(`UPDATE groups SET model_pricing='[{"platform":"openai","models":["model-a"],"billing_mode":"token","input_price":0.000001,"output_price":0.000002}]' WHERE id=$1`, group)
+		}
+		blocked := referenceOnly
+		blocked.Details = append([]catalog.Detail{}, referenceOnly.Details...)
+		if tc.price != nil {
+			blocked.Details[0].GroupPrices = map[int64]catalog.Price{group: *tc.price}
+		}
+		h.Gateway.Catalog = blocked
+		for _, expectedVersion := range []bool{false, true} {
+			request := payload("not-sent")
+			if expectedVersion {
+				request = strings.Replace(request, `"action":"text.chat"`, `"expected_price_version":"any-version","action":"text.chat"`, 1)
+			}
+			unpriced := send(ctx, actor, "POST", runs, fmt.Sprintf("%s-%t", tc.name, expectedVersion), request)
+			require.Equal(t, 422, unpriced.Code, tc.name+unpriced.Body.String())
+			require.Zero(t, nativeCalls.Load(), tc.name)
+			require.Zero(t, id("SELECT count(*) FROM playground_runs WHERE workspace_id=$1", w))
+			require.Zero(t, id("SELECT count(*) FROM api_key_budget_reservations WHERE api_key_id=$1", key))
+			require.Zero(t, id("SELECT count(*) FROM usage_settlement_receipts WHERE api_key_id=$1", key))
+			require.Zero(t, id("SELECT count(*) FROM usage_logs WHERE api_key_id=$1", key))
+			require.Zero(t, id("SELECT count(*) FROM billing_wallet_events e JOIN billing_funding_accounts f ON f.id=e.funding_account_id WHERE f.user_id=$1 AND e.kind='balance_change'", actor))
+			require.EqualValues(t, 100, id("SELECT balance::bigint FROM users WHERE id=$1", actor))
+		}
+	}
+	exec(`UPDATE groups SET model_pricing='[{"platform":"openai","models":["model-a"],"billing_mode":"token","input_price":0.000001,"output_price":0.000002}]' WHERE id=$1`, group)
+	h.Gateway.Catalog = c
 	result := send(ctx, actor, "POST", runs, "one", payload("private-prompt"))
 	require.Equal(t, 200, result.Code, result.Body.String())
 	require.Contains(t, result.Body.String(), "event: finished")

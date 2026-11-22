@@ -1967,7 +1967,7 @@ func persistOpenAI429PlanType(ctx context.Context, repo AccountRepository, accou
 		return
 	}
 
-	if _, err := repo.BulkUpdate(ctx, []int64{account.ID}, AccountBulkUpdate{
+	if _, err := repo.BulkUpdate(withAccountPlanObservation(ctx, account), []int64{account.ID}, AccountBulkUpdate{
 		Credentials: map[string]any{"plan_type": planType},
 	}); err != nil {
 		slog.Warn("openai_429_plan_type_sync_failed", "account_id", account.ID, "plan_type", planType, "error", err)

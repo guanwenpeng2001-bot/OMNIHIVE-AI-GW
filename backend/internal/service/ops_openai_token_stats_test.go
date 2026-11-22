@@ -106,9 +106,7 @@ func TestOpsServiceGetOpenAITokenStats_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := &OpsService{
-				opsRepo: &openAITokenStatsRepoStub{},
-			}
+			svc := newReadyOpsServiceForTest(t, &openAITokenStatsRepoStub{})
 
 			_, err := svc.GetOpenAITokenStats(context.Background(), tt.filter)
 			require.Error(t, err)
@@ -128,7 +126,7 @@ func TestOpsServiceGetOpenAITokenStats_DefaultPagination(t *testing.T) {
 			Total: 1,
 		},
 	}
-	svc := &OpsService{opsRepo: repo}
+	svc := newReadyOpsServiceForTest(t, repo)
 
 	filter := &OpsOpenAITokenStatsFilter{
 		TimeRange: "30d",
@@ -146,7 +144,7 @@ func TestOpsServiceGetOpenAITokenStats_DefaultPagination(t *testing.T) {
 
 func TestOpsServiceGetOpenAITokenStats_RepoUnavailable(t *testing.T) {
 	now := time.Now().UTC()
-	svc := &OpsService{}
+	svc := newReadyOpsServiceForTest(t, nil)
 
 	_, err := svc.GetOpenAITokenStats(context.Background(), &OpsOpenAITokenStatsFilter{
 		TimeRange: "1h",

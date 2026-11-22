@@ -197,7 +197,8 @@ func (s *Store) CreateKey(ctx context.Context, actor, w, p int64, in identity.Cr
 		}
 		var err error
 		out, err = createOnce(ctx, tx, a, "POST keys", token, in, func() (identity.Key, error) {
-			k := identity.Key{Name: in.Name, OwnerID: actor, Version: 1, Prefix: identity.ProjectKeyPrefix}
+			k := identity.Key{Name: in.Name, OwnerID: actor, Version: 1, Prefix: identity.ProjectKeyPrefix,
+				Status: "active", ExpiresAt: in.ExpiresAt, EvaluatedAt: time.Now().UTC(), Actions: slices.Clone(in.Actions), ModelAccess: in.ModelAccess}
 			if in.ExpiresAt != nil && !in.ExpiresAt.After(time.Now()) {
 				return k, fault.Invalid("/expires_at")
 			}
@@ -210,6 +211,12 @@ func (s *Store) CreateKey(ctx context.Context, actor, w, p int64, in identity.Cr
 			group, err := s.keyGroup(ctx, tx, a, in)
 			if err != nil {
 				return k, err
+			}
+			k.GroupID = group
+			if group != nil {
+				if err := tx.QueryRowContext(ctx, `SELECT platform FROM groups WHERE id=$1 AND workspace_id=$2`, *group, w).Scan(&k.Platform); err != nil {
+					return k, err
+				}
 			}
 			if err := tx.QueryRowContext(ctx, `INSERT INTO api_keys(workspace_id,user_id,name,status,expires_at,group_id) VALUES($1,$2,$3,'active',$4,$5) RETURNING id`, w, actor, k.Name, in.ExpiresAt, group).Scan(&k.ID); err != nil {
 				return k, err
@@ -224,12 +231,19 @@ func (s *Store) CreateKey(ctx context.Context, actor, w, p int64, in identity.Cr
 			if _, err := tx.ExecContext(ctx, `INSERT INTO project_resources(kind,resource_id,workspace_id,project_id) VALUES('api_keys',$1,$2,$3)`, k.ID, w, p); err != nil {
 				return k, err
 			}
+			var models []string
 			if in.ModelAccess.Mode != "inherit" {
-				models, _ := json.Marshal(in.ModelAccess.IDs)
-				if _, err := tx.ExecContext(ctx, `INSERT INTO model_access_rules(workspace_id,api_key_id,models) VALUES($1,$2,$3)`, w, k.ID, string(models)); err != nil {
-					return k, err
+				models = slices.Clone(in.ModelAccess.IDs)
+				if models == nil {
+					models = []string{}
 				}
 			}
+			if err := WriteKeyModelRule(ctx, tx, w, k.ID, identity.ModelRule{Models: models, Exclude: []string{}}); err != nil {
+				return k, err
+			}
+			k.ModelPolicySource = "model_access_rules"
+			k.ExcludedModels = []string{}
+
 			issued = &secret
 			return k, nil
 		})
@@ -280,10 +294,63 @@ func (s *Store) SetGrants(ctx context.Context, actor, w, member, expected int64,
 				return err
 			}
 		}
+		var rectangular bool
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) = count(DISTINCT project_id) * count(DISTINCT action) FROM project_grants WHERE workspace_id=$1 AND user_id=$2`, w, member).Scan(&rectangular); err != nil {
+			return err
+		}
+		if !rectangular {
+			return &fault.Fault{Status: 409, Reason: "GRANT_REPRESENTATION_LOSS", Message: "Use the project grant endpoint to preserve per-project permissions."}
+		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM project_grants WHERE workspace_id=$1 AND user_id=$2`, w, member); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO project_grants(workspace_id,user_id,project_id,action) SELECT $1,$2,p,a FROM unnest($3::bigint[]) p CROSS JOIN unnest($4::text[]) a`, w, member, pq.Array(projects), pq.Array(acts)); err != nil {
+			return err
+		}
+		return tx.QueryRowContext(ctx, `UPDATE workspace_members SET grant_version=grant_version+1,updated_at=now() WHERE workspace_id=$1 AND user_id=$2 RETURNING user_id,grant_version,updated_at`, w, member).Scan(&out.MemberID, &out.Version, &out.EffectiveAt)
+	})
+	out.EffectiveAt = out.EffectiveAt.UTC()
+	return out, err
+}
+
+// SetProjectGrants replaces exactly one project's direct grants, under the member CAS.
+func (s *Store) SetProjectGrants(ctx context.Context, actor, w, member, p, expected int64, actions []string) (identity.GrantVersion, error) {
+	var out identity.GrantVersion
+	acts, err := normalized(actions, "/actions")
+	if err != nil {
+		return out, err
+	}
+	err = s.write(ctx, actor, w, 0, "members.grants.write", func(tx *sql.Tx, a identity.Access) error {
+		var current int64
+		if err := tx.QueryRowContext(ctx, `SELECT grant_version FROM workspace_members WHERE workspace_id=$1 AND user_id=$2 FOR UPDATE`, w, member).Scan(&current); err != nil {
+			return found(err)
+		}
+		if current != expected {
+			return fault.Stale(current)
+		}
+		var exists bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM projects WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL)`, w, p).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return fault.NotFound
+		}
+		var count int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM identity_actions WHERE action=ANY($1) AND category IN ('member','project','key')`, pq.Array(acts)).Scan(&count); err != nil {
+			return err
+		}
+		if count != len(acts) {
+			return fault.Invalid("/actions")
+		}
+		for _, action := range acts {
+			if err := a.Require(action); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM project_grants WHERE workspace_id=$1 AND user_id=$2 AND project_id=$3`, w, member, p); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO project_grants(workspace_id,user_id,project_id,action) SELECT $1,$2,$3,unnest($4::text[])`, w, member, p, pq.Array(acts)); err != nil {
 			return err
 		}
 		return tx.QueryRowContext(ctx, `UPDATE workspace_members SET grant_version=grant_version+1,updated_at=now() WHERE workspace_id=$1 AND user_id=$2 RETURNING user_id,grant_version,updated_at`, w, member).Scan(&out.MemberID, &out.Version, &out.EffectiveAt)

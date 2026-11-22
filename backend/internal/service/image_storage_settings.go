@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
@@ -14,6 +15,12 @@ import (
 )
 
 const settingKeyImageStorageConfig = "image_storage_config"
+
+const (
+	imageStorageSettingsTTL = 30 * time.Second
+	imageStorageFailureTTL  = time.Second
+	imageStorageLoadTimeout = 5 * time.Second
+)
 
 // ErrImageStorageIncomplete 表示开关已打开但凭证不全，无法启用异步生图。
 var ErrImageStorageIncomplete = errors.New("image storage is enabled but bucket/access_key_id/secret_access_key are incomplete")
@@ -37,11 +44,14 @@ type ImageStorageSettings struct {
 	MaxDownloadBytes int64  `json:"max_download_bytes"`
 
 	// 以下仅在 ReuseBackupS3 为假时使用
-	Endpoint        string `json:"endpoint"`
-	Region          string `json:"region"`
-	AccessKeyID     string `json:"access_key_id"`
-	SecretAccessKey string `json:"secret_access_key,omitempty"` //nolint:revive // field name follows AWS convention
-	ForcePathStyle  bool   `json:"force_path_style"`
+	Endpoint         string `json:"endpoint"`
+	Region           string `json:"region"`
+	AccessKeyID      string `json:"access_key_id"`
+	SecretAccessKey  string `json:"secret_access_key,omitempty"` //nolint:revive // field name follows AWS convention
+	ForcePathStyle   bool   `json:"force_path_style"`
+	SecretConfigured bool   `json:"secret_configured,omitempty"`
+	SecretStatus     string `json:"secret_status,omitempty"`
+	SecretKeyID      string `json:"secret_key_id,omitempty"`
 }
 
 // ImageStorageSettingService 读写后台设置，并把结果解析成一个可直接使用的 uploader。
@@ -58,10 +68,12 @@ type ImageStorageSettingService struct {
 	// 保证升级前已用配置文件开启该功能的部署不被打断。
 	fallback config.ImageStorageConfig
 
-	mu       sync.Mutex
-	resolved bool
-	uploader *ImageResultUploader
-	enabled  bool
+	mu             sync.Mutex
+	resolved       bool
+	uploader       *ImageResultUploader
+	enabled        bool
+	expiresAt      time.Time
+	backupRevision uint64
 }
 
 func NewImageStorageSettingService(
@@ -71,6 +83,9 @@ func NewImageStorageSettingService(
 	factory ImageStorageFactory,
 	fallback config.ImageStorageConfig,
 ) *ImageStorageSettingService {
+	if backup != nil {
+		encryptor = backup.encryptor
+	}
 	return &ImageStorageSettingService{
 		settingRepo: settingRepo,
 		encryptor:   encryptor,
@@ -93,12 +108,20 @@ func (s *ImageStorageSettingService) resolve() (*ImageResultUploader, bool) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.resolved {
+	now := time.Now()
+	var backupRevision uint64
+	if s.backup != nil {
+		backupRevision = s.backup.s3ConfigRevision.Load()
+	}
+	if s.resolved && now.Before(s.expiresAt) && backupRevision == s.backupRevision {
 		return s.uploader, s.enabled
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), imageStorageLoadTimeout)
+	defer cancel()
 	s.resolved = true
+	s.expiresAt = now.Add(imageStorageFailureTTL)
+	s.backupRevision = backupRevision
 	s.uploader, s.enabled = nil, false
 
 	cfg, err := s.effectiveConfig(ctx)
@@ -107,6 +130,7 @@ func (s *ImageStorageSettingService) resolve() (*ImageResultUploader, bool) {
 		return nil, false
 	}
 	if !cfg.Enabled {
+		s.expiresAt = now.Add(imageStorageSettingsTTL)
 		return nil, false
 	}
 	if !cfg.IsConfigured() {
@@ -122,6 +146,7 @@ func (s *ImageStorageSettingService) resolve() (*ImageResultUploader, bool) {
 	}
 	s.uploader = NewImageResultUploader(storage, cfg.Prefix, cfg.MaxDownloadByte, nil)
 	s.enabled = true
+	s.expiresAt = now.Add(imageStorageSettingsTTL)
 	return s.uploader, true
 }
 
@@ -134,6 +159,7 @@ func (s *ImageStorageSettingService) Invalidate() {
 	s.resolved = false
 	s.uploader = nil
 	s.enabled = false
+	s.expiresAt = time.Time{}
 	s.mu.Unlock()
 }
 
@@ -145,6 +171,29 @@ func (s *ImageStorageSettingService) Get(ctx context.Context) (*ImageStorageSett
 	}
 	if settings == nil {
 		settings = settingsFromConfig(s.fallback)
+		settings.SecretKeyID = "deployment_config"
+	} else {
+		settings.SecretKeyID = settingSecretKeyID(settings.SecretAccessKey)
+	}
+	settings.SecretConfigured = settings.SecretAccessKey != ""
+	if settings.ReuseBackupS3 {
+		if s.backup == nil {
+			return nil, errors.New("backup credential service is unavailable")
+		}
+		backup, err := s.backup.GetS3Config(ctx)
+		if err != nil {
+			return nil, err
+		}
+		settings.SecretConfigured, settings.SecretStatus, settings.SecretKeyID = backup.SecretConfigured, backup.SecretStatus, backup.SecretKeyID
+	} else if settings.SecretConfigured {
+		settings.SecretStatus = "configured"
+		if settings.SecretKeyID != "deployment_config" {
+			if s.encryptor == nil {
+				settings.SecretStatus = "unreadable"
+			} else if _, err := s.encryptor.Decrypt(settings.SecretAccessKey); err != nil {
+				settings.SecretStatus = "unreadable"
+			}
+		}
 	}
 	settings.SecretAccessKey = ""
 	return settings, nil
@@ -153,7 +202,10 @@ func (s *ImageStorageSettingService) Get(ctx context.Context) (*ImageStorageSett
 // SecretConfigured 供前端展示"已配置"占位符。
 func (s *ImageStorageSettingService) SecretConfigured(ctx context.Context) bool {
 	settings, err := s.load(ctx)
-	if err != nil || settings == nil {
+	if err != nil {
+		return false
+	}
+	if settings == nil {
 		return s.fallback.SecretAccessKey != ""
 	}
 	if settings.ReuseBackupS3 {
@@ -166,14 +218,27 @@ func (s *ImageStorageSettingService) SecretConfigured(ctx context.Context) bool 
 // Update 保存设置并立即生效。SecretAccessKey 留空表示沿用已保存的值。
 func (s *ImageStorageSettingService) Update(ctx context.Context, in ImageStorageSettings) (*ImageStorageSettings, error) {
 	normalizeImageStorageSettings(&in)
+	in.SecretConfigured, in.SecretStatus, in.SecretKeyID = false, "", ""
 
 	if in.ReuseBackupS3 {
 		// 复用备份凭证时不落自己的密钥，避免同一份密钥在库里存两份。
 		in.Endpoint, in.Region, in.AccessKeyID, in.SecretAccessKey = "", "", "", ""
 		in.ForcePathStyle = false
 	} else if in.SecretAccessKey == "" {
-		if old, err := s.load(ctx); err == nil && old != nil {
+		old, err := s.load(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if old != nil {
 			in.SecretAccessKey = old.SecretAccessKey
+		} else if s.fallback.SecretAccessKey != "" {
+			if s.backup == nil || !s.backup.EncryptionKeyConfigured() {
+				return nil, ErrSecretEncryptionKeyNotConfigured
+			}
+			in.SecretAccessKey, err = s.encryptor.Encrypt(s.fallback.SecretAccessKey)
+			if err != nil {
+				return nil, fmt.Errorf("encrypt inherited image storage secret: %w", err)
+			}
 		}
 	} else {
 		// 拒绝用自动生成的临时密钥加密：重启后密文无法解密（#4524）。
@@ -205,13 +270,20 @@ func (s *ImageStorageSettingService) Update(ctx context.Context, in ImageStorage
 // 与 Update 一样支持留空 SecretAccessKey 表示沿用已保存的值。
 func (s *ImageStorageSettingService) TestConnection(ctx context.Context, in ImageStorageSettings) error {
 	normalizeImageStorageSettings(&in)
+	requestSecret := in.SecretAccessKey != ""
 	if !in.ReuseBackupS3 && in.SecretAccessKey == "" {
 		old, err := s.load(ctx)
-		if err == nil && old != nil {
+		if err != nil {
+			return err
+		}
+		if old != nil {
 			in.SecretAccessKey = old.SecretAccessKey
+		} else {
+			in.SecretAccessKey = s.fallback.SecretAccessKey
+			requestSecret = true
 		}
 	}
-	cfg, err := s.toImageStorageConfig(ctx, &in)
+	cfg, err := s.toImageStorageConfigWithSecret(ctx, &in, requestSecret)
 	if err != nil {
 		return err
 	}
@@ -254,6 +326,10 @@ func (s *ImageStorageSettingService) effectiveConfig(ctx context.Context) (*conf
 }
 
 func (s *ImageStorageSettingService) toImageStorageConfig(ctx context.Context, in *ImageStorageSettings) (*config.ImageStorageConfig, error) {
+	return s.toImageStorageConfigWithSecret(ctx, in, false)
+}
+
+func (s *ImageStorageSettingService) toImageStorageConfigWithSecret(ctx context.Context, in *ImageStorageSettings, requestSecret bool) (*config.ImageStorageConfig, error) {
 	cfg := &config.ImageStorageConfig{
 		Enabled:         in.Enabled,
 		Bucket:          in.Bucket,
@@ -284,14 +360,15 @@ func (s *ImageStorageSettingService) toImageStorageConfig(ctx context.Context, i
 		if cfg.Bucket == "" {
 			cfg.Bucket = backupCfg.Bucket
 		}
-	} else if cfg.SecretAccessKey != "" {
+	} else if cfg.SecretAccessKey != "" && !requestSecret {
+		if s.encryptor == nil {
+			return nil, ErrStorageSecretInvalid
+		}
 		decrypted, err := s.encryptor.Decrypt(cfg.SecretAccessKey)
 		if err != nil {
-			// 兼容未加密的旧数据，与备份配置的处理保持一致。
-			logger.L().Warn("image_storage secret decrypt failed; treating the stored value as plaintext", zap.Error(err))
-		} else {
-			cfg.SecretAccessKey = decrypted
+			return nil, ErrStorageSecretInvalid
 		}
+		cfg.SecretAccessKey = decrypted
 	}
 	return cfg, nil
 }
@@ -310,13 +387,17 @@ func (s *ImageStorageSettingService) load(ctx context.Context) (*ImageStorageSet
 		return nil, nil //nolint:nilnil // no repository means no stored settings
 	}
 	raw, err := s.settingRepo.GetValue(ctx, settingKeyImageStorageConfig)
-	if err != nil || strings.TrimSpace(raw) == "" {
+	if err != nil && !errors.Is(err, ErrSettingNotFound) {
+		return nil, fmt.Errorf("load image storage configuration: %w", err)
+	}
+	if errors.Is(err, ErrSettingNotFound) || strings.TrimSpace(raw) == "" {
 		return nil, nil //nolint:nilnil // never configured is a valid state
 	}
 	var settings ImageStorageSettings
 	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
 		return nil, fmt.Errorf("parse image storage settings: %w", err)
 	}
+	settings.SecretConfigured, settings.SecretStatus, settings.SecretKeyID = false, "", ""
 	return &settings, nil
 }
 

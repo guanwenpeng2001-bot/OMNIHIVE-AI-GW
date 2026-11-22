@@ -66,6 +66,7 @@ type openAIAccountTestRepo struct {
 	updatedExtra       map[string]any
 	bulkUpdatedIDs     []int64
 	bulkUpdatedPayload AccountBulkUpdate
+	bulkUpdatedContext context.Context
 	rateLimitedID      int64
 	rateLimitedAt      *time.Time
 	clearedErrorID     int64
@@ -78,9 +79,10 @@ func (r *openAIAccountTestRepo) UpdateExtra(_ context.Context, _ int64, updates 
 	return nil
 }
 
-func (r *openAIAccountTestRepo) BulkUpdate(_ context.Context, ids []int64, updates AccountBulkUpdate) (int64, error) {
+func (r *openAIAccountTestRepo) BulkUpdate(ctx context.Context, ids []int64, updates AccountBulkUpdate) (int64, error) {
 	r.bulkUpdatedIDs = append([]int64(nil), ids...)
 	r.bulkUpdatedPayload = updates
+	r.bulkUpdatedContext = ctx
 	return int64(len(ids)), nil
 }
 
@@ -443,6 +445,9 @@ func TestAccountTestService_OpenAI429SyncsObservedPlanType(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, []int64{account.ID}, repo.bulkUpdatedIDs)
 	require.Equal(t, "free", repo.bulkUpdatedPayload.Credentials["plan_type"])
+	require.True(t, IsAccountPlanObservation(repo.bulkUpdatedContext, account.ID))
+	require.False(t, IsAccountPlanObservation(repo.bulkUpdatedContext, account.ID+1))
+	require.False(t, IsAccountPlanObservation(ctx.Request.Context(), account.ID), "the HTTP context alone has no observation authority")
 	require.Equal(t, "free", account.Credentials["plan_type"])
 	require.Equal(t, account.ID, repo.rateLimitedID)
 	require.NotNil(t, account.RateLimitResetAt)
