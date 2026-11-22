@@ -15,8 +15,15 @@ This project follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/
 ### Fixed
 
 - **Complete upstream model discovery & multimodal metadata**: Fixed Kimi Coding model discovery failure (`upstream_model_sync_discovery_unconfirmed`) and enriched multimodal modality/action/context metadata across configured providers.
-- **Default workspace membership onboarding & backfill**: Automatically provisions idempotent Default workspace memberships on user creation (registration, OAuth, admin creation) with strict `projects.read` + `models.read` RBAC isolation, and backfills existing active accounts via migration `334_backfill_default_workspace_members.sql`.
+- **Default workspace membership onboarding & backfill**: Automatically provisions idempotent Default workspace memberships on user creation (registration, OAuth, admin creation) with strict `projects.read` + `models.read` RBAC isolation, and backfills existing active accounts via migration `334_backfill_default_workspace_members.sql`. Migration `337_default_workspace_role_source.sql` adds `workspace_members.inherits_global_role`, repairs the role source for restored defaults whose id is not workspace `1`, and keeps automatic memberships inheriting the global role while manual role assignments stay independent. Companion migration `338` completes the backfill of automatic administrator role sources and adds the member-lookup composite index used by workspace membership queries.
 - **URL allowlist toggle & connection probe diagnostics**: Fixed `URLAllowlist.Enabled=false` still passing default upstream host lists while preserving HTTPS and private-IP SSRF protections; stopped `ProbeConnection` from swallowing build/network errors as `EVIDENCE_UNAVAILABLE`/`CHECK_UNSUPPORTED` and surfaced actionable, redacted failure details in the UI.
+
+### Security
+
+- **Fail-closed outbound checks**: Disabling the URL allowlist no longer widens upstream reachability; HTTPS enforcement, private-host blocking and redirect refusal remain in force for connection probes, WorkBuddy login/poll and account tests.
+- **WorkBuddy credential handling**: Native OAuth access and refresh tokens stay inside the encrypted credential store and are never echoed; only the non-sensitive `site`, `uid`, `domain`, `enterprise_id`, `expires_at` and `refresh_expires_at` metadata is projected back to callers, and upstream diagnostics are redacted.
+- **Kilo free/paid lane isolation**: The keyless `free` lane omits `Authorization`, admits only `isFree: true` discovery, and sanitizes upstream errors; switching to `apikey` requires clearing the public credential so a free identity cannot silently become a paid one.
+- **Metering and credential audit hardening**: Cache-hit receipts bind to the frozen pricing source, credential secret guard replays are rejected, and the encrypted credential backfill is replayed idempotently. Plaza `availability_state`, catalog-only entries and price projections never grant routing access; live authorization and pricing gates remain authoritative.
 
 ## 0.3.1 - 2026-11-22
 

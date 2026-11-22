@@ -1,0 +1,272 @@
+paths:
+  /api/v1/admin/workbuddy/oauth/start:
+    post:
+      operationId: workBuddyAdminOAuthStart
+      summary: Start a WorkBuddy device authorization
+      description: |
+        Creates a short-lived WorkBuddy login session for the administrator
+        deployment scope. The response carries the browser authorization URL and
+        the opaque `session_id` used by the poll route. Responses are never cached.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkBuddyOAuthStartRequest'
+      responses:
+        '200':
+          description: Login session created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - code
+                - message
+                - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/WorkBuddyOAuthStart'
+                additionalProperties: false
+        default:
+          description: Login error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+  /api/v1/admin/workbuddy/oauth/poll:
+    post:
+      operationId: workBuddyAdminOAuthPoll
+      summary: Poll a WorkBuddy device authorization
+      description: |
+        Polls the login session created by the start route. Returns `pending`
+        while the browser authorization is incomplete and `completed` once the
+        account identity and tokens are available. The explicit exchange is the
+        only response that carries tokens; responses are never cached.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkBuddyOAuthPollRequest'
+      responses:
+        '200':
+          description: Login state
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - code
+                - message
+                - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/WorkBuddyOAuthPoll'
+                additionalProperties: false
+        default:
+          description: Login error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+  /api/v1/workspaces/{workspace_id}/workbuddy/oauth/start:
+    parameters:
+    - $ref: '#/components/parameters/IdentityWorkspaceID'
+    post:
+      operationId: workBuddyWorkspaceOAuthStart
+      summary: Start a workspace-scoped WorkBuddy device authorization
+      description: |
+        Requires workspace administrator membership in the addressed workspace.
+        The login session remains bound to the initiating workspace and cannot be
+        polled from another workspace.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkBuddyOAuthStartRequest'
+      responses:
+        '200':
+          description: Login session created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - code
+                - message
+                - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/WorkBuddyOAuthStart'
+                additionalProperties: false
+        default:
+          description: Login error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+  /api/v1/workspaces/{workspace_id}/workbuddy/oauth/poll:
+    parameters:
+    - $ref: '#/components/parameters/IdentityWorkspaceID'
+    post:
+      operationId: workBuddyWorkspaceOAuthPoll
+      summary: Poll a workspace-scoped WorkBuddy device authorization
+      description: |
+        Requires workspace administrator membership in the addressed workspace.
+        A login session created in another workspace, or by another administrator
+        session, is reported as expired.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkBuddyOAuthPollRequest'
+      responses:
+        '200':
+          description: Login state
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - code
+                - message
+                - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/WorkBuddyOAuthPoll'
+                additionalProperties: false
+        default:
+          description: Login error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+components:
+  schemas:
+    WorkBuddySite:
+      type: string
+      enum:
+      - cn
+      - global
+      description: |
+        Normalized WorkBuddy site. OAuth input also accepts the desktop import
+        aliases `china`/`workbuddy` for `cn` and
+        `intl`/`international`/`workbuddy-ai`/`workbuddy_ai` for `global`.
+    WorkBuddyOAuthStartRequest:
+      type: object
+      required:
+      - site
+      properties:
+        site:
+          $ref: '#/components/schemas/WorkBuddySite'
+        proxy_id:
+          type: integer
+          minimum: 1
+          description: Existing proxy node used for the outbound login exchange.
+      additionalProperties: false
+    WorkBuddyOAuthStart:
+      type: object
+      required:
+      - session_id
+      - auth_url
+      - state
+      - site
+      - expires_in
+      properties:
+        session_id:
+          type: string
+          description: Opaque server-side login session identifier for the poll route.
+        auth_url:
+          type: string
+          format: uri
+          description: HTTPS browser URL that completes the device authorization.
+        state:
+          type: string
+          description: WorkBuddy authorization state bound to the login session.
+        site:
+          $ref: '#/components/schemas/WorkBuddySite'
+        expires_in:
+          type: integer
+          minimum: 1
+          description: Login session lifetime in seconds.
+      additionalProperties: false
+    WorkBuddyOAuthPollRequest:
+      type: object
+      required:
+      - session_id
+      properties:
+        session_id:
+          type: string
+          minLength: 1
+      additionalProperties: false
+    WorkBuddyOAuthCredentials:
+      type: object
+      required:
+      - site
+      - access_token
+      - uid
+      - domain
+      properties:
+        site:
+          $ref: '#/components/schemas/WorkBuddySite'
+        access_token:
+          type: string
+          description: WorkBuddy access token. Returned only by this explicit exchange.
+        refresh_token:
+          type: string
+          description: WorkBuddy refresh token when the upstream grants one. Returned only by this explicit exchange.
+        token_type:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        refresh_expires_at:
+          type: string
+          format: date-time
+        uid:
+          type: string
+        domain:
+          type: string
+        enterprise_id:
+          type: string
+      additionalProperties: false
+    WorkBuddyOAuthPoll:
+      type: object
+      required:
+      - status
+      - site
+      properties:
+        status:
+          type: string
+          enum:
+          - pending
+          - completed
+          - failed
+        site:
+          $ref: '#/components/schemas/WorkBuddySite'
+        account_name:
+          type: string
+        credentials:
+          $ref: '#/components/schemas/WorkBuddyOAuthCredentials'
+        error:
+          type: string
+      additionalProperties: false

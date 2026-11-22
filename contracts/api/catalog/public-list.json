@@ -23,6 +23,7 @@
         "maturity": "stable",
         "catalog_version": "cat_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "catalog_state": "listed",
+        "availability_state": "live",
         "access_state": "requires_scope",
         "route_state": "requires_scope",
         "price_state": "priced",
