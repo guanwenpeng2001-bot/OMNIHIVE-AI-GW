@@ -48,19 +48,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		stream := gjson.GetBytes(body, "stream").Bool()
 		started := time.Now()
 		account.compatibleBinding.bufferResponses = !stream
-		result, err := s.forwardOpenAIPassthrough(ctx, c, account, body, body, requestModel, false, nil, stream, started)
-		if meter := account.compatibleBinding.aggregate; meter != nil {
-			if errors.Is(err, errCompatibleResponsesIncomplete) {
-				writeResponsesError(c, http.StatusBadGateway, "upstream_error", "Upstream response ended before completion")
-				result = &OpenAIForwardResult{RequestID: meter.header.Get("X-Request-Id"), UpstreamHeaders: meter.header, Model: requestModel, UpstreamModel: account.GetMappedModel(requestModel), Duration: time.Since(started), UpstreamEndpoint: openAIResponsesUpstreamEndpoint}
-			}
-			if result != nil {
-				result.Usage = meter.usage
-				result.TokenUsageObservation = &meter.observation
-				result.UsageIncomplete = err != nil || !meter.observation.known()
-			}
-		}
-		return result, err
+		return s.forwardOpenAIPassthrough(ctx, c, account, body, body, requestModel, false, nil, stream, started)
 	}
 	if account.Platform == PlatformOpenRouter {
 		return s.forwardOpenRouterNative(ctx, c, account, body, APIProtocolResponses, "")

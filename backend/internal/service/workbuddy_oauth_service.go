@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -343,6 +344,12 @@ func (s *WorkBuddyOAuthService) RefreshAccountToken(ctx context.Context, a *Acco
 	if t := workBuddyTime(a.Credentials["refresh_expires_at"]); t != nil && time.Now().After(*t) {
 		return nil, errors.New("WorkBuddy refresh token expired")
 	}
+	// Each caller owns its copy, including nested account metadata. The
+	// singleflight result and the rotation cache only contain provider tokens.
+	updated, err := cloneAccountJSONMap(a.Credentials)
+	if err != nil {
+		return nil, fmt.Errorf("copy WorkBuddy credentials: %w", err)
+	}
 	digest := sha256.Sum256([]byte(s.endpoint(a) + "|" + refresh))
 	key := hex.EncodeToString(digest[:])
 	v, err, _ := s.refresh.Do(key, func() (any, error) {
@@ -385,7 +392,8 @@ func (s *WorkBuddyOAuthService) RefreshAccountToken(ctx context.Context, a *Acco
 	if !ok {
 		return nil, errors.New("WorkBuddy refreshed credentials payload invalid")
 	}
-	return MergeCredentials(a.Credentials, creds), nil
+	maps.Copy(updated, creds)
+	return updated, nil
 }
 
 type WorkBuddyTokenRefresher struct{ service *WorkBuddyOAuthService }

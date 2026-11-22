@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,18 +22,7 @@ type compatibleRequestBinding struct {
 	Action          string
 	observation     compatibleUsageObservation
 	bufferResponses bool
-	aggregate       *compatibleResponseMeter
 }
-
-// A synchronous native Responses request can still receive SSE. The body
-// reader owns this attempt's meter until the buffered forward returns.
-type compatibleResponseMeter struct {
-	usage       OpenAIUsage
-	observation TokenUsageObservation
-	header      http.Header
-}
-
-var errCompatibleResponsesIncomplete = errors.New("upstream Responses stream ended before completion")
 
 // IsCompatibleProvider identifies table-owned providers without changing their platform identity.
 func IsCompatibleProvider(platform string) bool {
@@ -485,7 +473,6 @@ type compatibleUsageBody struct {
 	limit                 int64
 	initialized, terminal bool
 	observation           *compatibleUsageObservation
-	aggregate             *compatibleResponseMeter
 	parser                openAICompatSSEFrameParser
 	frameSize             int64
 }
@@ -559,14 +546,7 @@ func (b *compatibleUsageBody) Read(p []byte) (int, error) {
 				}
 				b.observe(raw)
 				kind := effectiveOpenAISSEEventType(raw, frame.EventType)
-				if b.aggregate != nil {
-					if !bytes.Equal(raw, []byte("[DONE]")) {
-						mergeOpenAIFrameUsage(raw, &b.aggregate.usage, &b.aggregate.observation, kind)
-					}
-					if kind == "response.failed" || kind == "error" || openAIResponseTerminalObject(raw, kind).Exists() {
-						b.terminal = true
-					}
-				} else if bytes.Equal(raw, []byte("[DONE]")) || kind == "message_stop" || kind == "error" || openAIStreamEventTypeIsTerminal(kind) {
+				if bytes.Equal(raw, []byte("[DONE]")) || kind == "message_stop" || kind == "error" || openAIStreamEventTypeIsTerminal(kind) {
 					b.terminal = true
 				}
 				if b.protocol == APIProtocolChatCompletions {
@@ -579,9 +559,6 @@ func (b *compatibleUsageBody) Read(p []byte) (int, error) {
 			}
 			if !scanned {
 				if !b.terminal {
-					if b.aggregate != nil {
-						return 0, errCompatibleResponsesIncomplete
-					}
 					return 0, newOpenAIUpstreamStreamReadError(fmt.Errorf("compatible upstream missing terminal event"))
 				}
 				return 0, io.EOF
@@ -603,14 +580,14 @@ func compatibleCheckedResponse(account *Account, response *http.Response, limit 
 	protocol := account.GetAPIProtocol()
 	observation := &compatibleUsageObservation{}
 	if account.compatibleBinding != nil {
-		account.compatibleBinding.aggregate = nil
 		observation = &account.compatibleBinding.observation
 	}
 	body := &compatibleUsageBody{source: response.Body, protocol: protocol, limit: limit, observation: observation}
-	if strings.Contains(response.Header.Get("Content-Type"), "text/event-stream") {
+	if isEventStreamResponse(response.Header) {
 		if binding := account.compatibleBinding; binding != nil && binding.bufferResponses {
-			body.aggregate = &compatibleResponseMeter{header: response.Header}
-			binding.aggregate = body.aggregate
+			// The buffered Responses parser validates frames and owns the
+			// attempt's meter, including interrupted HTTP reads.
+			return response
 		}
 		body.scanner = bufio.NewScanner(response.Body)
 		body.scanner.Buffer(make([]byte, 64*1024), int(limit))
