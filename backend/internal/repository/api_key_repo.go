@@ -750,10 +750,16 @@ func (r *apiKeyRepository) ListByUserID(ctx context.Context, userID int64, param
 	return outKeys, paginationResultFromTotal(int64(total), params), nil
 }
 
+const apiKeyUnpagedListLimit = 1000
+
 func (r *apiKeyRepository) ListAllByUserID(ctx context.Context, userID int64, filters service.APIKeyListFilters) ([]service.APIKey, error) {
+	// Callers use this for account management/deletion checks. Bound the legacy
+	// unpaged surface so a user with an abnormal key history cannot make its
+	// relation hydration consume arbitrary memory.
 	keys, err := r.apiKeyListByUserIDQuery(userID, filters).
 		WithGroup().
 		Order(dbent.Asc(apikey.FieldID)).
+		Limit(apiKeyUnpagedListLimit).
 		All(ctx)
 	if err != nil {
 		return nil, err

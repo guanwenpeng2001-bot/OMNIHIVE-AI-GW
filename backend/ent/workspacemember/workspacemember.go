@@ -24,6 +24,8 @@ const (
 	FieldUserID = "user_id"
 	// FieldRole holds the string denoting the role field in the database.
 	FieldRole = "role"
+	// FieldInheritsGlobalRole holds the string denoting the inherits_global_role field in the database.
+	FieldInheritsGlobalRole = "inherits_global_role"
 	// Table holds the table name of the workspacemember in the database.
 	Table = "workspace_members"
 )
@@ -36,6 +38,7 @@ var Columns = []string{
 	FieldWorkspaceID,
 	FieldUserID,
 	FieldRole,
+	FieldInheritsGlobalRole,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -55,6 +58,8 @@ var (
 	DefaultUpdatedAt func() time.Time
 	// UpdateDefaultUpdatedAt holds the default value on update for the "updated_at" field.
 	UpdateDefaultUpdatedAt func() time.Time
+	// DefaultInheritsGlobalRole holds the default value on creation for the "inherits_global_role" field.
+	DefaultInheritsGlobalRole bool
 )
 
 // Role defines the type for the "role" enum field.
@@ -111,4 +116,9 @@ func ByUserID(opts ...sql.OrderTermOption) OrderOption {
 // ByRole orders the results by the role field.
 func ByRole(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRole, opts...).ToFunc()
+}
+
+// ByInheritsGlobalRole orders the results by the inherits_global_role field.
+func ByInheritsGlobalRole(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldInheritsGlobalRole, opts...).ToFunc()
 }

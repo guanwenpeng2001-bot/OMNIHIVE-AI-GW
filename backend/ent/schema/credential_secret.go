@@ -19,6 +19,10 @@ func (CredentialSecret) Fields() []ent.Field {
 		field.Int64("account_id").Unique().Immutable(),
 		field.Int64("version").Default(1).Positive(),
 		field.Text("ciphertext").Sensitive(),
+		// SQL migration 329 is authoritative. This digest supports CAS/update
+		// bookkeeping and must remain nullable for legacy rows.
+		field.String("api_key_digest").Optional().Nillable().
+			Comment("Digest of the resolved API key; never stores plaintext."),
 		field.Time("revoked_at").Optional().Nillable(),
 	}
 }

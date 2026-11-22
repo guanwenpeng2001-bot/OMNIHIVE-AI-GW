@@ -89,6 +89,11 @@ func Ciphertext(v string) predicate.CredentialSecret {
 	return predicate.CredentialSecret(sql.FieldEQ(FieldCiphertext, v))
 }
 
+// APIKeyDigest applies equality check predicate on the "api_key_digest" field. It's identical to APIKeyDigestEQ.
+func APIKeyDigest(v string) predicate.CredentialSecret {
+	return predicate.CredentialSecret(sql.FieldEQ(FieldAPIKeyDigest, v))
+}
+
 // RevokedAt applies equality check predicate on the "revoked_at" field. It's identical to RevokedAtEQ.
 func RevokedAt(v time.Time) predicate.CredentialSecret {
 	return predicate.CredentialSecret(sql.FieldEQ(FieldRevokedAt, v))
@@ -422,6 +427,81 @@ func CiphertextEqualFold(v string) predicate.CredentialSecret {
 // CiphertextContainsFold applies the ContainsFold predicate on the "ciphertext" field.
 func CiphertextContainsFold(v string) predicate.CredentialSecret {
 	return predicate.CredentialSecret(sql.FieldContainsFold(FieldCiphertext, v))
+}
+
+// APIKeyDigestEQ applies the EQ predicate on the "api_key_digest" field.
+func APIKeyDigestEQ(v string) predicate.CredentialSecret {
+	return predicate.CredentialSecret(sql.FieldEQ(FieldAPIKeyDigest, v))
+}
+
+// APIKeyDigestNEQ applies the NEQ predicate on the "api_key_digest" field.
+func APIKeyDigestNEQ(v string) predicate.CredentialSecret {
+	return predicate.CredentialSecret(sql.FieldNEQ(FieldAPIKeyDigest, v))
+}
+
+// APIKeyDigestIn applies the In predicate on the "api_key_digest" field.
+func APIKeyDigestIn(vs ...string) predicate.CredentialSecret {
+	return predicate.CredentialSecret(sql.FieldIn(FieldAPIKeyDigest, vs...))
+}
+
+// APIKeyDigestNotIn applies the NotIn predicate on the "api_key_digest" field.
+func APIKeyDigestNotIn(vs ...string) predicate.CredentialSecret {
+	return predicate.CredentialSecret(sql.FieldNotIn(FieldAPIKeyDigest, vs...))
+}
+
+// APIKeyDigestGT applies the GT predicate on the "api_key_digest" field.
+func APIKeyDigestGT(v string) predicate.CredentialSecret {
+	return predicate.CredentialSecret(sql.FieldGT(FieldAPIKeyDigest, v))
+}
+
+// APIKeyDigestGTE applies the GTE predicate on the "api_key_digest" field.
+func APIKeyDigestGTE(v string) predicate.CredentialSecret {
+	return predicate.CredentialSecret(sql.FieldGTE(FieldAPIKeyDigest, v))
+}
+
+// APIKeyDigestLT applies the LT predicate on the "api_key_digest" field.
+func APIKeyDigestLT(v string) predicate.CredentialSecret {
+	return predicate.CredentialSecret(sql.FieldLT(FieldAPIKeyDigest, v))
+}
+
+// APIKeyDigestLTE applies the LTE predicate on the "api_key_digest" field.
+func APIKeyDigestLTE(v string) predicate.CredentialSecret {
+	return predicate.CredentialSecret(sql.FieldLTE(FieldAPIKeyDigest, v))
+}
+
+// APIKeyDigestContains applies the Contains predicate on the "api_key_digest" field.
+func APIKeyDigestContains(v string) predicate.CredentialSecret {
+	return predicate.CredentialSecret(sql.FieldContains(FieldAPIKeyDigest, v))
+}
+
+// APIKeyDigestHasPrefix applies the HasPrefix predicate on the "api_key_digest" field.
+func APIKeyDigestHasPrefix(v string) predicate.CredentialSecret {
+	return predicate.CredentialSecret(sql.FieldHasPrefix(FieldAPIKeyDigest, v))
+}
+
+// APIKeyDigestHasSuffix applies the HasSuffix predicate on the "api_key_digest" field.
+func APIKeyDigestHasSuffix(v string) predicate.CredentialSecret {
+	return predicate.CredentialSecret(sql.FieldHasSuffix(FieldAPIKeyDigest, v))
+}
+
+// APIKeyDigestIsNil applies the IsNil predicate on the "api_key_digest" field.
+func APIKeyDigestIsNil() predicate.CredentialSecret {
+	return predicate.CredentialSecret(sql.FieldIsNull(FieldAPIKeyDigest))
+}
+
+// APIKeyDigestNotNil applies the NotNil predicate on the "api_key_digest" field.
+func APIKeyDigestNotNil() predicate.CredentialSecret {
+	return predicate.CredentialSecret(sql.FieldNotNull(FieldAPIKeyDigest))
+}
+
+// APIKeyDigestEqualFold applies the EqualFold predicate on the "api_key_digest" field.
+func APIKeyDigestEqualFold(v string) predicate.CredentialSecret {
+	return predicate.CredentialSecret(sql.FieldEqualFold(FieldAPIKeyDigest, v))
+}
+
+// APIKeyDigestContainsFold applies the ContainsFold predicate on the "api_key_digest" field.
+func APIKeyDigestContainsFold(v string) predicate.CredentialSecret {
+	return predicate.CredentialSecret(sql.FieldContainsFold(FieldAPIKeyDigest, v))
 }
 
 // RevokedAtEQ applies the EQ predicate on the "revoked_at" field.

@@ -96,6 +96,20 @@ func (_c *CredentialSecretCreate) SetCiphertext(v string) *CredentialSecretCreat
 	return _c
 }
 
+// SetAPIKeyDigest sets the "api_key_digest" field.
+func (_c *CredentialSecretCreate) SetAPIKeyDigest(v string) *CredentialSecretCreate {
+	_c.mutation.SetAPIKeyDigest(v)
+	return _c
+}
+
+// SetNillableAPIKeyDigest sets the "api_key_digest" field if the given value is not nil.
+func (_c *CredentialSecretCreate) SetNillableAPIKeyDigest(v *string) *CredentialSecretCreate {
+	if v != nil {
+		_c.SetAPIKeyDigest(*v)
+	}
+	return _c
+}
+
 // SetRevokedAt sets the "revoked_at" field.
 func (_c *CredentialSecretCreate) SetRevokedAt(v time.Time) *CredentialSecretCreate {
 	_c.mutation.SetRevokedAt(v)
@@ -260,6 +274,10 @@ func (_c *CredentialSecretCreate) createSpec() (*CredentialSecret, *sqlgraph.Cre
 		_spec.SetField(credentialsecret.FieldCiphertext, field.TypeString, value)
 		_node.Ciphertext = value
 	}
+	if value, ok := _c.mutation.APIKeyDigest(); ok {
+		_spec.SetField(credentialsecret.FieldAPIKeyDigest, field.TypeString, value)
+		_node.APIKeyDigest = &value
+	}
 	if value, ok := _c.mutation.RevokedAt(); ok {
 		_spec.SetField(credentialsecret.FieldRevokedAt, field.TypeTime, value)
 		_node.RevokedAt = &value
@@ -355,6 +373,24 @@ func (u *CredentialSecretUpsert) SetCiphertext(v string) *CredentialSecretUpsert
 // UpdateCiphertext sets the "ciphertext" field to the value that was provided on create.
 func (u *CredentialSecretUpsert) UpdateCiphertext() *CredentialSecretUpsert {
 	u.SetExcluded(credentialsecret.FieldCiphertext)
+	return u
+}
+
+// SetAPIKeyDigest sets the "api_key_digest" field.
+func (u *CredentialSecretUpsert) SetAPIKeyDigest(v string) *CredentialSecretUpsert {
+	u.Set(credentialsecret.FieldAPIKeyDigest, v)
+	return u
+}
+
+// UpdateAPIKeyDigest sets the "api_key_digest" field to the value that was provided on create.
+func (u *CredentialSecretUpsert) UpdateAPIKeyDigest() *CredentialSecretUpsert {
+	u.SetExcluded(credentialsecret.FieldAPIKeyDigest)
+	return u
+}
+
+// ClearAPIKeyDigest clears the value of the "api_key_digest" field.
+func (u *CredentialSecretUpsert) ClearAPIKeyDigest() *CredentialSecretUpsert {
+	u.SetNull(credentialsecret.FieldAPIKeyDigest)
 	return u
 }
 
@@ -476,6 +512,27 @@ func (u *CredentialSecretUpsertOne) SetCiphertext(v string) *CredentialSecretUps
 func (u *CredentialSecretUpsertOne) UpdateCiphertext() *CredentialSecretUpsertOne {
 	return u.Update(func(s *CredentialSecretUpsert) {
 		s.UpdateCiphertext()
+	})
+}
+
+// SetAPIKeyDigest sets the "api_key_digest" field.
+func (u *CredentialSecretUpsertOne) SetAPIKeyDigest(v string) *CredentialSecretUpsertOne {
+	return u.Update(func(s *CredentialSecretUpsert) {
+		s.SetAPIKeyDigest(v)
+	})
+}
+
+// UpdateAPIKeyDigest sets the "api_key_digest" field to the value that was provided on create.
+func (u *CredentialSecretUpsertOne) UpdateAPIKeyDigest() *CredentialSecretUpsertOne {
+	return u.Update(func(s *CredentialSecretUpsert) {
+		s.UpdateAPIKeyDigest()
+	})
+}
+
+// ClearAPIKeyDigest clears the value of the "api_key_digest" field.
+func (u *CredentialSecretUpsertOne) ClearAPIKeyDigest() *CredentialSecretUpsertOne {
+	return u.Update(func(s *CredentialSecretUpsert) {
+		s.ClearAPIKeyDigest()
 	})
 }
 
@@ -766,6 +823,27 @@ func (u *CredentialSecretUpsertBulk) SetCiphertext(v string) *CredentialSecretUp
 func (u *CredentialSecretUpsertBulk) UpdateCiphertext() *CredentialSecretUpsertBulk {
 	return u.Update(func(s *CredentialSecretUpsert) {
 		s.UpdateCiphertext()
+	})
+}
+
+// SetAPIKeyDigest sets the "api_key_digest" field.
+func (u *CredentialSecretUpsertBulk) SetAPIKeyDigest(v string) *CredentialSecretUpsertBulk {
+	return u.Update(func(s *CredentialSecretUpsert) {
+		s.SetAPIKeyDigest(v)
+	})
+}
+
+// UpdateAPIKeyDigest sets the "api_key_digest" field to the value that was provided on create.
+func (u *CredentialSecretUpsertBulk) UpdateAPIKeyDigest() *CredentialSecretUpsertBulk {
+	return u.Update(func(s *CredentialSecretUpsert) {
+		s.UpdateAPIKeyDigest()
+	})
+}
+
+// ClearAPIKeyDigest clears the value of the "api_key_digest" field.
+func (u *CredentialSecretUpsertBulk) ClearAPIKeyDigest() *CredentialSecretUpsertBulk {
+	return u.Update(func(s *CredentialSecretUpsert) {
+		s.ClearAPIKeyDigest()
 	})
 }
 
