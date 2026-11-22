@@ -41,6 +41,19 @@ func TestCompositeWorkBuddyKiloTextPreflight(t *testing.T) {
 				account := preparedGatewayFixtureAccount(service.Account{ID: 7, Platform: platform, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Credentials: map[string]any{"model_mapping": map[string]any{model: model}}, AccountGroups: []service.AccountGroup{{AccountID: 7, GroupID: 3}}})
 				if platform == service.PlatformWorkBuddy {
 					account.Credentials["api_key"] = "fixture"
+				} else {
+					// A published catalog supersedes the bootstrap inventory, even
+					// for kilo-auto/free. Supply current native free evidence.
+					account.Credentials["account_mode"] = service.KiloAccountModeFree
+					account.Extra[service.UpstreamModelCatalogExtraKey] = service.AccountModelCatalogSnapshot{
+						Complete: true, SourceKind: "live", DiscoveryScope: "account",
+						DiscoveredModels: []string{model},
+						EligibleModels:   []service.AccountCatalogModel{{ID: model, Endpoints: []string{"chat_completions"}, EvidenceKind: "native_account_catalog"}},
+					}
+					free := true
+					account.SetUpstreamModelMetadataSnapshot(service.UpstreamModelMetadataSnapshot{
+						Source: "live", Models: map[string]service.UpstreamModelMetadata{model: {ID: model, Free: &free}},
+					})
 				}
 				repo := &geminiReviewAccountRepo{openAIWSUsageHandlerAccountRepoStub: openAIWSUsageHandlerAccountRepoStub{account: account}}
 				upstream := &openRouterHandlerUpstream{geminiReviewUpstream: geminiReviewUpstream{requestPlanHTTPFixture: requestPlanHTTPFixture{t: t}, chat: true}}

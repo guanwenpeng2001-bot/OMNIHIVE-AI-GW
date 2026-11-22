@@ -40,26 +40,41 @@ func TestW05PlazaHostedProductPlatformBinding(t *testing.T) {
 				model = "us.anthropic.claude-sonnet-4-6"
 			}
 			account := catalogEvidenceAccount(1, tc.platform, model)
-			snapshot := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+			snapshot, ok := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+			require.True(t, ok)
 			if tc.kind == AccountTypeServiceAccount {
 				snapshot.EligibleModels[0].Endpoints = []string{"generate_content"}
 			}
 			account.Type = tc.kind
 			account.Credentials["model_mapping"] = map[string]any{"hosted-live": model}
 			account.GroupIDs = []int64{9}
+			direct := catalogEvidenceAccount(2, tc.platform, "direct-only")
+			direct.Credentials["model_mapping"] = map[string]any{"direct-only": "direct-only", "hosted-live": "direct-only"}
+			direct.GroupIDs = []int64{9}
+			if tc.kind == AccountTypeServiceAccount {
+				directSnapshot, ok := direct.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+				require.True(t, ok)
+				directSnapshot.EligibleModels[0].Endpoints = []string{"generate_content"}
+			}
 			if tc.kind == AccountTypeBedrock {
 				account.Credentials["auth_mode"] = "api_key"
 				account.Credentials["api_key"] = "bedrock-key"
 				account.Credentials["region"] = "us-east-1"
 			}
-			channel := plazaPricedChannel(2, "published", []int64{9}, tc.platform, "hosted-live")
-			plaza := w05Plaza(t, group, []Account{account}, []Channel{channel}, nil)
+			channel := plazaPricedChannel(2, "published", []int64{9}, tc.platform, "hosted-live", "direct-only")
+			plaza := w05Plaza(t, group, []Account{account, direct}, []Channel{channel}, nil)
 			out, err := plaza.ListGroups(context.Background())
 			require.NoError(t, err)
 			require.Len(t, out, 1, "%s/%s", tc.platform, groupPlatform)
 			require.Len(t, out[0].Models, 1)
+			require.Equal(t, "hosted-live", out[0].Models[0].Name)
 			require.False(t, out[0].Models[0].CatalogOnly)
 			require.NotNil(t, out[0].Models[0].Pricing)
+			require.NotEmpty(t, out[0].Models[0].CatalogBindings)
+			for _, binding := range out[0].Models[0].CatalogBindings {
+				require.Equal(t, account.ID, binding.AccountID, "a shared alias cannot import a direct account binding")
+				require.Equal(t, tc.kind, binding.Identity.HostedAccountType)
+			}
 			// A same-product account with another credential type cannot satisfy the
 			// hosting restriction even though the public model platform is identical.
 			account.Type = AccountTypeAPIKey

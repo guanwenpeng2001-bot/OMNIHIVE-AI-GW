@@ -58,6 +58,11 @@ func TestGatewayPlatformProtocolMatrix(test *testing.T) {
 			for _, endpoint := range []string{"messages", "responses", "chat_completions", "generate_content", "embeddings", "images", "live"} {
 				test.Run(descriptor.ID+"/"+accountType+"/"+endpoint, func(test *testing.T) {
 					account := &service.Account{ID: 1, Platform: descriptor.ID, Type: accountType, Status: service.StatusActive, Schedulable: true}
+					if descriptor.ID == service.PlatformKilo {
+						// Arbitrary synthetic models require paid mode; an omitted
+						// mode selects the evidence-restricted public free lane.
+						account.Credentials = map[string]any{"account_mode": service.KiloAccountModeAPIKey, "api_key": "matrix-local-key"}
+					}
 					// Exercise the wire family used by the account's actual adapter.
 					// Cursor Responses and TokenHub's non-native Responses branch
 					// bridge through Chat Completions; they do not send /responses.
