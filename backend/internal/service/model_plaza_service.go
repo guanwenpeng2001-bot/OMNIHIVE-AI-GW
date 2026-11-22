@@ -233,8 +233,17 @@ func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group
 					if !isConcreteRequestPlatform(m.Platform) {
 						continue
 					}
-				} else if domain.CanonicalPlatform(m.Platform) != domain.CanonicalPlatform(groupEnt[gid].Platform) {
-					continue
+				} else {
+					group := groupEnt[gid]
+					if domain.CanonicalPlatform(m.Platform) != domain.CanonicalPlatform(group.Platform) {
+						continue
+					}
+					// Product-only channel entries need a real account binding to
+					// prove a hosted subtype. Without account visibility, retain
+					// the restriction encoded by the channel's platform identity.
+					if visibility == nil && !domain.MatchesPlatformIdentity(m.Platform, domain.HostedAccountType(m.Platform), group.Platform, group.RequiredAccountType()) {
+						continue
+					}
 				}
 				var catalogBindings []PlazaCatalogBinding
 				if visibility != nil {
