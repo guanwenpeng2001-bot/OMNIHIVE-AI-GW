@@ -1,6 +1,9 @@
 # 本地杂项文档、测试数据和外部项目副本
 /docs-local/
 .codex
+.aws/
+.ssh/
+.agents/
 
 # Reproducible quality-gate logs, portable toolchains and disposable service state.
 /.quality-gate/
@@ -52,6 +55,7 @@ backend/.gocache/
 node_modules/
 frontend/node_modules/
 frontend/dist/
+tools/pi-catalog/node_modules/
 *.local
 *.tsbuildinfo
 vite.config.d.ts
@@ -176,3 +180,7 @@ output/
 # Python bytecode caches from repo scripts and deploy tests
 __pycache__/
 *.pyc
+
+# Private keys and certificates.
+**/*.pem
+**/*.key

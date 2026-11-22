@@ -63,7 +63,26 @@ with open(allowlist_path, encoding="utf-8") as handle:
         if len(parts) != 3:
             raise SystemExit(f"{allowlist_path}:{number}: expected path, token and reason")
         path_re, token_re, reason = parts
+        # The historical directory-wide deploy entry is too broad. Replace it
+        # with the precise legacy-compatibility file list below so any new
+        # deploy line must be explicitly reviewed instead of slipping through.
+        if path_re == "^deploy/":
+            continue
         entries.append((re.compile(path_re), re.compile(token_re, re.IGNORECASE), reason))
+
+# Precise deploy compatibility allowlist: only legacy upgrade/migration paths
+# that must keep the old identity, never the whole deploy directory.
+deploy_entries = (
+    (r"^deploy/apple-container\.sh$", r"sub2api"),
+    (r"^deploy/install\.sh$", r"sub2api"),
+    (r"^deploy/docker-entrypoint\.sh$", r"sub2api"),
+    (r"^deploy/docker-compose(?:\.local|\.standalone|\.dev)?\.yml$", r"SUB2API_[A-Z0-9_]+"),
+    (r"^deploy/tests/apple-container-test\.sh$", r"sub2api"),
+    (r"^deploy/tests/fixtures/bin/container$", r"sub2api"),
+    (r"^deploy/tests/install-pricing-resources-test\.sh$", r"sub2api"),
+)
+for path_re, token_re in deploy_entries:
+    entries.append((re.compile(path_re), re.compile(token_re, re.IGNORECASE), "deploy legacy compatibility"))
 
 violations = []
 checked = 0
