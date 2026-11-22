@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"net"
 	"strconv"
 	"strings"
@@ -53,16 +54,17 @@ type RelayResult struct {
 }
 
 type RelayTurnResult struct {
-	RequestModel          string
-	ResponseModel         string
-	ResponseModelConflict bool
-	ResponseServiceTier   string
-	Usage                 Usage
-	RequestID             string
-	TerminalEventType     string
-	StartedAt             time.Time
-	Duration              time.Duration
-	FirstTokenMs          *int
+	InputTokensKnown, OutputTokensKnown bool
+	RequestModel                        string
+	ResponseModel                       string
+	ResponseModelConflict               bool
+	ResponseServiceTier                 string
+	Usage                               Usage
+	RequestID                           string
+	TerminalEventType                   string
+	StartedAt                           time.Time
+	Duration                            time.Duration
+	FirstTokenMs                        *int
 }
 
 type RelayExit struct {
@@ -75,7 +77,6 @@ type RelayExit struct {
 type RelayOptions struct {
 	WriteTimeout                    time.Duration
 	IdleTimeout                     time.Duration
-	UpstreamDrainTimeout            time.Duration
 	FirstTurnStartedAt              time.Time
 	TakeNextTurnStartedAt           func() time.Time
 	FirstMessageType                coderws.MessageType
@@ -105,6 +106,7 @@ type RelayTraceEvent struct {
 type relayState struct {
 	usage                   Usage
 	turnUsage               Usage
+	inputKnown, outputKnown bool
 	turnWroteDownstream     atomic.Bool
 	requestModelMu          sync.RWMutex
 	requestModel            string
@@ -128,16 +130,17 @@ type relayExitSignal struct {
 }
 
 type observedUpstreamEvent struct {
-	terminal            bool
-	eventType           string
-	responseID          string
-	usage               Usage
-	startedAt           time.Time
-	responseModel       string
-	responseConflict    bool
-	responseServiceTier string
-	duration            time.Duration
-	firstToken          *int
+	inputKnown, outputKnown bool
+	terminal                bool
+	eventType               string
+	responseID              string
+	usage                   Usage
+	startedAt               time.Time
+	responseModel           string
+	responseConflict        bool
+	responseServiceTier     string
+	duration                time.Duration
+	firstToken              *int
 }
 
 type relayTurnTiming struct {
@@ -849,6 +852,7 @@ func finalizeObservedRelayTerminal(state *relayState, observed observedUpstreamE
 	if state == nil || strings.TrimSpace(observed.eventType) == "" {
 		return observedUpstreamEvent{}
 	}
+	observed.inputKnown, observed.outputKnown = state.inputKnown, state.outputKnown
 	observed.usage = finalizeRelayTurnUsage(state)
 	observed.terminal = true
 	responseID := strings.TrimSpace(observed.responseID)
@@ -898,11 +902,12 @@ func emitTurnComplete(
 		ResponseModelConflict: observed.responseConflict,
 		ResponseServiceTier:   observed.responseServiceTier,
 		Usage:                 observed.usage,
-		RequestID:             responseID,
-		TerminalEventType:     observed.eventType,
-		StartedAt:             observed.startedAt,
-		Duration:              observed.duration,
-		FirstTokenMs:          openAIWSRelayCloneIntPtr(observed.firstToken),
+		InputTokensKnown:      observed.inputKnown, OutputTokensKnown: observed.outputKnown,
+		RequestID:         responseID,
+		TerminalEventType: observed.eventType,
+		StartedAt:         observed.startedAt,
+		Duration:          observed.duration,
+		FirstTokenMs:      openAIWSRelayCloneIntPtr(observed.firstToken),
 	})
 }
 
@@ -1090,7 +1095,8 @@ func parseUsageAndAccumulate(
 		return Usage{}
 	}
 	usageRaw := strings.TrimSpace(usageResult.Raw)
-	if usageRaw == "" || !strings.HasPrefix(usageRaw, "{") {
+	if !usageResult.IsObject() || !gjson.Valid(usageRaw) {
+		state.inputKnown, state.outputKnown = false, false
 		recordUsageParseFailure()
 		if onParseFailure != nil {
 			onParseFailure(eventType, usageRaw)
@@ -1098,34 +1104,19 @@ func parseUsageAndAccumulate(
 		return Usage{}
 	}
 
-	inputResult := usageResult.Get("input_tokens")
-	if !inputResult.Exists() {
-		inputResult = usageResult.Get("prompt_tokens")
-	}
-	outputResult := usageResult.Get("output_tokens")
-	if !outputResult.Exists() {
-		outputResult = usageResult.Get("completion_tokens")
-	}
-	cachedResult := usageResult.Get("input_tokens_details.cached_tokens")
-	if !cachedResult.Exists() {
-		cachedResult = usageResult.Get("prompt_tokens_details.cached_tokens")
-	}
-	imageTokens := usageResult.Get("output_tokens_details.image_tokens").Int()
-	if imageTokens == 0 {
-		imageTokens = usageResult.Get("completion_tokens_details.image_tokens").Int()
-	}
-
-	requireTotals := isTerminalEvent(strings.TrimSpace(eventType))
-	inputTokens, inputOK := parseUsageIntField(inputResult, requireTotals)
-	outputTokens, outputOK := parseUsageIntField(outputResult, requireTotals)
+	inputResult := firstUsageField(usageResult, "input_tokens", "prompt_tokens")
+	outputResult := firstUsageField(usageResult, "output_tokens", "completion_tokens")
+	cachedResult := firstUsageField(usageResult, "input_tokens_details.cached_tokens", "prompt_tokens_details.cached_tokens")
+	imageResult := firstUsageField(usageResult, "output_tokens_details.image_tokens", "completion_tokens_details.image_tokens")
+	creationResult := firstUsageField(usageResult, cacheCreationFields...)
+	inputTokens, inputOK := parseUsageIntField(inputResult, false)
+	outputTokens, outputOK := parseUsageIntField(outputResult, false)
 	cachedTokens, cachedOK := parseUsageIntField(cachedResult, false)
 	if !inputOK || !outputOK || !cachedOK {
 		recordUsageParseFailure()
 		if onParseFailure != nil {
 			onParseFailure(eventType, usageRaw)
 		}
-		// 解析失败时不做部分字段累加，避免计费 usage 出现“半有效”状态。
-		return Usage{}
 	}
 	reasoningTokens := usageResult.Get("output_tokens_details.reasoning_tokens").Int()
 	if reasoningTokens == 0 {
@@ -1139,47 +1130,43 @@ func parseUsageAndAccumulate(
 	parsedUsage := Usage{
 		InputTokens:              inputTokens,
 		OutputTokens:             outputTokens,
-		CacheCreationInputTokens: openAICacheCreationTokensFromUsage(usageResult),
+		CacheCreationInputTokens: max(int(creationResult.Int()), 0),
 		CacheReadInputTokens:     cachedTokens,
-		ImageOutputTokens:        int(imageTokens),
+		ImageOutputTokens:        int(imageResult.Int()),
 	}
 
-	if isTerminalEvent(strings.TrimSpace(eventType)) {
-		if relayUsageHasTokens(parsedUsage) || !relayUsageHasTokens(state.turnUsage) {
-			state.turnUsage = parsedUsage
-		}
-	} else {
-		mergeRelayUsageNonZero(&state.turnUsage, parsedUsage)
-		return Usage{}
+	placeholder := inputResult.Exists() && outputResult.Exists() && inputOK && outputOK && isTerminalEvent(eventType) && !relayUsageHasTokens(parsedUsage) && relayUsageHasTokens(state.turnUsage)
+	if placeholder {
+		return state.turnUsage
 	}
-	return parsedUsage
+	if inputResult.Exists() {
+		state.inputKnown = inputOK
+		if inputOK {
+			state.turnUsage.InputTokens = inputTokens
+		}
+	}
+	if outputResult.Exists() {
+		state.outputKnown = outputOK
+		if outputOK {
+			state.turnUsage.OutputTokens = outputTokens
+		}
+	}
+	if cachedResult.Exists() && cachedOK {
+		state.turnUsage.CacheReadInputTokens = cachedTokens
+	}
+	if n, ok := parseUsageIntField(creationResult, true); ok {
+		state.turnUsage.CacheCreationInputTokens = n
+	}
+	if n, ok := parseUsageIntField(imageResult, true); ok {
+		state.turnUsage.ImageOutputTokens = n
+	}
+	return state.turnUsage
 }
 
 func relayUsageHasTokens(usage Usage) bool {
 	return usage.InputTokens > 0 || usage.OutputTokens > 0 ||
 		usage.CacheCreationInputTokens > 0 || usage.CacheReadInputTokens > 0 ||
 		usage.ImageOutputTokens > 0
-}
-
-func mergeRelayUsageNonZero(dst *Usage, src Usage) {
-	if dst == nil {
-		return
-	}
-	if src.InputTokens > 0 {
-		dst.InputTokens = src.InputTokens
-	}
-	if src.OutputTokens > 0 {
-		dst.OutputTokens = src.OutputTokens
-	}
-	if src.CacheCreationInputTokens > 0 {
-		dst.CacheCreationInputTokens = src.CacheCreationInputTokens
-	}
-	if src.CacheReadInputTokens > 0 {
-		dst.CacheReadInputTokens = src.CacheReadInputTokens
-	}
-	if src.ImageOutputTokens > 0 {
-		dst.ImageOutputTokens = src.ImageOutputTokens
-	}
 }
 
 func finalizeRelayTurnUsage(state *relayState) Usage {
@@ -1193,6 +1180,7 @@ func finalizeRelayTurnUsage(state *relayState) Usage {
 	state.usage.CacheReadInputTokens += turnUsage.CacheReadInputTokens
 	state.usage.ImageOutputTokens += turnUsage.ImageOutputTokens
 	state.turnUsage = Usage{}
+	state.inputKnown, state.outputKnown = false, false
 	return turnUsage
 }
 
@@ -1200,35 +1188,25 @@ func parseUsageIntField(value gjson.Result, required bool) (int, bool) {
 	if !value.Exists() {
 		return 0, !required
 	}
-	if value.Type != gjson.Number {
+	if value.Type != gjson.Number || value.Float() < 0 || value.Float() > math.MaxInt32 || value.Float() != float64(value.Int()) {
 		return 0, false
 	}
 	return int(value.Int()), true
 }
 
-func openAICacheCreationTokensFromUsage(value gjson.Result) int {
-	for _, field := range []string{
-		"input_tokens_details.cache_write_tokens",
-		"prompt_tokens_details.cache_write_tokens",
-		"input_tokens_details.cache_creation_tokens",
-		"prompt_tokens_details.cache_creation_tokens",
-	} {
-		result := value.Get(field)
-		if result.Exists() {
-			return max(int(result.Int()), 0)
+var cacheCreationFields = []string{
+	"input_tokens_details.cache_write_tokens", "prompt_tokens_details.cache_write_tokens",
+	"input_tokens_details.cache_creation_tokens", "prompt_tokens_details.cache_creation_tokens",
+	"cache_write_tokens", "cache_creation_input_tokens", "cache_write_input_tokens", "cache_creation_tokens",
+}
+
+func firstUsageField(usage gjson.Result, fields ...string) gjson.Result {
+	for _, name := range fields {
+		if field := usage.Get(name); field.Exists() {
+			return field
 		}
 	}
-	for _, field := range []string{
-		"cache_write_tokens",
-		"cache_creation_input_tokens",
-		"cache_write_input_tokens",
-		"cache_creation_tokens",
-	} {
-		if tokens := int(value.Get(field).Int()); tokens > 0 {
-			return tokens
-		}
-	}
-	return 0
+	return gjson.Result{}
 }
 
 func enrichResult(result *RelayResult, state *relayState, duration time.Duration) {
@@ -1249,10 +1227,11 @@ func enrichResult(result *RelayResult, state *relayState, duration time.Duration
 	result.FirstTokenMs = state.firstTokenMs
 	if state.hasUnfinishedTurn() {
 		result.InterruptedTurn = &RelayTurnResult{
-			RequestModel: state.currentRequestModel(),
-			RequestID:    openAIWSRelayActiveTurnID(state),
-			Usage:        state.turnUsage,
-			Duration:     duration,
+			RequestModel:     state.currentRequestModel(),
+			RequestID:        openAIWSRelayActiveTurnID(state),
+			Usage:            state.turnUsage,
+			InputTokensKnown: state.inputKnown, OutputTokensKnown: state.outputKnown,
+			Duration: duration,
 		}
 		if timing := state.activeTurn; timing != nil {
 			result.InterruptedTurn.StartedAt = timing.startAt

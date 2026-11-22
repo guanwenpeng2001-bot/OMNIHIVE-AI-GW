@@ -503,7 +503,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
 			if account.Platform == service.PlatformAntigravity {
-				result, err = h.antigravityGatewayService.Forward(
+				result, err = h.forwardAntigravityMessages(
 					requestCtx,
 					c,
 					account,
@@ -961,7 +961,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			writerSizeBeforeForward := c.Writer.Size()
 			setActualUpstreamEndpoint(c, "")
 			if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
-				result, err = h.antigravityGatewayService.Forward(requestCtx, c, account, attemptBody, hasBoundSession)
+				result, err = h.forwardAntigravityMessages(requestCtx, c, account, attemptBody, hasBoundSession)
 			} else {
 				if account.IsCursor() {
 					if account.Type == service.AccountTypeUpstream {
@@ -1081,7 +1081,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 							return
 						}
 						fallbackAPIKey := cloneAPIKeyWithGroup(apiKey, fallbackGroup)
-						if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), fallbackAPIKey.User, fallbackAPIKey, fallbackGroup, nil, service.PlatformFromAPIKey(fallbackAPIKey)); err != nil {
+						if err := h.billingCacheService.RecheckBillingEligibility(c.Request.Context(), fallbackAPIKey.User, fallbackAPIKey, fallbackGroup, nil, service.PlatformFromAPIKey(fallbackAPIKey)); err != nil {
 							status, code, message, _ := billingErrorDetails(err)
 							writeAdmissionRejectionHeaders(c, err)
 							h.handleStreamingAwareError(c, status, code, message, streamStarted)
@@ -1697,6 +1697,66 @@ func (h *GatewayHandler) handleFailoverExhaustedSimple(c *gin.Context, statusCod
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
 	service.SetOpsUpstreamError(c, statusCode, errMsg, "")
 	h.handleStreamingAwareError(c, status, errType, errMsg, streamStarted)
+}
+
+// The upstream-account adapter writes the provider error body directly.
+// Hold error writes at the public Messages boundary until they are classified.
+type messagesUpstreamWriter struct {
+	gin.ResponseWriter
+	rejectedStatus int
+}
+
+func (w *messagesUpstreamWriter) WriteHeader(status int) {
+	if status >= 400 {
+		w.rejectedStatus = status
+		return
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *messagesUpstreamWriter) WriteHeaderNow() {
+	if w.rejectedStatus == 0 {
+		w.ResponseWriter.WriteHeaderNow()
+	}
+}
+
+func (w *messagesUpstreamWriter) Flush() {
+	if w.rejectedStatus == 0 {
+		w.ResponseWriter.Flush()
+	}
+}
+
+func (w *messagesUpstreamWriter) Write(body []byte) (int, error) {
+	if w.rejectedStatus != 0 {
+		return len(body), nil
+	}
+	return w.ResponseWriter.Write(body)
+}
+
+func (w *messagesUpstreamWriter) WriteString(body string) (int, error) {
+	if w.rejectedStatus != 0 {
+		return len(body), nil
+	}
+	return w.ResponseWriter.WriteString(body)
+}
+
+func (h *GatewayHandler) forwardAntigravityMessages(ctx context.Context, c *gin.Context, account *service.Account, body []byte, sticky bool, options ...service.ForwardGeminiOption) (*service.ForwardResult, error) {
+	if account.Type != service.AccountTypeUpstream {
+		return h.antigravityGatewayService.Forward(ctx, c, account, body, sticky, options...)
+	}
+	writer := &messagesUpstreamWriter{ResponseWriter: c.Writer}
+	result, err := func() (*service.ForwardResult, error) {
+		c.Writer = writer
+		defer func() { c.Writer = writer.ResponseWriter }()
+		return h.antigravityGatewayService.Forward(ctx, c, account, body, sticky, options...)
+	}()
+	if writer.rejectedStatus != 0 {
+		c.Writer.Header().Del("Content-Type")
+		c.Writer.Header().Del("Content-Length")
+		h.handleFailoverExhaustedSimple(c, writer.rejectedStatus, c.Writer.Written())
+		return nil, fmt.Errorf("upstream Messages request failed with HTTP %d", writer.rejectedStatus)
+	}
+	return result, err
 }
 
 func (h *GatewayHandler) mapUpstreamError(statusCode int) (int, string, string) {

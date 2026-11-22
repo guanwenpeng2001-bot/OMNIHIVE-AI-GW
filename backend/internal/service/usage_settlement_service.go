@@ -378,7 +378,7 @@ func assembleUsageReceipt(usage *UsageLog, p *postUsageBillingParams, interrupte
 	}
 	receipt := &UsageSettlementReceipt{Key: UsageSettlementKey{RequestID: cmd.RequestID, APIKeyID: cmd.APIKeyID, UserID: cmd.UserID}, Command: *cmd, Usage: *usage, ResolutionState: "resolved", CompletionState: completion}
 	// Messages may report input on message_start before the output meter arrives.
-	if p.UsageIncomplete || interrupted && usage.Stream && !usage.OpenAIWSMode && usage.RequestType != RequestTypeCyberBlocked && usage.OutputTokens == 0 && usage.ImageCount == 0 && usage.VideoCount == 0 {
+	if p.UsageIncomplete || !usage.TokenUsageObservation.known() || interrupted && usage.Stream && usage.TokenUsageObservation == nil && usage.RequestType != RequestTypeCyberBlocked && usage.OutputTokens == 0 && usage.ImageCount == 0 && usage.VideoCount == 0 {
 		receipt.ResolutionState = "unresolved"
 	}
 	// Invalid frozen input is review evidence, never a successful free usage row.

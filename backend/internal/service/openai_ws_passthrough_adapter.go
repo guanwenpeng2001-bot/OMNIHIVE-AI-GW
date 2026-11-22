@@ -1325,7 +1325,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				}
 				turnRequestModel, turnUpstreamModel := usageMeta.turnModels(turn.RequestModel)
 				turnResult := &OpenAIForwardResult{
-					RequestID: turn.RequestID,
+					UsageIncomplete:       !turn.InputTokensKnown || !turn.OutputTokensKnown,
+					TokenUsageObservation: &TokenUsageObservation{InputTokensKnown: turn.InputTokensKnown, OutputTokensKnown: turn.OutputTokensKnown},
+					RequestID:             turn.RequestID,
 					Usage: OpenAIUsage{
 						InputTokens:              turn.Usage.InputTokens,
 						OutputTokens:             turn.Usage.OutputTokens,
@@ -1487,7 +1489,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			hooks.TurnStarted(turnNo, interrupted.StartedAt)
 		}
 		hooks.AfterTurn(turnNo, &OpenAIForwardResult{
-			RequestID: interrupted.RequestID,
+			UsageIncomplete:       !interrupted.InputTokensKnown || !interrupted.OutputTokensKnown,
+			TokenUsageObservation: &TokenUsageObservation{InputTokensKnown: interrupted.InputTokensKnown, OutputTokensKnown: interrupted.OutputTokensKnown},
+			RequestID:             interrupted.RequestID,
 			Usage: OpenAIUsage{
 				InputTokens:              interrupted.Usage.InputTokens,
 				OutputTokens:             interrupted.Usage.OutputTokens,

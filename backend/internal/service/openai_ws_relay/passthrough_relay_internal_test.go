@@ -505,7 +505,7 @@ func TestOpenAICacheCreationTokensFromUsageNestedZeroWins(t *testing.T) {
 	t.Parallel()
 
 	usage := gjson.Parse(`{"input_tokens_details":{"cache_write_tokens":0},"cache_creation_input_tokens":19}`)
-	require.Zero(t, openAICacheCreationTokensFromUsage(usage))
+	require.Zero(t, firstUsageField(usage, cacheCreationFields...).Int())
 }
 
 func TestEmitTurnCompleteCoverage(t *testing.T) {
@@ -794,4 +794,26 @@ func TestObserveUpstreamMessage_ResponseServiceTierOnlyFromTerminalEvents(t *tes
 		nil,
 	)
 	require.Equal(t, "", second.responseServiceTier)
+}
+
+func TestRelayTurnCounterPresenceResets(t *testing.T) {
+	state := &relayState{}
+	now := time.Now()
+	observe := func(frame string) observedUpstreamEvent {
+		return observeUpstreamMessage(state, []byte(frame), now, time.Now, nil)
+	}
+	observe(`{"type":"response.in_progress","response":{"id":"a","usage":{"input_tokens":7}}}`)
+	first := observe(`{"type":"response.completed","response":{"id":"a","usage":{"output_tokens":2}}}`)
+	require.True(t, first.inputKnown && first.outputKnown)
+	require.Equal(t, Usage{InputTokens: 7, OutputTokens: 2}, first.usage)
+	observe(`{"type":"response.output_text.delta","response_id":"b","delta":"second turn"}`)
+	partial := observe(`{"type":"response.completed","response":{"id":"b","usage":{"input_tokens":3,"output_tokens":-1}}}`)
+	require.True(t, partial.inputKnown)
+	require.False(t, partial.outputKnown)
+	require.Equal(t, Usage{InputTokens: 3}, partial.usage)
+	zero := observe(`{"type":"response.completed","response":{"id":"c","usage":{"input_tokens":0,"output_tokens":0}}}`)
+	require.True(t, zero.inputKnown && zero.outputKnown)
+	require.Equal(t, Usage{}, zero.usage)
+	missing := observe(`{"type":"response.completed","response":{"id":"d"}}`)
+	require.False(t, missing.inputKnown || missing.outputKnown)
 }

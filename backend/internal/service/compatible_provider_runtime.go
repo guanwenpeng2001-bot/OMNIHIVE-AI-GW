@@ -17,10 +17,11 @@ import (
 
 // A request binding never changes persisted identity, budgets, proxy or credentials.
 type compatibleRequestBinding struct {
-	Endpoint    domain.CompatibleEndpoint
-	Base        string
-	Action      string
-	observation compatibleUsageObservation
+	Endpoint        domain.CompatibleEndpoint
+	Base            string
+	Action          string
+	observation     compatibleUsageObservation
+	bufferResponses bool
 }
 
 // IsCompatibleProvider identifies table-owned providers without changing their platform identity.
@@ -457,6 +458,9 @@ func attachCompatibleUsage(account *Account, result *OpenAIForwardResult, forwar
 		return
 	}
 	result.compatibleIncomplete = forwardErr != nil
+	if result.TokenUsageObservation != nil {
+		return
+	}
 	evidence := &account.compatibleBinding.observation
 	result.TokenUsageObservation = &TokenUsageObservation{InputTokensKnown: evidence.inputKnown.Load(), OutputTokensKnown: evidence.outputKnown.Load()}
 }
@@ -469,6 +473,8 @@ type compatibleUsageBody struct {
 	limit                 int64
 	initialized, terminal bool
 	observation           *compatibleUsageObservation
+	parser                openAICompatSSEFrameParser
+	frameSize             int64
 }
 
 func (b *compatibleUsageBody) Close() error { return b.source.Close() }
@@ -513,37 +519,50 @@ func (b *compatibleUsageBody) Read(p []byte) (int, error) {
 
 			b.pending = raw
 		} else {
-			if !b.scanner.Scan() {
+			scanned := b.scanner.Scan()
+			var frame openAICompatSSEFrame
+			var ready bool
+			if scanned {
+				line := b.scanner.Text()
+				b.frameSize += int64(len(line)) + 1
+				if b.frameSize > b.limit {
+					return 0, fmt.Errorf("compatible upstream SSE frame too large")
+				}
+				frame, ready = b.parser.AddLine(line)
+				if line == "" {
+					b.frameSize = 0
+				}
+				b.pending = append([]byte(line), '\n')
+			} else {
 				if err := b.scanner.Err(); err != nil {
 					return 0, err
 				}
+				frame, ready = b.parser.Finish()
+			}
+			if ready {
+				raw := []byte(strings.TrimSpace(frame.Data))
+				if !bytes.Equal(raw, []byte("[DONE]")) && !gjson.ValidBytes(raw) {
+					return 0, fmt.Errorf("invalid compatible upstream SSE data")
+				}
+				b.observe(raw)
+				kind := effectiveOpenAISSEEventType(raw, frame.EventType)
+				if bytes.Equal(raw, []byte("[DONE]")) || kind == "message_stop" || kind == "error" || openAIStreamEventTypeIsTerminal(kind) {
+					b.terminal = true
+				}
+				if b.protocol == APIProtocolChatCompletions {
+					for _, choice := range gjson.GetBytes(raw, "choices").Array() {
+						if choice.Get("finish_reason").String() != "" {
+							b.terminal = true
+						}
+					}
+				}
+			}
+			if !scanned {
 				if !b.terminal {
 					return 0, newOpenAIUpstreamStreamReadError(fmt.Errorf("compatible upstream missing terminal event"))
 				}
 				return 0, io.EOF
 			}
-			line := b.scanner.Bytes()
-
-			if bytes.HasPrefix(line, []byte("data:")) {
-				raw := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
-				b.observe(raw)
-				kind := gjson.GetBytes(raw, "type").String()
-				terminal := bytes.Equal(raw, []byte("[DONE]")) || kind == "message_stop" || openAIStreamEventTypeIsTerminal(kind)
-				if b.protocol == APIProtocolChatCompletions {
-					for _, choice := range gjson.GetBytes(raw, "choices").Array() {
-						if choice.Get("finish_reason").Type == gjson.String && choice.Get("finish_reason").String() != "" {
-							terminal = true
-						}
-					}
-				}
-				if !bytes.Equal(raw, []byte("[DONE]")) && !gjson.ValidBytes(raw) {
-					return 0, fmt.Errorf("invalid compatible upstream SSE data")
-				}
-				if terminal || kind == "error" || kind == "response.failed" || kind == "response.incomplete" {
-					b.terminal = true
-				}
-			}
-			b.pending = append(append([]byte(nil), line...), '\n')
 		}
 	}
 	n := copy(p, b.pending)
@@ -564,7 +583,12 @@ func compatibleCheckedResponse(account *Account, response *http.Response, limit 
 		observation = &account.compatibleBinding.observation
 	}
 	body := &compatibleUsageBody{source: response.Body, protocol: protocol, limit: limit, observation: observation}
-	if strings.Contains(response.Header.Get("Content-Type"), "text/event-stream") {
+	if isEventStreamResponse(response.Header) {
+		if binding := account.compatibleBinding; binding != nil && binding.bufferResponses {
+			// The buffered Responses parser validates frames and owns the
+			// attempt's meter, including interrupted HTTP reads.
+			return response
+		}
 		body.scanner = bufio.NewScanner(response.Body)
 		body.scanner.Buffer(make([]byte, 64*1024), int(limit))
 	}

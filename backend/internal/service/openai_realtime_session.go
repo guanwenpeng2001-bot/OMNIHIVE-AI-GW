@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strings"
+	"sync"
 	"time"
 
 	ws "github.com/coder/websocket"
@@ -54,6 +56,15 @@ func (s *UpstreamJobService) RecordOpenAIRealtimeTurn(ctx context.Context, sessi
 	}
 	sum := sha256.Sum256([]byte(session.PublicRequestID + "\x00" + responseID))
 	identity := hex.EncodeToString(sum[:])
+	if status == "usage_pending" && string(raw) == "null" {
+		// Local review evidence has its own identity, so an authoritative
+		// provider receipt can still be reconciled for this response.
+		sum = sha256.Sum256([]byte("unfinished\x00" + identity))
+		identity = hex.EncodeToString(sum[:])
+		if err := s.FinishOpenAIRealtime(ctx, session.PublicRequestID, "usage_pending"); err != nil {
+			return nil, err
+		}
+	}
 	now := s.now().UTC()
 	job := &UpstreamJob{PublicRequestID: uuid.NewString(), Family: "realtime_turn", Status: "running",
 		Platform: PlatformOpenAI, UserID: session.UserID, APIKeyID: session.APIKeyID, AccountID: session.AccountID,
@@ -76,13 +87,65 @@ func (s *UpstreamJobService) RecordOpenAIRealtimeTurn(ctx context.Context, sessi
 	}
 	if usageErr != nil {
 		recordJobPricingFailure(job, usageErr)
-		s.finish(job, "failed", "unsupported_usage", "Unexplained realtime usage retained for review; not charged")
+		if status == "usage_pending" {
+			s.finish(job, "failed", "settlement_needs_review", "Realtime turn ended without terminal usage")
+		} else {
+			s.finish(job, "failed", "unsupported_usage", "Unexplained realtime usage retained for review; not charged")
+		}
 	}
 	stored, err := repository.InsertRealtimeReceipt(ctx, job)
 	if err != nil || stored.Terminal() || !s.Ready() {
 		return stored, err
 	}
 	return s.Poll(ctx, stored.PublicRequestID)
+}
+
+// Realtime can interleave several responses with audio for the next turn.
+type realtimePendingTurns struct {
+	active            map[string]bool
+	done              map[string]bool
+	requested         int
+	committed         int
+	awaitingCommitAck int
+	audio             bool
+}
+
+func (p *realtimePendingTurns) clientEvent(kind string) {
+	switch kind {
+	case "response.create":
+		p.requested++
+		if p.committed > 0 {
+			p.committed--
+		}
+	case "input_audio_buffer.commit":
+		p.audio = false
+		p.committed++
+		p.awaitingCommitAck++
+	case "input_audio_buffer.append":
+		p.audio = true
+	case "input_audio_buffer.clear":
+		p.audio = false
+	}
+}
+
+func (p *realtimePendingTurns) observe(id string) {
+	if id == "" || p.active[id] || p.done[id] {
+		return
+	}
+	p.active[id] = true
+	if p.requested > 0 {
+		p.requested--
+	} else if p.committed > 0 {
+		p.committed--
+	}
+}
+
+func (p *realtimePendingTurns) count() int {
+	count := p.requested + p.committed + len(p.active)
+	if p.audio {
+		count++
+	}
+	return count
 }
 
 // BeforeEvent rechecks current eligibility before forwarding client input.
@@ -93,7 +156,7 @@ type OpenAIRealtimeCallbacks struct {
 	Receipt     func(context.Context, string, []byte, string, string) error
 }
 
-func RelayOpenAIRealtime(parent context.Context, client, upstream *ws.Conn, callbacks OpenAIRealtimeCallbacks) error {
+func RelayOpenAIRealtime(parent context.Context, client, upstream *ws.Conn, callbacks OpenAIRealtimeCallbacks) (relayErr error) {
 	if callbacks.BeforeEvent == nil || callbacks.Receipt == nil {
 		return errors.New("durable realtime callbacks required")
 	}
@@ -106,14 +169,19 @@ func RelayOpenAIRealtime(parent context.Context, client, upstream *ws.Conn, call
 		body []byte
 		err  error
 	}
+	// The reader arms the deadline itself because persistence can occupy the
+	// supervisor. Provider reads remain active briefly to capture a late done.
+	disconnected := make(chan struct{})
+	stopDownstream := sync.OnceFunc(func() {
+		close(disconnected)
+		time.AfterFunc(250*time.Millisecond, func() { _ = upstream.CloseNow() })
+	})
 	read := func(connection *ws.Conn, frames chan<- frame, done chan<- struct{}) {
 		defer close(done)
 		for {
 			kind, body, err := connection.Read(ctx)
 			if err != nil && connection == client {
-				// Receipt persistence may currently occupy the supervisor. Stop
-				// generation immediately; its detached persistence can still finish.
-				_ = upstream.CloseNow()
+				stopDownstream()
 			}
 			select {
 			case frames <- frame{kind, body, err}:
@@ -137,8 +205,32 @@ func RelayOpenAIRealtime(parent context.Context, client, upstream *ws.Conn, call
 	}
 	idle := time.NewTimer(60 * time.Second)
 	defer idle.Stop()
-	responses := map[string]bool{}
+	pending := realtimePendingTurns{active: make(map[string]bool), done: make(map[string]bool)}
 	declaredModel := ""
+	defer func() {
+		if pending.count() == 0 {
+			return
+		}
+		// Stop generation before potentially slow persistence. Give the whole
+		// batch a single detached deadline.
+		_ = upstream.CloseNow()
+		persist, finish := detachedBillingContext(ctx)
+		defer finish()
+		record := func(id string) {
+			if err := callbacks.Receipt(persist, id, nil, "usage_pending", declaredModel); err != nil {
+				relayErr = errors.Join(relayErr, err)
+			}
+		}
+		for id := range pending.active {
+			record(id)
+		}
+		for range pending.requested + pending.committed {
+			record("unacknowledged-" + uuid.NewString())
+		}
+		if pending.audio {
+			record("uncommitted-audio-" + uuid.NewString())
+		}
+	}()
 	for {
 		select {
 		case <-ctx.Done():
@@ -146,8 +238,11 @@ func RelayOpenAIRealtime(parent context.Context, client, upstream *ws.Conn, call
 		case <-idle.C:
 			return errors.New("realtime idle timeout")
 		case event := <-clientFrames:
-			if event.err != nil {
-				return event.err
+			select {
+			case <-disconnected:
+				clientFrames = nil
+				continue
+			default:
 			}
 			if event.kind != ws.MessageText || !json.Valid(event.body) || gjson.GetBytes(event.body, "type").Type != gjson.String {
 				return errors.New("realtime requires JSON events")
@@ -156,6 +251,10 @@ func RelayOpenAIRealtime(parent context.Context, client, upstream *ws.Conn, call
 			// DashScope, and is deliberately not synthesized or translated here.
 			if err := callbacks.BeforeEvent(ctx, event.body); err != nil {
 				return err
+			}
+			pending.clientEvent(gjson.GetBytes(event.body, "type").String())
+			if pending.count() > 50 {
+				return errors.New("realtime turn limit reached")
 			}
 			if err := write(upstream, event.body); err != nil {
 				return err
@@ -174,6 +273,27 @@ func RelayOpenAIRealtime(parent context.Context, client, upstream *ws.Conn, call
 					declaredModel = model.String()
 				}
 			}
+			if eventType == "input_audio_buffer.committed" {
+				if pending.awaitingCommitAck > 0 {
+					pending.awaitingCommitAck--
+				} else {
+					pending.committed++
+					pending.audio = false
+				}
+				if pending.count() > 50 {
+					return errors.New("realtime turn limit reached")
+				}
+			}
+			id := gjson.GetBytes(event.body, "response.id").String()
+			if id == "" {
+				id = gjson.GetBytes(event.body, "response_id").String()
+			}
+			if strings.HasPrefix(eventType, "response.") {
+				pending.observe(id)
+				if pending.count() > 50 {
+					return errors.New("realtime turn limit reached")
+				}
+			}
 			if eventType == "response.done" {
 				response := gjson.GetBytes(event.body, "response")
 				id := response.Get("id").String()
@@ -185,17 +305,28 @@ func RelayOpenAIRealtime(parent context.Context, client, upstream *ws.Conn, call
 				if model := response.Get("model"); model.Type == gjson.String {
 					responseModel = model.String()
 				}
-				err := callbacks.Receipt(persist, id, []byte(response.Get("usage").Raw), response.Get("status").String(), responseModel)
+				status := response.Get("status").String()
+				// Reserve usage_pending for locally observed interruptions.
+				if status == "usage_pending" {
+					status = "unknown"
+				}
+				err := callbacks.Receipt(persist, id, []byte(response.Get("usage").Raw), status, responseModel)
 				finish()
 				if err != nil {
 					return err
 				}
-				responses[id] = true
+				delete(pending.active, id)
+				pending.done[id] = true
 			}
-			if err := write(client, event.body); err != nil {
-				return err
+			select {
+			case <-disconnected:
+			default:
+				if err := write(client, event.body); err != nil {
+					stopDownstream()
+					clientFrames = nil
+				}
 			}
-			if len(responses) >= 50 {
+			if len(pending.done) >= 50 {
 				return errors.New("realtime turn limit reached")
 			}
 			idle.Reset(60 * time.Second)

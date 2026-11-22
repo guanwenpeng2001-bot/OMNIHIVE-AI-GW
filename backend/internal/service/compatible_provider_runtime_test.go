@@ -544,3 +544,101 @@ func TestCompatibleNoForeignDiscoveryOrMetadata(t *testing.T) {
 	require.ErrorContains(t, applyCompatibleRequestAuth(a, req), "does not match")
 	require.Empty(t, req.Header.Get("Authorization"))
 }
+
+func TestCompatibleRawChatSplitCounters(t *testing.T) {
+	restore := domain.SetCompatibleProvidersForTest([]domain.CompatibleProvider{compatibleFixture(APIProtocolChatCompletions, nil)})
+	defer restore()
+	const input = `{"prompt_tokens":7,"prompt_tokens_details":{"cached_tokens":3,"cache_write_tokens":1}}`
+	const output = `{"completion_tokens":2}`
+	for _, tc := range []struct {
+		name     string
+		frames   []string
+		want     OpenAIUsage
+		complete bool
+	}{
+		{"input first", []string{input, output, output}, OpenAIUsage{InputTokens: 7, OutputTokens: 2, CacheReadInputTokens: 3, CacheCreationInputTokens: 1}, true},
+		{"output first", []string{output, input}, OpenAIUsage{InputTokens: 7, OutputTokens: 2, CacheReadInputTokens: 3, CacheCreationInputTokens: 1}, true},
+		{"explicit zero", []string{input, output, `{"completion_tokens":0,"prompt_tokens_details":{"cached_tokens":0}}`}, OpenAIUsage{InputTokens: 7, CacheCreationInputTokens: 1}, true},
+		{"missing output", []string{input}, OpenAIUsage{InputTokens: 7, CacheReadInputTokens: 3, CacheCreationInputTokens: 1}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, "data: {\"choices\":[\ndata: {\"delta\":{\"content\":\"hello\"},\"finish_reason\":\"stop\"}]}\n\n")
+				for _, frame := range tc.frames {
+					fmt.Fprintf(w, "data: {\"choices\":[],\"usage\":%s}\n\n", frame)
+				}
+				fmt.Fprint(w, "data: [DONE]\n\n")
+			}))
+			defer server.Close()
+			gateway := &OpenAIGatewayService{cfg: loopbackHTTPTestConfig(), httpUpstream: &compatibleLoopback{client: server.Client()}}
+			body := []byte(`{"model":"alias","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest("POST", "/v1/chat/completions", bytes.NewReader(body))
+			result, err := gateway.ForwardAsChatCompletions(context.Background(), c, compatibleAccount(server.URL+"/v1"), body, "", "")
+			require.NoError(t, err)
+			require.Equal(t, tc.want, result.Usage)
+			require.Equal(t, tc.complete, result.TokenUsageObservation.known())
+			require.Equal(t, !tc.complete, result.UsageIncomplete)
+		})
+	}
+}
+
+func TestCompatibleBufferedResponsesCarriesUsageToSettlement(t *testing.T) {
+	restore := domain.SetCompatibleProvidersForTest([]domain.CompatibleProvider{compatibleFixture(APIProtocolResponses, nil)})
+	defer restore()
+	for _, tc := range []struct {
+		name, frames             string
+		incomplete, forwardError bool
+		input, output            int
+	}{
+		{"empty", "", true, true, 0, 0},
+		{"incomplete", "data: " + `{"type":"response.incomplete","response":{"id":"r1","status":"incomplete","output":[],"usage":{"input_tokens":3,"output_tokens":1}}}` + "\n\n", false, false, 3, 1},
+		{"cancelled", "data: " + `{"type":"response.cancelled","response":{"id":"r1","status":"cancelled","output":[],"usage":{"input_tokens":3}}}` + "\n\n", true, false, 3, 0},
+		{"missing done", "data: " + `{"type":"response.in_progress","usage":{"input_tokens":7}}` + "\n\ndata: [DONE]\n\n", true, true, 7, 0},
+		{"placeholder", "data: " + `{"type":"response.in_progress","usage":{"input_tokens":7,"output_tokens":2}}` + "\n\ndata: " + `{"type":"response.completed","response":{"id":"r1","usage":{},"output":[]}}` + "\n\n", false, false, 7, 2},
+		{"partial", "data: " + `{"type":"response.completed","response":{"id":"r1","usage":{"input_tokens":7},"output":[]}}` + "\n\n", true, false, 7, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.Header().Set("X-Request-Id", "aggregate")
+				fmt.Fprint(w, tc.frames)
+			}))
+			defer server.Close()
+			account := compatibleAccount(server.URL + "/v1")
+			gateway := &OpenAIGatewayService{cfg: loopbackHTTPTestConfig(), httpUpstream: &compatibleLoopback{client: server.Client()}}
+			body := []byte(`{"model":"alias","input":"hi","stream":false}`)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest("POST", "/v1/responses", bytes.NewReader(body))
+			result, err := gateway.Forward(context.Background(), c, account, body)
+			require.True(t, gjson.ValidBytes(rec.Body.Bytes()))
+			if tc.name == "incomplete" || tc.name == "cancelled" {
+				require.Equal(t, tc.name, gjson.GetBytes(rec.Body.Bytes(), "status").String())
+			}
+			if tc.forwardError {
+				require.Error(t, err)
+				require.Equal(t, 502, c.Writer.Status())
+			} else {
+				require.NoError(t, err)
+			}
+			require.NotNil(t, result)
+			require.Equal(t, tc.incomplete, result.UsageIncomplete)
+			require.Equal(t, tc.input, result.Usage.InputTokens)
+			require.Equal(t, tc.output, result.Usage.OutputTokens)
+			repo := &settlementCapture{}
+			billing := newOpenAIRecordUsageServiceForTest(&openAIRecordUsageLogRepoStub{}, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+			billing.usageSettlement = NewUsageSettlementService(repo, nil, nil)
+			result.BillingModel = "gpt-5.4"
+			err = billing.RecordUsage(context.Background(), &OpenAIRecordUsageInput{Result: result, User: &User{ID: 1}, APIKey: &APIKey{ID: 2}, Account: account})
+			if tc.incomplete {
+				require.ErrorIs(t, err, ErrUsageSettlementNeedsReview)
+				require.Equal(t, "unresolved", repo.receipt.ResolutionState)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, 1, repo.settles)
+			}
+		})
+	}
+}

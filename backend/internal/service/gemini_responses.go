@@ -13,8 +13,7 @@ import (
 
 func validateGeminiTextReply(reply map[string]any) error {
 	if reply["error"] != nil {
-		data, _ := json.Marshal(reply)
-		return fmt.Errorf("%s", ExtractUpstreamErrorMessage(data))
+		return fmt.Errorf("upstream returned a Gemini error response")
 	}
 	if candidates, ok := reply["candidates"].([]any); ok && len(candidates) > 1 {
 		return fmt.Errorf("multiple Gemini candidates cannot be represented by this bridge")

@@ -773,6 +773,12 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 			return err
 		}
 	}
+	return s.RecheckBillingEligibility(ctx, user, apiKey, group, subscription, platform)
+}
+
+// RecheckBillingEligibility validates a fallback group under the instance slot
+// already held by the admitted request.
+func (s *BillingCacheService) RecheckBillingEligibility(ctx context.Context, user *User, apiKey *APIKey, group *Group, subscription *UserSubscription, platform string) error {
 	// 简易模式：跳过所有计费检查
 	if s.cfg.RunMode == config.RunModeSimple {
 		return nil
