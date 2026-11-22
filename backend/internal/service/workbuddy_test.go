@@ -183,7 +183,7 @@ func TestWorkBuddyURLPolicyAndRedirect(t *testing.T) {
 	var reached atomic.Bool
 	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached.Store(true) }))
 	defer destination.Close()
-	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, destination.URL, 302) }))
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, destination.URL, http.StatusFound) }))
 	defer origin.Close()
 	svc = NewWorkBuddyOAuthService(wbConfig(origin.URL), nil)
 	svc.endpoints = map[string]string{"cn": origin.URL}
@@ -412,7 +412,8 @@ func TestWorkBuddyProtocolBridges(t *testing.T) {
 					c.Request = httptest.NewRequest("POST", "/v1/"+protocol, bytes.NewReader(body))
 					var result *OpenAIForwardResult
 					var err error
-					if protocol == "gemini" {
+					switch protocol {
+					case "gemini":
 						body, err = GeminiToMessages([]byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`), "hy3", stream)
 						require.NoError(t, err)
 						action := "generateContent"
@@ -424,9 +425,9 @@ func TestWorkBuddyProtocolBridges(t *testing.T) {
 						result, err = svc.ForwardAsAnthropic(t.Context(), c, a, body, "", "")
 						require.NoError(t, writer.Finish())
 						require.Contains(t, rec.Body.String(), "usageMetadata")
-					} else if protocol == "messages" {
+					case "messages":
 						result, err = svc.ForwardAsAnthropic(t.Context(), c, a, body, "", "")
-					} else {
+					default:
 						result, err = svc.forwardResponsesViaRawChatCompletions(t.Context(), c, a, body)
 					}
 					require.NoError(t, err)

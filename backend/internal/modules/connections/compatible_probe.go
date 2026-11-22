@@ -104,7 +104,6 @@ func (p compatibleEndpointProber) ProbeConnection(ctx context.Context, account *
 }
 
 func probeCompatibleModels(client *http.Client, anon *http.Request, auth, key string) (service.ConnectionProbe, bool) {
-	result := service.FailedConnectionProbe("PROBE_FAILED")
 	req := anon.Clone(anon.Context())
 	switch auth {
 	case "x_api_key":
@@ -119,7 +118,7 @@ func probeCompatibleModels(client *http.Client, anon *http.Request, auth, key st
 		return service.ConnectionProbeTransportFailure(err), false
 	}
 	defer resp.Body.Close()
-	result = service.ConnectionProbeHTTPStatus(resp.StatusCode)
+	result := service.ConnectionProbeHTTPStatus(resp.StatusCode)
 	switch resp.StatusCode {
 	case http.StatusNotFound, http.StatusMethodNotAllowed:
 		return result, true
@@ -160,9 +159,10 @@ func probeCompatibleModels(client *http.Client, anon *http.Request, auth, key st
 	control, err := client.Do(anon)
 	if err == nil {
 		control.Body.Close()
-		if control.StatusCode == http.StatusUnauthorized || control.StatusCode == http.StatusForbidden {
+		switch control.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden:
 			result.Authorization = "passed"
-		} else if control.StatusCode == http.StatusTooManyRequests {
+		case http.StatusTooManyRequests:
 			result.AuthorizationReason = "UPSTREAM_RATE_LIMITED"
 			result.Detail = "Upstream rate-limited the authorization control (HTTP 429). Wait and retry."
 		}

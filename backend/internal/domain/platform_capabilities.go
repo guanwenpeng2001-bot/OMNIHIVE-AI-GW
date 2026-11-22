@@ -186,7 +186,7 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 		}
 	}
 	if identity.HostedAccountType != "" {
-		if platform.ChatOnly && identity.HostedAccountType != AccountTypeAPIKey && !(identity.Platform == PlatformWorkBuddy && identity.HostedAccountType == AccountTypeOAuth) {
+		if platform.ChatOnly && identity.HostedAccountType != AccountTypeAPIKey && (identity.Platform != PlatformWorkBuddy || identity.HostedAccountType != AccountTypeOAuth) {
 			return descriptor
 		}
 		if identity.Platform == PlatformOpenAI {

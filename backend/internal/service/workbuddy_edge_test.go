@@ -154,7 +154,7 @@ func TestWorkBuddyMonitorStreamingAdapter(t *testing.T) {
 		require.True(t, gjson.GetBytes(raw, "stream").Bool())
 		require.Equal(t, "system", gjson.GetBytes(raw, "messages.0.role").String())
 		w.Header().Set("Content-Type", "text/event-stream")
-		io.Copy(w, bytes.NewBufferString(wbSSE))
+		_, _ = io.Copy(w, bytes.NewBufferString(wbSSE))
 	}))
 	defer server.Close()
 	text, _, status, err := callProvider(t.Context(), PlatformWorkBuddy, server.URL+"/v2", "key-12345678", "hy3", "hello", nil)

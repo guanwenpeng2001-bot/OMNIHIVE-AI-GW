@@ -188,10 +188,15 @@ func aggregateWorkBuddyChat(r io.Reader) ([]byte, error) {
 					}
 				}
 				fn, _ := t["function"].(map[string]any)
-				target := dest["function"].(map[string]any)
+				target, ok := dest["function"].(map[string]any)
+				if !ok {
+					target = map[string]any{"name": "", "arguments": ""}
+					dest["function"] = target
+				}
 				for _, k := range []string{"name", "arguments"} {
 					if v, ok := fn[k].(string); ok {
-						target[k] = target[k].(string) + v
+						prev, _ := target[k].(string)
+						target[k] = prev + v
 					}
 				}
 			}

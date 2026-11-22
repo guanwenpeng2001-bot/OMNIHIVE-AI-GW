@@ -93,7 +93,7 @@ func (s *WorkBuddyOAuthService) call(ctx context.Context, a *Account, proxy, met
 			return nil, err
 		}
 	}
-	req, err := http.NewRequestWithContext(ctx, method, target, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, method, target, bytes.NewReader(payload)) //nolint:gosec // G704: target passed urlvalidator.ValidateHTTPURL above
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +114,7 @@ func (s *WorkBuddyOAuthService) call(ctx context.Context, a *Account, proxy, met
 	}
 	local := *client
 	local.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, err := local.Do(req)
+	resp, err := local.Do(req) //nolint:gosec // G704: target passed urlvalidator.ValidateHTTPURL and redirects are disabled
 	if err != nil {
 		return nil, errors.New("WorkBuddy transport failed")
 	}
@@ -381,7 +381,11 @@ func (s *WorkBuddyOAuthService) RefreshAccountToken(ctx context.Context, a *Acco
 	if err != nil {
 		return nil, err
 	}
-	return MergeCredentials(a.Credentials, v.(map[string]any)), nil
+	creds, ok := v.(map[string]any)
+	if !ok {
+		return nil, errors.New("WorkBuddy refreshed credentials payload invalid")
+	}
+	return MergeCredentials(a.Credentials, creds), nil
 }
 
 type WorkBuddyTokenRefresher struct{ service *WorkBuddyOAuthService }

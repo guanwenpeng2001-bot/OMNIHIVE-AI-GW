@@ -391,7 +391,7 @@ func (p *zenFreeToolPolicy) bufferTool(key string, index int, t map[string]any) 
 	encoded, _ := json.Marshal(t)
 	p.bytes += len(encoded)
 	if p.bytes > freeModelBodyLimit {
-		return errors.New("Zen Free pending tools exceed size limit")
+		return errors.New("zen free pending tools exceed size limit")
 	}
 	if p.pending[key] == nil {
 		p.pending[key] = map[int]map[string]any{}
@@ -448,7 +448,7 @@ func (p *zenFreeToolPolicy) snapshot(b map[string]any) {
 func (p *zenFreeToolPolicy) guard(body []byte) ([]byte, error) {
 	if strings.TrimSpace(string(body)) == "[DONE]" {
 		if len(p.pending) > 0 {
-			return nil, errors.New("Zen Free tool stream ended before finish_reason")
+			return nil, errors.New("zen free tool stream ended before finish_reason")
 		}
 		return body, nil
 	}

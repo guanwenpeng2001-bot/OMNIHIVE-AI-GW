@@ -2142,7 +2142,7 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 		return false
 	}
 	if IsChatOnlyPlatform(a.Platform) {
-		if a.Type != AccountTypeAPIKey && !(a.Platform == PlatformWorkBuddy && a.Type == AccountTypeOAuth) {
+		if a.Type != AccountTypeAPIKey && (a.Platform != PlatformWorkBuddy || a.Type != AccountTypeOAuth) {
 			return false
 		}
 		// Chat-only is a platform classification, not a permanent capability

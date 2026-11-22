@@ -3393,9 +3393,10 @@ func verifyConnectionRequest(req *http.Request, shared *http.Client, account *Ac
 	check, err := client.Do(anon)
 	if err == nil {
 		check.Body.Close()
-		if check.StatusCode == 401 || check.StatusCode == 403 {
+		switch check.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden:
 			result.Authorization = "passed"
-		} else if check.StatusCode == http.StatusTooManyRequests {
+		case http.StatusTooManyRequests:
 			result.AuthorizationReason = "UPSTREAM_RATE_LIMITED"
 			result.Detail = "Upstream rate-limited the authorization control (HTTP 429). Wait and retry."
 		}

@@ -31,21 +31,6 @@ func workBuddyModels(site string) []workBuddyModel {
 	}
 	return workBuddyCNModels
 }
-func workBuddyStaticModelMetadata(site string) ([]string, map[string]UpstreamModelMetadata) {
-	ids := []string{}
-	metadata := map[string]UpstreamModelMetadata{}
-	for _, m := range workBuddyModels(site) {
-		ids = append(ids, m.ID)
-		vision := !(site == "global" && strings.HasPrefix(m.ID, "glm-"))
-		reasoning := len(m.Efforts) > 0
-		modalities := []string{"text"}
-		if vision {
-			modalities = append(modalities, "image")
-		}
-		metadata[m.ID] = UpstreamModelMetadata{ID: m.ID, DisplayName: m.Name, ContextWindow: m.Input, MaxOutputTokens: m.Output, ContextLimitKind: "input", SupportsVision: &vision, InputModalities: modalities, OutputModalities: []string{"text"}, Reasoning: &reasoning, SupportedReasoningLevels: append([]string(nil), m.Efforts...), ProviderProfile: "workbuddy-" + site, SupportedMethods: []string{"chat_completions"}}
-	}
-	return ids, metadata
-}
 
 // Adapter presets are explicit source candidates, separate from the signed
 // registry bundle. They never grant a credential access to a model.
@@ -55,7 +40,7 @@ func workBuddyModelPresets() []PlatformModelPreset {
 		p := PlatformModelPreset{Platform: PlatformWorkBuddy, ProviderProfile: "workbuddy-" + site, Revision: "opencode-workbuddy-auth-0.2.37", CoverageStatus: "partial", CheckedAt: "2026-11-22T00:00:00Z", SourceRefs: []string{"@magpie-community/opencode-workbuddy-auth@0.2.37/packages/workbuddy/index.mjs"}, Gaps: []string{"Account-specific /v3/config may advertise additional or fewer models"}}
 		for _, m := range workBuddyModels(site) {
 			modalities := []string{"text"}
-			if !(site == "global" && strings.HasPrefix(m.ID, "glm-")) {
+			if site != "global" || !strings.HasPrefix(m.ID, "glm-") {
 				modalities = append(modalities, "image")
 			}
 			p.Models = append(p.Models, PlatformPresetModel{ID: m.ID, DisplayName: m.Name, TaskType: "chat", InputModalities: modalities, OutputModalities: []string{"text"}, Methods: []string{"chat_completions", "messages", "responses", "generate_content"}, Lifecycle: "active", ContextWindow: m.Input, MaxInputTokens: m.Input, ContextLimitKind: "input", MaxOutputTokens: m.Output, FieldSources: map[string]string{"identity": p.SourceRefs[0], "context_window": p.SourceRefs[0], "max_output_tokens": p.SourceRefs[0]}})
@@ -155,7 +140,7 @@ func extractWorkBuddyModelCatalog(body []byte, site string) ([]string, map[strin
 				continue
 			}
 		}
-		vision := d.Images && !(site == "global" && strings.HasPrefix(id, "glm-"))
+		vision := d.Images && (site != "global" || !strings.HasPrefix(id, "glm-"))
 		efforts := d.Reasoning.Efforts
 		if len(efforts) == 0 {
 			efforts = d.Reasoning.SupportedEfforts
