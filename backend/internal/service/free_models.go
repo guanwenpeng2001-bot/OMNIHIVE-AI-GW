@@ -30,8 +30,14 @@ func publicModelLane(a *Account) bool { return a.IsOpenCodeZenFree() || a.IsKilo
 
 // NormalizeFreeModelCredentials is shared by admin create/update and connection
 // verification. Runtime accessors also handle old rows without mutating shared
-// account snapshots. Paid OpenCode modes are deliberately untouched.
+// account snapshots. Paid OpenCode modes must carry a private credential.
 func NormalizeFreeModelCredentials(a *Account) error {
+	if a != nil && a.Platform == PlatformOpenCodeGo && !a.IsOpenCodeZenFree() {
+		key := strings.TrimSpace(a.GetCredential("api_key"))
+		if key == "" || key == "public" {
+			return infraerrors.Conflict("PRIVATE_CREDENTIAL_REQUIRED", "OpenCode paid modes require a private API key")
+		}
+	}
 	if a == nil || (!a.IsOpenCodeZenFree() && a.Platform != PlatformKilo) {
 		return nil
 	}

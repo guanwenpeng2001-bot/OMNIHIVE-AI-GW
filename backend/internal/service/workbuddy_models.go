@@ -79,11 +79,14 @@ func extractWorkBuddyModelCatalog(body []byte, site string) ([]string, map[strin
 	if err := json.Unmarshal(body, &env); err != nil {
 		return nil, nil, err
 	}
-	if env.Code == nil || env.Data == nil {
+	if env.Code == nil {
 		return nil, nil, errors.New("WorkBuddy config has no valid data envelope")
 	}
 	if *env.Code != 0 {
-		return nil, nil, &workBuddyAPIError{http.StatusOK, *env.Code}
+		return nil, nil, workBuddyCatalogError(*env.Code)
+	}
+	if env.Data == nil {
+		return nil, nil, errors.New("WorkBuddy config has no valid data envelope")
 	}
 	models := map[string]json.RawMessage{}
 	ordered := []string{}
@@ -124,9 +127,9 @@ func extractWorkBuddyModelCatalog(body []byte, site string) ([]string, map[strin
 			Name              string `json:"name"`
 			Input             int64  `json:"maxInputTokens"`
 			Output            int64  `json:"maxOutputTokens"`
-			Images            bool   `json:"supportsImages"`
-			OnlyReasoning     bool   `json:"onlyReasoning"`
-			SupportsReasoning bool   `json:"supportsReasoning"`
+			Images            *bool  `json:"supportsImages"`
+			OnlyReasoning     *bool  `json:"onlyReasoning"`
+			SupportsReasoning *bool  `json:"supportsReasoning"`
 			Reasoning         struct {
 				Default          string   `json:"defaultEffort"`
 				Efforts          []string `json:"efforts"`
@@ -134,31 +137,55 @@ func extractWorkBuddyModelCatalog(body []byte, site string) ([]string, map[strin
 				CanDisable       *bool    `json:"canDisableThinking"`
 			} `json:"reasoning"`
 		}
+		invalid := false
 		if raw := models[id]; len(raw) > 0 {
-			if err := json.Unmarshal(raw, &d); err != nil {
-				metadata[id] = UpstreamModelMetadata{ID: id, Conflicts: []string{"invalid_optional_metadata"}}
-				continue
-			}
+			invalid = decodeUpstreamOptionalFields(raw, map[string]any{
+				"name": &d.Name, "maxInputTokens": &d.Input, "maxOutputTokens": &d.Output,
+				"supportsImages": &d.Images, "onlyReasoning": &d.OnlyReasoning, "supportsReasoning": &d.SupportsReasoning,
+				"reasoning.defaultEffort": &d.Reasoning.Default, "reasoning.efforts": &d.Reasoning.Efforts,
+				"reasoning.supportedEfforts": &d.Reasoning.SupportedEfforts, "reasoning.canDisableThinking": &d.Reasoning.CanDisable,
+			})
 		}
-		vision := d.Images && (site != "global" || !strings.HasPrefix(id, "glm-"))
+		vision := d.Images
+		// An explicit product restriction is separate from absent native fields.
+		if site == "global" && strings.HasPrefix(id, "glm-") {
+			v := false
+			vision = &v
+		}
+
 		efforts := d.Reasoning.Efforts
 		if len(efforts) == 0 {
 			efforts = d.Reasoning.SupportedEfforts
 		}
-		if len(efforts) == 0 && d.SupportsReasoning {
+		if len(efforts) == 0 && d.SupportsReasoning != nil && *d.SupportsReasoning {
 			efforts = []string{"low", "high", "max"}
 		}
-		reasoning := d.SupportsReasoning || d.OnlyReasoning || len(efforts) > 0 || d.Reasoning.Default != ""
-		if len(efforts) > 0 && ((!d.OnlyReasoning && (d.Reasoning.CanDisable == nil || *d.Reasoning.CanDisable)) || id == "deepseek-v4.1-flash" || id == "deepseek-v4.1-flash-sg") {
+		var reasoning *bool
+		if (d.SupportsReasoning != nil && *d.SupportsReasoning) || (d.OnlyReasoning != nil && *d.OnlyReasoning) || len(efforts) > 0 || d.Reasoning.Default != "" {
+			v := true
+			reasoning = &v
+		} else if d.SupportsReasoning != nil {
+			v := false
+			reasoning = &v
+		}
+		if len(efforts) > 0 && (((d.OnlyReasoning == nil || !*d.OnlyReasoning) && (d.Reasoning.CanDisable == nil || *d.Reasoning.CanDisable)) || id == "deepseek-v4.1-flash" || id == "deepseek-v4.1-flash-sg") {
 			if !slices.Contains(efforts, "none") {
 				efforts = append([]string{"none"}, efforts...)
 			}
 		}
-		input := []string{"text"}
-		if vision {
-			input = append(input, "image")
+		var input []string
+		if vision != nil {
+			input = []string{"text"}
+			if *vision {
+				input = append(input, "image")
+			}
 		}
-		metadata[id] = UpstreamModelMetadata{ID: id, DisplayName: firstNonEmpty(d.Name, id), ContextWindow: d.Input, MaxOutputTokens: d.Output, ContextLimitKind: "input", SupportsVision: &vision, InputModalities: input, OutputModalities: []string{"text"}, Reasoning: &reasoning, DefaultReasoningLevel: d.Reasoning.Default, SupportedReasoningLevels: efforts, ProviderProfile: "workbuddy-" + site, SupportedMethods: []string{"chat_completions"}}
+		metadata[id] = UpstreamModelMetadata{ID: id, DisplayName: firstNonEmpty(d.Name, id), ContextWindow: d.Input, MaxOutputTokens: d.Output, ContextLimitKind: "input", SupportsVision: vision, InputModalities: input, OutputModalities: []string{"text"}, Reasoning: reasoning, DefaultReasoningLevel: d.Reasoning.Default, SupportedReasoningLevels: efforts, ProviderProfile: "workbuddy-" + site, SupportedMethods: []string{"chat_completions"}}
+		if invalid {
+			m := metadata[id]
+			m.Conflicts = []string{"invalid_optional_metadata"}
+			metadata[id] = m
+		}
 	}
 	return ids, metadata, nil
 }
@@ -204,4 +231,17 @@ func (s *AccountTestService) fetchWorkBuddyModels(req *http.Request, a *Account)
 	body = workBuddyConfigFallback(body, a)
 	ids, _, err := extractWorkBuddyModelCatalog(body, workBuddySiteFor(a).ID)
 	return ids, body, err
+}
+
+// Only explicitly recognized business codes prove authentication failure.
+func workBuddyCatalogError(code int) error {
+	cause := &workBuddyAPIError{http.StatusOK, code}
+	switch code {
+	case 401, 403:
+		return &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorCredentials, StatusCode: code, Message: "WorkBuddy rejected the credentials", Err: cause}
+	case 429:
+		return &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorUpstream, StatusCode: code, Message: "WorkBuddy rate-limited model discovery", Err: cause}
+	default:
+		return newUpstreamModelSyncUpstreamError("WorkBuddy model discovery failed", cause)
+	}
 }

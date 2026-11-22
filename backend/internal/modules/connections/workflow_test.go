@@ -32,12 +32,12 @@ func connectionWorkflowRows(state, name string, version int64, verification []by
 		"account_id", "workspace_id", "provider", "auth_type", "name", "endpoint", "proxy_id",
 		"model_ids", "pool_ids", "concurrency", "state", "version", "credential_version", "revoked_at",
 		"reference", "snapshot", "fingerprint", "last_four", "fetched", "next_refresh", "quota_status",
-		"used", "headers", "account_mode",
+		"used", "headers", "account_mode", "metadata",
 	}
 	return sqlmock.NewRows(columns).AddRow(
 		int64(3), int64(2), "openai", "api_key", name, "https://example.test", "",
 		"{first-model}", "{}", int64(3), state, version, int64(1), nil, "reference",
-		verification, nil, nil, nil, nil, nil, nil, nil, "",
+		verification, nil, nil, nil, nil, nil, nil, nil, "", nil,
 	)
 }
 

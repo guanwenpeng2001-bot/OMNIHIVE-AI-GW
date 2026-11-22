@@ -261,6 +261,10 @@ func TestFreeModelDiscoveryAndPublicProbe(t *testing.T) {
 				if platform == PlatformKilo {
 					require.Equal(t, "/models", r.URL.Path)
 					if tt.mode == "apikey" {
+						if r.Header.Get("Authorization") == "" {
+							w.WriteHeader(http.StatusUnauthorized)
+							return
+						}
 						require.Equal(t, "Bearer private-fixture", r.Header.Get("Authorization"))
 					} else {
 						require.Empty(t, r.Header.Get("Authorization"))

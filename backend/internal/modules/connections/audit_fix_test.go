@@ -123,18 +123,20 @@ func TestWorkBuddyMetadataPersistenceKeepsTokensEncrypted(t *testing.T) {
 	mock.ExpectQuery("SELECT workspace_id, credentials, updated_at FROM accounts").WithArgs(3).WillReturnRows(sqlmock.NewRows([]string{"workspace_id", "credentials", "updated_at"}).AddRow(2, []byte(`{}`), time.Now()))
 	mock.ExpectExec("UPDATE accounts SET credentials=\\$2").WithArgs(3, sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO scheduler_outbox").WithArgs("account_changed", 3).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("SELECT set_config").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE accounts SET credentials=\\(coalesce").WithArgs(2, 3, `{"site":"global","uid":"u-1"}`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO scheduler_outbox").WithArgs("account_changed", 3).WillReturnResult(sqlmock.NewResult(0, 1))
 	require.NoError(t, session.changeSecret(c, values, false))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func accountModeRows(provider, mode string, version int64, revoked bool) *sqlmock.Rows {
-	columns := []string{"id", "workspace", "provider", "auth", "name", "endpoint", "proxy", "models", "pools", "concurrency", "state", "version", "credential_version", "revoked", "reference", "snapshot", "fingerprint", "last_four", "fetched", "next_refresh", "quota", "used", "headers", "account_mode"}
+	columns := []string{"id", "workspace", "provider", "auth", "name", "endpoint", "proxy", "models", "pools", "concurrency", "state", "version", "credential_version", "revoked", "reference", "snapshot", "fingerprint", "last_four", "fetched", "next_refresh", "quota", "used", "headers", "account_mode", "metadata"}
 	var revokedAt any
 	if revoked {
 		revokedAt = time.Now()
 	}
-	return sqlmock.NewRows(columns).AddRow(3, 2, provider, "api_key", "lane", "", "", "{first-model}", "{}", 3, "disabled", version, 1, revokedAt, "ref", nil, nil, nil, nil, nil, nil, nil, nil, mode)
+	return sqlmock.NewRows(columns).AddRow(3, 2, provider, "api_key", "lane", "", "", "{first-model}", "{}", 3, "disabled", version, 1, revokedAt, "ref", nil, nil, nil, nil, nil, nil, nil, nil, mode, nil)
 }
 
 func TestAccountModePatchPersistsAndInvalidatesVerification(t *testing.T) {

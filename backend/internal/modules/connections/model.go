@@ -139,6 +139,7 @@ func (in Create) validateSchema() error {
 }
 
 type Patch struct {
+	Metadata        map[string]any    `json:"metadata,omitempty"`
 	AccountMode     *string           `json:"account_mode,omitempty"`
 	Name            *string           `json:"name,omitempty"`
 	Endpoint        *string           `json:"endpoint,omitempty"`
@@ -173,6 +174,9 @@ func (p *Patch) UnmarshalJSON(data []byte) error {
 // Preserve explicit empty maps and lists so patches can clear existing values.
 func (p Patch) Snapshot() map[string]any {
 	m := map[string]any{}
+	if p.Metadata != nil {
+		m["metadata"] = p.Metadata
+	}
 	if p.AccountMode != nil {
 		m["account_mode"] = *p.AccountMode
 	}
@@ -217,6 +221,7 @@ type Connection struct {
 	ID        int64 `json:"id,string"`
 	Workspace int64 `json:"workspace_id,string"`
 	Create
+	Metadata     map[string]any        `json:"metadata,omitempty"`
 	State        string                `json:"state"`
 	Version      int64                 `json:"version,string"`
 	Credential   *credentials.Metadata `json:"credential,omitempty"`
@@ -233,6 +238,7 @@ func (c Connection) Project(a identity.Access) any {
 	if a.Require("connections.read") != nil {
 		return map[string]any{"version": strconv.FormatInt(c.Version, 10), "redactions": []string{"connection", "credential"}}
 	}
+	c.Metadata = safeWorkBuddyMetadata(c.Provider, c.Metadata)
 	c.Allowed = []string{}
 	c.Redactions = []string{}
 	for _, s := range a.Actions {
@@ -367,6 +373,18 @@ type Event struct {
 // Public lanes use the same versioned secret lifecycle with an empty/public key.
 func (c Connection) credentialPayload(change credentials.Change) (map[string]any, error) {
 	if change.Operation != "set" {
+		if change.Operation == "keep" && change.Metadata != nil && c.Provider == service.PlatformWorkBuddy {
+			without := change
+			without.Metadata = nil
+			if _, err := without.Payload(c.AuthType); err != nil {
+				return nil, err
+			}
+			values := map[string]any{}
+			if err := c.workBuddyMetadata(values, change.Metadata); err != nil {
+				return nil, err
+			}
+			return values, nil
+		}
 		return change.Payload(c.AuthType)
 	}
 	if len(change.Metadata) > 0 && c.Provider != service.PlatformWorkBuddy {
@@ -431,13 +449,20 @@ func (c Connection) validateModePatch(p Patch) error {
 var workBuddyMetadataFields = []string{"site", "uid", "domain", "enterprise_id", "expires_at", "refresh_expires_at"}
 
 func (c Connection) workBuddyMetadata(values, metadata map[string]any) error {
+	for key, value := range safeWorkBuddyMetadata(c.Provider, c.Metadata) {
+		values[key] = value
+	}
 	allowed := []string{"site"}
 	if c.AuthType == "oauth" {
 		allowed = workBuddyMetadataFields
 	}
 	for key, value := range metadata {
-		if !slices.Contains(allowed, key) || value == nil {
+		if !slices.Contains(allowed, key) {
 			return fault.Invalid("/metadata")
+		}
+		if value == nil || value == "" {
+			values[key] = ""
+			continue
 		}
 		switch key {
 		case "expires_at", "refresh_expires_at":
@@ -481,4 +506,27 @@ func (c Connection) workBuddyMetadata(values, metadata map[string]any) error {
 		values[key] = value
 	}
 	return nil
+}
+
+// Defense in depth at both storage scan and DTO projection boundaries.
+func safeWorkBuddyMetadata(provider string, values map[string]any) map[string]any {
+	if provider != service.PlatformWorkBuddy {
+		return nil
+	}
+	out := map[string]any{}
+	for _, key := range workBuddyMetadataFields {
+		v, ok := values[key]
+		if !ok {
+			continue
+		}
+		switch v.(type) {
+		case string:
+			out[key] = v
+		case float64, int, int64, json.Number:
+			if key == "expires_at" || key == "refresh_expires_at" {
+				out[key] = v
+			}
+		}
+	}
+	return out
 }
