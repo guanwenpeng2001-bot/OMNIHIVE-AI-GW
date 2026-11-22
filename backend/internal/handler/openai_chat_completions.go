@@ -216,6 +216,10 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 			attemptTarget, hasAttemptTarget, targetErr := h.gatewayService.CompositeTargetForAttempt(
 				service.WithCompositeTargetAdvancement(service.WithCompositeExcludedAccounts(selectContext, attempts.FailedAccountIDs)), apiKey.GroupID)
 			if targetErr != nil {
+				if errors.Is(targetErr, service.ErrCompositeTargetLookup) {
+					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Composite target availability could not be verified", streamStarted)
+					return
+				}
 				h.handleStreamingAwareError(c, http.StatusBadRequest, "invalid_request_error", targetErr.Error(), streamStarted)
 				return
 			}
@@ -253,6 +257,12 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 				zap.Error(openAICompatibleSelectionErrorForLog(err, attemptPlatform)),
 				zap.Int("excluded_account_count", len(attempts.FailedAccountIDs)),
 			)
+			if native == "" && (errors.Is(err, service.ErrNoAvailableAccounts) || errors.Is(err, service.ErrNoAvailableCompactAccounts)) {
+				if remaining, ok := service.RemainingCompositeTargets(selectContext); ok {
+					c.Request = c.Request.WithContext(remaining)
+					continue
+				}
+			}
 			if len(attempts.FailedAccountIDs) == 0 {
 				cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel)
 				cls = classifySelectionFailureError(err, cls)

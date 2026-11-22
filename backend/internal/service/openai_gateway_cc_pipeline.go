@@ -349,7 +349,7 @@ type ccStreamScanState struct {
 	Err error
 }
 
-// scanCCStream 驱动两条 CC 回退路径共享的 SSE 读循环：提取 data 行、在 [DONE]
+// scanCCStream 读取两条 CC 回退路径共享的完整 SSE 事件，在 [DONE]
 // 哨兵处停止、保留最新 usage、记录首 token 时延，并把每个解析成功的 chunk 交给
 // emit 回调做各自的协议转换与写出。读错误按既有约定过滤 context 取消类噪声后
 // 记入 Warn 日志。
@@ -364,17 +364,19 @@ func (s *OpenAIGatewayService) scanCCStream(
 ) ccStreamScanState {
 	var st ccStreamScanState
 
-	scanner := s.newUpstreamSSEScanner(resp.Body)
+	maxSize, idle := defaultMaxLineSize, 300*time.Second
+	if s.cfg != nil {
+		if s.cfg.Gateway.MaxLineSize > 0 {
+			maxSize = s.cfg.Gateway.MaxLineSize
+		}
+		if s.cfg.Gateway.StreamDataIntervalTimeout > 0 {
+			idle = time.Duration(s.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
+		}
+	}
+	scanner := newUpstreamFrameReader(resp.Body, maxSize, c.Request.Context(), idle)
+	defer scanner.Close()
 	for scanner.Scan() {
-		line := scanner.Text()
-		payload, ok := extractOpenAISSEDataLine(line)
-		if !ok {
-			continue
-		}
-		payload = strings.TrimSpace(payload)
-		if payload == "" {
-			continue
-		}
+		payload := strings.TrimSpace(scanner.frame.Data)
 		if payload == "[DONE]" {
 			st.SawDone = true
 			break
@@ -419,14 +421,12 @@ func (s *OpenAIGatewayService) scanCCStream(
 			break
 		}
 		var chunk apicompat.ChatCompletionsChunk
-		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-			logger.L().Warn(logPrefix+": failed to parse chat stream chunk",
-				zap.Error(err),
-				zap.String("request_id", requestID),
-			)
-			continue
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil || !gjson.Parse(payload).IsObject() || gjson.Get(payload, "error").Exists() || (!gjson.Get(payload, "choices").IsArray() && !gjson.Get(payload, "usage").IsObject()) {
+			st.Err = fmt.Errorf("invalid upstream Chat Completions event")
+			break
 		}
 		if st.FirstTokenMs == nil && !isOpenAIChatUsageOnlyStreamChunk(payload) && chatChunkStartsResponsesOutput(&chunk) {
+			scanner.Semantic()
 			ms := int(time.Since(startTime).Milliseconds())
 			st.FirstTokenMs = &ms
 		}

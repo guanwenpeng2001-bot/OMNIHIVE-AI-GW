@@ -44,7 +44,23 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if IsCompatibleProvider(account.Platform) && account.GetAPIProtocol() == APIProtocolResponses {
 		beginUpstreamResponseModelObservation(c)
 		SetActualOpenAIUpstreamEndpoint(c, openAIResponsesUpstreamEndpoint)
-		return s.forwardOpenAIPassthrough(ctx, c, account, body, body, gjson.GetBytes(body, "model").String(), false, nil, gjson.GetBytes(body, "stream").Bool(), time.Now())
+		requestModel := gjson.GetBytes(body, "model").String()
+		stream := gjson.GetBytes(body, "stream").Bool()
+		started := time.Now()
+		account.compatibleBinding.bufferResponses = !stream
+		result, err := s.forwardOpenAIPassthrough(ctx, c, account, body, body, requestModel, false, nil, stream, started)
+		if meter := account.compatibleBinding.aggregate; meter != nil {
+			if errors.Is(err, errCompatibleResponsesIncomplete) {
+				writeResponsesError(c, http.StatusBadGateway, "upstream_error", "Upstream response ended before completion")
+				result = &OpenAIForwardResult{RequestID: meter.header.Get("X-Request-Id"), UpstreamHeaders: meter.header, Model: requestModel, UpstreamModel: account.GetMappedModel(requestModel), Duration: time.Since(started), UpstreamEndpoint: openAIResponsesUpstreamEndpoint}
+			}
+			if result != nil {
+				result.Usage = meter.usage
+				result.TokenUsageObservation = &meter.observation
+				result.UsageIncomplete = err != nil || !meter.observation.known()
+			}
+		}
+		return result, err
 	}
 	if account.Platform == PlatformOpenRouter {
 		return s.forwardOpenRouterNative(ctx, c, account, body, APIProtocolResponses, "")
@@ -1342,6 +1358,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 
 		// Handle normal response
 		var usage *OpenAIUsage
+		var observation *TokenUsageObservation
+		var aggregateErr error
 		var firstTokenMs *int
 		responseID := ""
 		imageCount := 0
@@ -1427,8 +1445,12 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 						continue
 					}
 				}
-				return nil, err
+				if nonStreamResult == nil {
+					return nil, err
+				}
+				aggregateErr = err
 			}
+			observation = nonStreamResult.observation
 			usage = nonStreamResult.usage
 			responseID = strings.TrimSpace(nonStreamResult.responseID)
 			imageCount = nonStreamResult.imageCount
@@ -1456,6 +1478,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			UpstreamHeaders:               resp.Header,
 			ResponseID:                    responseID,
 			Usage:                         *usage,
+			TokenUsageObservation:         observation,
+			UsageIncomplete:               aggregateErr != nil || !observation.known(),
 			Model:                         originalModel,
 			BillingModel:                  billingModel,
 			UpstreamModel:                 upstreamModel,
@@ -1483,7 +1507,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			forwardResult.SearchCount = searchCount
 		}
 		stampOpenAIResponsesUpstreamEndpoint(c, forwardResult)
-		return forwardResult, nil
+		return forwardResult, aggregateErr
 	}
 }
 

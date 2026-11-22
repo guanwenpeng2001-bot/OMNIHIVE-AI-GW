@@ -252,3 +252,102 @@ func TestOpenAIRealtimeDisconnectWhilePersistingClosesUpstream(t *testing.T) {
 		t.Fatal("relay did not finish")
 	}
 }
+
+func TestOpenAIRealtimeOverlappingTurnsAtDisconnect(t *testing.T) {
+	for _, late := range []bool{false, true} {
+		t.Run(map[bool]string{false: "unconfirmed", true: "late receipt"}[late], func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			repo := &openAIRealtimeMemoryRepository{&fileBatchMemoryRepo{jobs: map[string]*UpstreamJob{}, claims: map[string]string{}}}
+			jobs := NewUpstreamJobService(repo, nil, GatewayResourceJobCharge)
+			session, err := jobs.StartOpenAIRealtime(ctx, openAIRealtimeSessionFixture(true))
+			require.NoError(t, err)
+			disconnected := make(chan struct{})
+			doneFrame := func(id string) []byte {
+				return []byte(`{"type":"response.done","response":{"id":"` + id + `","status":"completed","usage":` + openAIRealtimeUsageFixture + `}}`)
+			}
+			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := ws.Accept(w, r, nil)
+				if err != nil {
+					return
+				}
+				defer conn.CloseNow()
+				for _, id := range []string{"a", "b"} {
+					if _, _, err := conn.Read(ctx); err != nil {
+						return
+					}
+					if err := conn.Write(ctx, ws.MessageText, []byte(`{"type":"response.created","response":{"id":"`+id+`"}}`)); err != nil {
+						return
+					}
+				}
+				_ = conn.Write(ctx, ws.MessageText, doneFrame("a"))
+				select {
+				case <-disconnected:
+				case <-ctx.Done():
+					return
+				}
+				if late {
+					_ = conn.Write(ctx, ws.MessageText, doneFrame("b"))
+				}
+				_, _, _ = conn.Read(ctx)
+			}))
+			defer provider.Close()
+			relayDone := make(chan struct{})
+			proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				defer close(relayDone)
+				upstream, _, err := ws.Dial(ctx, provider.URL, nil)
+				if err != nil {
+					return
+				}
+				defer upstream.CloseNow()
+				downstream, err := ws.Accept(w, r, nil)
+				if err != nil {
+					return
+				}
+				_ = RelayOpenAIRealtime(ctx, downstream, upstream, OpenAIRealtimeCallbacks{
+					BeforeEvent: func(context.Context, []byte) error { return nil },
+					Receipt: func(ctx context.Context, id string, raw []byte, status, model string) error {
+						_, err := jobs.RecordOpenAIRealtimeTurn(ctx, session, id, raw, status, model)
+						return err
+					},
+				})
+				_ = jobs.FinishOpenAIRealtime(ctx, session.PublicRequestID, "session_closed")
+			}))
+			defer proxy.Close()
+			client, _, err := ws.Dial(ctx, proxy.URL, nil)
+			require.NoError(t, err)
+			defer client.CloseNow()
+			for range 2 {
+				require.NoError(t, client.Write(ctx, ws.MessageText, []byte(`{"type":"response.create"}`)))
+				_, _, err = client.Read(ctx)
+				require.NoError(t, err)
+			}
+			_, _, err = client.Read(ctx)
+			require.NoError(t, err)
+			require.NoError(t, client.CloseNow())
+			close(disconnected)
+			select {
+			case <-relayDone:
+			case <-ctx.Done():
+				t.Fatal("relay did not finish")
+			}
+			stored, err := repo.Get(ctx, session.PublicRequestID, session.UserID, session.APIKeyID)
+			require.NoError(t, err)
+			require.Equal(t, map[bool]string{true: "session_closed", false: "usage_pending"}[late], stored.ErrorCode)
+			turns := map[string]*UpstreamJob{}
+			for _, job := range repo.jobs {
+				if job.Family == "realtime_turn" {
+					turns[job.UpstreamTaskID] = job
+				}
+			}
+			require.Len(t, turns, 2)
+			require.NotNil(t, turns["a"].ChargedUsageLogID)
+			if late {
+				require.NotNil(t, turns["b"].ChargedUsageLogID)
+			} else {
+				require.Nil(t, turns["b"].ChargedUsageLogID)
+				require.Equal(t, "settlement_needs_review", turns["b"].ErrorCode)
+			}
+		})
+	}
+}

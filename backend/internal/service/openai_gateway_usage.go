@@ -483,7 +483,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	// Simple mode still retains unresolved consumption for review when receipts
 	// are wired; it must not publish an unpriced row as successfully recorded.
 	needsPricingReview := cost.PricingState == PricingStateUnpriced || cost.PricingState == PricingStateError
-	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple && !needsPricingReview {
+	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple && !needsPricingReview && !result.UsageIncomplete {
 		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
 		logger.LegacyPrintf("service.openai_gateway", "[SIMPLE MODE] Usage recorded (not billed): user=%d, tokens=%d", usageLog.UserID, usageLog.TotalTokens())
 		if s.deferredService != nil {

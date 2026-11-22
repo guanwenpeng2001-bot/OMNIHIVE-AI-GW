@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -313,7 +314,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	var result *OpenAIForwardResult
 	var forwardErr error
 	if clientStream {
-		result, forwardErr = s.streamRawChatCompletions(c, resp, account, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime, len(body))
+		result, forwardErr = s.streamRawChatCompletions(c, resp, account, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime, len(body), gjson.GetBytes(body, "n").Int())
 	} else {
 		result, forwardErr = s.bufferRawChatCompletions(c, resp, account, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	}
@@ -346,7 +347,7 @@ func (s *OpenAIGatewayService) rawChatCompletionsURL(account *Account) (string, 
 // streamRawChatCompletions 透传上游 CC SSE 流到客户端，并提取 usage（包括
 // 末尾 [DONE] 之前的 chunk 中的 usage 字段，按 OpenAI CC 协议）。
 //
-// usage 字段仅在客户端请求 stream_options.include_usage=true 时出现于上游响应中。
+// 按完整 SSE 事件合并快照；EOF 只接受已完成的候选。
 // 网关对上游强制打开 include_usage 以保证计费完整；只在客户端显式请求时透传 usage，
 // 让级联代理或下游计费系统也能拿到完整用量。
 func (s *OpenAIGatewayService) streamRawChatCompletions(
@@ -360,6 +361,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	serviceTier *string,
 	startTime time.Time,
 	requestBodyLen int,
+	requestedChoices ...int64,
 ) (*OpenAIForwardResult, error) {
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
@@ -381,19 +383,18 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 
 	var usage OpenAIUsage
 	var firstTokenMs *int
-	var observation *TokenUsageObservation
-	if account.Platform == PlatformOpenAI {
-		observation = &TokenUsageObservation{}
-	}
-	chatUsageKnown := false
-	hunyuanUsageKnown := false
+	observation := &TokenUsageObservation{}
+	strict := account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter || account.Platform == PlatformKilo || account.Platform == PlatformWorkBuddy || account.Platform == PlatformHunyuan
+	hunyuanTotal := false
+	usageKnown := func() bool { return observation.known() && (account.Platform != PlatformHunyuan || hunyuanTotal) }
 	clientDisconnected := false
 	clientOutputStarted := false
 	pendingLines := make([]string, 0, 8)
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
-	var terminal openAIRawStreamTerminalState
-	sawEnvelope := false
-	toolArguments := make(map[string]string)
+	var terminal rawChatChoices
+	if len(requestedChoices) > 0 {
+		terminal.expected = requestedChoices[0]
+	}
 	var frameErr error
 
 	writeLine := func(line string) {
@@ -409,7 +410,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			for _, pending := range pendingLines {
 				if _, werr := c.Writer.WriteString(pending + "\n"); werr != nil {
 					clientDisconnected = true
-					logger.L().Debug("openai chat_completions raw: client disconnected, continuing to drain upstream for billing",
+					logger.L().Debug("openai chat_completions raw: client disconnected, closing upstream with observed usage",
 						zap.Error(werr),
 						zap.String("request_id", requestID),
 					)
@@ -421,7 +422,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		}
 		if _, werr := c.Writer.WriteString(line + "\n"); werr != nil {
 			clientDisconnected = true
-			logger.L().Debug("openai chat_completions raw: client disconnected, continuing to drain upstream for billing",
+			logger.L().Debug("openai chat_completions raw: client disconnected, closing upstream with observed usage",
 				zap.Error(werr),
 				zap.String("request_id", requestID),
 			)
@@ -431,10 +432,6 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	for scanner.Scan() {
 		payload := strings.TrimSpace(scanner.frame.Data)
 		line := "data: " + payload
-		if payload == "[DONE]" && !sawEnvelope {
-			frameErr = ErrOpenAIUpstreamStreamTruncated
-			break
-		}
 		if payload != "[DONE]" {
 			if account.Platform == PlatformWorkBuddy && (gjson.Get(payload, "error").Exists() || gjson.Get(payload, "code").Int() != 0) {
 				_ = s.workBuddyFailover(c.Request.Context(), account, resp, []byte(payload))
@@ -450,57 +447,27 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 				frameErr = fmt.Errorf("invalid or error Chat Completions frame")
 				break
 			}
-			for _, choice := range gjson.Get(payload, "choices").Array() {
-				if choice.Get("delta").IsObject() {
-					sawEnvelope = true
-				}
+		}
+		if payload == "[DONE]" && strict && !usageKnown() {
+			break
+		}
+		if payload != "[DONE]" {
+			data := []byte(payload)
+			observer.ObserveOpenAI(data, strings.TrimSpace(gjson.Get(payload, "type").String()))
+			mergeOpenAIFrameUsage(data, &usage, observation, "")
+			if account.Platform == PlatformHunyuan && gjson.Get(payload, "usage.total_tokens").Exists() {
+				_, hunyuanTotal = openRouterCounter(data, "usage.total_tokens")
 			}
 		}
-		for _, choice := range gjson.Get(payload, "choices").Array() {
-			for _, tool := range choice.Get("delta.tool_calls").Array() {
-				key := choice.Get("index").String() + ":" + tool.Get("index").String()
-				toolArguments[key] += tool.Get("function.arguments").String()
-			}
+		if frameErr = terminal.observe(payload); frameErr != nil {
+			break
 		}
-		if payload == "[DONE]" || gjson.Get(payload, "choices.0.finish_reason").String() != "" {
-			for _, arguments := range toolArguments {
-				if arguments != "" && !gjson.Valid(arguments) {
-					frameErr = fmt.Errorf("incomplete Chat Completions tool arguments")
-					break
-				}
-			}
-			if frameErr != nil {
-				break
-			}
+		if firstTokenMs == nil && terminal.semanticOutput {
+			scanner.Semantic()
+			elapsed := int(time.Since(startTime).Milliseconds())
+			firstTokenMs = &elapsed
 		}
 		refusalDetector.ObserveSSELine(line)
-		if payload, ok := extractOpenAISSEDataLine(line); ok {
-			trimmedPayload := strings.TrimSpace(payload)
-			terminal.ObserveDataLine(trimmedPayload)
-			if trimmedPayload != "[DONE]" {
-				observer.ObserveOpenAI([]byte(payload), strings.TrimSpace(gjson.Get(payload, "type").String()))
-				usageOnlyChunk := isOpenAIChatUsageOnlyStreamChunk(payload)
-				if account.Platform == PlatformHunyuan {
-					if reported, usageErr := parseHunyuanChatUsage([]byte(payload)); usageErr == nil && reported != nil {
-						usage = *reported
-						hunyuanUsageKnown = true
-					}
-				}
-				if observation != nil {
-					mergeRawChatUsage(payload, &usage, observation)
-				} else if reported := extractCCStreamUsage(payload); reported != nil && account.Platform != PlatformHunyuan {
-					if (account.Platform != PlatformMistral && account.Platform != PlatformOpenRouter && account.Platform != PlatformWorkBuddy && account.Platform != PlatformKilo) || mistralChatUsageKnown([]byte(payload)) {
-						usage = *reported
-						chatUsageKnown = true
-					}
-				}
-				if firstTokenMs == nil && !usageOnlyChunk && (gjson.Get(payload, "choices.0.delta.content").String() != "" || gjson.Get(payload, "choices.0.delta.reasoning_content").String() != "" || gjson.Get(payload, "choices.0.delta.tool_calls").Exists() || gjson.Get(payload, "choices.0.finish_reason").String() != "") {
-					scanner.Semantic()
-					elapsed := int(time.Since(startTime).Milliseconds())
-					firstTokenMs = &elapsed
-				}
-			}
-		}
 		if !c.GetBool("chat_client_include_usage") && payload != "[DONE]" {
 			if isOpenAIChatUsageOnlyStreamChunk(payload) {
 				continue
@@ -526,27 +493,26 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			}
 			break
 		}
-		if line == "" {
-			if !clientDisconnected && clientOutputStarted {
-				c.Writer.Flush()
-			}
-			continue
-		}
 		if !clientDisconnected && clientOutputStarted {
 			c.Writer.Flush()
 		}
 	}
 
+	scanErr := scanner.Err()
+	if frameErr != nil {
+		scanErr = frameErr
+	}
 	resultWithUsage := func() *OpenAIForwardResult {
-		if ((account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter || (account.Platform == PlatformWorkBuddy || account.Platform == PlatformKilo)) && !chatUsageKnown) || (account.Platform == PlatformHunyuan && !hunyuanUsageKnown) {
-			return nil
+		var evidence *TokenUsageObservation
+		if strict || account.Platform == PlatformOpenAI || IsCompatibleProvider(account.Platform) {
+			evidence = observation
 		}
 		return &OpenAIForwardResult{
 			RequestID:                     requestID,
 			UpstreamHeaders:               resp.Header,
 			Usage:                         usage,
-			TokenUsageObservation:         observation,
-			UsageIncomplete:               !observation.known(),
+			TokenUsageObservation:         evidence,
+			UsageIncomplete:               !evidence.known() || strict && (!usageKnown() || !terminal.complete() || scanErr != nil),
 			Model:                         originalModel,
 			BillingModel:                  billingModel,
 			UpstreamModel:                 upstreamModel,
@@ -562,10 +528,6 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		}
 	}
 
-	scanErr := scanner.Err()
-	if frameErr != nil {
-		scanErr = frameErr
-	}
 	if scanErr != nil && !errors.Is(scanErr, context.Canceled) && !errors.Is(scanErr, context.DeadlineExceeded) {
 		logger.L().Warn("openai chat_completions raw: stream read error",
 			zap.Error(scanErr),
@@ -573,20 +535,19 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		)
 	}
 
-	// 客户端取消/断开后上游读失败与上游截断不可区分（取消会连带取消上游请求），
-	// 沿用既有语义：按已收到的用量正常收尾计费，不判为上游故障。
-	if (account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter || (account.Platform == PlatformWorkBuddy || account.Platform == PlatformKilo)) && !chatUsageKnown {
-		return nil, newOpenAIUpstreamStreamReadError(fmt.Errorf("upstream chat usage is unknown"))
-	}
-	if account.Platform == PlatformHunyuan && !hunyuanUsageKnown {
-		return nil, newOpenAIUpstreamStreamReadError(fmt.Errorf("hunyuan usage is unknown"))
+	if strict && !usageKnown() {
+		err := newOpenAIUpstreamStreamReadError(fmt.Errorf("upstream chat usage is unknown"))
+		if clientOutputStarted || c.Writer.Size() > 0 {
+			return resultWithUsage(), err
+		}
+		return nil, err
 	}
 	clientAborted := clientDisconnected || c.Request.Context().Err() != nil
 
 	// 上游在任何终止信号之前结束：连接被 reset（scanErr != nil）或干净 EOF。
 	// 两者都不能再记成功——此前统一返回 nil error，把上游截断伪装成
 	// `HTTP 200 + usage 0/0`，客户端收到半截回答且 Ops 侧完全无感。
-	if !clientAborted && (scanErr != nil || !sawEnvelope || (!terminal.sawDone && !terminal.sawFinishReason)) {
+	if !clientAborted && (scanErr != nil || !terminal.complete()) {
 		cause := scanErr
 		if cause == nil {
 			cause = ErrOpenAIUpstreamStreamTruncated
@@ -596,7 +557,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			zap.String("request_id", requestID),
 			zap.Int64("account_id", account.ID),
 			zap.String("upstream_model", upstreamModel),
-			zap.Bool("saw_sse_data", terminal.sawDataLine),
+			zap.Bool("saw_choices", len(terminal.finished) > 0),
 			zap.Bool("client_output_started", clientOutputStarted),
 		)
 
@@ -653,34 +614,95 @@ func isOpenAIChatUsageOnlyStreamChunk(payload string) bool {
 	return choices.Exists() && choices.IsArray() && len(choices.Array()) == 0
 }
 
-// Chat usage frames report cumulative counters. Only a present counter
-// replaces its prior value, including an explicitly reported zero.
-func mergeRawChatUsage(payload string, usage *OpenAIUsage, observation *TokenUsageObservation) {
-	var frame TokenUsageObservation
-	reported, ok := extractObservedOpenAIUsage([]byte(payload), &frame)
-	if !ok {
-		return
+// A single-choice compatibility stream may use [DONE] as its only finish
+// marker. In multi-choice streams each observed generation must finish.
+type rawChatChoices struct {
+	expected             int64
+	finished             map[int64]bool
+	tools                map[int64]map[int64]*strings.Builder
+	sawEnvelope, sawDone bool
+	semanticOutput       bool
+}
+
+func (s *rawChatChoices) complete() bool {
+	if !s.sawEnvelope || int64(len(s.finished)) < s.expected {
+		return false
 	}
-	if frame.known() {
-		*usage = reported
-		*observation = frame
-		return
+	if len(s.finished) == 1 && s.sawDone {
+		return true
 	}
-	if frame.InputTokensKnown {
-		usage.InputTokens = reported.InputTokens
-		observation.InputTokensKnown = true
+	for _, done := range s.finished {
+		if !done {
+			return false
+		}
 	}
-	if frame.OutputTokensKnown {
-		usage.OutputTokens = reported.OutputTokens
-		observation.OutputTokensKnown = true
+	return len(s.finished) > 0
+}
+
+func (s *rawChatChoices) observe(payload string) error {
+	if payload == "[DONE]" {
+		s.sawDone = true
+		if !s.complete() {
+			return ErrOpenAIUpstreamStreamTruncated
+		}
+		return s.validateTools()
 	}
-	reported.InputTokens, reported.OutputTokens = 0, 0
-	mergeOpenAIUsageNonZero(usage, reported)
+	for _, choice := range gjson.Get(payload, "choices").Array() {
+		field := choice.Get("index")
+		index := field.Int()
+		if (s.expected > 1 || field.Exists()) && (field.Type != gjson.Number || field.Float() != float64(index) || index < 0 || s.expected > 0 && index >= s.expected) {
+			return fmt.Errorf("invalid Chat Completions choice index")
+		}
+		if s.finished == nil {
+			s.finished = make(map[int64]bool)
+			s.tools = make(map[int64]map[int64]*strings.Builder)
+		}
+		if delta := choice.Get("delta"); delta.IsObject() {
+			if delta.Get("content").String() != "" || delta.Get("reasoning_content").String() != "" || delta.Get("tool_calls").Exists() || choice.Get("finish_reason").String() != "" {
+				s.semanticOutput = true
+			}
+			s.sawEnvelope = true
+		}
+		for _, tool := range choice.Get("delta.tool_calls").Array() {
+			if s.tools[index] == nil {
+				s.tools[index] = make(map[int64]*strings.Builder)
+			}
+			key := tool.Get("index").Int()
+			if s.tools[index][key] == nil {
+				s.tools[index][key] = &strings.Builder{}
+			}
+			s.tools[index][key].WriteString(tool.Get("function.arguments").String())
+		}
+		s.finished[index] = s.finished[index] || choice.Get("finish_reason").String() != ""
+		if s.finished[index] {
+			if err := validateRawChatToolArguments(s.tools[index]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *rawChatChoices) validateTools() error {
+	for _, tools := range s.tools {
+		if err := validateRawChatToolArguments(tools); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateRawChatToolArguments(tools map[int64]*strings.Builder) error {
+	for _, args := range tools {
+		if args.Len() > 0 && !gjson.Valid(args.String()) {
+			return fmt.Errorf("incomplete Chat Completions tool arguments")
+		}
+	}
+	return nil
 }
 
 // extractCCStreamUsage 从单个 CC 流式 chunk 的 payload 中提取 usage 字段。
-// CC 协议中 usage 仅出现在末尾 chunk（且仅当 include_usage 生效时），
-// 但上游可能在多个 chunk 中重复——总是用最新值。
+// 上游可多次发送用量帧；调用方负责跨帧合并。
 func extractCCStreamUsage(payload string) *OpenAIUsage {
 	usageResult := gjson.Get(payload, "usage")
 	if !usageResult.Exists() || !usageResult.IsObject() {
@@ -713,6 +735,14 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 			writeChatCompletionsError(c, http.StatusBadGateway, "api_error", "Failed to read upstream response")
 		}
 		return nil, fmt.Errorf("read upstream body: %w", err)
+	}
+	choices := gjson.GetBytes(respBody, "choices")
+	if !choices.Exists() {
+		choices = gjson.GetBytes(respBody, "data.choices")
+	}
+	if !gjson.ValidBytes(respBody) || !choices.IsArray() || !choices.Get("0.message").IsObject() || gjson.GetBytes(respBody, "error").Exists() {
+		writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Invalid upstream Chat Completions response")
+		return nil, fmt.Errorf("invalid upstream Chat Completions response")
 	}
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
@@ -750,13 +780,12 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
-	if ct := resp.Header.Get("Content-Type"); ct != "" {
-		c.Writer.Header().Set("Content-Type", ct)
-	} else {
-		c.Writer.Header().Set("Content-Type", "application/json")
-	}
+	c.Writer.Header().Set("Content-Type", "application/json")
 	c.Writer.WriteHeader(http.StatusOK)
-	_, _ = c.Writer.Write(respBody)
+	n, writeErr := c.Writer.Write(respBody)
+	if writeErr == nil && n != len(respBody) {
+		writeErr = io.ErrShortWrite
+	}
 
 	return &OpenAIForwardResult{
 		RequestID:                     requestID,
@@ -771,9 +800,10 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
 		ReasoningEffort:               reasoningEffort,
 		ServiceTier:                   resolvedOpenAIUpstreamServiceTier(c, serviceTier),
+		ClientDisconnect:              writeErr != nil,
 		Stream:                        false,
 		Duration:                      time.Since(startTime),
-	}, nil
+	}, writeErr
 }
 
 // buildOpenAIChatCompletionsURL 拼接上游 Chat Completions 端点 URL。
