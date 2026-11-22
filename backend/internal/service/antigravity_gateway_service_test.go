@@ -2013,3 +2013,96 @@ func generateLargeUnwrapJSON(minSize int) []byte {
 	b, _ := json.Marshal(outer)
 	return b
 }
+
+func TestAntigravityImageArtifactReceipt(t *testing.T) {
+	const model = "gemini-2.5-flash-image"
+	const text = `data:{"response":{"candidates":[{"content":{"parts":[{"text":"no image"}]}}]}}` + "\n\n"
+	const image = `data:{"response":{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"YQ=="}},{"inlineData":{"mimeType":"image/png","data":"Yg=="}},{"inlineData":{"mimeType":"image/png","data":"**"}}]}}]}}` + "\n\n"
+	const stop = `data:{"response":{"candidates":[{"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":2}}}` + "\n\n"
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"draw"}]}]}`)
+	price := 0.25
+	billing, resolver := newTokenCostTestEnv(t, PlatformGemini, []ChannelModelPricing{{
+		Platform: PlatformGemini, Models: []string{model}, BillingMode: BillingModeImage, PerRequestPrice: &price,
+	}}, nil)
+	gateway := &GatewayService{billingService: billing, resolver: resolver}
+	key := &APIKey{ID: 1, Group: &Group{ID: 100, Platform: PlatformGemini}}
+	account := antigravityImageAccount(map[string]any{model: model})
+	for _, tc := range []struct {
+		name, wire string
+		count      int
+		partial    bool
+	}{
+		{"empty", "", 0, true}, {"text", text + stop, 0, false}, {"truncated", text, 0, true},
+		{"partial_images", image, 2, true}, {"repeated_artifacts", image + image + stop, 2, false},
+	} {
+		for _, stream := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/stream=%t", tc.name, stream), func(t *testing.T) {
+				c, _ := newAntigravityImageContext(t, "/v1beta/models/"+model+":streamGenerateContent", body)
+				upstream := &httpUpstreamStub{resp: &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(tc.wire))}}
+				result, err := newAntigravityImageService(upstream).ForwardGemini(t.Context(), c, account, model, "generateContent", stream, body, false)
+				if !stream && tc.partial {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+				require.NotNil(t, result)
+				require.Equal(t, tc.count, result.ImageCount)
+				require.Equal(t, tc.partial, result.UsageIncomplete)
+				cost := gateway.calculateRecordUsageCost(t.Context(), result, key, model, 1, 1, time.Now())
+				require.Equal(t, PricingStatePriced, cost.PricingState)
+				require.Equal(t, float64(tc.count)*price, cost.ActualCost)
+				repo := &settlementCapture{}
+				params := &postUsageBillingParams{Cost: cost, User: &User{ID: 2}, APIKey: key, Account: account, AccountRateMultiplier: 1, UsageIncomplete: result.UsageIncomplete}
+				log := &UsageLog{RequestID: "image", UserID: 2, APIKeyID: key.ID, AccountID: account.ID, Model: model, ImageCount: result.ImageCount, Stream: stream, TotalCost: cost.TotalCost, ActualCost: cost.ActualCost}
+				err = submitUsageSettlement(t.Context(), NewUsageSettlementService(repo, nil, nil), log, params, &billingDeps{}, false)
+				if tc.partial {
+					require.ErrorIs(t, err, ErrUsageSettlementNeedsReview)
+					require.Equal(t, UsageSettlementNeedsReview, repo.receipt.State)
+					require.Zero(t, repo.settles)
+				} else {
+					require.NoError(t, err)
+					require.Equal(t, 1, repo.settles)
+				}
+			})
+		}
+	}
+}
+
+func TestAntigravityUpstreamReceiptWithoutDataSpace(t *testing.T) {
+	const start = `data:{"type":"message_start","message":{"usage":{"input_tokens":10,"cache_creation_input_tokens":9,"cache_creation":{"ephemeral_5m_input_tokens":3,"ephemeral_1h_input_tokens":6}}}}` + "\n\n"
+	const delta = `data:{"type":"message_delta","usage":{"output_tokens":4}}` + "\n\n"
+	const stop = `data:{"type":"message_stop"}` + "\n\n"
+	for _, tc := range []struct {
+		wire    string
+		partial bool
+	}{{start + delta + stop, false}, {start + delta, true}, {start + stop, true}} {
+		svc := newAntigravityTestService(&config.Config{})
+		svc.httpUpstream = &httpUpstreamStub{resp: &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(tc.wire))}}
+		a := &Account{ID: 1, Platform: PlatformAntigravity, Credentials: map[string]any{"base_url": "https://upstream.example", "api_key": "fixture"}}
+		c, _ := newAntigravityImageContext(t, "/v1/messages", nil)
+		r, err := svc.ForwardUpstream(t.Context(), c, a, []byte(`{"model":"claude","stream":true}`))
+		require.NoError(t, err)
+		require.Equal(t, tc.partial, r.UsageIncomplete)
+		require.Equal(t, 10, r.Usage.InputTokens)
+		require.Equal(t, 3, r.Usage.CacheCreation5mTokens)
+		require.Equal(t, 6, r.Usage.CacheCreation1hTokens)
+	}
+}
+
+func TestAntigravityCountTokensEstimate(t *testing.T) {
+	svc := &AntigravityGatewayService{}
+	for _, body := range []string{`{"contents":[{"parts":[{"text":"count these words"}]}]}`, `{"generateContentRequest":{"systemInstruction":{"parts":[{"text":"指令"}]}}}`} {
+		c, w := newAntigravityImageContext(t, "/v1beta/models/gemini:countTokens", []byte(body))
+		_, err := svc.ForwardGemini(t.Context(), c, &Account{}, "gemini", "countTokens", false, []byte(body), false)
+		require.NoError(t, err)
+		require.Equal(t, "true", w.Header().Get("X-Token-Count-Estimated"))
+		var payload struct{ TotalTokens int }
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
+		require.Positive(t, payload.TotalTokens)
+	}
+	body := []byte(`{"contents":[{"parts":[{"text":"caption"},{"inlineData":{"mimeType":"image/png","data":"YQ=="}}]}]}`)
+	c, w := newAntigravityImageContext(t, "/v1beta/models/gemini:countTokens", body)
+	_, err := svc.ForwardGemini(t.Context(), c, &Account{}, "gemini", "countTokens", false, body, false)
+	require.Error(t, err)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}

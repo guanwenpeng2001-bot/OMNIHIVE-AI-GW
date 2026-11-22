@@ -4,6 +4,7 @@ package service
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -45,4 +46,19 @@ func TestKiloNestedSecretRedaction(t *testing.T) {
 		require.NotContains(t, string(out), `"raw"`)
 	}
 	require.Len(t, []rune(kiloErrorDetail([]byte(`{"error":{"message":"`+strings.Repeat("界", 300)+`"}}`))), 200)
+}
+
+func TestKiloCorrectedCacheBucketsSharePromptLimit(t *testing.T) {
+	for _, tc := range []struct{ read, write, wantRead, wantWrite int }{
+		{300000, 1, 256000, 0}, {0, 500000, 0, 256000},
+		{100000, 200000, 100000, 156000}, {5, 9, 5, 9}, {-2, 3, 0, 3},
+	} {
+		body := fmt.Appendf(nil, `{"usage":{"prompt_tokens":300000,"prompt_tokens_details":{"cached_tokens":%d,"cache_write_tokens":%d}}}`, tc.read, tc.write)
+		usage := gjson.GetBytes(normalizeKiloPayload(body, "kilo-auto/free"), "usage")
+		require.Equal(t, tc.wantRead, openAICacheReadTokensFromUsage(usage))
+		require.Equal(t, tc.wantWrite, openAICacheCreationTokensFromUsage(usage))
+	}
+	body := []byte(`{"usage":{"prompt_tokens":300000,"cache_read_input_tokens":200000,"prompt_tokens_details":{"cache_creation_input_tokens":90000}}}`)
+	usage := gjson.GetBytes(normalizeKiloPayload(body, "kilo-auto/free"), "usage")
+	require.Equal(t, 56000, openAICacheCreationTokensFromUsage(usage))
 }

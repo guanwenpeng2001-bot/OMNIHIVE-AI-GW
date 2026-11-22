@@ -4,6 +4,7 @@ package handler
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -52,6 +53,8 @@ func TestQianwenRealtimeAuthenticationAndHandshakeAdmission(t *testing.T) {
 				c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1, Concurrency: 3})
 			}
 			if tt.upgrade {
+				c.Request.Header.Set("Sec-WebSocket-Key", base64.StdEncoding.EncodeToString([]byte("0123456789abcdef")))
+				c.Request.Header.Set("Sec-WebSocket-Version", "13")
 				c.Request.Header.Set("Connection", "Upgrade")
 				c.Request.Header.Set("Upgrade", "websocket")
 			}
@@ -119,11 +122,38 @@ func TestQianwenRealtimeCompatHandshakeContract(t *testing.T) {
 			ctx.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{ID: 2, UserID: 1, User: &service.User{ID: 1}, Group: &service.Group{Platform: service.PlatformQianwen}})
 			ctx.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1, Concurrency: 3})
 			if test.upgrade {
+				ctx.Request.Header.Set("Sec-WebSocket-Key", base64.StdEncoding.EncodeToString([]byte("0123456789abcdef")))
+				ctx.Request.Header.Set("Sec-WebSocket-Version", "13")
 				ctx.Request.Header.Set("Connection", "Upgrade")
 				ctx.Request.Header.Set("Upgrade", "websocket")
 			}
 			(&OpenAIGatewayHandler{}).QianwenRealtimeCompat(ctx)
 			require.Equal(t, test.status, recorder.Code)
 		})
+	}
+}
+
+func TestQianwenRealtimeInvalidHandshakePrecedesAdmission(t *testing.T) {
+	for _, tc := range []struct {
+		header string
+		values []string
+		status int
+	}{
+		{"Connection", []string{"not-upgrade"}, 426},
+		{"Sec-WebSocket-Key", []string{"bad"}, 400},
+		{"Sec-WebSocket-Key", []string{"one", "two"}, 400},
+		{"Sec-WebSocket-Version", []string{"12"}, 400},
+	} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest("GET", "/v1/realtime?model=qwen", nil)
+		c.Request.Header.Set("Connection", "Upgrade")
+		c.Request.Header.Set("Upgrade", "websocket")
+		c.Request.Header.Set("Sec-WebSocket-Key", base64.StdEncoding.EncodeToString([]byte("0123456789abcdef")))
+		c.Request.Header.Set("Sec-WebSocket-Version", "13")
+		c.Request.Header[http.CanonicalHeaderKey(tc.header)] = tc.values
+		c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{User: &service.User{ID: 1}, Group: &service.Group{Platform: service.PlatformQianwen}})
+		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1})
+		(&OpenAIGatewayHandler{}).QianwenRealtimeCompat(c)
+		require.Equal(t, tc.status, c.Writer.Status())
 	}
 }

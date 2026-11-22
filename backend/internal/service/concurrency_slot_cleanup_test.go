@@ -22,6 +22,7 @@ func TestStartSlotCleanupWorker_UsesCacheWideCleanupWithoutAccountRepo(t *testin
 	svc := NewConcurrencyService(cache)
 
 	svc.StartSlotCleanupWorker(nil, time.Hour)
+	t.Cleanup(svc.StopSlotCleanupWorker)
 
 	deadline := time.After(time.Second)
 	ticker := time.NewTicker(10 * time.Millisecond)
@@ -35,5 +36,23 @@ func TestStartSlotCleanupWorker_UsesCacheWideCleanupWithoutAccountRepo(t *testin
 			t.Fatal("cleanup worker did not call cache-wide account slot cleanup")
 		case <-ticker.C:
 		}
+	}
+}
+
+func TestSlotCleanupWorkerCoalescesAndStops(t *testing.T) {
+	cache := &slotCleanupCache{}
+	svc := NewConcurrencyService(cache)
+	svc.StartSlotCleanupWorker(nil, time.Hour)
+	done := svc.cleanupDone
+	svc.StartSlotCleanupWorker(nil, time.Hour)
+	if svc.cleanupDone != done {
+		t.Fatal("second worker started")
+	}
+	svc.StopSlotCleanupWorker()
+	svc.StopSlotCleanupWorker()
+	select {
+	case <-done:
+	default:
+		t.Fatal("worker still running after stop")
 	}
 }

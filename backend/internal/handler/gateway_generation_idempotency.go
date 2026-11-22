@@ -131,7 +131,7 @@ func writeGenerationIdempotencyError(c *gin.Context, err error) {
 		} else if status == 413 {
 			googleStatus = "RESOURCE_EXHAUSTED"
 		}
-		c.AbortWithStatusJSON(status, gin.H{"error": gin.H{"code": status, "status": googleStatus, "message": message, "details": []gin.H{{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": reason, "domain": "sub2api"}}}})
+		c.AbortWithStatusJSON(status, gin.H{"error": gin.H{"code": status, "status": googleStatus, "message": message, "details": []gin.H{{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": reason, "domain": "omnihive.ai"}}}})
 		return
 	}
 	if c.GetHeader("anthropic-version") != "" || strings.HasSuffix(c.Request.URL.Path, "/messages") {

@@ -141,6 +141,7 @@ func TestGatewayGenerationMiddlewareProtocolConflictAndStoreFailClosed(t *testin
 			if path == "/v1/messages" {
 				require.Contains(t, conflict.Body.String(), `"type":"error"`)
 			} else {
+				require.Contains(t, conflict.Body.String(), `"domain":"omnihive.ai"`)
 				require.Contains(t, conflict.Body.String(), `"status":"FAILED_PRECONDITION"`)
 				require.Contains(t, conflict.Body.String(), `"reason":"IDEMPOTENCY_KEY_CONFLICT"`)
 			}
