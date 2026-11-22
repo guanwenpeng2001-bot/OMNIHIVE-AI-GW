@@ -454,6 +454,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 		OpsMetrics:      opsMetricsCollector,
 		Restores:        restoreRuntime,
 		ImageTaskCenter: tasksHandler,
+		AsyncImages:     asyncImageHandler,
 		Status:          statusHandler,
 		Audit:           auditHandler,
 		Supervisor:      supervisor,
@@ -470,6 +471,7 @@ type Application struct {
 	Audit      *audit.Handler
 
 	Status          *status.Handler
+	AsyncImages     *handler.AsyncImageHandler
 	ImageTaskCenter *tasks.Handler
 	Restores        *restore.Runtime
 	OpsMetrics      *service.OpsMetricsCollector

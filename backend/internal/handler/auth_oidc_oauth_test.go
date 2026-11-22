@@ -7,6 +7,8 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -65,6 +67,7 @@ func TestOIDCParseAndValidateIDToken(t *testing.T) {
 		require.NoError(t, json.NewEncoder(w).Encode(jwks))
 	}))
 	defer srv.Close()
+	useLocalOIDCHTTPClient(t, srv)
 
 	now := time.Now()
 	claims := oidcIDTokenClaims{
@@ -236,6 +239,7 @@ func TestOIDCOAuthCallbackAllowsOptionalPKCEAndIDTokenValidation(t *testing.T) {
 		}
 	}))
 	defer upstream.Close()
+	useLocalOIDCHTTPClient(t, upstream)
 
 	handler, client := newOIDCOAuthHandlerAndClient(t, false, config.OIDCConnectConfig{
 		Enabled:              true,
@@ -1288,6 +1292,7 @@ func newOIDCTestProvider(t *testing.T, fixture oidcProviderFixture) (config.OIDC
 	}))
 
 	issuer = server.URL
+	useLocalOIDCHTTPClient(t, server)
 	now := time.Now()
 	claims := oidcIDTokenClaims{
 		Email:             fixture.Email,
@@ -1330,4 +1335,29 @@ func newOIDCTestProvider(t *testing.T, fixture oidcProviderFixture) (config.OIDC
 		RequireEmailVerified: false,
 	}
 	return cfg, server.Close
+}
+
+// The production transport cannot reach a loopback fixture. Stub delivery
+// here while keeping the real OIDC request construction and response parsing.
+func useLocalOIDCHTTPClient(t *testing.T, server *httptest.Server) {
+	t.Helper()
+	original := readOIDCEndpoint
+	t.Cleanup(func() { readOIDCEndpoint = original })
+	readOIDCEndpoint = func(ctx context.Context, method, target string, body io.Reader, headers http.Header) (int, []byte, error) {
+		req, err := http.NewRequestWithContext(ctx, method, target, body)
+		if err != nil {
+			return 0, nil, err
+		}
+		if !strings.HasPrefix(req.URL.String(), server.URL) {
+			return 0, nil, fmt.Errorf("unexpected OIDC fixture URL")
+		}
+		req.Header = headers.Clone()
+		resp, err := server.Client().Do(req)
+		if err != nil {
+			return 0, nil, err
+		}
+		defer resp.Body.Close()
+		data, err := io.ReadAll(resp.Body)
+		return resp.StatusCode, data, err
+	}
 }

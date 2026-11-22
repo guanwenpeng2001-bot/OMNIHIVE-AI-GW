@@ -870,23 +870,7 @@ func (h *AuthHandler) bindPendingOAuthLogin(c *gin.Context, provider string) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	if h.totpService != nil && h.settingSvc.IsTotpEnabled(c.Request.Context()) && user.TotpEnabled {
-		tempToken, err := h.totpService.CreatePendingOAuthBindLoginSession(
-			c.Request.Context(),
-			user.ID,
-			user.Email,
-			session.SessionToken,
-			session.BrowserSessionKey,
-		)
-		if err != nil {
-			response.InternalError(c, "Failed to create 2FA session")
-			return
-		}
-		response.Success(c, TotpLoginResponse{
-			Requires2FA:     true,
-			TempToken:       tempToken,
-			UserEmailMasked: service.MaskEmail(user.Email),
-		})
+	if h.writeOAuthTOTPChallenge(c, user, session, false, "") {
 		return
 	}
 	if err := h.authService.CompletePendingOAuthBindLogin(c.Request.Context(), h.userService, session, decision, user.ID); err != nil {
@@ -1205,6 +1189,9 @@ func (h *AuthHandler) ExchangePendingOAuthCompletion(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	if canIssueTokenPair && h.writeOAuthTOTPChallenge(c, loginUser, session, true, pendingSessionStringValue(payload, "redirect")) {
+		return
+	}
 	targetUserID := int64(0)
 	if session.TargetUserID != nil {
 		targetUserID = *session.TargetUserID
@@ -1268,11 +1255,52 @@ func (h *AuthHandler) exchangeOAuthCompletionCode(c *gin.Context, code string) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	redirect := pendingSessionStringValue(ticket.LocalFlowState, "redirect")
+	if h.writeOAuthTOTPChallenge(c, user, nil, false, redirect) {
+		return
+	}
 	pair, err := h.authService.GenerateTokenPair(c.Request.Context(), user, "")
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 	c.Header("Cache-Control", "no-store")
-	response.Success(c, gin.H{"access_token": pair.AccessToken, "refresh_token": pair.RefreshToken, "expires_in": pair.ExpiresIn, "token_type": "Bearer", "redirect": pendingSessionStringValue(ticket.LocalFlowState, "redirect")})
+	response.Success(c, gin.H{"access_token": pair.AccessToken, "refresh_token": pair.RefreshToken, "expires_in": pair.ExpiresIn, "token_type": "Bearer", "redirect": redirect})
+}
+
+func (h *AuthHandler) writeOAuthTOTPChallenge(c *gin.Context, user *service.User, session *dbent.PendingAuthSession, adoptionOnly bool, redirect string) bool {
+	ctx := c.Request.Context()
+	if !user.TotpEnabled {
+		return false
+	}
+	enabled, err := h.settingSvc.TotpLoginEnabled(ctx)
+	if err != nil {
+		response.ErrorFrom(c, infraerrors.ServiceUnavailable("TOTP_UNAVAILABLE", "2FA service unavailable").WithCause(err))
+		return true
+	}
+	if !enabled {
+		return false
+	}
+	if h.totpService == nil {
+		response.InternalError(c, "2FA service unavailable")
+		return true
+	}
+	var token string
+	switch {
+	case session == nil:
+		token, err = h.totpService.CreateLoginSession(ctx, user.ID, user.Email)
+	case adoptionOnly:
+		token, err = h.totpService.CreateOAuthCompletionLoginSession(ctx, user.ID, user.Email, session.SessionToken, session.BrowserSessionKey)
+	default:
+		token, err = h.totpService.CreatePendingOAuthBindLoginSession(ctx, user.ID, user.Email, session.SessionToken, session.BrowserSessionKey)
+	}
+	if err != nil {
+		response.InternalError(c, "Failed to create 2FA session")
+		return true
+	}
+	c.Header("Cache-Control", "no-store")
+	response.Success(c, TotpLoginResponse{
+		Requires2FA: true, TempToken: token, UserEmailMasked: service.MaskEmail(user.Email), Redirect: redirect,
+	})
+	return true
 }

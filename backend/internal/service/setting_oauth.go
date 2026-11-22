@@ -5,13 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
-	"github.com/imroc/req/v3"
 )
 
 // CoerceDingTalkCorpPolicyForWrite 是 coerceDeprecatedDingTalkCorpPolicy 的导出版本，
@@ -994,21 +993,16 @@ func oidcResolveProviderMetadata(ctx context.Context, discoveryURL string) (*oid
 		return nil, fmt.Errorf("discovery url is empty")
 	}
 
-	resp, err := req.C().
-		SetTimeout(15*time.Second).
-		R().
-		SetContext(ctx).
-		SetHeader("Accept", "application/json").
-		Get(discoveryURL)
+	status, body, err := readOIDCEndpoint(ctx, oidcDiscoveryClient, http.MethodGet, discoveryURL, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("request discovery document: %w", err)
 	}
-	if !resp.IsSuccessState() {
-		return nil, fmt.Errorf("discovery request failed: status=%d", resp.StatusCode)
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("discovery request failed: status=%d", status)
 	}
 
 	metadata := &oidcProviderMetadata{}
-	if err := json.Unmarshal(resp.Bytes(), metadata); err != nil {
+	if err := json.Unmarshal(body, metadata); err != nil {
 		return nil, fmt.Errorf("parse discovery document: %w", err)
 	}
 	return metadata, nil

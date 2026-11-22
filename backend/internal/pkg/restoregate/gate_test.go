@@ -17,9 +17,10 @@ func TestEnterCachesClearStateAcrossConcurrentRequests(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	mock.MatchExpectationsInOrder(false)
-	mock.ExpectBegin()
+	mock.ExpectExec("BEGIN").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery("pg_try_advisory_xact_lock_shared").WillReturnRows(sqlmock.NewRows([]string{"got"}).AddRow(true))
 	mock.ExpectQuery("SELECT EXISTS").WillDelayFor(20 * time.Millisecond).WillReturnRows(sqlmock.NewRows([]string{"blocked"}).AddRow(false))
+	mock.ExpectExec("ROLLBACK").WillReturnResult(sqlmock.NewResult(0, 0))
 	gate := New(db)
 	const requests = 64
 	var callers sync.WaitGroup
@@ -29,8 +30,8 @@ func TestEnterCachesClearStateAcrossConcurrentRequests(t *testing.T) {
 		go func() {
 			defer callers.Done()
 			<-start
-			if gate.Enter(context.Background()) {
-				gate.Leave()
+			if held, err := gate.enter(context.Background()); err == nil {
+				gate.leave(t.Context(), held)
 			}
 		}()
 	}
@@ -44,14 +45,15 @@ func TestEnterBootstrapMissingSchemaDoesNotAbortHeldTransaction(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	gate := NewBusinessPool(db)
-	mock.ExpectBegin()
+	mock.ExpectExec("BEGIN").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery("pg_try_advisory_xact_lock_shared").WillReturnRows(sqlmock.NewRows([]string{"got"}).AddRow(true))
 	mock.ExpectQuery("SELECT EXISTS").WillReturnError(&pq.Error{Code: "42P01"})
 	_, leave, err := gate.Admit(t.Context())
 	require.NoError(t, err)
 	defer leave()
 	mock.ExpectExec("SELECT 1").WillReturnResult(sqlmock.NewResult(0, 0))
-	_, err = gate.held.ExecContext(t.Context(), "SELECT 1")
+	mock.ExpectExec("ROLLBACK").WillReturnResult(sqlmock.NewResult(0, 0))
+	_, err = gate.held.conn.ExecContext(t.Context(), "SELECT 1")
 	require.NoError(t, err, "bootstrap query must use a pooled connection, not the fencing transaction")
 }
 
@@ -60,25 +62,18 @@ func TestEnterRechecksJournalWhenCachedLockIsReleased(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	gate := New(db)
-	mock.ExpectBegin()
+	mock.ExpectExec("BEGIN").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery("pg_try_advisory_xact_lock_shared").WillReturnRows(sqlmock.NewRows([]string{"got"}).AddRow(true))
 	mock.ExpectQuery("SELECT EXISTS").WillReturnRows(sqlmock.NewRows([]string{"blocked"}).AddRow(false))
-	require.NoError(t, gate.enter(t.Context()))
-	mock.ExpectBegin()
+	held, err := gate.enter(t.Context())
+	require.NoError(t, err)
+	mock.ExpectExec("ROLLBACK").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("BEGIN").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery("pg_try_advisory_xact_lock_shared").WillReturnRows(sqlmock.NewRows([]string{"got"}).AddRow(true))
 	mock.ExpectQuery("SELECT EXISTS").WillReturnRows(sqlmock.NewRows([]string{"blocked"}).AddRow(true))
-	reachedHold := make(chan struct{})
-	releaseHold := make(chan struct{})
-	gate.beforeHold = func() {
-		close(reachedHold)
-		<-releaseHold
-	}
-	entered := make(chan error, 1)
-	go func() { entered <- gate.enter(t.Context()) }()
-	<-reachedHold
-	gate.Leave()
-	close(releaseHold)
-	err = <-entered
+	mock.ExpectExec("ROLLBACK").WillReturnResult(sqlmock.NewResult(0, 0))
+	gate.leave(t.Context(), held)
+	_, err = gate.enter(t.Context())
 	require.ErrorIs(t, err, ErrMaintenance)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -88,11 +83,12 @@ func TestEnterKeepsRestoreLockFailureClosed(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	mock.MatchExpectationsInOrder(false)
-	mock.ExpectBegin()
+	mock.ExpectExec("BEGIN").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery("pg_try_advisory_xact_lock_shared").WillReturnRows(sqlmock.NewRows([]string{"got"}).AddRow(false))
-	mock.ExpectRollback()
+	mock.ExpectExec("ROLLBACK").WillReturnResult(sqlmock.NewResult(0, 0))
 	gate := New(db)
-	require.False(t, gate.Enter(t.Context()))
+	_, err = gate.enter(t.Context())
+	require.ErrorIs(t, err, ErrMaintenance)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -100,10 +96,10 @@ func TestEnterConcurrentLeasesShareOneJournalLookup(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	mock.ExpectBegin()
+	mock.ExpectExec("BEGIN").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery("pg_try_advisory_xact_lock_shared").WillReturnRows(sqlmock.NewRows([]string{"got"}).AddRow(true))
 	mock.ExpectQuery("SELECT EXISTS").WillDelayFor(50 * time.Millisecond).WillReturnRows(sqlmock.NewRows([]string{"blocked"}).AddRow(false))
-	mock.ExpectRollback()
+	mock.ExpectExec("ROLLBACK").WillReturnResult(sqlmock.NewResult(0, 0))
 	gate := New(db)
 	const requests = 64
 	leaves := make(chan func(), requests)
@@ -124,7 +120,7 @@ func TestEnterConcurrentLeasesShareOneJournalLookup(t *testing.T) {
 	close(leaves)
 	require.Len(t, leaves, requests)
 	gate.mu.Lock()
-	require.Equal(t, requests, gate.users, "every admitted request holds exactly one fence reference")
+	require.Equal(t, requests, gate.held.users, "every admitted request holds exactly one fence reference")
 	gate.mu.Unlock()
 	for leave := range leaves {
 		leave()
@@ -142,7 +138,7 @@ func TestEnterRefreshesExpiredClearStateAndDoesNotCacheBlocked(t *testing.T) {
 	now := time.Unix(100, 0)
 	gate := New(db)
 	gate.now = func() time.Time { return now }
-	mock.ExpectBegin()
+	mock.ExpectExec("BEGIN").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery("pg_try_advisory_xact_lock_shared").WillReturnRows(sqlmock.NewRows([]string{"got"}).AddRow(true))
 	mock.ExpectQuery("SELECT EXISTS").WillReturnRows(sqlmock.NewRows([]string{"blocked"}).AddRow(false))
 	_, leave, err := gate.Admit(t.Context())
@@ -154,6 +150,7 @@ func TestEnterRefreshesExpiredClearStateAndDoesNotCacheBlocked(t *testing.T) {
 	mock.ExpectQuery("SELECT EXISTS").WillReturnError(errors.New("journal unavailable"))
 	_, _, err = gate.Admit(t.Context())
 	require.True(t, IsUnavailable(err))
+	mock.ExpectExec("ROLLBACK").WillReturnResult(sqlmock.NewResult(0, 0))
 	leave()
 	gate.mu.Lock()
 	require.Nil(t, gate.held)
@@ -167,19 +164,18 @@ func TestEnterReopenedFenceHoldsOneReferencePerRequest(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	gate := New(db)
 	for round := 0; round < 2; round++ {
-		mock.ExpectBegin()
+		mock.ExpectExec("BEGIN").WillReturnResult(sqlmock.NewResult(0, 0))
 		mock.ExpectQuery("pg_try_advisory_xact_lock_shared").WillReturnRows(sqlmock.NewRows([]string{"got"}).AddRow(true))
 		mock.ExpectQuery("SELECT EXISTS").WillReturnRows(sqlmock.NewRows([]string{"blocked"}).AddRow(false))
-		mock.ExpectRollback()
+		mock.ExpectExec("ROLLBACK").WillReturnResult(sqlmock.NewResult(0, 0))
 		_, leave, err := gate.Admit(t.Context())
 		require.NoError(t, err)
 		gate.mu.Lock()
-		require.Equal(t, 1, gate.users)
+		require.Equal(t, 1, gate.held.users)
 		gate.mu.Unlock()
 		leave()
 		gate.mu.Lock()
 		require.Nil(t, gate.held, "the fence must be released once the last request leaves")
-		require.Zero(t, gate.users)
 		gate.mu.Unlock()
 	}
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -190,15 +186,55 @@ func TestEnterFailedCheckHoldsNoReference(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	gate := New(db)
-	mock.ExpectBegin()
+	mock.ExpectExec("BEGIN").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery("pg_try_advisory_xact_lock_shared").WillReturnRows(sqlmock.NewRows([]string{"got"}).AddRow(true))
 	mock.ExpectQuery("SELECT EXISTS").WillReturnRows(sqlmock.NewRows([]string{"blocked"}).AddRow(true))
-	mock.ExpectRollback()
+	mock.ExpectExec("ROLLBACK").WillReturnResult(sqlmock.NewResult(0, 0))
 	_, _, err = gate.Admit(t.Context())
 	require.ErrorIs(t, err, ErrMaintenance)
 	gate.mu.Lock()
 	require.Nil(t, gate.held)
-	require.Zero(t, gate.users)
 	gate.mu.Unlock()
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestRestoreGateLossCancelsExistingLeaseAndRejectsDetachedStatements(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	mock.ExpectExec("BEGIN").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("pg_try_advisory_xact_lock_shared").WillReturnRows(sqlmock.NewRows([]string{"got"}).AddRow(true))
+	mock.ExpectQuery("restore_journal.operations").WillReturnRows(sqlmock.NewRows([]string{"blocked"}).AddRow(false))
+	gate := New(db)
+	ctx, leave, err := gate.Admit(t.Context())
+	require.NoError(t, err)
+
+	mock.ExpectQuery("pg_catalog.pg_locks").WillReturnRows(sqlmock.NewRows([]string{"held"}).AddRow(false))
+	_, err = gate.Statement(ctx)
+	require.ErrorIs(t, err, errFenceLost)
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("lost fence did not cancel the request")
+	}
+	mock.ExpectExec("ROLLBACK").WillReturnResult(sqlmock.NewResult(0, 0))
+	leave()
+	_, err = gate.Statement(context.WithoutCancel(ctx))
+	require.ErrorIs(t, err, errFenceLost)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestRestoreGateBeginHonorsCancellation(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	mock.ExpectExec("BEGIN").WillDelayFor(time.Second).WillReturnResult(sqlmock.NewResult(0, 0))
+	gate := New(db)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, _, err = gate.Admit(ctx)
+	require.True(t, IsUnavailable(err))
+	require.Less(t, time.Since(start), 500*time.Millisecond)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

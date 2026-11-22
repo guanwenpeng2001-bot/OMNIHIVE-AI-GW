@@ -206,6 +206,10 @@ func shutdownApplication(ctx context.Context, app *Application) error {
 	if app.Admission != nil {
 		app.Admission.BeginDrain()
 	}
+	var imageDrain <-chan struct{}
+	if app.AsyncImages != nil {
+		imageDrain = app.AsyncImages.BeginDrain()
+	}
 	app.UpstreamJobs.BeginDrain()
 	httpDone := make(chan error, 1)
 	go func() { httpDone <- app.Server.Shutdown(drain) }()
@@ -215,6 +219,9 @@ func shutdownApplication(ctx context.Context, app *Application) error {
 			app.Admission.Wait()
 		}
 		_ = app.UpstreamJobs.WaitDrain(context.Background())
+		if imageDrain != nil {
+			<-imageDrain
+		}
 		close(joined)
 	}()
 	var drainErr error
@@ -230,6 +237,11 @@ func shutdownApplication(ctx context.Context, app *Application) error {
 		drainErr = drain.Err()
 	}
 	if drainErr != nil {
+		if app.AsyncImages != nil {
+			expire, cancel := context.WithTimeout(ctx, 2*time.Second)
+			app.AsyncImages.ExpireDrain(expire)
+			cancel()
+		}
 		log.Print("HTTP drain deadline reached; closing active transports")
 		_ = app.Server.Close()
 		if app.Admission != nil {

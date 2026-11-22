@@ -23,3 +23,14 @@ func TestSetupMalformedInputKeepsStableManagementError(t *testing.T) {
 		require.NotContains(t, recorder.Body.String(), "credential-secret")
 	}
 }
+
+func TestSetupRejectsOversizedChunkedBodies(t *testing.T) {
+	for _, handler := range []gin.HandlerFunc{testDatabase, testRedis, install} {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest("POST", "/setup", strings.NewReader("{}"+strings.Repeat(" ", maxSetupRequestBytes)))
+		ctx.Request.ContentLength = -1
+		handler(ctx)
+		require.Equal(t, 413, recorder.Code)
+	}
+}

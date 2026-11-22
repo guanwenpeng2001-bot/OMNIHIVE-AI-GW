@@ -107,7 +107,11 @@ func (c *TotpCache) SetLoginSession(ctx context.Context, tempToken string, sessi
 // DeleteLoginSession deletes a TOTP login session
 func (c *TotpCache) DeleteLoginSession(ctx context.Context, tempToken string) error {
 	key := totpLoginKeyPrefix + tempToken
-	return c.rdb.Del(ctx, key).Err()
+	deleted, err := c.rdb.Del(ctx, key).Result()
+	if err == nil && deleted == 0 {
+		return redis.Nil
+	}
+	return err
 }
 
 // IncrementVerifyAttempts increments the verify attempt counter

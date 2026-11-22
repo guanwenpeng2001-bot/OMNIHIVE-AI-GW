@@ -13,53 +13,37 @@ import (
 // maxRedactDepth 限制递归深度以防止栈溢出
 const maxRedactDepth = 32
 
-var defaultSensitiveKeys = map[string]struct{}{
-	"api_key":             {},
-	"api-key":             {},
-	"apikey":              {},
-	"x-api-key":           {},
-	"x-goog-api-key":      {},
-	"authorization":       {},
-	"proxy-authorization": {},
-	"key":                 {},
-	"token":               {},
-	"secret":              {},
-	"cookie":              {},
-	"set-cookie":          {},
-
-	"authorization_code": {},
-	"code":               {},
-	"code_verifier":      {},
-	"access_token":       {},
-	"refresh_token":      {},
-	"id_token":           {},
-	"client_secret":      {},
-	"password":           {},
+var credentialKeys = []string{
+	// OAuth
+	"access_token", "refresh_token", "id_token", "agent_private_key",
+	// API Key 类
+	"api_key", "session_key", "cookie",
+	// Grok Web SSO / password (must never persist or echo after Build OAuth)
+	"password", "sso_token", "sso", "sso-rw", "clearTextPassword",
+	// 云服务凭据
+	"aws_secret_access_key", "aws_session_token",
+	"volcengine_access_key_id", "volcengine_secret_access_key", "byteplus_access_key_id", "byteplus_secret_access_key",
+	"tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token",
+	"service_account_json", "service_account", "private_key",
 }
 
-var defaultSensitiveKeyList = []string{
-	"api_key",
-	"api-key",
-	"apikey",
-	"x-api-key",
-	"x-goog-api-key",
-	"authorization",
-	"proxy-authorization",
-	"key",
-	"token",
-	"secret",
-	"cookie",
-	"set-cookie",
+func CredentialKeys() []string { return append([]string(nil), credentialKeys...) }
 
-	"authorization_code",
-	"code",
-	"code_verifier",
-	"access_token",
-	"refresh_token",
-	"id_token",
-	"client_secret",
-	"password",
-}
+var defaultSensitiveKeyList = append([]string{
+	"api-key", "x-api-key", "x-goog-api-key", "authorization", "proxy-authorization",
+	"key", "token", "secret", "set-cookie", "authorization_code", "code",
+	"code_verifier", "client_secret", "temp_token", "password", "secret_key",
+}, credentialKeys...)
+
+var defaultSensitiveKeys = func() map[string]struct{} {
+	keys := make(map[string]struct{}, len(defaultSensitiveKeyList))
+	for _, key := range defaultSensitiveKeyList {
+		keys[normalizeKey(key)] = struct{}{}
+	}
+	return keys
+}()
+
+const maxRedactBytes = 256 << 10
 
 type textRedactPatterns struct {
 	reJSONLike  *regexp.Regexp
@@ -68,10 +52,10 @@ type textRedactPatterns struct {
 }
 
 var (
-	reDiagnosticURI   = regexp.MustCompile(`https?://[^\s"<>]+`)
+	reDiagnosticURI   = regexp.MustCompile(`(?i)(?:https?|socks5h?)://[^\s"<>]+`)
 	reDiagnosticEmail = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
 	reAuthorization   = regexp.MustCompile(`(?i)(authorization\s*[:=]\s*)(?:bearer|basic)\s+[^\s,;"}]+`)
-	reURIUser         = regexp.MustCompile(`(https?://)[^/\s:@]+:[^/\s@]+@`)
+	reURIUser         = regexp.MustCompile(`(?i)((?:https?|socks5h?)://)[^/\s?#"<>]+@`)
 	reOpenAIKey       = regexp.MustCompile(`\bsk-[0-9A-Za-z_-]{6,}`)
 	reHTTPBody        = regexp.MustCompile(`(?i)\b(?:body|response)\s*[:=]\s*[\{<]`)
 	reGOCSPX          = regexp.MustCompile(`GOCSPX-[0-9A-Za-z_-]{24,}`)
@@ -86,7 +70,7 @@ func RedactMap(input map[string]any, extraKeys ...string) map[string]any {
 		return map[string]any{}
 	}
 	keys := buildKeySet(extraKeys)
-	redacted, ok := redactValueWithDepth(input, keys, 0).(map[string]any)
+	redacted, ok := redactValueWithDepth(input, keys, getTextRedactPatterns(extraKeys), 0).(map[string]any)
 	if !ok {
 		return map[string]any{}
 	}
@@ -97,18 +81,30 @@ func RedactJSON(raw []byte, extraKeys ...string) string {
 	if len(raw) == 0 {
 		return ""
 	}
-	if !json.Valid(raw) {
+	if len(raw) > maxRedactBytes {
+		return "<payload size limit exceeded>"
+	}
+	value, ok := decodeJSON(raw)
+	if !ok {
 		return "<non-json payload redacted>"
+	}
+	redacted := redactValueWithDepth(value, buildKeySet(extraKeys), getTextRedactPatterns(extraKeys), 0)
+	return encodeJSON(redacted)
+}
+
+func decodeJSON(raw []byte) (any, bool) {
+	if !json.Valid(raw) {
+		return nil, false
 	}
 	var value any
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
-	if err := decoder.Decode(&value); err != nil {
-		return "<non-json payload redacted>"
-	}
-	keys := buildKeySet(extraKeys)
-	redacted := redactValueWithDepth(value, keys, 0)
-	encoded, err := json.Marshal(redacted)
+	err := decoder.Decode(&value)
+	return value, err == nil
+}
+
+func encodeJSON(value any) string {
+	encoded, err := json.Marshal(value)
 	if err != nil {
 		return "<redacted>"
 	}
@@ -128,13 +124,17 @@ func RedactText(input string, extraKeys ...string) string {
 		return ""
 	}
 
+	if len(input) > maxRedactBytes {
+		return "<payload size limit exceeded>"
+	}
 	raw := []byte(input)
 	if json.Valid(raw) {
 		return RedactJSON(raw, extraKeys...)
 	}
+	return redactPlainText(input, getTextRedactPatterns(extraKeys))
+}
 
-	patterns := getTextRedactPatterns(extraKeys)
-
+func redactPlainText(input string, patterns *textRedactPatterns) string {
 	out := reAuthorization.ReplaceAllString(input, `${1}***`)
 	out = reDiagnosticURI.ReplaceAllStringFunc(out, RedactURI)
 	out = reOpenAIKey.ReplaceAllString(out, "sk-***")
@@ -186,7 +186,7 @@ func normalizeAndSortExtraKeys(extraKeys []string) []string {
 	seen := make(map[string]struct{}, len(extraKeys))
 	keys := make([]string, 0, len(extraKeys))
 	for _, key := range extraKeys {
-		normalized := normalizeKey(key)
+		normalized := strings.ToLower(strings.TrimSpace(key))
 		if normalized == "" {
 			continue
 		}
@@ -201,22 +201,11 @@ func normalizeAndSortExtraKeys(extraKeys []string) []string {
 }
 
 func buildKeyAlternation(extraKeys []string) string {
-	seen := make(map[string]struct{}, len(defaultSensitiveKeyList)+len(extraKeys))
 	keys := make([]string, 0, len(defaultSensitiveKeyList)+len(extraKeys))
-	for _, k := range defaultSensitiveKeyList {
-		seen[k] = struct{}{}
-		keys = append(keys, regexp.QuoteMeta(k))
-	}
-	for _, k := range extraKeys {
-		n := normalizeKey(k)
-		if n == "" {
-			continue
-		}
-		if _, ok := seen[n]; ok {
-			continue
-		}
-		seen[n] = struct{}{}
-		keys = append(keys, regexp.QuoteMeta(n))
+	for _, key := range append(append([]string(nil), defaultSensitiveKeyList...), extraKeys...) {
+		quoted := regexp.QuoteMeta(key)
+		quoted = strings.NewReplacer("_", "[-_]?", "-", "[-_]?").Replace(quoted)
+		keys = append(keys, quoted)
 	}
 	return strings.Join(keys, "|")
 }
@@ -236,7 +225,7 @@ func buildKeySet(extraKeys []string) map[string]struct{} {
 	return keys
 }
 
-func redactValueWithDepth(value any, keys map[string]struct{}, depth int) any {
+func redactValueWithDepth(value any, keys map[string]struct{}, patterns *textRedactPatterns, depth int) any {
 	if depth > maxRedactDepth {
 		return "<depth limit exceeded>"
 	}
@@ -249,21 +238,24 @@ func redactValueWithDepth(value any, keys map[string]struct{}, depth int) any {
 				out[k] = "***"
 				continue
 			}
-			out[k] = redactValueWithDepth(val, keys, depth+1)
+			out[k] = redactValueWithDepth(val, keys, patterns, depth+1)
 		}
 		return out
 	case string:
-		patterns := getTextRedactPatterns(nil)
-		redacted := patterns.reQueryLike.ReplaceAllString(v, `$1=***`)
-		redacted = reOpenAIKey.ReplaceAllString(redacted, "sk-***")
-		redacted = reGOCSPX.ReplaceAllString(redacted, "GOCSPX-***")
-		redacted = reAIza.ReplaceAllString(redacted, "AIza***")
-		redacted = reAuthorization.ReplaceAllString(redacted, `${1}***`)
-		return reDiagnosticURI.ReplaceAllStringFunc(redacted, RedactURI)
+		if len(v) > maxRedactBytes {
+			return "<payload size limit exceeded>"
+		}
+		trimmed := strings.TrimSpace(v)
+		if len(trimmed) > 0 && strings.ContainsRune(`[{"`, rune(trimmed[0])) {
+			if inner, ok := decodeJSON([]byte(trimmed)); ok {
+				return encodeJSON(redactValueWithDepth(inner, keys, patterns, depth+1))
+			}
+		}
+		return redactPlainText(v, patterns)
 	case []any:
 		out := make([]any, len(v))
 		for i, item := range v {
-			out[i] = redactValueWithDepth(item, keys, depth+1)
+			out[i] = redactValueWithDepth(item, keys, patterns, depth+1)
 		}
 		return out
 	default:
@@ -277,7 +269,7 @@ func isSensitiveKey(key string, keys map[string]struct{}) bool {
 }
 
 func normalizeKey(key string) string {
-	return strings.ToLower(strings.TrimSpace(key))
+	return strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(strings.TrimSpace(key)))
 }
 
 // RedactDiagnostic removes credentials and private routing/identity details from

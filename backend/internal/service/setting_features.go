@@ -184,6 +184,18 @@ func (s *SettingService) IsTotpEnabled(ctx context.Context) bool {
 	return value == "true"
 }
 
+// TotpLoginEnabled distinguishes an absent setting from an unavailable store.
+func (s *SettingService) TotpLoginEnabled(ctx context.Context) (bool, error) {
+	if s == nil || s.settingRepo == nil {
+		return false, errors.New("TOTP setting unavailable")
+	}
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyTotpEnabled)
+	if errors.Is(err, ErrSettingNotFound) {
+		return false, nil
+	}
+	return value == "true", err
+}
+
 // PasskeyEnabled reports the effective runtime switch. WebAuthn deployment
 // configuration remains the security boundary; the database setting can only
 // disable a valid configured relying party, never replace or weaken it.

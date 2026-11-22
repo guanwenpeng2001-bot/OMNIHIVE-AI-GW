@@ -213,3 +213,14 @@ func TestParse_无Scheme裸地址(t *testing.T) {
 		t.Fatal("无 scheme 的裸地址应返回错误")
 	}
 }
+
+func TestParseProxyErrorsOmitAuthentication(t *testing.T) {
+	for _, protocol := range []string{"http", "https", "socks5", "socks5h"} {
+		for _, suffix := range []string{"example.test:oops", "[::1", "", "example%zz.test"} {
+			_, _, err := Parse(protocol + "://fixture-login:fixture-secret@" + suffix)
+			if err == nil || strings.Contains(err.Error(), "fixture-") {
+				t.Fatalf("invalid %s proxy returned unsafe error: %v", protocol, err)
+			}
+		}
+	}
+}

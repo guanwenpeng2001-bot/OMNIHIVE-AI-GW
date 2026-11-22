@@ -9,10 +9,12 @@ import (
 	"io"
 	"maps"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/restoregate"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
 )
 
 const ttl = 45 * time.Second
@@ -127,6 +129,18 @@ func (s *Service) Work(ctx context.Context) (bool, error) {
 	counts, reason := s.apply(ctx, &l)
 	return true, s.finish(ctx, l, counts, reason)
 }
+func restoreStagingDir() (string, error) {
+	base := runtimeenv.DataDir()
+	if base == "" {
+		base = "."
+		if info, err := os.Stat(runtimeenv.ContainerDataDir); err == nil && info.IsDir() {
+			base = runtimeenv.ContainerDataDir
+		}
+	}
+	dir := filepath.Join(base, ".restore-staging")
+	return dir, os.MkdirAll(dir, 0700)
+}
+
 func (s *Service) apply(ctx context.Context, l *lease) (map[string]string, string) {
 	if err := s.authorize(ctx, l.Actor, ExecuteAction); err != nil {
 		return nil, "ACTION_DENIED"
@@ -140,7 +154,11 @@ func (s *Service) apply(ctx context.Context, l *lease) (map[string]string, strin
 	if err = s.Journal.QueryRowContext(ctx, "SELECT database_identity FROM restore_journal.targets WHERE name=$1", l.Target).Scan(&bound); err != nil || bound != cluster+"/"+name {
 		return nil, "TARGET_IDENTITY_CHANGED"
 	}
-	script, err := os.CreateTemp("", "omnihive-restore-*.sql")
+	stagingDir, err := restoreStagingDir()
+	if err != nil {
+		return nil, "STAGING_UNAVAILABLE"
+	}
+	script, err := os.CreateTemp(stagingDir, "omnihive-restore-*.sql")
 	if err != nil {
 		return nil, "STAGING_UNAVAILABLE"
 	}
@@ -152,13 +170,16 @@ func (s *Service) apply(ctx context.Context, l *lease) (map[string]string, strin
 	}
 	digest, expected, err := inspectArchive(ctx, raw, script)
 	err = errors.Join(err, raw.Close())
+	if errors.Is(err, errArchiveSize) {
+		return nil, errArchiveSize.Reason
+	}
 	if err != nil || digest != l.Digest || !maps.Equal(expected, l.Evidence) {
 		return nil, "RESTORE_SOURCE_CHANGED"
 	}
 	if _, err = script.Seek(0, io.SeekStart); err != nil {
 		return nil, "STAGING_UNAVAILABLE"
 	}
-	checks, err := os.CreateTemp("", "omnihive-check-*.sql")
+	checks, err := os.CreateTemp(stagingDir, "omnihive-check-*.sql")
 	if err != nil {
 		return nil, "STAGING_UNAVAILABLE"
 	}

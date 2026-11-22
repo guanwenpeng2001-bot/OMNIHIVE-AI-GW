@@ -110,14 +110,25 @@ func (r *workspaceRepository) ContainsResources(ctx context.Context, workspaceID
 	default:
 		return false, service.ErrWorkspaceNotFound
 	}
-	unique := map[int64]struct{}{}
+	const maxResourceIDs = 1000
+	if len(identifiers) > maxResourceIDs {
+		return false, nil
+	}
+	if len(identifiers) == 0 {
+		return true, nil
+	}
+	seen := make(map[int64]struct{}, len(identifiers))
+	unique := make([]int64, 0, len(identifiers))
 	for _, identifier := range identifiers {
 		if identifier <= 0 {
 			return false, nil
 		}
-		unique[identifier] = struct{}{}
+		if _, exists := seen[identifier]; !exists {
+			seen[identifier] = struct{}{}
+			unique = append(unique, identifier)
+		}
 	}
 	var count int
-	err := r.database.QueryRowContext(ctx, query, workspaceID, pq.Array(identifiers)).Scan(&count)
+	err := r.database.QueryRowContext(ctx, query, workspaceID, pq.Array(unique)).Scan(&count)
 	return count == len(unique), err
 }

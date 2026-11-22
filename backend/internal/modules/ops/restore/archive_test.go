@@ -48,3 +48,17 @@ func TestArchiveEvidence(t *testing.T) {
 	_, _, e = inspectArchive(t.Context(), bytes.NewReader(data), &bytes.Buffer{})
 	require.Error(t, e)
 }
+
+func TestArchiveStagingStopsAtDecompressedLimit(t *testing.T) {
+	sql := fixtureSQL("1\tvalue")
+	var dst bytes.Buffer
+	limit := int64(len(sql) - 1)
+	_, err := inspectArchiveSQL(t.Context(), strings.NewReader(sql), &dst, limit)
+	require.ErrorIs(t, err, errArchiveSize)
+	require.Equal(t, limit, int64(dst.Len()))
+
+	dst.Reset()
+	_, err = inspectArchiveSQL(t.Context(), strings.NewReader(sql), &dst, int64(len(sql)))
+	require.NoError(t, err)
+	require.Equal(t, sql, dst.String())
+}
