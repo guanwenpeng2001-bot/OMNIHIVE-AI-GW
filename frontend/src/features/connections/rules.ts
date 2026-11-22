@@ -1219,6 +1219,33 @@ export interface PrimaryVerificationDiagnostic {
   detail: string | null
 }
 
+const DIAGNOSTIC_SECRET_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
+  { pattern: /(\bAuthorization\s*:\s*Bearer\s+)[^\s,;'"&]+/gi, replacement: '$1[REDACTED]' },
+  { pattern: /(\bBearer\s+)[A-Za-z0-9._~+/=-]{6,}/gi, replacement: '$1[REDACTED]' },
+  { pattern: /(\bBasic\s+)[A-Za-z0-9+/=]{8,}/gi, replacement: '$1[REDACTED]' },
+  { pattern: /(\bx-api-key\s*[:=]\s*)[^\s,;'"&}]+/gi, replacement: '$1[REDACTED]' },
+  {
+    pattern:
+      /(\b(?:api[-_]?key|access[-_]?token|refresh[-_]?token|client[-_]?secret|secret|token|password)\s*[:=]\s*)(?:"[^"]+"|'[^']+'|[^\s,;'"&}]+)/gi,
+    replacement: '$1[REDACTED]'
+  },
+  { pattern: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, replacement: '[REDACTED]' },
+  { pattern: /\b(sk-[A-Za-z0-9_-]{8,})\b/g, replacement: '[REDACTED]' },
+  { pattern: /\b(gh[pousr]_[A-Za-z0-9]{10,})\b/g, replacement: '[REDACTED]' },
+  { pattern: /\b(AIza[0-9A-Za-z_-]{16,})\b/g, replacement: '[REDACTED]' },
+  { pattern: /\b(AKIA[0-9A-Z]{16})\b/g, replacement: '[REDACTED]' }
+]
+
+export function sanitizeDiagnosticDetail(detail: string | null | undefined): string {
+  if (typeof detail !== 'string') return ''
+  let sanitized = detail.trim()
+  if (!sanitized) return ''
+  for (const { pattern, replacement } of DIAGNOSTIC_SECRET_PATTERNS) {
+    sanitized = sanitized.replace(pattern, replacement)
+  }
+  return sanitized
+}
+
 const SPECIFIC_DIAGNOSTIC_PRIORITY = [
   'URL_NOT_ALLOWED',
   'INVALID_ENDPOINT',
@@ -1260,11 +1287,12 @@ export function getPrimaryVerificationDiagnostic(
   const chosen = sorted[0]
   const reason =
     chosen.reason || (chosen.state === 'unsupported' ? 'CHECK_UNSUPPORTED' : 'EVIDENCE_UNAVAILABLE')
+  const sanitizedDetail = sanitizeDiagnosticDetail(chosen.detail)
   return {
     checkName: chosen.name,
     reason,
     message: formatVerificationCheckReason(chosen.name, reason, isZh),
-    detail: typeof chosen.detail === 'string' && chosen.detail.trim() ? chosen.detail.trim() : null
+    detail: sanitizedDetail || null
   }
 }
 

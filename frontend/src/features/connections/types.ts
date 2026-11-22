@@ -20,9 +20,18 @@ export type ConnectionPatch = components['schemas']['ConnectionPatch'] & {
   account_mode?: string
 }
 export type ConnectionAssignments = components['schemas']['ConnectionAssignments']
+export interface ConnectionResourceMetadata {
+  site?: string
+  uid?: string
+  domain?: string
+  enterprise_id?: string
+  expires_at?: string | number
+  refresh_expires_at?: string | number
+}
 export type ConnectionResource = Omit<components['schemas']['ConnectionResource'], 'last_verification'> & {
   header_overrides?: Record<string, string>
   account_mode?: string
+  metadata?: ConnectionResourceMetadata
   last_verification: ConnectionVerification | null
 }
 export type ConnectionRedacted = components['schemas']['ConnectionRedacted']

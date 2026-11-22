@@ -116,7 +116,7 @@ export const connectionsApi = {
     idempotencyKey = generateIdempotencyKey()
   ): Promise<ConnectionCredentialResult> {
     const { data } = await apiClient.put<ConnectionCredentialResult>(
-      `/v1/workspaces/${resolveActiveWorkspaceId(workspaceId)}/connections/${id}/authorization`,
+      `${workspaceBase(workspaceId)}/connections/${id}/authorization`,
       payload,
       {
         headers: {

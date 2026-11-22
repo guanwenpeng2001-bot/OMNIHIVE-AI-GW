@@ -11,6 +11,7 @@ import {
 import type { WorkBuddyOAuthDraft } from './credentialsBuilder'
 import { useWorkBuddyOAuth } from '@/composables/useWorkBuddyOAuth'
 import type { OAuthProxySelection } from '@/utils/accountProxy'
+import { sanitizeUrl } from '@/utils/url'
 import Icon from '@/components/icons/Icon.vue'
 
 const props = withDefaults(
@@ -73,6 +74,7 @@ const proxySelection = computed<OAuthProxySelection>(() => {
 const activeSite = computed<WorkBuddySite>(() => site.value ?? 'cn')
 const baseUrlPlaceholder = computed(() => defaultWorkBuddyBaseUrl(activeSite.value))
 const domainPlaceholder = computed(() => defaultWorkBuddyDomain(activeSite.value))
+const safeAuthUrl = computed(() => sanitizeUrl(oauth.authUrl.value || ''))
 
 watch(
   () => oauth.loading.value,
@@ -90,6 +92,9 @@ watch(
 )
 
 watch(site, (nextSite, prevSite) => {
+  if (nextSite !== prevSite && oauth.loading.value) {
+    oauth.cancel()
+  }
   const prevDefaultDomain = prevSite ? defaultWorkBuddyDomain(prevSite) : ''
   const resolvedSite: WorkBuddySite = nextSite ?? 'cn'
   const currentDomain = (oauthCredentials.value?.domain || '').trim()
@@ -142,9 +147,9 @@ const handleStartLogin = async () => {
 }
 
 const handleCopyUrl = async () => {
-  if (!oauth.authUrl.value) return
+  if (!safeAuthUrl.value) return
   try {
-    await navigator.clipboard.writeText(oauth.authUrl.value)
+    await navigator.clipboard.writeText(safeAuthUrl.value)
     copied.value = true
   } catch {
     copied.value = false
@@ -253,19 +258,19 @@ const statusClass = computed(() => {
           </div>
         </div>
 
-        <div v-if="oauth.authUrl.value" class="space-y-2">
+        <div v-if="safeAuthUrl" class="space-y-2">
           <a
-            :href="oauth.authUrl.value"
+            :href="safeAuthUrl"
             target="_blank"
             rel="noopener noreferrer"
             data-testid="workbuddy-oauth-url"
             class="block break-all rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-2 font-mono text-xs text-emerald-700 underline hover:text-emerald-600 dark:text-emerald-300"
           >
-            {{ oauth.authUrl.value }}
+            {{ safeAuthUrl }}
           </a>
           <div class="flex flex-wrap items-center gap-2">
             <a
-              :href="oauth.authUrl.value"
+              :href="safeAuthUrl"
               target="_blank"
               rel="noopener noreferrer"
               class="btn btn-secondary btn-xs"

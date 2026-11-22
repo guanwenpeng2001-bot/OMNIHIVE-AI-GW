@@ -43,6 +43,7 @@ import {
   mapApiErrorToAsyncContext,
   normalizeConnectionEndpointInput,
   type ProviderCategory,
+  sanitizeDiagnosticDetail,
   validateConnectionEndpoint
 } from '@/features/connections/rules'
 import type {
@@ -56,6 +57,7 @@ import type {
 import {
   buildCredentialInputPayload,
   buildMinimalConnectionPatch,
+  buildWorkBuddyMetadataSnapshot,
   canProceedFromStep,
   createInitialWizardState,
   createPersistedSnapshotFromState,
@@ -65,6 +67,9 @@ import {
   hydrateWizardFromResource,
   invalidatePreview,
   invalidateVerification,
+  isCrossingPublicPaidModeBoundary,
+  isSwitchingFromPublicToPaidMode,
+  requiresCredentialClearBeforeModePatch,
   resolveWizardAccountMode,
   validateConnectionName,
   WIZARD_STEP_ORDER,
@@ -591,6 +596,14 @@ function handleKiloModeChange(nextMode: KiloAccountMode) {
   state.kiloMode = nextMode
   if (nextMode === 'free') {
     state.credentialSecret = ''
+    if (isCrossingPublicPaidModeBoundary(state)) {
+      state.credentialMode = 'set'
+    }
+  } else if (isSwitchingFromPublicToPaidMode(state)) {
+    state.credentialMode = 'set'
+    if (state.credentialSecret.trim().toLowerCase() === 'public') {
+      state.credentialSecret = ''
+    }
   }
   Object.assign(state, invalidateVerification(state))
 }
@@ -603,13 +616,28 @@ function handleOpenCodeModeChange(nextMode: OpenCodeAccountMode) {
     if (!normalizedEndpoint || normalizedEndpoint === OPENCODE_GO_ENDPOINT) {
       state.endpoint = OPENCODE_ZEN_ENDPOINT
     }
+    if (isCrossingPublicPaidModeBoundary(state)) {
+      state.credentialMode = 'set'
+    }
   } else if (nextMode === 'zen') {
     if (!normalizedEndpoint || normalizedEndpoint === OPENCODE_GO_ENDPOINT) {
       state.endpoint = OPENCODE_ZEN_ENDPOINT
     }
+    if (isSwitchingFromPublicToPaidMode(state)) {
+      state.credentialMode = 'set'
+      if (state.credentialSecret.trim().toLowerCase() === 'public') {
+        state.credentialSecret = ''
+      }
+    }
   } else if (nextMode === 'go') {
     if (!normalizedEndpoint || normalizedEndpoint === OPENCODE_ZEN_ENDPOINT) {
       state.endpoint = OPENCODE_GO_ENDPOINT
+    }
+    if (isSwitchingFromPublicToPaidMode(state)) {
+      state.credentialMode = 'set'
+      if (state.credentialSecret.trim().toLowerCase() === 'public') {
+        state.credentialSecret = ''
+      }
     }
   }
   Object.assign(state, invalidateVerification(state))
@@ -726,6 +754,9 @@ async function applyCredentialMutation(
       access_token: '',
       refresh_token: ''
     }
+    if (state.persistedSnapshot) {
+      state.persistedSnapshot.workbuddyMetadata = buildWorkBuddyMetadataSnapshot(state)
+    }
   }
   state.credentialMode = payload.operation === 'clear' ? 'set' : 'keep'
   state.mode = 'edit'
@@ -765,6 +796,25 @@ async function ensureConnectionPersisted(
   const accountMode = resolveWizardAccountMode(state)
   const shouldMutateCredential = hasPendingCredentialMutation(state)
   const pendingCredentialPayload = buildCredentialInputPayload(state)
+  if (isSwitchingFromPublicToPaidMode(state)) {
+    const nextSecret = typeof pendingCredentialPayload.secret === 'string' ? pendingCredentialPayload.secret.trim() : ''
+    if (
+      pendingCredentialPayload.operation !== 'set' ||
+      !nextSecret ||
+      nextSecret.toLowerCase() === 'public'
+    ) {
+      stepAttempted.value = true
+      state.asyncError = {
+        state: 'partial_failure',
+        status: 422,
+        message: isZh.value
+          ? '从免费模式切换至付费模式必须填写有效的付费 API Key（不能使用 public 占位密钥）。'
+          : 'Switching from a free lane to a paid lane requires a valid API key (cannot use the "public" placeholder).'
+      }
+      pageAsyncState.value = 'partial_failure'
+      return false
+    }
+  }
   const draftSecret = state.credentialSecret
   const draftRefreshToken = state.credentialRefreshToken
   const draftCredentialMode = state.credentialMode
@@ -801,10 +851,16 @@ async function ensureConnectionPersisted(
       state.credentialSecret = draftSecret
       state.credentialRefreshToken = draftRefreshToken
       state.credentialMode = draftCredentialMode
+    }
+    if (isWorkBuddy.value) {
       state.workbuddySite = draftWorkbuddySite
       state.workbuddyOAuth = draftWorkbuddyOAuth
     }
-    if (state.connectionId && shouldMutateCredential && pendingCredentialPayload.operation !== 'keep') {
+    if (
+      state.connectionId &&
+      shouldMutateCredential &&
+      (pendingCredentialPayload.operation !== 'keep' || Boolean(pendingCredentialPayload.metadata))
+    ) {
       await applyCredentialMutation(state.connectionId, pendingCredentialPayload)
     }
     if (state.connectionId) {
@@ -813,9 +869,15 @@ async function ensureConnectionPersisted(
     return true
   }
 
-  // Clear existing secret BEFORE patching endpoint/egress policy to prevent 409 CLEAR_CREDENTIAL_BEFORE_EGRESS_CHANGE
-  if (shouldMutateCredential && pendingCredentialPayload.operation === 'clear') {
-    await applyCredentialMutation(state.connectionId, pendingCredentialPayload)
+  // Clear existing secret BEFORE patching endpoint/egress policy or crossing free<->paid lane boundary
+  // to prevent 409 CLEAR_CREDENTIAL_BEFORE_EGRESS_CHANGE / CLEAR_CREDENTIAL_BEFORE_MODE_CHANGE
+  const clearBeforeModePatch =
+    pendingCredentialPayload.operation !== 'clear' && requiresCredentialClearBeforeModePatch(state)
+  if ((shouldMutateCredential && pendingCredentialPayload.operation === 'clear') || clearBeforeModePatch) {
+    await applyCredentialMutation(
+      state.connectionId,
+      pendingCredentialPayload.operation === 'clear' ? pendingCredentialPayload : { operation: 'clear' }
+    )
   }
 
   const patchPayload = buildMinimalConnectionPatch(state, {
@@ -841,15 +903,25 @@ async function ensureConnectionPersisted(
       headerOverrides: supportsHeaderOverrides.value ? headerMap : prevBaseline.headerOverrides,
       modelIds: includeAssignments ? [...state.modelIds] : prevBaseline.modelIds,
       poolIds: includeAssignments ? [...state.poolIds] : prevBaseline.poolIds,
-      concurrency: includeAssignments ? state.concurrency : prevBaseline.concurrency
+      concurrency: includeAssignments ? state.concurrency : prevBaseline.concurrency,
+      ...(prevBaseline.workbuddyMetadata ? { workbuddyMetadata: prevBaseline.workbuddyMetadata } : {})
     }
   }
 
-  if (shouldMutateCredential && pendingCredentialPayload.operation === 'set') {
+  const shouldApplyPostPatchCredential =
+    shouldMutateCredential &&
+    (pendingCredentialPayload.operation === 'set' ||
+      (pendingCredentialPayload.operation === 'keep' && Boolean(pendingCredentialPayload.metadata)))
+  if (shouldApplyPostPatchCredential) {
     await applyCredentialMutation(state.connectionId, pendingCredentialPayload)
   }
 
-  if (patchPayload !== null || (shouldMutateCredential && pendingCredentialPayload.operation !== 'keep')) {
+  if (
+    patchPayload !== null ||
+    clearBeforeModePatch ||
+    (shouldMutateCredential &&
+      (pendingCredentialPayload.operation !== 'keep' || Boolean(pendingCredentialPayload.metadata)))
+  ) {
     void loadConnectionEvents(state.connectionId)
   }
   return true
@@ -1773,6 +1845,7 @@ function formatEventType(type: string): string {
               <div v-if="isWorkBuddy && state.credentialMode === 'set'" class="space-y-4">
                 <WorkBuddyAuthFields
                   :mode="isWorkBuddyOAuth ? 'oauth' : 'apikey'"
+                  :editing="state.mode === 'edit'"
                   :proxy-id="workbuddyNumericProxyId"
                   :hide-api-key-fields="!isWorkBuddyOAuth"
                   :site="state.workbuddySite"
@@ -1783,7 +1856,66 @@ function formatEventType(type: string): string {
                 />
               </div>
 
-              <div v-if="isKilo && state.credentialMode === 'set'" class="space-y-2">
+              <div
+                v-else-if="isWorkBuddy && state.credentialMode === 'keep'"
+                data-testid="wizard-workbuddy-keep-metadata"
+                class="space-y-3 rounded-oh-md border border-oh-default bg-oh-subtle/30 p-3.5"
+              >
+                <div class="space-y-1.5">
+                  <div class="text-xs font-semibold text-oh-fg">
+                    {{ t('admin.accounts.workbuddy.siteLabel') }}
+                  </div>
+                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.workbuddy.siteLabel')">
+                    <button
+                      v-for="siteKey in (['cn', 'global'] as const)"
+                      :key="siteKey"
+                      type="button"
+                      role="radio"
+                      :aria-checked="state.workbuddySite === siteKey"
+                      :data-testid="`wizard-workbuddy-site-${siteKey}`"
+                      class="rounded-oh-md border px-3 py-2 text-left transition-colors"
+                      :class="state.workbuddySite === siteKey ? 'border-oh-accent bg-oh-accent/10 text-oh-fg' : 'border-oh-default bg-oh-surface hover:border-oh-strong text-oh-muted'"
+                      @click="handleWorkBuddySiteChange(siteKey)"
+                    >
+                      <div class="text-xs font-semibold text-oh-fg">
+                        {{ t(`admin.accounts.workbuddy.sites.${siteKey}.label`) }}
+                      </div>
+                      <div class="font-mono text-[11px] text-oh-muted">
+                        {{ WORKBUDDY_SITES[siteKey].domain }}
+                      </div>
+                    </button>
+                  </div>
+                </div>
+                <div v-if="isWorkBuddyOAuth" class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Input
+                    v-model="state.workbuddyOAuth.uid"
+                    :label="t('admin.accounts.workbuddy.oauth.fields.uid')"
+                    data-testid="wizard-workbuddy-keep-uid"
+                    placeholder="uid"
+                  />
+                  <Input
+                    v-model="state.workbuddyOAuth.domain"
+                    :label="t('admin.accounts.workbuddy.oauth.fields.domain')"
+                    data-testid="wizard-workbuddy-keep-domain"
+                    :placeholder="defaultWorkBuddyDomain(state.workbuddySite)"
+                  />
+                  <Input
+                    v-model="state.workbuddyOAuth.expires_at"
+                    :label="t('admin.accounts.workbuddy.oauth.fields.expiresAt')"
+                    data-testid="wizard-workbuddy-keep-expires-at"
+                    placeholder="2026-12-31T23:59:59Z"
+                  />
+                  <Input
+                    :model-value="state.workbuddyOAuth.enterprise_id ?? ''"
+                    :label="isZh ? '企业 ID (enterprise_id)' : 'Enterprise ID'"
+                    data-testid="wizard-workbuddy-keep-enterprise-id"
+                    placeholder="enterprise_id"
+                    @update:model-value="state.workbuddyOAuth.enterprise_id = String($event) || undefined"
+                  />
+                </div>
+              </div>
+
+              <div v-if="isKilo" class="space-y-2">
                 <div class="text-xs font-semibold text-oh-fg">
                   {{ t('admin.accounts.kilo.accountMode.label') }}
                 </div>
@@ -1815,7 +1947,7 @@ function formatEventType(type: string): string {
                 </div>
               </div>
 
-              <div v-if="isOpenCode && state.credentialMode === 'set'" class="space-y-2">
+              <div v-if="isOpenCode" class="space-y-2">
                 <div class="text-xs font-semibold text-oh-fg">
                   {{ t('admin.accounts.supplier.planType') }}
                 </div>
@@ -1868,7 +2000,15 @@ function formatEventType(type: string): string {
                         ? `${getAuthModeLabel(state.authType, true)} 密钥`
                         : `${getAuthModeLabel(state.authType, false)} Secret`
                   "
-                  :placeholder="isKeylessPublicLane ? 'public' : (isZh ? '粘贴上游 API Key 或访问令牌' : 'Paste upstream API key or token')"
+                  :placeholder="
+                    isKilo && state.kiloMode === 'free'
+                      ? t('admin.accounts.apiKeyOptional')
+                      : isKeylessPublicLane
+                        ? 'public'
+                        : isZh
+                          ? '粘贴上游 API Key 或访问令牌'
+                          : 'Paste upstream API key or token'
+                  "
                   autocomplete="new-password"
                 />
                 <p v-if="isKilo && state.kiloMode === 'free'" class="text-xs text-oh-muted">
@@ -2053,11 +2193,11 @@ function formatEventType(type: string): string {
                       <span class="ml-1 font-mono text-[11px] opacity-75">({{ check.reason }})</span>
                     </div>
                     <p
-                      v-if="check.detail"
+                      v-if="sanitizeDiagnosticDetail(check.detail)"
                       data-testid="verification-check-detail"
                       class="mt-1 rounded-oh-xs border border-oh-subtle bg-oh-subtle/50 px-2 py-1 font-mono text-[11px] break-all text-oh-secondary"
                     >
-                      {{ check.detail }}
+                      {{ sanitizeDiagnosticDetail(check.detail) }}
                     </p>
                   </div>
                   <div class="flex items-center gap-3">

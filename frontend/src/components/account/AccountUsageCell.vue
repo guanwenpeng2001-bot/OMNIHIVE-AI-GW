@@ -733,6 +733,7 @@ import type { Account, AccountUsageInfo, GeminiCredentials, WindowStats, WorkBud
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { enqueueUsageRequest } from '@/utils/usageLoadQueue'
 import { formatCompactNumber } from '@/utils/format'
+import { sanitizeUrl } from '@/utils/url'
 import UsageProgressBar from './UsageProgressBar.vue'
 import CursorUsageWindow from './CursorUsageWindow.vue'
 import AccountQuotaInfo from './AccountQuotaInfo.vue'
@@ -1458,7 +1459,7 @@ const hasIneligibleTiers = computed(() => {
 // Antigravity 403 forbidden 状态
 const isForbidden = computed(() => !!usageInfo.value?.is_forbidden)
 const forbiddenType = computed(() => usageInfo.value?.forbidden_type || 'forbidden')
-const validationURL = computed(() => usageInfo.value?.validation_url || '')
+const validationURL = computed(() => sanitizeUrl(usageInfo.value?.validation_url || ''))
 
 // 需要重新授权（401）
 const needsReauth = computed(() => !!usageInfo.value?.needs_reauth)

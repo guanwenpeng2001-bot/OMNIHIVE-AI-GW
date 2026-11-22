@@ -260,7 +260,7 @@
         @busy="workbuddyAuthorizing = $event"
       />
       <!-- API Key fields (only for apikey type) -->
-      <div v-if="account.type === 'apikey' && account.platform !== 'cursor'" class="space-y-4">
+      <div v-if="account.type === 'apikey' && account.platform !== 'cursor' && account.platform !== 'workbuddy'" class="space-y-4">
         <div v-if="selectedSupplier" class="space-y-3" data-testid="edit-supplier">
           <p class="font-medium">{{ t(`admin.accounts.supplier.names.${selectedSupplier.id}`) }}</p>
           <SupplierVariantCards :supplier="selectedSupplier" :model-value="selectedSupplier.members.find(member => member.platform === account?.platform)?.selection ?? {}" locked />
@@ -4087,7 +4087,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   if (newAccount.type === 'apikey' && newAccount.credentials) {
     const credentials = newAccount.credentials as Record<string, unknown>
     if (newAccount.platform === 'kilo') {
-      editKiloAccountMode.value = resolveKiloAccountMode(credentials.account_mode)
+      const hasStoredApiKey = newAccount.credentials_status?.has_api_key ?? Boolean(credentials.api_key)
+      editKiloAccountMode.value =
+        !credentials.account_mode && hasStoredApiKey
+          ? 'apikey'
+          : resolveKiloAccountMode(credentials.account_mode)
     }
     // 国产供应商：读取 account_mode 与 api_protocol 作为可编辑初始值
     // （编辑弹窗允许修正两者，用于修复早期存错默认值的账号）。
@@ -4911,7 +4915,11 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
         newCredentials.api_key = editApiKey.value.trim()
       } else if (specialCompatibleKeyOptional(props.account.platform, compatibleDraft.value)) {
         if (specialCompatibleModeChanged(props.account.platform, currentCredentials, compatibleDraft.value)) newCredentials.api_key = ''
-      } else if (props.account.platform === 'kilo' && editKiloAccountMode.value === 'apikey' && currentCredentials.account_mode !== 'apikey') {
+      } else if (
+        props.account.platform === 'kilo' &&
+        editKiloAccountMode.value === 'apikey' &&
+        (!hasExistingApiKey || currentCredentials.account_mode === 'free')
+      ) {
         revealSection('account-connection-settings'); appStore.showError(t('admin.accounts.apiKeyIsRequired'))
         return
       } else if (!hasExistingApiKey) {

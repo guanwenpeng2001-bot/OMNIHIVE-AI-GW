@@ -32,10 +32,17 @@ const busy = ref(false)
 const unresolved = ref(false)
 const confirming = ref(false)
 const pending = ref<{ body: ExecuteBody; key: string } | null>(null)
+const pollRetryCount = ref(0)
+const maintenanceActive = ref(false)
+const transientPollFailure = ref(false)
 const active = computed(() => operation.value?.state === 'queued' || operation.value?.state === 'running')
 const confirmed = computed(() => operation.value?.state === 'succeeded' && operation.value.stage === 'verified' && Boolean(operation.value.report))
 const hasPreview = computed(() => preview.value?.verified && Boolean(preview.value.expires_at))
+const canRetryStatus = computed(() => Boolean(operationId.value.trim()) && (state.value === 'unknown' || maintenanceActive.value || transientPollFailure.value))
+const canAbandonTracking = computed(() => state.value === 'unknown' && !busy.value && Boolean(operationId.value.trim() || pending.value))
 const path = '/admin/restores'
+const MAX_TRANSIENT_POLL_RETRIES = 6
+const MAX_MAINTENANCE_POLL_RETRIES = 30
 let previewKey = ''
 let executeKey = ''
 const storageKey = computed(() => auth.user ? `omnihive:restore:${auth.user.id}` : '')
@@ -59,6 +66,9 @@ function reset() {
   confirming.value = false
   unresolved.value = false
   pending.value = null
+  pollRetryCount.value = 0
+  maintenanceActive.value = false
+  transientPollFailure.value = false
   previewKey = ''
   executeKey = ''
 }
@@ -106,8 +116,33 @@ function resetPreview() {
   executeKey = ''
 }
 
+function isRestoreMaintenanceError(issue: ReturnType<typeof classifyAsyncError>): boolean {
+  const reason = String(issue.reason ?? '').toUpperCase()
+  return reason === 'RESTORE_MAINTENANCE' || reason === 'RESTORE_STATUS_UNAVAILABLE'
+}
+
+function formatMaintenanceMessage(reason?: string): string {
+  if (String(reason ?? '').toUpperCase() === 'RESTORE_STATUS_UNAVAILABLE') {
+    return '恢复状态查询服务短暂不可用，系统将自动重试并继续追踪恢复进度，请稍候。'
+  }
+  return '系统正处于生产数据恢复维护模式，服务短暂不可用。系统将自动重试并持续追踪恢复进度，请勿重复提交。'
+}
+
+function isTransientPollError(issue: ReturnType<typeof classifyAsyncError>): boolean {
+  if (issue.status === 401 || issue.status === 403 || issue.status === 404 || issue.status === 400 || issue.status === 422) {
+    return false
+  }
+  return issue.state === 'unknown' || issue.status === 0 || issue.status >= 500
+}
+
 function fail(cause: unknown, fallback: string) {
   const issue = classifyAsyncError(cause)
+  if (isRestoreMaintenanceError(issue)) {
+    maintenanceActive.value = true
+    state.value = 'unknown'
+    message.value = formatMaintenanceMessage(issue.reason)
+    return
+  }
   state.value = issue.state === 'error' ? 'partial-error' : issue.state
   message.value = issue.state === 'error' ? fallback : ''
 }
@@ -152,13 +187,16 @@ function showOperation(result: Operation) {
   operation.value = result
   operationId.value = result.id
   pending.value = null
+  pollRetryCount.value = 0
+  maintenanceActive.value = false
+  transientPollFailure.value = false
   checkpoint({ operationId: result.id })
   message.value = ''
   unresolved.value = false
   if (active.value) {
     state.value = 'refreshing'
     message.value = '恢复已受理，正在读取进度。'
-    pollTimer = setTimeout(() => void readOperation(result.id), 2500)
+    pollTimer = setTimeout(() => void readOperation(result.id, true), 2500)
   } else if (confirmed.value) {
     state.value = 'confirmed'
     message.value = '恢复已完成并通过校验。'
@@ -171,27 +209,81 @@ function showOperation(result: Operation) {
   }
 }
 
-async function readOperation(id: string) {
-  if (!id.trim() || busy.value) return
+async function readOperation(id: string, isAutoPoll = false) {
+  const trimmedId = id.trim()
+  if (!trimmedId || busy.value) return
   clearTimeout(pollTimer)
+  if (!isAutoPoll) {
+    pollRetryCount.value = 0
+  }
   const current = revision
   busy.value = true
   state.value = 'refreshing'
-  message.value = ''
+  if (!maintenanceActive.value) {
+    message.value = ''
+  }
   try {
-    const result = await controlGet<Operation>(`${path}/${encodeURIComponent(id.trim())}`)
+    const result = await controlGet<Operation>(`${path}/${encodeURIComponent(trimmedId)}`)
     if (current === revision) showOperation(result)
   } catch (cause) {
     if (current === revision) {
-      fail(cause, '无法读取操作状态。请核对操作编号并重试。')
-      if (active.value || unresolved.value) {
-        state.value = classifyAsyncError(cause).state === 'forbidden' ? 'forbidden' : 'unknown'
-        message.value = '暂时无法确认恢复结果。请重新查询该操作。'
+      const issue = classifyAsyncError(cause)
+      const inTrackingFlow = active.value || unresolved.value || isAutoPoll
+      if (isRestoreMaintenanceError(issue)) {
+        maintenanceActive.value = true
+        transientPollFailure.value = false
+        if (pollRetryCount.value < MAX_MAINTENANCE_POLL_RETRIES) {
+          pollRetryCount.value += 1
+          const delay = Math.min(2500 * Math.min(pollRetryCount.value, 3), 8000)
+          state.value = 'refreshing'
+          message.value = `${formatMaintenanceMessage(issue.reason)}（第 ${pollRetryCount.value}/${MAX_MAINTENANCE_POLL_RETRIES} 次自动重试）`
+          pollTimer = setTimeout(() => void readOperation(trimmedId, true), delay)
+        } else {
+          state.value = 'unknown'
+          message.value = `${formatMaintenanceMessage(issue.reason)}已达自动重试上限，请点击“重试状态查询”继续核对。`
+        }
+      } else if (inTrackingFlow && isTransientPollError(issue)) {
+        transientPollFailure.value = true
+        maintenanceActive.value = false
+        if (pollRetryCount.value < MAX_TRANSIENT_POLL_RETRIES) {
+          pollRetryCount.value += 1
+          const delay = Math.min(2500 * Math.pow(2, pollRetryCount.value - 1), 15000)
+          state.value = 'refreshing'
+          message.value = `网络波动导致状态查询暂时失败，正在自动重试（第 ${pollRetryCount.value}/${MAX_TRANSIENT_POLL_RETRIES} 次）…`
+          pollTimer = setTimeout(() => void readOperation(trimmedId, true), delay)
+        } else {
+          state.value = 'unknown'
+          message.value = '多次自动重试后仍无法确认恢复结果。请点击“重试状态查询”继续核对，或在确认系统已恢复终态后清除本地追踪。'
+        }
+      } else {
+        maintenanceActive.value = false
+        transientPollFailure.value = false
+        fail(cause, '无法读取操作状态。请核对操作编号并重试。')
+        if (inTrackingFlow) {
+          state.value = issue.state === 'forbidden' ? 'forbidden' : 'unknown'
+          message.value =
+            issue.state === 'forbidden'
+              ? '当前账号无权限读取该恢复操作状态。'
+              : '暂时无法确认恢复结果。请重新查询该操作。'
+        }
       }
     }
   } finally {
     if (current === revision) busy.value = false
   }
+}
+
+function retryStatusCheck() {
+  const targetId = operationId.value.trim()
+  if (!targetId) return
+  clearTimeout(pollTimer)
+  pollRetryCount.value = 0
+  void readOperation(targetId, false)
+}
+
+function abandonTracking() {
+  checkpoint(null)
+  reset()
 }
 
 async function execute() {
@@ -306,6 +398,26 @@ function formatRestoreTime(value?: string | null): string {
     </div>
 
     <Button v-if="unresolved" :loading="busy" @click="execute">使用原请求确认结果</Button>
+    <div v-if="canRetryStatus || canAbandonTracking" class="flex flex-wrap items-center gap-2">
+      <Button
+        v-if="canRetryStatus"
+        data-testid="restore-retry-status-btn"
+        variant="secondary"
+        :disabled="busy"
+        @click="retryStatusCheck"
+      >
+        重试状态查询
+      </Button>
+      <Button
+        v-if="canAbandonTracking"
+        data-testid="restore-abandon-tracking-btn"
+        variant="secondary"
+        :disabled="busy"
+        @click="abandonTracking"
+      >
+        清除本地追踪状态
+      </Button>
+    </div>
     <OperationState :state="state" :message="message" />
     <div v-if="operation" class="space-y-2 border-t border-oh-subtle pt-3 text-sm">
       <div class="flex flex-wrap items-center gap-1.5">
