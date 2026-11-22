@@ -185,7 +185,7 @@ export default defineConfig(({ mode }) => {
             }
 
             // UI 工具库（较大，单独分离）
-            if (id.includes('/@vueuse/') || id.includes('/xlsx/')) {
+            if (id.includes('/@vueuse/') || id.includes('/write-excel-file/') || id.includes('/xlsx/')) {
               return 'vendor-ui'
             }
 
@@ -202,6 +202,11 @@ export default defineConfig(({ mode }) => {
             // Stripe 仅在支付流程中按需加载，避免进入首页公共依赖。
             if (id.includes('/@stripe/stripe-js/')) {
               return 'vendor-stripe'
+            }
+
+            // Airwallex SDK 仅在支付流程中按需加载，独立分包避免打入首屏公共依赖。
+            if (id.includes('/@airwallex/components-sdk/') || id.includes('/@airwallex/')) {
+              return 'vendor-airwallex'
             }
 
             // 其他小型第三方库合并

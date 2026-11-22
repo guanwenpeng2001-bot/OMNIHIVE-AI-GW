@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, toRef } from 'vue'
 import IconButton from './IconButton.vue'
-import { cn, useOverlayDialog, useUiId } from './utils'
+import { cn, useOverlayDialog, useUiI18n, useUiId } from './utils'
 
 export interface DrawerProps {
   open: boolean
@@ -33,6 +33,7 @@ const panelRef = ref<HTMLElement | null>(null)
 const drawerId = useUiId('oh-drawer')
 const titleId = computed(() => `${drawerId}-title`)
 const descriptionId = computed(() => `${drawerId}-desc`)
+const { t } = useUiI18n()
 
 function requestClose(): void {
   emit('update:open', false)
@@ -71,8 +72,8 @@ const widthClasses = computed(() => {
         ref="panelRef"
         role="dialog"
         aria-modal="true"
-        :aria-labelledby="title || $slots.header ? titleId : undefined"
-        :aria-describedby="description ? descriptionId : undefined"
+        :aria-labelledby="title && !$slots.header ? titleId : undefined"
+        :aria-describedby="description && !$slots.header ? descriptionId : undefined"
         tabindex="-1"
         :class="
           cn(
@@ -93,7 +94,7 @@ const widthClasses = computed(() => {
               </p>
             </slot>
           </div>
-          <IconButton aria-label="Close drawer" ariaLabel="Close drawer" size="sm" @click="requestClose">
+          <IconButton :aria-label="t('ui.drawer.close')" :ariaLabel="t('ui.drawer.close')" size="sm" @click="requestClose">
             <svg viewBox="0 0 16 16" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
               <path stroke-linecap="round" d="M4 4l8 8M12 4l-8 8" />
             </svg>

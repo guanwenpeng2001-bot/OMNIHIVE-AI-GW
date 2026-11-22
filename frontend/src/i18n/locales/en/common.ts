@@ -52,6 +52,7 @@ export default {
     inactive: 'Inactive',
     more: 'More',
     close: 'Close',
+    help: 'Help',
     toggleMenu: 'Toggle menu',
     userMenu: 'User menu',
     pageNotFound: 'Page not found',
@@ -482,6 +483,56 @@ export default {
   taskCenter: {
     title: 'Task Center',
     description: 'Asynchronous image and batch executions, scope-bound artifact tickets, cancellation, and paid retries.'
+  },
+
+  ui: {
+    table: {
+      emptyTitle: 'No records yet',
+      filteredEmptyTitle: 'No matching results',
+      filteredEmptyDescription: 'Adjust or clear active filters to restore rows.',
+      refreshing: 'Refreshing table data',
+      selectAllRows: 'Select all rows',
+      selectRow: 'Select row {index}'
+    },
+    empty: {
+      clearAllFilters: 'Clear all filters'
+    },
+    modal: {
+      close: 'Close dialog'
+    },
+    drawer: {
+      close: 'Close drawer'
+    },
+    commandPalette: {
+      placeholder: 'Search models, routes, keys, or actions…',
+      emptyText: 'No matching commands or models.',
+      ariaLabel: 'Command palette',
+      availableCommands: 'Available commands',
+      searching: 'Searching catalog…',
+      navigateHint: '↑↓ Navigate',
+      selectHint: '↵ Select',
+      closeHint: 'ESC Close'
+    },
+    toast: {
+      notifications: 'Notifications',
+      copyRequestId: 'Copy request ID',
+      dismiss: 'Dismiss notification'
+    },
+    input: {
+      clear: 'Clear input',
+      hideSecret: 'Hide secret',
+      revealSecret: 'Reveal secret',
+      hide: 'Hide',
+      show: 'Show'
+    },
+    stat: {
+      free: 'Free',
+      noVerifiedData: 'No verified data',
+      settled: 'Settled',
+      estimated: 'Estimated',
+      reserved: 'Reserved',
+      pendingCheck: 'Pending Check'
+    }
   },
 
   // Dashboard

@@ -18,18 +18,52 @@ function flattenLeafKeys(value: unknown, prefix = ''): string[] {
   })
 }
 
+function getLeafString(messages: unknown, keyPath: string): string {
+  let current: unknown = messages
+  for (const segment of keyPath.split('.')) {
+    if (current === null || typeof current !== 'object') {
+      return ''
+    }
+    current = (current as LocaleValue)[segment]
+  }
+  return typeof current === 'string' ? current : ''
+}
+
+function extractPlaceholders(message: string): string[] {
+  const matches = message.matchAll(/\{([a-zA-Z0-9_]+)\}/g)
+  return [...new Set(Array.from(matches, (match) => match[1]))].sort()
+}
+
 function collectStaticSourceKeys(source: string): string[] {
   const keys = new Set<string>()
+  const addKey = (key: string) => {
+    if (key && !key.endsWith('.')) {
+      keys.add(key)
+    }
+  }
 
   // Covers useI18n().t(), the global $t(), and direct i18n.t() calls in both
   // TypeScript and Vue script/template source. Dynamic suffixes are checked by
   // the runtime type of the value and cannot be proven from source text alone.
   const translationCalls = /(?:\bi18n\.t|\$t|\bt)\s*\(\s*(['"])([^'"\r\n]+)\1/g
   for (const match of source.matchAll(translationCalls)) {
-    const key = match[2]
-    if (!key.endsWith('.')) {
-      keys.add(key)
-    }
+    addKey(match[2])
+  }
+
+  // Covers ternary expressions such as t(cond ? 'key.a' : 'key.b').
+  const ternaryTranslationCalls =
+    /(?:\bi18n\.t|\$t|\bt)\s*\(\s*(?!`)[^()`\r\n]+?\?\s*(['"])([^'"\r\n]+)\1\s*:\s*(['"])([^'"\r\n]+)\3/g
+  for (const match of source.matchAll(ternaryTranslationCalls)) {
+    addKey(match[2])
+    addKey(match[4])
+  }
+
+  // Covers template literal ternary expressions such as t(`prefix.${cond ? 'a' : 'b'}`).
+  const templateTernaryCalls =
+    /(?:\bi18n\.t|\$t|\bt)\s*\(\s*`([^`$\r\n]*)\$\{[^}\r\n]*?\?\s*(['"])([^'"\r\n]+)\2\s*:\s*(['"])([^'"\r\n]+)\4\s*\}([^`$\r\n]*)`/g
+  for (const match of source.matchAll(templateTernaryCalls)) {
+    addKey(`${match[1]}${match[3]}${match[6]}`)
+    addKey(`${match[1]}${match[5]}${match[6]}`)
   }
 
   // Router metadata and i18n-t are key references without a t() call.
@@ -101,5 +135,22 @@ describe('locale key completeness', () => {
   it('contains every statically referenced production key', () => {
     expect(missingKeys(usedKeys, enKeys), 'English locale is missing referenced keys').toEqual([])
     expect(missingKeys(usedKeys, zhKeys), 'Chinese locale is missing referenced keys').toEqual([])
+  })
+
+  it('keeps interpolation placeholders identical between en and zh', () => {
+    const mismatchedKeys = [...enKeys]
+      .filter((key) => zhKeys.has(key))
+      .filter((key) => {
+        const enPlaceholders = extractPlaceholders(getLeafString(en, key))
+        const zhPlaceholders = extractPlaceholders(getLeafString(zh, key))
+        return enPlaceholders.join(',') !== zhPlaceholders.join(',')
+      })
+      .map((key) => ({
+        key,
+        en: extractPlaceholders(getLeafString(en, key)),
+        zh: extractPlaceholders(getLeafString(zh, key))
+      }))
+
+    expect(mismatchedKeys).toEqual([])
   })
 })

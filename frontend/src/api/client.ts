@@ -34,7 +34,34 @@ export function isSilentRequestError(error: unknown): boolean {
   )
 }
 
-function resolveVersionedRequestConfig(url: string | undefined, pathname: string): {
+export const RESTORE_MAINTENANCE_REASONS = [
+  'RESTORE_MAINTENANCE',
+  'RESTORE_STATUS_UNAVAILABLE'
+] as const
+
+export type RestoreMaintenanceReason = (typeof RESTORE_MAINTENANCE_REASONS)[number]
+
+export function isRestoreMaintenanceError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const candidate = error as {
+    restoreMaintenance?: boolean
+    metadata?: Record<string, unknown>
+  }
+  if (candidate.restoreMaintenance === true || candidate.metadata?.restore_maintenance === true) {
+    return true
+  }
+  const normalized = normalizeApiError(error)
+  return (
+    normalized.status === 503 &&
+    (normalized.reason === 'RESTORE_MAINTENANCE' || normalized.reason === 'RESTORE_STATUS_UNAVAILABLE')
+  )
+}
+
+function resolveVersionedRequestConfig(
+  url: string | undefined,
+  pathname: string,
+  baseURL?: string
+): {
   baseURL?: string
   url?: string
 } {
@@ -49,6 +76,20 @@ function resolveVersionedRequestConfig(url: string | undefined, pathname: string
     return {
       baseURL: buildGatewayUrl('/api/v2'),
       url: url.slice('/v2'.length) || '/'
+    }
+  }
+  const normalizedBase = String(baseURL || '').replace(/\/+$/, '')
+  if (normalizedBase.endsWith('/api/v2')) {
+    return { url }
+  }
+  if (url === '/api/v1' || url.startsWith('/api/v1/')) {
+    return {
+      url: workspaceRequestURL(url.slice('/api/v1'.length) || '/', pathname)
+    }
+  }
+  if (url === '/v1' || url.startsWith('/v1/')) {
+    return {
+      url: workspaceRequestURL(url.slice('/v1'.length) || '/', pathname)
     }
   }
   return {
@@ -99,7 +140,7 @@ const shouldInjectDefaultTimezone = (url: string | undefined, baseURL: string | 
 
 apiClient.interceptors.request.use(
   (config: SessionRequest) => {
-    const resolvedUrl = resolveVersionedRequestConfig(config.url, window.location.pathname)
+    const resolvedUrl = resolveVersionedRequestConfig(config.url, window.location.pathname, config.baseURL)
     if (resolvedUrl.baseURL) {
       config.baseURL = resolvedUrl.baseURL
     }
@@ -217,6 +258,65 @@ apiClient.interceptors.response.use(
 
       // Validate `data` shape to avoid HTML error pages breaking our error handling.
       const apiError = normalizeApiError(error)
+
+      if (
+        status === 503 &&
+        (apiError.reason === 'RESTORE_MAINTENANCE' || apiError.reason === 'RESTORE_STATUS_UNAVAILABLE')
+      ) {
+        const headers = error.response.headers as
+          | (Record<string, unknown> & { get?: (name: string) => unknown })
+          | undefined
+        const rawRetryAfter =
+          headers?.get?.('retry-after') ?? headers?.['retry-after'] ?? headers?.['Retry-After']
+        const parsedRetryAfter = Number(rawRetryAfter)
+        const retryAfterSeconds =
+          Number.isFinite(parsedRetryAfter) && parsedRetryAfter > 0 ? parsedRetryAfter : 1
+        const isZh = String(getLocale() || '').toLowerCase().startsWith('zh')
+        const isStatusUnavailable = apiError.reason === 'RESTORE_STATUS_UNAVAILABLE'
+        const localizedMessage = isStatusUnavailable
+          ? isZh
+            ? '恢复状态暂时不可用，请稍后重试。'
+            : 'Restore status is temporarily unavailable. Please retry shortly.'
+          : isZh
+            ? '系统正在执行生产数据恢复维护，请待恢复完成后重试。'
+            : 'System is undergoing production restore maintenance. Please retry after recovery completes.'
+
+        apiError.message = localizedMessage
+        apiError.metadata = {
+          ...apiError.metadata,
+          restore_maintenance: true,
+          restoreMaintenance: true,
+          retryable: true,
+          should_continue_polling: true,
+          retry_after_seconds: retryAfterSeconds,
+          i18n_key: isStatusUnavailable
+            ? 'errors.restoreStatusUnavailable'
+            : 'errors.restoreMaintenance'
+        }
+        Object.assign(apiError, {
+          restoreMaintenance: true,
+          retryable: true,
+          shouldContinuePolling: true,
+          retryAfterSeconds
+        })
+
+        try {
+          window.dispatchEvent(
+            new CustomEvent('restore-maintenance', {
+              detail: {
+                reason: apiError.reason,
+                message: localizedMessage,
+                retryAfterSeconds,
+                metadata: apiError.metadata
+              }
+            })
+          )
+        } catch {
+          // ignore event failures
+        }
+
+        return Promise.reject(apiError)
+      }
 
       // Ops monitoring disabled: treat as feature-flagged 404, and proactively redirect away
       // from ops pages to avoid broken UI states.

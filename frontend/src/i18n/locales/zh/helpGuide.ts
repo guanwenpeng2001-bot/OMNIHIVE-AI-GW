@@ -548,17 +548,17 @@ export default {
         },
         "rows": {
           "root": {
-            "field": "Gateway root",
+            "field": "网关根地址 (Gateway root)",
             "value": "api_base_url",
             "notes": "移除末尾 /v1 或 /v1beta，保留部署前缀。Claude Code 使用此根地址。"
           },
           "base": {
-            "field": "OpenAI-compatible base",
+            "field": "OpenAI 兼容基础地址 (OpenAI-compatible base)",
             "value": "root + /v1",
             "notes": "客户端添加端点路径；不要重复 /v1 或填入 /chat/completions。"
           },
           "full": {
-            "field": "HTTP request URL",
+            "field": "完整 HTTP 请求地址 (HTTP request URL)",
             "value": "root + /v1/chat/completions",
             "notes": "curl、PowerShell 和 fetch 使用完整 URL。Gemini 使用 /v1beta/models/…:generateContent。"
           }
@@ -601,17 +601,17 @@ export default {
         "rows": {
           "model": {
             "field": "model",
-            "type": "string · required",
+            "type": "string · 必填",
             "meaning": "目录中的精确 ID，保留供应商前缀。"
           },
           "messages": {
             "field": "messages",
-            "type": "array · required",
+            "type": "array · 必填",
             "meaning": "按顺序提交 role/content 消息；后续请求重新提交上下文。"
           },
           "stream": {
             "field": "stream",
-            "type": "boolean · optional",
+            "type": "boolean · 可选",
             "meaning": "true 开启 SSE；默认示例请求完整 JSON。"
           }
         }
@@ -626,12 +626,12 @@ export default {
         "rows": {
           "choices_message": {
             "field": "choices[].message",
-            "type": "object",
+            "type": "对象 (object)",
             "meaning": "文本位于 content；工具调用时可能只有 tool_calls。"
           },
           "choices_finish_reason_usage": {
             "field": "choices[].finish_reason / usage",
-            "type": "string / object",
+            "type": "字符串 / 对象 (string / object)",
             "meaning": "检查结束原因和已报告用量。"
           }
         }
@@ -657,22 +657,22 @@ export default {
         "rows": {
           "model": {
             "field": "model",
-            "type": "string · required",
+            "type": "string · 必填",
             "meaning": "目录中的请求 ID。"
           },
           "max_tokens": {
             "field": "max_tokens",
-            "type": "integer · required",
+            "type": "integer · 必填",
             "meaning": "输出预算，不超过所选模型限制。"
           },
           "messages": {
             "field": "messages",
-            "type": "array · required",
+            "type": "array · 必填",
             "meaning": "user/assistant 消息；content 可以是文本或内容块。"
           },
           "system": {
             "field": "system",
-            "type": "string / array · optional",
+            "type": "string / array · 可选",
             "meaning": "顶层系统指令，与 messages 分开。"
           }
         }
@@ -687,12 +687,12 @@ export default {
         "rows": {
           "content": {
             "field": "content[]",
-            "type": "array",
+            "type": "数组 (array)",
             "meaning": "按类型读取 text、thinking 或 tool_use 内容块。"
           },
           "stop_reason_usage": {
             "field": "stop_reason / usage",
-            "type": "string / object",
+            "type": "字符串 / 对象 (string / object)",
             "meaning": "检查停止原因与输入/输出用量。"
           }
         }
@@ -718,22 +718,22 @@ export default {
         "rows": {
           "model": {
             "field": "model",
-            "type": "string · required",
+            "type": "string · 必填",
             "meaning": "精确模型 ID。"
           },
           "input": {
             "field": "input",
-            "type": "string / array · required",
+            "type": "string / array · 必填",
             "meaning": "文本或按顺序排列的输入项。"
           },
           "instructions": {
             "field": "instructions",
-            "type": "string · optional",
+            "type": "string · 可选",
             "meaning": "本次请求的指令。"
           },
           "max_output_tokens": {
             "field": "max_output_tokens",
-            "type": "integer · optional",
+            "type": "integer · 可选",
             "meaning": "按模型设置输出预算。"
           }
         }
@@ -748,17 +748,17 @@ export default {
         "rows": {
           "output": {
             "field": "output[]",
-            "type": "array",
+            "type": "数组 (array)",
             "meaning": "按 message、reasoning、function_call 等类型解析。"
           },
           "status_incomplete_details_error": {
             "field": "status / incomplete_details / error",
-            "type": "object fields",
+            "type": "状态与错误对象字段",
             "meaning": "仅 completed 表示完整完成；检查 incomplete 或 failed 的详情。"
           },
           "usage": {
             "field": "usage",
-            "type": "object",
+            "type": "对象 (object)",
             "meaning": "已报告用量与最终结算状态分开。"
           }
         }
@@ -785,17 +785,17 @@ export default {
         "rows": {
           "model_URL": {
             "field": "model (URL)",
-            "type": "encoded path segment · required",
+            "type": "编码路径段 · 必填",
             "meaning": "使用请求 ID；去掉目录 name 开头的 models/ 后，对剩余 ID 编码一次。"
           },
           "contents": {
             "field": "contents",
-            "type": "array · required",
+            "type": "array · 必填",
             "meaning": "包含 parts，例如 {'{'}text:\"Hello\"{'}'}；role 可为 user。"
           },
           "generationConfig": {
             "field": "generationConfig",
-            "type": "object · optional",
+            "type": "object · 可选",
             "meaning": "仅使用所选模型支持的控制项。"
           }
         }
@@ -810,12 +810,12 @@ export default {
         "rows": {
           "candidates_content_parts": {
             "field": "candidates[].content.parts",
-            "type": "array",
+            "type": "数组 (array)",
             "meaning": "逐个读取内容；安全阻断可能没有文本。"
           },
           "finishReason_usageMetadata": {
             "field": "finishReason / usageMetadata",
-            "type": "fields",
+            "type": "结束原因与用量字段",
             "meaning": "检查结束原因与已报告用量。"
           }
         }
@@ -841,22 +841,22 @@ export default {
         "rows": {
           "model": {
             "field": "model",
-            "type": "string · required",
+            "type": "string · 必填",
             "meaning": "用于对应检索端点的模型。"
           },
           "input_embeddings": {
             "field": "input (embeddings)",
-            "type": "string · required in example",
+            "type": "string · 示例中必填",
             "meaning": "待编码文本；维数与编码选项依模型而定。"
           },
           "query_documents_rerank": {
             "field": "query / documents (rerank)",
-            "type": "string / string[] · required",
+            "type": "string / string[] · 必填",
             "meaning": "查询文本与候选文档。"
           },
           "top_n_rerank": {
             "field": "top_n (rerank)",
-            "type": "positive integer · optional",
+            "type": "正整数 · 可选",
             "meaning": "请求返回的排序结果数量。"
           }
         }
@@ -871,17 +871,17 @@ export default {
         "rows": {
           "data_embedding_index": {
             "field": "data[].embedding / index",
-            "type": "vector / integer",
+            "type": "向量 / 整数",
             "meaning": "向量与输入位置；检查向量维数一致。"
           },
           "index_relevance_score": {
             "field": "index / relevance_score",
-            "type": "ranked entries",
+            "type": "重排结果条目",
             "meaning": "重排结果条目；外层结构因路由而异。"
           },
           "usage": {
             "field": "usage",
-            "type": "object · when reported",
+            "type": "对象 · 有上报时返回",
             "meaning": "缺失计数表示未知；重排可能按查询而非 token 计费。"
           }
         }
@@ -893,7 +893,7 @@ export default {
   },
   "streaming": {
     "title": "流式输出与中断",
-    "endpoint": "POST · protocol-specific SSE",
+    "endpoint": "POST · 各协议专用 SSE 流",
     "intro": "所选协议的流式能力需分组与模型支持。使用 curl -N 或可逐段读取 SSE 的 SDK。",
     "steps": {},
     "tables": {
@@ -907,12 +907,12 @@ export default {
         "rows": {
           "stream": {
             "field": "stream",
-            "type": "boolean · Chat / Messages / Responses",
+            "type": "布尔值 · Chat / Messages / Responses",
             "meaning": "在 JSON 请求中设为 true。"
           },
           "alt_sse": {
             "field": "alt=sse",
-            "type": "query · Gemini",
+            "type": "查询参数 · Gemini",
             "meaning": "与 :streamGenerateContent 一起使用。"
           }
         }
@@ -927,22 +927,22 @@ export default {
         "rows": {
           "Chat": {
             "field": "Chat",
-            "type": "choices[].delta",
+            "type": "choices[].delta 增量帧",
             "meaning": "拼接 delta；通常以 [DONE] 结束。错误或提前 EOF 不代表完成。"
           },
           "Messages": {
             "field": "Messages",
-            "type": "event + data",
+            "type": "event + data 事件帧",
             "meaning": "读取 content_block 增量直到 message_stop；event:error 表示失败。"
           },
           "Responses": {
             "field": "Responses",
-            "type": "typed events",
+            "type": "类型化事件帧",
             "meaning": "response.completed 为成功；response.incomplete 和 response.failed 需检查原因。"
           },
           "Gemini": {
             "field": "Gemini",
-            "type": "Google JSON events",
+            "type": "Google JSON 事件帧",
             "meaning": "读取 candidates 和最终 finishReason/usage，不等待 Chat 的 [DONE]。"
           }
         }
@@ -998,22 +998,22 @@ export default {
         },
         "rows": {
           "Chat_result": {
-            "field": "Chat result",
+            "field": "Chat 工具结果",
             "type": "role:tool / tool_call_id / content",
             "meaning": "匹配真实调用 ID，并保留 assistant 的 tool_calls 消息。"
           },
           "Messages_result": {
-            "field": "Messages result",
+            "field": "Messages 工具结果",
             "type": "tool_result / tool_use_id",
             "meaning": "将结果放入 user 内容块。"
           },
           "Responses_result": {
-            "field": "Responses result",
+            "field": "Responses 工具结果",
             "type": "function_call_output / call_id / output",
             "meaning": "匹配 call_id 并保留前序输入/输出项。"
           },
           "Gemini_result": {
-            "field": "Gemini result",
+            "field": "Gemini 工具结果",
             "type": "functionResponse",
             "meaning": "在对话上下文中返回函数结果。"
           }
@@ -1026,7 +1026,7 @@ export default {
   },
   "reasoning": {
     "title": "推理控制",
-    "endpoint": "POST · model-specific controls",
+    "endpoint": "POST · 模型专用思考控制",
     "intro": "仅使用模型声明且分组路由支持的档位。目录未说明时省略控制项，不默认 high 或 max 可用。",
     "steps": {},
     "tables": {
@@ -1040,22 +1040,22 @@ export default {
         "rows": {
           "reasoning_effort": {
             "field": "reasoning_effort",
-            "type": "Chat · optional",
+            "type": "Chat · 可选",
             "meaning": "值取自所选模型支持的档位。"
           },
           "reasoning_effort_reasoning_summary": {
             "field": "reasoning.effort / reasoning.summary",
-            "type": "Responses · optional",
+            "type": "Responses · 可选",
             "meaning": "推理档位和摘要行为依模型而定。"
           },
           "thinking_output_config_effort": {
             "field": "thinking / output_config.effort",
-            "type": "Messages · optional",
+            "type": "Messages · 可选",
             "meaning": "支持时 thinking 使用 type 与 budget_tokens。"
           },
           "generationConfig_thinkingConfig": {
             "field": "generationConfig.thinkingConfig",
-            "type": "Gemini · optional",
+            "type": "Gemini · 可选",
             "meaning": "Google 控制结构，不能与其他协议互换。"
           }
         }
@@ -1070,7 +1070,7 @@ export default {
         "rows": {
           "reasoning_thinking": {
             "field": "reasoning / thinking",
-            "type": "protocol-specific output",
+            "type": "各协议专用思考输出",
             "meaning": "可能含摘要或不透明续接数据；工具往返时保留这些内容。"
           }
         }
@@ -1082,7 +1082,7 @@ export default {
   },
   "cache": {
     "title": "提示缓存与用量",
-    "endpoint": "POST · model-specific caching",
+    "endpoint": "POST · 模型专用缓存控制",
     "intro": "缓存取决于模型、分组路由和上游策略。保持上下文前缀稳定；目录中的缓存提示不保证命中或折扣。",
     "steps": {},
     "tables": {
@@ -1096,7 +1096,7 @@ export default {
         "rows": {
           "cache_control": {
             "field": "cache_control",
-            "type": "Messages content block · optional",
+            "type": "Messages 内容块 · 可选",
             "meaning": "支持的 Messages 路由可接收 ephemeral 缓存提示，路由可能调整它。"
           }
         }
@@ -1111,12 +1111,12 @@ export default {
         "rows": {
           "cache_creation_input_tokens": {
             "field": "cache_creation_input_tokens",
-            "type": "number · when reported",
+            "type": "数值 · 有上报时返回",
             "meaning": "创建缓存的 token，与缓存读取分开。"
           },
           "cache_read_input_tokens": {
             "field": "cache_read_input_tokens",
-            "type": "number · when reported",
+            "type": "数值 · 有上报时返回",
             "meaning": "从缓存读取的 token；以实际用量和最终账单核对。"
           }
         }
@@ -1142,17 +1142,17 @@ export default {
         "rows": {
           "model_prompt": {
             "field": "model / prompt",
-            "type": "JSON strings · generation",
+            "type": "JSON 字符串 · 图像生成",
             "meaning": "选择图像模型并描述画面。"
           },
           "image_model_prompt": {
             "field": "image / model / prompt",
-            "type": "multipart · OpenAI or Qianwen edit example",
+            "type": "multipart · OpenAI 或千问编辑示例",
             "meaning": "使用 curl -F 上传 reference.png，由 curl 设置 multipart boundary。"
           },
           "mask": {
             "field": "mask",
-            "type": "multipart · OpenAI subset only",
+            "type": "multipart · 仅限 OpenAI 子集",
             "meaning": "仅限所选模型接受时使用；千问编辑不接受 mask。"
           }
         }
@@ -1167,7 +1167,7 @@ export default {
         "rows": {
           "data_url_data_b64_json": {
             "field": "data[].url / data[].b64_json",
-            "type": "string",
+            "type": "字符串 (string)",
             "meaning": "依路由和格式返回 URL 或 base64 图像数据。"
           }
         }
@@ -1193,8 +1193,8 @@ export default {
         },
         "rows": {
           "request_body": {
-            "field": "request body",
-            "type": "same as synchronous action",
+            "field": "请求体 (request body)",
+            "type": "与同步动作相同",
             "meaning": "使用生成 JSON 或对应编辑上传格式；不接受 stream。"
           }
         }
@@ -1209,17 +1209,17 @@ export default {
         "rows": {
           "HTTP_202_task_id_poll_url": {
             "field": "HTTP 202 / task_id / poll_url",
-            "type": "accepted task",
+            "type": "已受理任务",
             "meaning": "保存任务 ID，按 Retry-After（当前 3 秒）间隔查询，不要重复提交。"
           },
           "status": {
             "field": "status",
-            "type": "processing / completed / failed",
+            "type": "任务状态（processing / completed / failed）",
             "meaning": "使用原密钥 GET /v1/images/tasks/{'{'}task_id{'}'}；completed 或 failed 后停止轮询。"
           },
           "result_http_status_error": {
             "field": "result / http_status / error",
-            "type": "terminal details",
+            "type": "终态详情",
             "meaning": "完成后读取 result 中的图片 URL；失败时检查状态和 error。"
           }
         }
@@ -1246,12 +1246,12 @@ export default {
         "rows": {
           "model_prompt": {
             "field": "model / prompt",
-            "type": "JSON strings · OpenRouter example",
+            "type": "JSON 字符串 · OpenRouter 示例",
             "meaning": "视频模型与描述；具体模型可能有额外要求。"
           },
           "duration": {
             "field": "duration",
-            "type": "positive integer · OpenRouter",
+            "type": "正整数 · OpenRouter",
             "meaning": "示例为 4 秒，不代表所有模型允许此值或实际交付时长。"
           }
         }
@@ -1266,12 +1266,12 @@ export default {
         "rows": {
           "id_status": {
             "field": "id / status",
-            "type": "OpenAI / OpenRouter job",
+            "type": "OpenAI / OpenRouter 任务状态",
             "meaning": "保存返回的公开 ID；queued → in_progress → completed，或失败终态。"
           },
           "content": {
             "field": "/content",
-            "type": "download after completion",
+            "type": "完成后下载媒体内容",
             "meaning": "完成后使用原密钥下载；打开前核对 HTTP 状态和 Content-Type。"
           }
         }
@@ -1298,17 +1298,17 @@ export default {
         "rows": {
           "model_input_voice": {
             "field": "model / input / voice",
-            "type": "speech JSON",
+            "type": "语音合成 JSON",
             "meaning": "文本及模型支持的音色；千问要求 voice，文本为 1–600 个 Unicode 字符。"
           },
           "response_format": {
             "field": "response_format",
-            "type": "speech · route-specific",
+            "type": "语音合成 · 按路由而定",
             "meaning": "OpenRouter：mp3/pcm，不支持 stream；千问：仅 wav。"
           },
           "file_model": {
             "field": "file / model",
-            "type": "translation multipart · OpenAI API-key route",
+            "type": "音频翻译 multipart · OpenAI API-key 路由",
             "meaning": "选择支持翻译的模型；翻译与转写为不同动作。"
           }
         }
@@ -1322,13 +1322,13 @@ export default {
         },
         "rows": {
           "speech_response": {
-            "field": "speech response",
-            "type": "binary or model-specific envelope",
+            "field": "语音合成响应",
+            "type": "二进制音频流或模型专用 JSON 信封",
             "meaning": "检查 Content-Type。Mistral 可能返回 audio_data base64 JSON，不要把所有响应当 MP3。"
           },
           "transcription_response": {
-            "field": "transcription response",
-            "type": "JSON in the examples",
+            "field": "音频转写响应",
+            "type": "示例返回 JSON",
             "meaning": "读取文本及已提供用量；输出格式因路由而异。"
           }
         }

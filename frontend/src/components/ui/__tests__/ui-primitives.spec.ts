@@ -23,6 +23,7 @@ import {
   clearAllUiToasts,
   pushUiToast
 } from '../index'
+import { getFocusableElements } from '../utils'
 
 describe('OmniHive UI Primitives', () => {
   beforeEach(() => {
@@ -322,5 +323,34 @@ describe('OmniHive UI Primitives', () => {
     const toastWrapper = mount(Toast, { props: { teleportDisabled: true } })
     expect(toastWrapper.get('[role="alert"]').text()).toContain('Upstream 401')
     expect(toastWrapper.text()).toContain('req_toast_01')
+  })
+
+  it('omits dangling aria-labelledby when custom #header slot is used and filters hidden focusable elements', () => {
+    const customHeaderModal = mount(Modal, {
+      props: {
+        open: true,
+        teleportDisabled: true
+      },
+      slots: {
+        header: '<div>Custom header content</div>',
+        default: '<p>Dialog body</p>'
+      }
+    })
+    expect(customHeaderModal.get('[role="dialog"]').attributes('aria-labelledby')).toBeUndefined()
+    customHeaderModal.unmount()
+
+    const container = document.createElement('div')
+    container.innerHTML = `
+      <button id="visible-1" type="button">One</button>
+      <button id="hidden-display" type="button" style="display: none">Hidden display</button>
+      <div style="visibility: hidden"><button id="hidden-vis" type="button">Hidden vis</button></div>
+      <div inert><button id="hidden-inert" type="button">Inert</button></div>
+      <div hidden><button id="hidden-attr" type="button">Hidden attr</button></div>
+      <button id="visible-2" type="button">Two</button>
+    `
+    document.body.appendChild(container)
+    const focusables = getFocusableElements(container).map((el) => el.id)
+    expect(focusables).toEqual(['visible-1', 'visible-2'])
+    document.body.removeChild(container)
   })
 })

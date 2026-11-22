@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import Button from './Button.vue'
-import { cn } from './utils'
+import { cn, useUiI18n } from './utils'
 
 export interface EmptyStateProps {
   title: string
@@ -11,13 +12,18 @@ export interface EmptyStateProps {
   clearFilterLabel?: string
 }
 
-withDefaults(defineProps<EmptyStateProps>(), {
+const props = withDefaults(defineProps<EmptyStateProps>(), {
   description: undefined,
   variant: 'empty',
   compact: false,
   actionLabel: undefined,
-  clearFilterLabel: 'Clear all filters'
+  clearFilterLabel: undefined
 })
+
+const { t } = useUiI18n()
+const resolvedClearFilterLabel = computed(
+  () => props.clearFilterLabel ?? t('ui.empty.clearAllFilters')
+)
 
 const emit = defineEmits<{
   action: []
@@ -81,7 +87,7 @@ const emit = defineEmits<{
           size="sm"
           @click="emit('clearFilters')"
         >
-          {{ clearFilterLabel }}
+          {{ resolvedClearFilterLabel }}
         </Button>
         <Button
           v-else-if="actionLabel"
