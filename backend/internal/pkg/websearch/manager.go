@@ -406,6 +406,17 @@ func (m *Manager) getOrCreateHTTPClient(proxyURL string) (*http.Client, error) {
 	return c, nil
 }
 
+// A redirect could resend a Brave header or a Tavily POST body to another endpoint.
+func rejectSearchRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
+func providerHTTPClient(client *http.Client) *http.Client {
+	if client == nil {
+		return &http.Client{Timeout: searchRequestTimeout, CheckRedirect: rejectSearchRedirect}
+	}
+	return &http.Client{Transport: client.Transport, Timeout: client.Timeout, Jar: client.Jar,
+		CheckRedirect: rejectSearchRedirect}
+}
+
 // newHTTPClient creates an HTTP client with proper timeout settings.
 // Uses proxyutil.ConfigureTransportProxy for unified proxy protocol support
 // (HTTP/HTTPS/SOCKS5/SOCKS5H).
@@ -426,7 +437,7 @@ func newHTTPClient(proxyURL string) (*http.Client, error) {
 			return nil, fmt.Errorf("configure proxy: %w", err)
 		}
 	}
-	return &http.Client{Transport: transport, Timeout: searchRequestTimeout}, nil
+	return &http.Client{Transport: transport, Timeout: searchRequestTimeout, CheckRedirect: rejectSearchRedirect}, nil
 }
 
 // GetUsage returns the current usage count for the given provider.

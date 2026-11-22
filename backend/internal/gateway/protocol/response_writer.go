@@ -20,6 +20,7 @@ type attemptCommitWriter struct {
 	skipLine        bool
 	skipLF          bool
 	nativeTerminal  bool
+	jsonArrayStream bool
 }
 
 func (w *attemptCommitWriter) Write(p []byte) (int, error) {
@@ -106,6 +107,10 @@ func (w *attemptCommitWriter) observe(content string) bool {
 			return false
 		}
 		w.context.Set("gateway_stream_only_heartbeats", false)
+		if w.jsonArrayStream {
+			w.response.Semantic()
+			return false
+		}
 		return w.response.BeginTerminal()
 	}
 
@@ -150,8 +155,29 @@ func (w *attemptCommitWriter) observe(content string) bool {
 	return terminal
 }
 
+const trackedWriterKey = "gateway_protocol_attempt_commit_writer"
+
+// BeginJSONArray lets a native encoder own terminal completion across writes.
+// Resolve the tracker through the request so outer middleware can wrap c.Writer.
+func BeginJSONArray(c *gin.Context) func(bool) {
+	value, _ := c.Get(trackedWriterKey)
+	w, ok := value.(*attemptCommitWriter)
+	if !ok {
+		return func(bool) {}
+	}
+	w.jsonArrayStream = true
+	return func(closed bool) {
+		w.jsonArrayStream = false
+		if w.response.ReplayBlocked() && w.response.BeginTerminal() {
+			w.response.FinishTerminal(closed)
+		}
+	}
+}
+
 func TrackResponseWriter(c *gin.Context, response *lifecycle.Response, isHeartbeatData func(string) bool) gin.ResponseWriter {
-	return &attemptCommitWriter{
+	w := &attemptCommitWriter{
 		ResponseWriter: c.Writer, response: response, context: c, isHeartbeatData: isHeartbeatData,
 	}
+	c.Set(trackedWriterKey, w)
+	return w
 }

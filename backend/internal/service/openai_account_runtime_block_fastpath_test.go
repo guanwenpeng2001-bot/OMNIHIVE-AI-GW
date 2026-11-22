@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
@@ -848,4 +849,29 @@ func TestShouldStopOpenAIOAuth429Failover_TracksOneGrokFollowupAttempt(t *testin
 	var state OpenAIOAuth429FailoverState
 	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 0, &state))
 	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(apiKeyAccount, http.StatusTooManyRequests, 2, &state))
+}
+
+type failingWorkBuddyCooldownRepo struct{ wbRepo }
+
+func (r *failingWorkBuddyCooldownRepo) SetTempUnschedulable(_ context.Context, id int64, until time.Time, _ string) error {
+	r.blocked, r.until = id, until
+	return errors.New("unavailable")
+}
+
+func TestWorkBuddyCooldownSurvivesStaleSnapshot(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		repo := &failingWorkBuddyCooldownRepo{}
+		svc := &OpenAIGatewayService{accountRepo: repo}
+		account := wbAccount("cn", "", AccountTypeOAuth)
+		require.NotNil(t, svc.workBuddyFailover(t.Context(), account, &http.Response{StatusCode: 429, Header: http.Header{"Retry-After": {"10"}}}, nil))
+		require.Equal(t, account.ID, repo.blocked)
+		require.Equal(t, time.Now().Add(10*time.Second), repo.until)
+		stale := wbAccount("cn", "", AccountTypeOAuth)
+		require.True(t, svc.isOpenAIAccountRequestRuntimeBlocked(stale, "model"))
+		time.Sleep(10 * time.Second)
+		require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(stale, "model"))
+		svc.BlockAccountScheduling(account, time.Now().Add(time.Hour), "workbuddy_quota")
+		svc.ClearAccountSchedulingBlock(account.ID)
+		require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(stale, "model"))
+	})
 }

@@ -264,6 +264,10 @@ func aggregateWorkBuddyChat(r io.Reader) ([]byte, error) {
 // Inspect the first event before committing a downstream response, allowing a
 // quota error carried under HTTP 200 to move to the next account in the pool.
 func (s *OpenAIGatewayService) normalizeWorkBuddyResponse(ctx context.Context, a *Account, resp *http.Response, stream bool) (*http.Response, error) {
+	// HTTP headers precede both first-frame inspection and synchronous aggregation.
+	if received, ok := ctx.Value(responseHeaderTimerKey{}).(func()); ok {
+		received()
+	}
 	if resp.StatusCode >= 400 || !strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
 		body, err := io.ReadAll(io.LimitReader(resp.Body, (8<<20)+1))
 		_ = resp.Body.Close()

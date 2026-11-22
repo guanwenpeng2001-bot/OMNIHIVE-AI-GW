@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 const defaultFetchAvailableModelsBodyLimit int64 = 8 << 20
@@ -1850,4 +1853,28 @@ func TestExtractProjectIDFromOnboardResponse(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMetadataAndOAuthResponseLimits(t *testing.T) {
+	const limit = metadataBodyLimit
+	reader := strings.NewReader(strings.Repeat("x", limit+32))
+	_, err := readAntigravityBody(reader, limit)
+	require.ErrorContains(t, err, "超过")
+	require.Equal(t, 31, reader.Len())
+	exact, err := readAntigravityBody(strings.NewReader("1234"), 4)
+	require.NoError(t, err)
+	require.Equal(t, "1234", string(exact))
+	for _, status := range []int{200, 403} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(status)
+			_, _ = io.WriteString(w, strings.Repeat("x", limit+1))
+		}))
+		client := newTestClientWithRedirect(map[string]string{UserInfoURL: server.URL})
+		_, err := client.GetUserInfo(t.Context(), "test")
+		server.Close()
+		require.ErrorContains(t, err, "超过")
+	}
+	err = oauthStatusError("refresh", 400, []byte(`{"error":"invalid_grant","error_description":"private"}`))
+	require.ErrorContains(t, err, "invalid_grant")
+	require.NotContains(t, err.Error(), "private")
 }

@@ -18,11 +18,17 @@ func GeminiToMessages(geminiResp map[string]any, model, messageID string, includ
 						if !ok {
 							continue
 						}
-						if text, ok := pm["text"].(string); ok && text != "" {
-							contentBlocks = append(contentBlocks, map[string]any{
-								"type": "text",
-								"text": text,
-							})
+						text, _ := pm["text"].(string)
+						thought, _ := pm["thought"].(bool)
+						signature, _ := pm["thoughtSignature"].(string)
+						if thought && (text != "" || signature != "") {
+							block := map[string]any{"type": "thinking", "thinking": text}
+							if signature != "" {
+								block["signature"] = signature
+							}
+							contentBlocks = append(contentBlocks, block)
+						} else if text != "" {
+							contentBlocks = append(contentBlocks, map[string]any{"type": "text", "text": text})
 						}
 						if inlineData, ok := pm["inlineData"].(map[string]any); includeInlineData && ok {
 							mimeType, _ := inlineData["mimeType"].(string)

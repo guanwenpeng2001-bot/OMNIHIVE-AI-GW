@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/protocol"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/antigravity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/gatewayerror"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
@@ -130,7 +131,7 @@ func (cw *antigravityClientWriter) Write(p []byte) bool {
 		return false
 	}
 	cw.prepareFirstWrite()
-	if _, err := cw.w.Write(p); err != nil {
+	if n, err := cw.w.Write(p); err != nil || n != len(p) {
 		cw.markDisconnected()
 		return false
 	}
@@ -182,7 +183,7 @@ func handleStreamReadError(err error, clientDisconnected bool, prefix string) (d
 	return false, false
 }
 
-func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time) (*antigravityStreamResult, error) {
+func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time) (streamResult *antigravityStreamResult, streamErr error) {
 	if upstreamResponseModelObserverFromContext(c) == nil {
 		beginUpstreamResponseModelObservation(c)
 	}
@@ -302,20 +303,29 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				separator = "["
 				arrayStarted = true
 			}
-			cw.Fprintf("%s%s", separator, payload)
+			cw.Write([]byte(separator + payload))
 			separator = ","
 			return
 		}
 		cw.Fprintf("data: %s\n\n", payload)
 	}
-	defer func() {
-		if nativeJSON && !cw.Disconnected() && c.Request.Context().Err() == nil {
-			if !arrayStarted {
-				cw.Fprintf("[")
+	upstreamComplete := false
+	if nativeJSON {
+		finishArray := protocol.BeginJSONArray(c)
+		defer func() {
+			closed := false
+			if !cw.Disconnected() && c.Request.Context().Err() == nil {
+				if !arrayStarted {
+					cw.Write([]byte("["))
+				}
+				closed = cw.Write([]byte("]"))
 			}
-			cw.Fprintf("]")
-		}
-	}()
+			finishArray(closed && upstreamComplete)
+			if streamResult != nil && cw.Disconnected() {
+				streamResult.clientDisconnect = true
+			}
+		}()
+	}
 
 	// 仅发送一次错误事件，避免多次写入导致协议混乱
 	errorEventSent := false
@@ -343,7 +353,8 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 			return result(true), nil
 		case ev, ok := <-events:
 			if !ok {
-				if !evidence.complete() {
+				upstreamComplete = evidence.complete()
+				if !upstreamComplete {
 					sendErrorEvent("incomplete_stream")
 				}
 				return result(cw.Disconnected()), nil

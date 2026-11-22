@@ -3,8 +3,10 @@ package websearch
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -116,4 +118,36 @@ func TestBraveProvider_Search_EmptyResults(t *testing.T) {
 	resp, err := p.Search(context.Background(), SearchRequest{Query: "test"})
 	require.NoError(t, err)
 	require.Empty(t, resp.Results)
+}
+
+type redirectTransport func(*http.Request) (*http.Response, error)
+
+func (f redirectTransport) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+func TestSearchProvidersRejectRedirects(t *testing.T) {
+	for _, provider := range []string{"brave", "tavily"} {
+		for _, status := range []int{302, 307, 308} {
+			calls := 0
+			client := &http.Client{Transport: redirectTransport(func(req *http.Request) (*http.Response, error) {
+				calls++
+				require.NotEqual(t, "other.example", req.URL.Host)
+				return &http.Response{StatusCode: status, Header: http.Header{"Location": {"https://other.example/"}},
+					Body: io.NopCloser(strings.NewReader("")), Request: req}, nil
+			})}
+			search := NewBraveProvider("fixture", client).Search
+			if provider == "tavily" {
+				search = NewTavilyProvider("fixture", client).Search
+			}
+			_, err := search(t.Context(), SearchRequest{Query: "demo"})
+			require.Error(t, err)
+			require.Equal(t, 1, calls)
+			require.Nil(t, client.CheckRedirect, "preserve the caller's client")
+		}
+	}
+	managed, err := newHTTPClient("")
+	require.NoError(t, err)
+	for _, client := range []*http.Client{managed, NewBraveProvider("", nil).httpClient, NewTavilyProvider("", nil).httpClient} {
+		require.Positive(t, client.Timeout)
+		require.ErrorIs(t, client.CheckRedirect(nil, nil), http.ErrUseLastResponse)
+	}
 }

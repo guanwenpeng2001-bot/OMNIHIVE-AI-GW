@@ -1,11 +1,16 @@
 package service
 
 import (
+	"context"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
@@ -38,4 +43,73 @@ func TestWorkBuddyAggregateFragmentedToolArguments(t *testing.T) {
 	require.Equal(t, "[]", messages[0].Get("tool_calls.0.function.arguments").Str)
 	require.Equal(t, "one two", messages[1].Get("content").Str)
 	require.Equal(t, "no thanks", messages[1].Get("refusal").Str)
+}
+
+func TestWorkBuddyHeaderTimeoutEndsBeforeBody(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		synctest.Test(t, func(t *testing.T) {
+			parent, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			ctx, _, finish := boundedStreamContext(parent, time.Second)
+			defer finish()
+			r, w := io.Pipe()
+			go func() {
+				time.Sleep(2 * time.Second)
+				if ctx.Err() != nil {
+					_ = w.CloseWithError(ctx.Err())
+					return
+				}
+				_, _ = io.WriteString(w, wbSSE)
+				_ = w.Close()
+			}()
+			resp := &http.Response{StatusCode: 200, Body: r, Header: http.Header{"Content-Type": {"text/event-stream"}}}
+			out, err := (&OpenAIGatewayService{}).normalizeWorkBuddyResponse(ctx, wbAccount("cn", "", AccountTypeOAuth), resp, stream)
+			require.NoError(t, err)
+			_, err = io.ReadAll(out.Body)
+			require.NoError(t, err)
+			require.NoError(t, out.Body.Close())
+			require.NoError(t, ctx.Err())
+			cancel()
+			require.ErrorIs(t, ctx.Err(), context.Canceled)
+		})
+	}
+}
+
+func TestWorkBuddySlowRawAndMessages(t *testing.T) {
+	for _, route := range []string{"chat/completions", "messages"} {
+		t.Run(route, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				const base = "http://127.0.0.1"
+				client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					r, w := io.Pipe()
+					go func() {
+						time.Sleep(2 * time.Second)
+						if err := req.Context().Err(); err != nil {
+							_ = w.CloseWithError(err)
+							return
+						}
+						_, _ = io.WriteString(w, wbSSE)
+						_ = w.Close()
+					}()
+					return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: r}, nil
+				})}
+				cfg := wbConfig(base)
+				cfg.Gateway.OpenAIResponseHeaderTimeout = 1
+				gateway := &OpenAIGatewayService{cfg: cfg, httpUpstream: wbHTTP{client}}
+				account := wbAccount("cn", base, AccountTypeAPIKey)
+				body := []byte(`{"model":"hy3","max_tokens":32,"messages":[{"role":"user","content":"hi"}]}`)
+				rec := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(rec)
+				c.Request = httptest.NewRequest("POST", "/v1/"+route, nil)
+				forward := gateway.ForwardAsChatCompletions
+				if route == "messages" {
+					forward = gateway.ForwardAsAnthropic
+				}
+				result, err := forward(t.Context(), c, account, body, "", "")
+				require.NoError(t, err)
+				require.Equal(t, 5, result.Usage.OutputTokens)
+				require.Contains(t, rec.Body.String(), "hello")
+			})
+		})
+	}
 }
