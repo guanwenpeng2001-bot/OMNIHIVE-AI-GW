@@ -328,6 +328,10 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 			}
 			return h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, promptCacheKey, "")
 		}()
+		var usageErr *service.RawChatUsageError
+		if result == nil && errors.As(err, &usageErr) {
+			result = usageErr.Result
+		}
 		var cyberBlockBodyChat []byte
 		if service.GetOpsCyberPolicy(c) != nil {
 			cyberBlockBodyChat = body
@@ -349,6 +353,14 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 		submitChatUsage := func(res *service.OpenAIForwardResult) {
 			if res == nil {
 				return
+			}
+			if err == nil && res.Stream && res.UpstreamEndpoint == "/v1/chat/completions" && service.IsCompatibleProvider(account.Platform) && res.TokenUsageObservation != nil {
+				// Native compatible Chat can finish with optional counters absent.
+				// Keep the forward result's metering flag, but let the receipt's
+				// counter presence drive review independently of completion state.
+				receiptResult := *res
+				receiptResult.UsageIncomplete = false
+				res = &receiptResult
 			}
 			stampOpenAIRequestedReasoningEffort(res, c)
 			userAgent := c.GetHeader("User-Agent")
