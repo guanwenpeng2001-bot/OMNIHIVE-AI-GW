@@ -25,6 +25,7 @@ builds:
       - linux
     goarch:
       - amd64
+      - arm64
     ldflags:
       - -s -w
       - -X main.Version={{.Version}}
@@ -43,6 +44,7 @@ builds:
       - linux
     goarch:
       - amd64
+      - arm64
     ldflags:
       - -s -w
   - id: omnihive-retire
@@ -57,6 +59,7 @@ builds:
       - linux
     goarch:
       - amd64
+      - arm64
     ldflags:
       - -s -w
 
@@ -79,15 +82,13 @@ checksum:
 changelog:
   disable: true
 
-# 仅 GHCR x86_64 镜像
+# GHCR amd64/arm64 镜像（单架构分片，随后由 manifest 合并）
 dockers:
   - id: ghcr-amd64
     goos: linux
     goarch: amd64
     image_templates:
       - "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}-amd64"
-      - "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}"
-      - "{{ if not .Prerelease }}ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:latest{{ end }}"
     dockerfile: Dockerfile.goreleaser
     use: buildx
     extra_files:
@@ -101,8 +102,35 @@ dockers:
       - "--label=org.opencontainers.image.revision={{ .Commit }}"
       - "--label=org.opencontainers.image.source=https://github.com/{{ .Env.GITHUB_REPO_OWNER }}/{{ .Env.GITHUB_REPO_NAME }}"
 
-# 跳过 manifests（单架构不需要）
-docker_manifests: []
+  - id: ghcr-arm64
+    goos: linux
+    goarch: arm64
+    image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}-arm64"
+    dockerfile: Dockerfile.goreleaser
+    use: buildx
+    extra_files:
+      - LICENSE
+      - NOTICE
+      - deploy/docker-entrypoint.sh
+      - backend/resources
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.revision={{ .Commit }}"
+      - "--label=org.opencontainers.image.source=https://github.com/{{ .Env.GITHUB_REPO_OWNER }}/{{ .Env.GITHUB_REPO_NAME }}"
+
+docker_manifests:
+  - name_template: "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}-arm64"
+
+  - name_template: "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:latest"
+    skip_push: auto
+    image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}-arm64"
 
 release:
   extra_files:
@@ -116,7 +144,7 @@ release:
   name_template: "OmniHive AI Gateway v{{.Version}} (Simple)"
   header: |
     > OmniHive AI Gateway — self-hosted multi-protocol AI API gateway. Upgrade from the admin console (version badge → Update) or pull the matching Docker image.
-    > ⚡ Simple Release: 包含 Linux x86_64 自更新包与 GHCR 镜像
+    > ⚡ Simple Release: 包含 Linux amd64/arm64 自更新包与 GHCR 多架构镜像
 
     {{ .Env.TAG_MESSAGE }}
 
@@ -125,7 +153,7 @@ release:
 
     ## 📥 Installation
 
-    **Docker (x86_64 only):**
+    **Docker (amd64/arm64):**
     ```bash
     docker pull ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}
     ```

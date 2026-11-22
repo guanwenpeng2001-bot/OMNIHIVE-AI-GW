@@ -7,6 +7,18 @@
 .gitignore
 .gitattributes
 
+# Local cloud/agent credentials and developer state must never reach a build
+# daemon or remote BuildKit context.
+.aws/
+.ssh/
+.agents/
+.codex/
+.cache/
+
+# Private keys and certificates at any depth.
+**/*.pem
+**/*.key
+
 # Documentation
 *.md
 !deploy/DOCKER.md
@@ -34,6 +46,7 @@ build/
 # Node modules (will be installed in container)
 frontend/node_modules/
 node_modules/
+tools/pi-catalog/node_modules/
 
 # Go build cache (will be built in container)
 backend/vendor/
@@ -88,3 +101,7 @@ CLAUDE.md
 .pi/
 **/.pi/
 **/audit.json
+
+# Local generated outputs and quality-gate state.
+outputs/
+.quality-gate/

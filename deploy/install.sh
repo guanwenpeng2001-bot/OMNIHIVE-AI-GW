@@ -43,7 +43,7 @@ LEGACY_CONFIG_DIR="/etc/sub2api"
 LEGACY_SERVICE_NAME="sub2api"
 
 # Server configuration (will be set by user)
-SERVER_HOST="0.0.0.0"
+SERVER_HOST="127.0.0.1"
 SERVER_PORT="8080"
 
 # Language (default: zh = Chinese)
@@ -455,7 +455,8 @@ detect_platform() {
             OS="linux"
             ;;
         darwin)
-            OS="darwin"
+            print_error "macOS is not supported by the systemd installer. Use deploy/apple-container.sh on macOS 26 (Apple container 1.1.0 or newer)."
+            exit 1
             ;;
         *)
             print_error "$(msg 'unsupported_os'): $OS"
@@ -884,6 +885,8 @@ SyslogIdentifier=omnihive
 
 # Security hardening
 NoNewPrivileges=true
+UMask=0077
+LimitNOFILE=65536
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
@@ -1315,10 +1318,10 @@ main() {
             echo ""
             echo "Examples:"
             echo "  $0                        # Install latest version"
-            echo "  $0 install -v v0.1.0      # Install specific version"
+            echo "  $0 install -v v0.3.2      # Install specific version"
             echo "  $0 upgrade                # Upgrade to latest"
-            echo "  $0 upgrade -v v0.2.0      # Upgrade to specific version"
-            echo "  $0 rollback v0.1.0        # Rollback to v0.1.0"
+            echo "  $0 upgrade -v v0.3.2      # Upgrade to specific version"
+            echo "  $0 rollback v0.3.1        # Rollback to v0.3.1"
             echo "  $0 list-versions          # List available versions"
             echo ""
             exit 0

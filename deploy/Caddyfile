@@ -106,7 +106,16 @@ api.example.com {
 			roll_keep 10
 			roll_keep_for 720h
 		}
-		format json
+		format filter {
+			wrap json
+			request>uri regexp "/api/v1/plugin-ui/[^/]+" "/api/v1/plugin-ui/REDACTED"
+			request>uri query {
+				delete token access_token api_key apikey signature
+				replace code REDACTED
+				hash state
+			}
+			request>headers>Authorization delete
+		}
 		level INFO
 	}
 
