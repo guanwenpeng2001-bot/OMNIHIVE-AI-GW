@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,16 +29,18 @@ func TestCacheBasePatch_ProvenSourceFieldsUseExistingPipeline(t *testing.T) {
 	require.Len(t, approvedPatch, 6)
 
 	for _, reviewed := range []struct {
-		modelID string
-		field   string
-		oldBase float64
+		modelID   string
+		field     string
+		dimension string
+		oldBase   float64
+		exactBase string
 	}{
-		{"gemini-2.5-pro", "cache_creation_input_token_cost", 1.25e-6},
-		{"gemini-3-pro-preview", "cache_creation_input_token_cost", 2e-6},
-		{"gpt-5.4-pro", "cache_read_input_token_cost", 3e-6},
-		{"gpt-5.4-pro-2026-03-05", "cache_read_input_token_cost", 3e-6},
-		{"gpt-5.5-pro", "cache_read_input_token_cost", 3e-6},
-		{"gpt-5.5-pro-2026-04-23", "cache_read_input_token_cost", 3e-6},
+		{"gemini-2.5-pro", "cache_creation_input_token_cost", "cache_write", 1.25e-6, "0.00000125"},
+		{"gemini-3-pro-preview", "cache_creation_input_token_cost", "cache_write", 2e-6, "0.000002"},
+		{"gpt-5.4-pro", "cache_read_input_token_cost", "cache_read", 3e-6, "0.000003"},
+		{"gpt-5.4-pro-2026-03-05", "cache_read_input_token_cost", "cache_read", 3e-6, "0.000003"},
+		{"gpt-5.5-pro", "cache_read_input_token_cost", "cache_read", 3e-6, "0.000003"},
+		{"gpt-5.5-pro-2026-04-23", "cache_read_input_token_cost", "cache_read", 3e-6, "0.000003"},
 	} {
 		t.Run(reviewed.modelID, func(t *testing.T) {
 			modelID, field := reviewed.modelID, reviewed.field
@@ -66,6 +69,8 @@ func TestCacheBasePatch_ProvenSourceFieldsUseExistingPipeline(t *testing.T) {
 			require.NoError(t, os.WriteFile(svc.cfg.Pricing.OverrideFile, []byte(`{}`), 0600))
 			require.NoError(t, svc.loadPricingData(svc.getPricingFilePath()))
 			before := *svc.pricingData[modelID]
+			before.exactTokenRates = maps.Clone(before.exactTokenRates)
+			require.NotContains(t, before.exactTokenRates, reviewed.dimension, "missing base rates must not be synthesized from tiers")
 			if field == "cache_creation_input_token_cost" {
 				require.Zero(t, before.CacheCreationInputTokenCost, "fallback must not fill an existing model's missing field")
 			} else {
@@ -83,6 +88,9 @@ func TestCacheBasePatch_ProvenSourceFieldsUseExistingPipeline(t *testing.T) {
 			quote := before.sourceQuotes[field]
 			quote.Value = &approvedBase
 			before.sourceQuotes[field] = quote
+			// Exact billing retains the decimal form of this same approved field.
+			// The full comparison still rejects changes to any other rate or tier.
+			before.exactTokenRates[reviewed.dimension] = reviewed.exactBase
 			require.Equal(t, before, *svc.pricingData[modelID], "only the proven base field may change")
 			require.Equal(t, unrelated, *svc.pricingData["claude-sonnet-4-5"])
 			require.Equal(t, anchor, svc.localHash)
@@ -132,6 +140,7 @@ func TestCacheBasePatch_ProvenSourceFieldsUseExistingPipeline(t *testing.T) {
 			} else {
 				require.Zero(t, svc.pricingData[modelID].CacheReadInputTokenCost)
 			}
+			require.NotContains(t, svc.pricingData[modelID].exactTokenRates, reviewed.dimension)
 		})
 	}
 }
@@ -186,6 +195,7 @@ func TestCacheBasePatch_InitializeAndReloadKeepDeferredEntriesUnknown(t *testing
 	} {
 		require.NotContains(t, patch, modelID, "deferred IDs must not be guessed or aliased")
 		require.Zero(t, svc.pricingData[modelID].CacheCreationInputTokenCost)
+		require.NotContains(t, svc.pricingData[modelID].exactTokenRates, "cache_write")
 		require.True(t, logSink.ContainsMessage(modelID+"(cache_creation_input_token_cost_above_200k_tokens)"))
 	}
 	// The dropped-price sentinel remains active for an unrelated synthetic model.
