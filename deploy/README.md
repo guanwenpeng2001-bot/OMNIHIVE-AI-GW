@@ -53,10 +53,10 @@ Use the automated preparation script for the easiest setup:
 
 ```bash
 # Download and run the preparation script
-curl -fsSL --globoff 'https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/v0.2.4/deploy/docker-deploy.sh' | bash
+curl -fsSL --globoff 'https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/v0.3.2/deploy/docker-deploy.sh' | bash
 
 # Or download first, then run
-curl -fsSL --globoff 'https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/v0.2.4/deploy/docker-deploy.sh' -o docker-deploy.sh
+curl -fsSL --globoff 'https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/v0.3.2/deploy/docker-deploy.sh' -o docker-deploy.sh
 chmod +x docker-deploy.sh
 ./docker-deploy.sh
 ```
@@ -66,9 +66,9 @@ chmod +x docker-deploy.sh
 - Automatically generates secure secrets (JWT_SECRET, TOTP_ENCRYPTION_KEY, POSTGRES_PASSWORD)
 - Creates `.env` file with generated secrets
 - Creates necessary data directories (data/, postgres_data/, redis_data/)
-- **Displays generated credentials** (POSTGRES_PASSWORD, JWT_SECRET, etc.)
+- Writes `.env` with mode `0600` and prints the private credential file path (secrets are not echoed)
 
-The script defaults to release tag `v0.2.4`; set `OMNIHIVE_RELEASE_TAG` to explicitly
+The script defaults to release tag `v0.3.2`; set `OMNIHIVE_RELEASE_TAG` to explicitly
 select another release. Downloads fail on HTTP errors and are validated in a temporary
 directory before being moved into place. If either `docker-compose.yml` or `.env` already
 exists, the script exits without overwriting or changing the deployment.
@@ -81,8 +81,8 @@ docker compose up -d
 # View logs
 docker compose logs -f omnihive
 
-# If admin password was auto-generated, find it in logs:
-docker compose logs omnihive | grep "admin password"
+# If admin password was auto-generated, read the private admin
+# password file path from first-start logs.
 
 # Access Web UI
 # http://localhost:8080
@@ -152,9 +152,10 @@ When using Docker Compose with `AUTO_SETUP=true`:
 
 2. No manual Setup Wizard needed - just configure `.env` and start
 
-3. If `ADMIN_PASSWORD` is not set, check logs for the generated password:
+3. If `ADMIN_PASSWORD` is not set, check first-start logs for the generated
+   admin password file path:
    ```bash
-   docker compose logs omnihive | grep "admin password"
+   docker compose logs omnihive | grep "admin password file"
    ```
 
 ### Startup and Database Recovery
@@ -254,7 +255,7 @@ docker compose down -v
 
 ### Version Check, Upgrade and Rollback (Docker)
 
-Pin the image tag (for example `:v0.2.23` or `:0.2`) instead of `:latest` so an
+Pin the image tag (for example `:v0.3.2` or `:0.3`) instead of `:latest` so an
 upgrade or rollback is reproducible:
 
 ```bash
@@ -296,6 +297,7 @@ before draining so in-flight usage receipts can be persisted.
 | `TOTP_ENCRYPTION_KEY` | **Recommended** | *(auto-generated)* | TOTP encryption key (fixed for persistent 2FA) |
 | `BIND_HOST` | No | `127.0.0.1` | Host address for the Compose port; keep loopback behind Caddy. Standalone defaults to `0.0.0.0` and needs operator-provided TLS if exposed. |
 | `SERVER_PORT` | No | `8080` | Published host port in Compose; application always listens on container port 8080 |
+| `OMNIHIVE_IMAGE_TAG` | No | `v0.3.2` | Application image tag used by all Compose templates; keep it pinned to a release rather than `latest`. |
 | `ADMIN_EMAIL` | No | `admin@omnihive.local` | Admin email |
 | `ADMIN_PASSWORD` | No | *(auto-generated)* | Admin password |
 | `TZ` | No | `Asia/Shanghai` | Timezone |
@@ -338,6 +340,9 @@ for the unchanged security defaults, forwarded-header trust and outbound endpoin
 The TLS site in `Caddyfile` sets one-year HSTS with `includeSubDomains`, without `preload`.
 Enable it only after every subdomain supports HTTPS; the application retains its other
 security headers, so verify the final HTTPS response after replacing `api.example.com`.
+For the bundled same-host Caddy listener, set `SERVER_TRUSTED_PROXIES=127.0.0.1/32,::1/128`
+in `.env` so the application trusts forwarded client IPs only from the local proxy;
+see [EDGE_SECURITY.md](./EDGE_SECURITY.md) for CDN and multi-host proxy guidance.
 
 For a source production image use `docker build -f Dockerfile .` from the repository root;
 `deploy/Dockerfile` carries the same runtime section, including `pg_dump` and `psql` from
@@ -506,7 +511,7 @@ sudo /opt/omnihive/omnihive --version
 sudo ./install.sh list-versions
 
 # Rollback to a specific release version
-sudo ./install.sh rollback v0.2.23
+sudo ./install.sh rollback v0.3.2
 
 # Uninstall
 sudo ./install.sh uninstall

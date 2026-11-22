@@ -21,12 +21,14 @@ const props = withDefaults(
     inspected?: boolean
     isZh?: boolean
     isAdmin?: boolean
+    canManageByok?: boolean
   }>(),
   {
     compareMode: false,
     inspected: false,
     isZh: false,
-    isAdmin: false
+    isAdmin: false,
+    canManageByok: true
   }
 )
 
@@ -254,6 +256,7 @@ function triggerToolResponse(tc: PlaygroundToolCallView): void {
         </span>
         <div class="flex flex-wrap items-center gap-1.5">
           <Button
+            v-if="canManageByok"
             :data-testid="`playground-goto-byok-${sideKey}`"
             variant="secondary"
             size="xs"
@@ -261,6 +264,13 @@ function triggerToolResponse(tc: PlaygroundToolCallView): void {
           >
             {{ t('playgroundErrors.gotoByokAction') }}
           </Button>
+          <span
+            v-else-if="!isAdmin"
+            :data-testid="`playground-contact-admin-${sideKey}`"
+            class="text-[11px] text-[var(--oh-ink-tertiary,var(--muted-foreground))]"
+          >
+            {{ isZh ? '请联系工作空间管理员配置模型路由或 BYOK 凭证。' : 'Ask a workspace admin to configure a model route or BYOK credential.' }}
+          </span>
           <Button
             v-if="isAdmin"
             :data-testid="`playground-goto-admin-catalog-${sideKey}`"

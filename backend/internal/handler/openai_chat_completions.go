@@ -216,6 +216,10 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 			attemptTarget, hasAttemptTarget, targetErr := h.gatewayService.CompositeTargetForAttempt(
 				service.WithCompositeTargetAdvancement(service.WithCompositeExcludedAccounts(selectContext, attempts.FailedAccountIDs)), apiKey.GroupID)
 			if targetErr != nil {
+				if errors.Is(targetErr, service.ErrCompositeTargetLookup) {
+					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Composite target availability could not be verified", streamStarted)
+					return
+				}
 				h.handleStreamingAwareError(c, http.StatusBadRequest, "invalid_request_error", targetErr.Error(), streamStarted)
 				return
 			}
@@ -253,6 +257,12 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 				zap.Error(openAICompatibleSelectionErrorForLog(err, attemptPlatform)),
 				zap.Int("excluded_account_count", len(attempts.FailedAccountIDs)),
 			)
+			if native == "" && (errors.Is(err, service.ErrNoAvailableAccounts) || errors.Is(err, service.ErrNoAvailableCompactAccounts)) {
+				if remaining, ok := service.RemainingCompositeTargets(selectContext); ok {
+					c.Request = c.Request.WithContext(remaining)
+					continue
+				}
+			}
 			if len(attempts.FailedAccountIDs) == 0 {
 				cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel)
 				cls = classifySelectionFailureError(err, cls)
@@ -318,6 +328,10 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 			}
 			return h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, promptCacheKey, "")
 		}()
+		var usageErr *service.RawChatUsageError
+		if result == nil && errors.As(err, &usageErr) {
+			result = usageErr.Result
+		}
 		var cyberBlockBodyChat []byte
 		if service.GetOpsCyberPolicy(c) != nil {
 			cyberBlockBodyChat = body
@@ -339,6 +353,14 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 		submitChatUsage := func(res *service.OpenAIForwardResult) {
 			if res == nil {
 				return
+			}
+			if err == nil && res.Stream && res.UpstreamEndpoint == "/v1/chat/completions" && service.IsCompatibleProvider(account.Platform) && res.TokenUsageObservation != nil {
+				// Native compatible Chat can finish with optional counters absent.
+				// Keep the forward result's metering flag, but let the receipt's
+				// counter presence drive review independently of completion state.
+				receiptResult := *res
+				receiptResult.UsageIncomplete = false
+				res = &receiptResult
 			}
 			stampOpenAIRequestedReasoningEffort(res, c)
 			userAgent := c.GetHeader("User-Agent")

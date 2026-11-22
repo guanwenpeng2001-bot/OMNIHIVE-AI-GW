@@ -6,11 +6,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"golang.org/x/mod/semver"
 )
 
@@ -20,6 +22,20 @@ type backupManifest struct {
 	Version string `json:"version"`
 	Digest  string `json:"sha256"`
 	MAC     []byte `json:"hmac_sha256"`
+}
+
+// Preserve existing signatures when an explicit TOTP key was used. Otherwise
+// derive a separate local-backup key from the server's persisted JWT secret.
+func updateBackupKey(cfg *config.Config) []byte {
+	if cfg.Totp.EncryptionKeyConfigured {
+		return []byte(cfg.Totp.EncryptionKey)
+	}
+	if cfg.JWT.Secret == "" {
+		return nil
+	}
+	mac := hmac.New(sha256.New, []byte(cfg.JWT.Secret))
+	_, _ = mac.Write([]byte("omnihive/update-backup-key/v1"))
+	return mac.Sum(nil)
 }
 
 func (s *UpdateService) backupMAC(m backupManifest) ([]byte, error) {
@@ -32,13 +48,17 @@ func (s *UpdateService) backupMAC(m backupManifest) ([]byte, error) {
 }
 
 func (s *UpdateService) runningManifest() (backupManifest, error) {
+	path, err := s.runningBinary()
+	if err != nil {
+		return backupManifest{}, err
+	}
+	return s.backupManifestFor(path)
+}
+
+func (s *UpdateService) backupManifestFor(path string) (backupManifest, error) {
 	m := backupManifest{Product: updateBinaryName, Version: backupVersion(s.currentVersion)}
 	if m.Version == "" {
 		return m, fmt.Errorf("invalid running release version")
-	}
-	path, err := s.runningBinary()
-	if err != nil {
-		return m, err
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -74,17 +94,7 @@ func writeBackupManifest(backup string, m backupManifest) error {
 }
 
 func (s *UpdateService) prepareBackupManifest(path string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	version := backupVersion(s.currentVersion)
-	if version == "" {
-		return fmt.Errorf("invalid running release version")
-	}
-	digest := sha256.Sum256(data)
-	m := backupManifest{Product: updateBinaryName, Version: version, Digest: hex.EncodeToString(digest[:])}
-	m.MAC, err = s.backupMAC(m)
+	m, err := s.backupManifestFor(path)
 	if err != nil {
 		return err
 	}
@@ -110,23 +120,40 @@ func (s *UpdateService) databaseRollbackFloor(ctx context.Context) (string, erro
 }
 
 func (s *UpdateService) verifyBackup(path, floor string) error {
-	b, err := os.ReadFile(path + ".manifest.json")
+	f, err := os.Open(path + ".manifest.json")
+	if errors.Is(err, os.ErrNotExist) {
+		return ErrRollbackManifestInvalid.WithCause(err)
+	}
+	if err != nil {
+		return fmt.Errorf("read backup manifest: %w", err)
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, maxReleaseManifestSize+1))
 	if err != nil {
 		return fmt.Errorf("read backup manifest: %w", err)
 	}
 	var m backupManifest
+	if len(b) > maxReleaseManifestSize {
+		return ErrRollbackManifestInvalid
+	}
 	if err = json.Unmarshal(b, &m); err != nil {
-		return err
+		return ErrRollbackManifestInvalid.WithCause(err)
 	}
 	mac, err := s.backupMAC(m)
 	if err != nil {
-		return err
+		return ErrRollbackManifestInvalid.WithCause(err)
 	}
 	if !hmac.Equal(m.MAC, mac) || m.Product != updateBinaryName || backupVersion(m.Version) == "" {
 		return ErrRollbackManifestInvalid
 	}
+	if err := verifyReleaseChecksum(path, m.Digest); err != nil {
+		if errors.Is(err, errReleaseChecksumMismatch) || errors.Is(err, os.ErrNotExist) {
+			return ErrRollbackManifestInvalid.WithCause(err)
+		}
+		return err
+	}
 	if semver.Compare(releaseVersion(m.Version), floor) < 0 {
 		return rollbackBelowFloor(m.Version, floor)
 	}
-	return verifyReleaseChecksum(path, m.Digest)
+	return nil
 }

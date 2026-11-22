@@ -5,7 +5,10 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/mail"
@@ -21,6 +24,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/logredact"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 )
 
 // installMutex prevents concurrent installation attempts (TOCTOU protection)
@@ -139,12 +143,34 @@ type TestDatabaseRequest struct {
 	SSLMode  string `json:"sslmode"`
 }
 
+const maxSetupRequestBytes = 64 << 10
+
+func bindSetupRequest(c *gin.Context, dst any) bool {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxSetupRequestBytes)
+	data, err := io.ReadAll(c.Request.Body)
+	var maxErr *http.MaxBytesError
+	if errors.As(err, &maxErr) {
+		response.Error(c, http.StatusRequestEntityTooLarge, "Setup request is too large")
+		return false
+	}
+	if err == nil {
+		err = json.Unmarshal(data, dst)
+	}
+	if err == nil {
+		err = binding.Validator.ValidateStruct(dst)
+	}
+	if err != nil {
+		slog.Warn("setup request validation failed", "error", logredact.RedactDiagnostic(err.Error()))
+		response.Error(c, http.StatusBadRequest, "Invalid request")
+		return false
+	}
+	return true
+}
+
 // testDatabase tests database connection
 func testDatabase(c *gin.Context) {
 	var req TestDatabaseRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		slog.Warn("setup request validation failed", "error", logredact.RedactDiagnostic(err.Error()))
-		response.Error(c, http.StatusBadRequest, "Invalid request")
+	if !bindSetupRequest(c, &req) {
 		return
 	}
 
@@ -204,9 +230,7 @@ type TestRedisRequest struct {
 // testRedis tests Redis connection
 func testRedis(c *gin.Context) {
 	var req TestRedisRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		slog.Warn("setup request validation failed", "error", logredact.RedactDiagnostic(err.Error()))
-		response.Error(c, http.StatusBadRequest, "Invalid request")
+	if !bindSetupRequest(c, &req) {
 		return
 	}
 
@@ -256,20 +280,8 @@ type InstallRequest struct {
 
 // install performs the installation
 func install(c *gin.Context) {
-	// TOCTOU Protection: Acquire mutex to prevent concurrent installation
-	installMutex.Lock()
-	defer installMutex.Unlock()
-
-	// Double-check after acquiring lock
-	if !NeedsSetup() {
-		response.Error(c, http.StatusForbidden, "Setup is not allowed: system is already installed")
-		return
-	}
-
 	var req InstallRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		slog.Warn("setup request validation failed", "error", logredact.RedactDiagnostic(err.Error()))
-		response.Error(c, http.StatusBadRequest, "Invalid request")
+	if !bindSetupRequest(c, &req) {
 		return
 	}
 
@@ -367,6 +379,13 @@ func install(c *gin.Context) {
 		},
 	}
 
+	installMutex.Lock()
+	defer installMutex.Unlock()
+	if !NeedsSetup() {
+		response.Error(c, http.StatusForbidden, "Setup is not allowed: system is already installed")
+		return
+	}
+
 	if err := Install(cfg); err != nil {
 		response.Error(c, http.StatusInternalServerError, "Installation failed")
 		return
@@ -387,11 +406,17 @@ func install(c *gin.Context) {
 }
 
 // The first credential is delivered only through the local data directory.
-// Each request rotates it without extending the installation window.
+// A successful rotation renews the idle window within the total setup window.
+const (
+	bootstrapIdleWindow = 2 * time.Hour
+	bootstrapMaxWindow  = 12 * time.Hour
+)
+
 var bootstrapState struct {
 	sync.Mutex
 	digest    [32]byte
 	expiresAt time.Time
+	deadline  time.Time
 	path      string
 }
 
@@ -403,11 +428,13 @@ func initializeBootstrapToken() error {
 		return err
 	}
 	tokenPath := filepath.Join(GetDataDir(), "setup-bootstrap-token")
-	if err := os.WriteFile(tokenPath, []byte(token+"\n"), 0600); err != nil {
+	if err := writeBootstrapToken(tokenPath, token); err != nil {
 		return err
 	}
 	bootstrapState.digest = sha256.Sum256([]byte(token))
-	bootstrapState.expiresAt = time.Now().Add(30 * time.Minute)
+	now := time.Now()
+	bootstrapState.expiresAt = now.Add(bootstrapIdleWindow)
+	bootstrapState.deadline = now.Add(bootstrapMaxWindow)
 	bootstrapState.path = tokenPath
 	slog.Info("setup bootstrap token written to local file", "path", tokenPath)
 	return nil
@@ -421,13 +448,32 @@ func newBootstrapToken() (string, error) {
 	return hex.EncodeToString(randomBytes), nil
 }
 
+func writeBootstrapToken(path, token string) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".setup-token-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	_, err = io.WriteString(f, token+"\n")
+	if err = errors.Join(err, f.Close()); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
+}
+
 func consumeBootstrapToken(c *gin.Context) bool {
 	bootstrapState.Lock()
 	defer bootstrapState.Unlock()
 	supplied := strings.TrimSpace(c.GetHeader("X-Setup-Bootstrap-Token"))
 	digest := sha256.Sum256([]byte(supplied))
-	if supplied == "" || !time.Now().Before(bootstrapState.expiresAt) || subtle.ConstantTimeCompare(digest[:], bootstrapState.digest[:]) != 1 {
+	now := time.Now()
+	if supplied == "" || subtle.ConstantTimeCompare(digest[:], bootstrapState.digest[:]) != 1 {
 		response.Error(c, http.StatusUnauthorized, "Valid local setup bootstrap token required")
+		c.Abort()
+		return false
+	}
+	if !now.Before(bootstrapState.expiresAt) {
+		response.Error(c, http.StatusUnauthorized, "Local setup bootstrap token expired. Restart setup to issue a new token.")
 		c.Abort()
 		return false
 	}
@@ -437,12 +483,16 @@ func consumeBootstrapToken(c *gin.Context) bool {
 		c.Abort()
 		return false
 	}
-	if err := os.WriteFile(bootstrapState.path, []byte(nextToken+"\n"), 0600); err != nil {
+	if err := writeBootstrapToken(bootstrapState.path, nextToken); err != nil {
 		response.Error(c, http.StatusServiceUnavailable, "Setup authorization unavailable")
 		c.Abort()
 		return false
 	}
 	bootstrapState.digest = sha256.Sum256([]byte(nextToken))
+	bootstrapState.expiresAt = now.Add(bootstrapIdleWindow)
+	if bootstrapState.deadline.Before(bootstrapState.expiresAt) {
+		bootstrapState.expiresAt = bootstrapState.deadline
+	}
 	c.Header("X-Setup-Bootstrap-Token", nextToken)
 	c.Header("Cache-Control", "no-store")
 	return true

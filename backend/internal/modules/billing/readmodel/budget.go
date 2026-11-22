@@ -3,6 +3,7 @@ package readmodel
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -111,8 +112,11 @@ func projectRule(ctx context.Context, q queryer, sc Scope, currency string, at t
 	return r, err
 }
 func (s Store) UpdateBudget(ctx context.Context, sc Scope, id, key string, expected int64, b Budget) (Command, error) {
-	if b.Limit.Currency() == "" {
-		return Command{}, fault.Invalid("/limit")
+	if b.Limit.Currency() != "USD" {
+		return Command{}, fault.Invalid("/limit/currency")
+	}
+	if b.External {
+		return Command{}, fault.Invalid("/include_byok_external_estimates")
 	}
 	if id != "project-"+string(b.Limit.Currency()) {
 		return Command{}, fault.Invalid("/id")
@@ -158,11 +162,11 @@ var Exhausted = &fault.Fault{Status: 402, Reason: "BUDGET_EXHAUSTED", Message: "
 // the same request ID for the journal and this hold. Receipt settlement then
 // supersedes the hold. Release an unused hold on a known no-dispatch outcome.
 func Reserve(ctx context.Context, tx *sql.Tx, sc Scope, request string, amount money.Money) error {
-	_, err := reserve(ctx, tx, sc, request, amount.Currency(), &amount)
+	_, err := reserve(ctx, tx, sc, request, amount.Currency(), &amount, true)
 	return err
 }
 
-func reserve(ctx context.Context, tx *sql.Tx, sc Scope, request string, currency money.Currency, amount *money.Money) (bool, error) {
+func reserve(ctx context.Context, tx *sql.Tx, sc Scope, request string, currency money.Currency, amount *money.Money, persist bool) (bool, error) {
 	if request == "" || (amount != nil && (amount.Currency() != currency || amount.Amount().Compare(money.Amount{}) < 0)) {
 		return false, fault.Invalid("/reservation")
 	}
@@ -192,6 +196,9 @@ func reserve(ctx context.Context, tx *sql.Tx, sc Scope, request string, currency
 	if !errors.Is(err, sql.ErrNoRows) {
 		return false, err
 	}
+	if err := recoverProjectHolds(ctx, tx, sc, currency); err != nil {
+		return false, err
+	}
 	var at time.Time
 	if err = tx.QueryRowContext(ctx, "SELECT clock_timestamp()").Scan(&at); err != nil {
 		return false, err
@@ -209,8 +216,54 @@ func reserve(ctx context.Context, tx *sql.Tx, sc Scope, request string, currency
 			return false, Exhausted
 		}
 	}
+	if !persist {
+		return false, nil
+	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO billing_project_holds(workspace_id,project_id,currency,request_id,amount,admitted_at) VALUES($1,$2,$3,$4,$5,$6)`, sc.Workspace, sc.Project, currency, request, amount.String(), at)
 	return err == nil, err
+}
+
+const uuidTextPattern = `^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})$`
+
+func recoverProjectHolds(ctx context.Context, tx *sql.Tx, sc Scope, currency money.Currency) error {
+	rows, err := tx.QueryContext(ctx, `SELECT e.request_id::text
+ FROM billing_project_holds h JOIN gateway_executions e ON e.request_id=CASE WHEN h.request_id ~* '`+uuidTextPattern+`' THEN h.request_id::uuid END
+ WHERE h.workspace_id=$1 AND h.project_id=$2 AND h.currency=$3 AND h.released_at IS NULL
+ AND (e.finished_at IS NOT NULL OR e.deadline<=clock_timestamp())
+ AND NOT EXISTS (SELECT 1 FROM gateway_execution_attempts a
+   WHERE a.request_id=e.request_id AND a.dispatched_at IS NOT NULL AND a.acceptance<>'not_sent' AND a.outcome<>'rejected')
+ ORDER BY e.deadline LIMIT 100 FOR UPDATE OF e SKIP LOCKED`, sc.Workspace, sc.Project, currency)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var requests []string
+	for rows.Next() {
+		var request string
+		if err := rows.Scan(&request); err != nil {
+			return err
+		}
+		requests = append(requests, request)
+	}
+	if err := rows.Err(); err != nil || len(requests) == 0 {
+		return err
+	}
+	ids, err := json.Marshal(requests)
+	if err != nil {
+		return err
+	}
+	// Recheck evidence in a fresh statement under the dispatch row locks.
+	_, err = tx.ExecContext(ctx, `UPDATE billing_project_holds SET released_at=clock_timestamp()
+ WHERE workspace_id=$1 AND project_id=$2 AND currency=$3 AND released_at IS NULL
+ AND request_id IN (SELECT jsonb_array_elements_text($4::jsonb))
+ AND NOT EXISTS (SELECT 1 FROM gateway_execution_attempts a
+   WHERE a.request_id=CASE WHEN billing_project_holds.request_id ~* '`+uuidTextPattern+`' THEN billing_project_holds.request_id::uuid END
+   AND a.dispatched_at IS NOT NULL
+   AND a.acceptance<>'not_sent' AND a.outcome<>'rejected')
+ AND NOT EXISTS (SELECT 1 FROM usage_settlement_receipts r
+   WHERE r.request_id=billing_project_holds.request_id OR r.billing_command->>'project_reservation_ref'=billing_project_holds.request_id)`,
+		sc.Workspace, sc.Project, currency, string(ids))
+	return err
 }
 
 const releaseProjectHoldSQL = gatewaybudget.ReleaseProjectHold
@@ -222,6 +275,15 @@ func Release(ctx context.Context, tx *sql.Tx, sc Scope, request string, currency
 
 // ReserveProjectBudget returns whether the project has a matching budget hold.
 func (s Store) ReserveProjectBudget(ctx context.Context, owner scope.Authorized, request string, amount *money.Money) (bool, error) {
+	return s.admitProjectBudget(ctx, owner, request, amount, true)
+}
+
+func (s Store) CheckProjectBudget(ctx context.Context, owner scope.Authorized, request string, amount *money.Money) error {
+	_, err := s.admitProjectBudget(ctx, owner, request, amount, false)
+	return err
+}
+
+func (s Store) admitProjectBudget(ctx context.Context, owner scope.Authorized, request string, amount *money.Money, persist bool) (bool, error) {
 	if s.DB == nil {
 		return false, nil
 	}
@@ -230,7 +292,7 @@ func (s Store) ReserveProjectBudget(ctx context.Context, owner scope.Authorized,
 		return false, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	held, err := reserve(ctx, tx, Scope{Workspace: owner.WorkspaceID, Project: owner.ProjectID}, request, "USD", amount)
+	held, err := reserve(ctx, tx, Scope{Workspace: owner.WorkspaceID, Project: owner.ProjectID}, request, "USD", amount, persist)
 	if err != nil {
 		return false, err
 	}

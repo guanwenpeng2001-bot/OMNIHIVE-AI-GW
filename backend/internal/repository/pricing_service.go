@@ -54,7 +54,7 @@ func NewPricingRemoteClient(proxyURL string, allowDirectOnProxyError bool) servi
 		}
 	}
 	return &pricingRemoteClient{
-		httpClient: sharedClient,
+		httpClient: pricingClientWithoutRedirects(sharedClient),
 	}
 }
 
@@ -105,4 +105,10 @@ func (c *pricingRemoteClient) FetchHashText(ctx context.Context, url string) (st
 		return parts[0], nil
 	}
 	return hash, nil
+}
+
+func pricingClientWithoutRedirects(shared *http.Client) *http.Client {
+	client := *shared
+	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return fmt.Errorf("pricing redirects are not allowed") }
+	return &client
 }

@@ -40,25 +40,15 @@ func TestVolcenginePlatformFlow(test *testing.T) {
 	require.True(test, AccountSupportsResolvedModel(context.Background(), &declared, "alias", AccountModelBindingOptions{Endpoint: "responses"}), "saved selection can use the installed Responses transport")
 	require.False(test, AccountSupportsResolvedModel(context.Background(), &declared, "unselected", AccountModelBindingOptions{Endpoint: "responses"}))
 	require.True(test, AccountSupportsResolvedModel(context.Background(), &declared, "alias", AccountModelBindingOptions{Endpoint: "messages"}), "saved selection can use the installed native Messages transport")
-	discoveryTransport := &httpUpstreamRecorder{}
+	discoveryTransport := &httpUpstreamRecorder{responses: []*http.Response{catalogFixtureResponse(`{"data":[{"id":"doubao-seed"},{"id":"seedance-video","task_type":"video_generation"}]}`)}}
 	discoveryService := &AccountTestService{cfg: rawChatCompletionsTestConfig(), httpUpstream: discoveryTransport}
 	discoveryRequest, discoveryErr := discoveryService.buildUpstreamModelsRequest(context.Background(), account)
-	require.ErrorContains(test, discoveryErr, "has not been confirmed")
-	require.Nil(test, discoveryRequest)
-	// Candidate evidence stays internal; the preview must report unconfirmed discovery.
-	preview, discoveryErr := discoveryService.PreviewAccountModelCatalog(context.Background(), account)
-	require.Nil(test, preview)
-	var failure *UpstreamModelSyncError
-	require.ErrorAs(test, discoveryErr, &failure)
-	require.Equal(test, UpstreamModelSyncErrorDiscoveryUnconfirmed, failure.Kind)
-	preview = failure.PartialCatalog
-	require.NotNil(test, preview)
-	require.Equal(test, "platform-candidates", preview.CatalogSource)
-	require.Empty(test, preview.DiscoveredModels)
-	require.Empty(test, preview.EligibleModels)
-	require.False(test, preview.DiscoveryComplete)
-	require.Nil(test, preview.Review)
-	require.Nil(test, discoveryTransport.lastReq)
+	require.NoError(test, discoveryErr)
+	require.Equal(test, volcengineRuntimeBaseURL+"/models", discoveryRequest.URL.String())
+	discovered, discoveryErr := discoveryService.FetchUpstreamSupportedModels(context.Background(), account)
+	require.NoError(test, discoveryErr)
+	require.Equal(test, []string{"doubao-seed", "seedance-video"}, discovered)
+	require.NotNil(test, discoveryTransport.lastReq)
 	for _, stream := range []bool{false, true} {
 		name := "buffered"
 		if stream {

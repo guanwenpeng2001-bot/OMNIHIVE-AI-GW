@@ -108,3 +108,12 @@ func TestGatewayTextBudgetCountsExplicitCacheWrites(t *testing.T) {
 	require.Positive(t, estimate.CacheCreationTokens)
 	require.LessOrEqual(t, estimate.CacheCreationTokens, estimate.InputTokens)
 }
+
+func TestGatewayBudgetOutputDefaultsPerCandidateAndRejectsOverflow(t *testing.T) {
+	estimate := gatewayRequestBudgetEstimate(nil, &service.APIKey{}, "unlisted", []byte(`{"n":3}`))
+	require.Equal(t, 12288, estimate.OutputTokens)
+	estimate = gatewayRequestBudgetEstimate(nil, &service.APIKey{}, "unlisted", []byte(`{"n":2,"max_tokens":7,"max_output_tokens":9}`))
+	require.Equal(t, 18, estimate.OutputTokens)
+	estimate = gatewayRequestBudgetEstimate(nil, &service.APIKey{}, "unlisted", []byte(`{"n":3,"max_output_tokens":9223372036854775807}`))
+	require.True(t, estimate.InvalidBounds)
+}

@@ -2,6 +2,7 @@ package connections
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/credentials"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 )
 
@@ -30,12 +32,12 @@ func connectionWorkflowRows(state, name string, version int64, verification []by
 		"account_id", "workspace_id", "provider", "auth_type", "name", "endpoint", "proxy_id",
 		"model_ids", "pool_ids", "concurrency", "state", "version", "credential_version", "revoked_at",
 		"reference", "snapshot", "fingerprint", "last_four", "fetched", "next_refresh", "quota_status",
-		"used", "headers",
+		"used", "headers", "account_mode", "metadata",
 	}
 	return sqlmock.NewRows(columns).AddRow(
 		int64(3), int64(2), "openai", "api_key", name, "https://example.test", "",
 		"{first-model}", "{}", int64(3), state, version, int64(1), nil, "reference",
-		verification, nil, nil, nil, nil, nil, nil, nil,
+		verification, nil, nil, nil, nil, nil, nil, nil, "", nil,
 	)
 }
 
@@ -119,4 +121,62 @@ func TestPreviewDistinguishesUnavailableEvidenceFromMissingProbe(t *testing.T) {
 			require.NoError(t, mock.ExpectationsWereMet())
 		})
 	}
+}
+
+type publicLaneTestEncryptor struct{}
+
+func (publicLaneTestEncryptor) EncryptionKeyConfigured() bool { return true }
+func (publicLaneTestEncryptor) Encrypt(s string) (string, error) {
+	return base64.StdEncoding.EncodeToString([]byte(s)), nil
+}
+func (publicLaneTestEncryptor) Decrypt(s string) (string, error) {
+	b, e := base64.StdEncoding.DecodeString(s)
+	return string(b), e
+}
+
+func TestPublicLaneConnectionCreatesCredentialVersion(t *testing.T) {
+	for _, lane := range []struct{ provider, mode string }{{"kilo", ""}, {"opencode_go", "zen_free"}} {
+		t.Run(lane.provider, func(t *testing.T) {
+			session, mock := connectionWorkflowSession(t)
+			session.Version = 0
+			session.store = &Store{enc: publicLaneTestEncryptor{}}
+			mock.ExpectQuery("INSERT INTO accounts").WithArgs(2, "free", lane.provider, "apikey").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(3))
+			mock.ExpectExec("INSERT INTO provider_connections").WithArgs(3, 2, "free", lane.provider, "api_key", "", "").WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectQuery("SELECT reference FROM credential_secrets").WithArgs(2, 3, 0).WillReturnRows(sqlmock.NewRows([]string{"reference"}))
+			mock.ExpectExec("SELECT set_config").WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectExec("INSERT INTO credential_secrets").WithArgs(2, 3, 1, sqlmock.AnyArg(), sqlmock.AnyArg(), false, sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectQuery("SELECT workspace_id, credentials, updated_at FROM accounts").WithArgs(3).WillReturnRows(sqlmock.NewRows([]string{"workspace_id", "credentials", "updated_at"}).AddRow(2, []byte(`{}`), time.Now()))
+			mock.ExpectExec("UPDATE accounts SET credentials=\\$2").WithArgs(3, sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectExec("INSERT INTO scheduler_outbox").WithArgs("account_changed", 3).WillReturnResult(sqlmock.NewResult(0, 1))
+			mode := lane.mode
+			if mode == "" {
+				mode = "free"
+			}
+			mock.ExpectExec("SELECT set_config").WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectExec("UPDATE accounts SET credentials=").WithArgs(2, 3, mode).WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectExec("INSERT INTO connection_events").WithArgs(2, 3, 1, "connection.created", 1).WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectQuery("SELECT c.account_id").WithArgs(2, 3).WillReturnRows(connectionWorkflowRows("draft", "free", 1, nil))
+			_, err := session.Create(Create{Provider: lane.provider, AccountMode: lane.mode, AuthType: "api_key", SchemaVersion: SchemaVersion, Name: "free"})
+			require.NoError(t, err)
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+func TestPublicLaneCredentialReplacement(t *testing.T) {
+	for _, c := range []Connection{{Provider: "kilo", AuthType: "api_key"}, {Provider: "opencode_go", AuthType: "api_key", AccountMode: "zen_free"}} {
+		for _, key := range []string{"", "public"} {
+			values, err := c.credentialPayload(credentials.Change{Operation: "set", Type: "api_key", Secret: key})
+			require.NoError(t, err)
+			want := ""
+			if c.Provider == "opencode_go" {
+				want = "public"
+			}
+			require.Equal(t, want, values["api_key"])
+		}
+		_, err := c.credentialPayload(credentials.Change{Operation: "set", Type: "api_key", Secret: "private"})
+		require.Error(t, err)
+	}
+	c := Connection{Provider: "kilo", AuthType: "api_key", AccountMode: "apikey"}
+	_, err := c.credentialPayload(credentials.Change{Operation: "set", Type: "api_key", Secret: "public"})
+	require.Error(t, err)
 }

@@ -77,3 +77,23 @@ func TestPCMTranscriptionBoundUsesActualFrames(t *testing.T) {
 	m = requestMediaMeter(service.GatewayRequestSpec{Route: "/v1/audio/transcriptions"}, wav)
 	require.Zero(t, m.Denominator)
 }
+
+func TestGatewayBudgetGeminiNative4K(t *testing.T) {
+	spec := service.GatewayRequestSpec{Route: "/v1beta/models/gemini:generateContent", Protocol: "gemini"}
+	plan := service.NewGatewayRequestPlan(spec)
+	estimate := gatewayRequestBudgetEstimate(plan, &service.APIKey{}, "gemini", []byte(`{"generationConfig":{"imageConfig":{"imageSize":"4K"},"candidateCount":2}}`))
+	require.Equal(t, &service.BudgetMeter{Unit: "image", Size: "4K", Count: 2, Numerator: 1, Denominator: 1}, estimate.Meter)
+}
+
+func TestGatewayBudgetRejectsAmbiguousImageAliases(t *testing.T) {
+	spec := service.GatewayRequestSpec{Protocol: "images", Route: "/v1/images/generations"}
+	for _, body := range []string{
+		`{"size":"auto","resolution":"4K"}`,
+		`{"size":"typo","resolution":"1K"}`,
+		`{"size":"1K","size":"4K"}`,
+		`{"size":4096,"resolution":"4K"}`,
+	} {
+		require.Error(t, validateMediaRequestAliases(spec, []byte(body)))
+	}
+	require.NoError(t, validateMediaRequestAliases(spec, []byte(`{"size":"3840x2160","resolution":"4K"}`)))
+}

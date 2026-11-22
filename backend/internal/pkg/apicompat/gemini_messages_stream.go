@@ -12,17 +12,19 @@ type GeminiMessagesStream struct {
 	toolID           func(map[string]any) string
 	validateToolCall func(map[string]any, string, string, map[string]bool) error
 
-	finishReason   string
-	sawToolUse     bool
-	nextBlockIndex int
-	openBlockIndex int
-	openBlockType  string
-	seenText       string
-	openToolIndex  int
-	openToolID     string
-	seenToolIDs    map[string]bool
-	openToolName   string
-	seenToolJSON   string
+	finishReason      string
+	sawToolUse        bool
+	nextBlockIndex    int
+	openBlockIndex    int
+	openBlockType     string
+	seenText          string
+	seenThinking      string
+	thinkingSignature string
+	openToolIndex     int
+	openToolID        string
+	seenToolIDs       map[string]bool
+	openToolName      string
+	seenToolJSON      string
 }
 
 func NewGeminiMessagesStream(emit func(string, any), flush func(), toolID func(map[string]any) string, validateToolCall func(map[string]any, string, string, map[string]bool) error) *GeminiMessagesStream {
@@ -60,58 +62,45 @@ func (s *GeminiMessagesStream) Observe(geminiResp map[string]any, onText func())
 
 	parts := GeminiParts(geminiResp)
 	for _, part := range parts {
-		if text, ok := part["text"].(string); ok && text != "" {
-			// Close an open tool_use block before starting text, mirroring
-			// the functionCall branch (which closes open text blocks) and
-			// the chat-completions sibling's closeOpenTool(). Otherwise a
-			// tool→text sequence keeps the tool_use block open while the
-			// text block starts, emitting overlapping Anthropic content
-			// blocks that violate the SSE contract.
+		text, _ := part["text"].(string)
+		thought, _ := part["thought"].(bool)
+		signature, _ := part["thoughtSignature"].(string)
+		if text != "" || (thought && signature != "") {
+			kind, seen := "text", &s.seenText
+			if thought {
+				kind, seen = "thinking", &s.seenThinking
+			}
+			delta, updated := GeminiTextDelta(*seen, text)
+			*seen = updated
+			if delta == "" && (!thought || signature == "") {
+				continue
+			}
 			if s.openToolIndex >= 0 {
-				s.emit("content_block_stop", map[string]any{
-					"type":  "content_block_stop",
-					"index": s.openToolIndex,
-				})
+				s.emit("content_block_stop", map[string]any{"type": "content_block_stop", "index": s.openToolIndex})
 				s.openToolIndex = -1
 				s.openToolName = ""
 				s.seenToolJSON = ""
 			}
-
-			delta, newSeen := GeminiTextDelta(s.seenText, text)
-			s.seenText = newSeen
-			if delta == "" {
-				continue
-			}
-
-			if s.openBlockType != "text" {
-				if s.openBlockIndex >= 0 {
-					s.emit("content_block_stop", map[string]any{
-						"type":  "content_block_stop",
-						"index": s.openBlockIndex,
-					})
-				}
-				s.openBlockType = "text"
+			if s.openBlockType != kind || (delta != "" && s.thinkingSignature != "") {
+				s.closeTextBlock()
+				s.openBlockType = kind
 				s.openBlockIndex = s.nextBlockIndex
 				s.nextBlockIndex++
 				s.emit("content_block_start", map[string]any{
-					"type":  "content_block_start",
-					"index": s.openBlockIndex,
-					"content_block": map[string]any{
-						"type": "text",
-						"text": "",
-					},
+					"type": "content_block_start", "index": s.openBlockIndex,
+					"content_block": map[string]any{"type": kind, kind: ""},
 				})
 			}
-
-			onText()
-			s.emit("content_block_delta", map[string]any{
-				"type":  "content_block_delta",
-				"index": s.openBlockIndex,
-				"delta": map[string]any{
-					"type": "text_delta",
-					"text": delta,
-				},
-			})
+			if thought && signature != "" {
+				s.thinkingSignature = signature
+			}
+			if delta != "" {
+				onText()
+				s.emit("content_block_delta", map[string]any{
+					"type": "content_block_delta", "index": s.openBlockIndex,
+					"delta": map[string]any{"type": kind + "_delta", kind: delta},
+				})
+			}
 			s.flush()
 			continue
 		}
@@ -132,15 +121,7 @@ func (s *GeminiMessagesStream) Observe(geminiResp map[string]any, onText func())
 				name = "tool"
 			}
 
-			// Close any open text block before tool_use.
-			if s.openBlockIndex >= 0 {
-				s.emit("content_block_stop", map[string]any{
-					"type":  "content_block_stop",
-					"index": s.openBlockIndex,
-				})
-				s.openBlockIndex = -1
-				s.openBlockType = ""
-			}
+			s.closeTextBlock()
 
 			// If we receive streamed tool args in pieces, keep a single tool block open and emit deltas.
 			wireID, _ := fc["id"].(string)
@@ -208,13 +189,24 @@ func (s *GeminiMessagesStream) Observe(geminiResp map[string]any, onText func())
 	return nil
 }
 
-func (s *GeminiMessagesStream) Finish(inputTokens, outputTokens, cacheReadTokens int) error {
-	if s.openBlockIndex >= 0 {
-		s.emit("content_block_stop", map[string]any{
-			"type":  "content_block_stop",
-			"index": s.openBlockIndex,
-		})
+func (s *GeminiMessagesStream) closeTextBlock() {
+	if s.openBlockIndex < 0 {
+		return
 	}
+	if s.thinkingSignature != "" {
+		s.emit("content_block_delta", map[string]any{
+			"type": "content_block_delta", "index": s.openBlockIndex,
+			"delta": map[string]any{"type": "signature_delta", "signature": s.thinkingSignature},
+		})
+		s.thinkingSignature = ""
+	}
+	s.emit("content_block_stop", map[string]any{"type": "content_block_stop", "index": s.openBlockIndex})
+	s.openBlockType = ""
+	s.openBlockIndex = -1
+}
+
+func (s *GeminiMessagesStream) Finish(inputTokens, outputTokens, cacheReadTokens int) error {
+	s.closeTextBlock()
 	if s.openToolIndex >= 0 {
 		s.emit("content_block_stop", map[string]any{
 			"type":  "content_block_stop",

@@ -50,6 +50,13 @@ paths:
           type: array
           items:
             type: string
+      - name: availability_state
+        in: query
+        schema:
+          type: string
+          enum:
+          - live
+          - catalog_only
       - name: sort
         in: query
         schema:
@@ -59,6 +66,7 @@ paths:
           - price_input
           - context
           - ttft
+          - availability
       - $ref: '#/components/parameters/IdentityLimit'
       - $ref: '#/components/parameters/IdentityCursor'
       responses:
@@ -206,6 +214,13 @@ paths:
           type: array
           items:
             type: string
+      - name: availability_state
+        in: query
+        schema:
+          type: string
+          enum:
+          - live
+          - catalog_only
       - name: sort
         in: query
         schema:
@@ -215,6 +230,7 @@ paths:
           - price_input
           - context
           - ttft
+          - availability
       - $ref: '#/components/parameters/IdentityLimit'
       - $ref: '#/components/parameters/IdentityCursor'
       - name: accessible
@@ -327,9 +343,20 @@ components:
       name: id
       in: path
       required: true
+      description: |
+        Stable opaque catalog ID (`m_` followed by 32 lowercase hex characters)
+        or a `provider/model` slug resolved against the same catalog snapshot.
+        The detail handler also accepts a bare model suffix as an unambiguous
+        compatibility fallback; clients should prefer the stable ID or slug and
+        must not assume every accepted value matches the opaque ID pattern.
       schema:
-        type: string
-        pattern: ^m_[0-9a-f]{32}$
+        oneOf:
+        - type: string
+          pattern: ^m_[0-9a-f]{32}$
+          description: Stable opaque model ID.
+        - type: string
+          pattern: ^[^/]+/.+$
+          description: Provider/model slug, for example `openai/gpt-4o`.
   schemas:
     CatalogRate:
       type: object
@@ -689,6 +716,11 @@ components:
           type: string
           enum:
           - listed
+        availability_state:
+          type: string
+          enum:
+          - live
+          - catalog_only
         access_state:
           type: string
           enum:
@@ -856,6 +888,42 @@ components:
         verified_at:
           type: string
           format: date-time
+    CatalogReferencePrice:
+      type: object
+      required:
+      - state
+      - source
+      - input_rate
+      - output_rate
+      - additional_rates
+      - time_bands
+      properties:
+        state:
+          type: string
+        source:
+          type: string
+        input_rate:
+          anyOf:
+          - $ref: '#/components/schemas/CatalogRate'
+          - type: 'null'
+        output_rate:
+          anyOf:
+          - $ref: '#/components/schemas/CatalogRate'
+          - type: 'null'
+        additional_rates:
+          anyOf:
+          - type: array
+            items:
+              $ref: '#/components/schemas/CatalogRateBand'
+          - type: 'null'
+        context_basis:
+          type: string
+        time_bands:
+          anyOf:
+          - type: array
+            items:
+              $ref: '#/components/schemas/CatalogTimeBand'
+          - type: 'null'
     ModelDetail:
       type: object
       required:
@@ -875,6 +943,10 @@ components:
       properties:
         model:
           $ref: '#/components/schemas/ModelSummary'
+        reference_price:
+          anyOf:
+          - $ref: '#/components/schemas/CatalogReferencePrice'
+          - type: 'null'
         aliases:
           type: array
           items:

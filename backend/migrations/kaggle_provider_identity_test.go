@@ -17,7 +17,9 @@ func TestKaggleProviderIdentityMigrationOnlyAddsKaggle(t *testing.T) {
 		after := compatibleIdentityValues(t, body, constraint.name)
 		require.ElementsMatch(t, append(before, "kaggle"), after)
 		for _, id := range domain.ConcretePlatforms() {
-			require.Contains(t, after, id)
+			if id != domain.PlatformWorkBuddy && id != domain.PlatformKilo {
+				require.Contains(t, after, id)
+			} // Added by migration 335.
 		}
 		for _, pattern := range []string{
 			`ALTER TABLE ` + constraint.table + `\s+DROP CONSTRAINT IF EXISTS ` + constraint.name + `;`,

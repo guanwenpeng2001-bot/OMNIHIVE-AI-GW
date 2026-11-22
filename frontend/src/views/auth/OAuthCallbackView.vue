@@ -176,13 +176,24 @@
       </div>
     </div>
   </AuthLayout>
+
+  <TotpLoginModal
+    v-if="show2FAModal"
+    ref="totpModalRef"
+    :temp-token="totpTempToken"
+    :user-email-masked="totpUserEmailMasked"
+    @verify="handle2FAVerify"
+    @cancel="handle2FACancel"
+  />
 </template>
 
 <script setup lang="ts">
 import AuthLayout from '@/components/layout/AuthLayout.vue'
 import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
+import TotpLoginModal from '@/components/auth/TotpLoginModal.vue'
 import { Badge, Button, ErrorState, Skeleton } from '@/components/ui'
 import { authStorage } from '@/api/tokenRefresh'
+import { sanitizeInternalRedirect } from '@/router/redirect'
 import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
 import { useCallbackLifetime } from '@/composables/useCallbackLifetime'
 import { buildSignupAgreementPayload, resolveAgreementState } from '@/features/public/legal'
@@ -198,6 +209,7 @@ import { buildApiUrl } from '@/api/url'
 import {
   exchangePendingOAuthCompletion,
   getPublicSettings,
+  login2FA,
   persistOAuthTokenContext,
   type OAuthTokenResponse
 } from '@/api/auth'
@@ -233,6 +245,10 @@ const loginAgreementRevision = ref('')
 const loginAgreementDocuments = ref<LoginAgreementDocument[]>([])
 const agreementAccepted = ref(false)
 const showAgreementModal = ref(false)
+const show2FAModal = ref(false)
+const totpTempToken = ref('')
+const totpUserEmailMasked = ref('')
+const totpModalRef = ref<InstanceType<typeof TotpLoginModal> | null>(null)
 
 type EmailOAuthPendingCompletion = Partial<OAuthTokenResponse> & {
   error?: string
@@ -241,6 +257,9 @@ type EmailOAuthPendingCompletion = Partial<OAuthTokenResponse> & {
   email?: string
   resolved_email?: string
   invitation_required?: boolean
+  requires_2fa?: boolean
+  temp_token?: string
+  user_email_masked?: string
 }
 
 const code = computed(() => (route.query.code as string) || '')
@@ -276,12 +295,7 @@ function parseFragmentParams(): URLSearchParams {
 
 
 function sanitizeRedirectPath(path: string | null | undefined): string {
-  if (!path) return '/dashboard'
-  if (!path.startsWith('/')) return '/dashboard'
-  if (path.startsWith('//')) return '/dashboard'
-  if (path.includes('://')) return '/dashboard'
-  if (path.includes('\n') || path.includes('\r')) return '/dashboard'
-  return path
+  return sanitizeInternalRedirect(path, '/dashboard')
 }
 
 function readPendingEmailOAuthProvider(): 'github' | 'google' | null {
@@ -326,7 +340,17 @@ async function resumePendingEmailOAuth(code?: string) {
   isProcessing.value = true
   try {
     const completion = await waitForCallback(exchangePendingOAuthCompletion(undefined, code)) as EmailOAuthPendingCompletion
-    const completionRedirect = completion.redirect || '/dashboard'
+    const completionRedirect = sanitizeRedirectPath(completion.redirect)
+    redirectTo.value = completionRedirect
+
+    if (completion.requires_2fa === true && completion.temp_token) {
+      totpTempToken.value = completion.temp_token
+      totpUserEmailMasked.value = completion.user_email_masked || ''
+      show2FAModal.value = true
+      isProcessing.value = false
+      return
+    }
+
     if (hasOAuthTokenResponse(completion)) {
       await finalizeTokenResponse(completion, completionRedirect)
       return
@@ -336,7 +360,6 @@ async function resumePendingEmailOAuth(code?: string) {
     if (provider === 'github' || provider === 'google') {
       pendingProvider.value = provider
     }
-    redirectTo.value = sanitizeRedirectPath(completionRedirect)
 
     if (completion.error === 'invitation_required' || completion.error === 'registration_completion_required') {
       invitationRequired.value = completion.error === 'invitation_required' || completion.invitation_required === true
@@ -355,10 +378,38 @@ async function resumePendingEmailOAuth(code?: string) {
     appStore.showError(message)
     invalidCallback.value = true
   } finally {
-    if (isActive() && !needsRegistrationCompletion.value) {
+    if (isActive() && !needsRegistrationCompletion.value && !show2FAModal.value) {
       isProcessing.value = false
     }
   }
+}
+
+async function handle2FAVerify(totpCode: string): Promise<void> {
+  totpModalRef.value?.setVerifying?.(true)
+  try {
+    const response = await waitForCallback(
+      login2FA({ temp_token: totpTempToken.value, totp_code: totpCode })
+    )
+    show2FAModal.value = false
+    await finalizeTokenResponse(response, redirectTo.value)
+  } catch (e: unknown) {
+    if (!isActive()) return
+    const err = e as { message?: string; response?: { data?: { message?: string } } }
+    const message = extractApiErrorMessage(err, '') || t('profile.totp.loginFailed')
+    if (totpModalRef.value?.setError) {
+      totpModalRef.value.setError(message)
+      totpModalRef.value.setVerifying?.(false)
+    } else {
+      appStore.showError(message)
+    }
+  }
+}
+
+function handle2FACancel(): void {
+  show2FAModal.value = false
+  totpTempToken.value = ''
+  totpUserEmailMasked.value = ''
+  void router.replace('/login')
 }
 
 async function handleSubmitRegistration() {

@@ -11,11 +11,88 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
+
+type embeddingsPricingKey struct{}
+
+type embeddingsPricing struct {
+	model    string
+	resolved *ResolvedPricing
+	resolver *ModelPricingResolver
+}
+
+// WithEmbeddingsPricing freezes the selected account's final model tariff for
+// both dispatch admission and usage recording.
+func (s *OpenAIGatewayService) WithEmbeddingsPricing(ctx context.Context, key *APIKey, account *Account, body []byte) (context.Context, error) {
+	if key == nil || account == nil {
+		return ctx, ErrModelPricingUnavailable
+	}
+	billing := s.billingService.forGatewayRequest(ctx)
+	if billing == nil {
+		if s.embeddingsPricingOptional(ctx) {
+			return ctx, nil
+		}
+		return ctx, ErrModelPricingUnavailable
+	}
+	return s.withEmbeddingsPricing(ctx, key, account, body, "", billing)
+}
+
+func (s *OpenAIGatewayService) embeddingsPricingOptional(ctx context.Context) bool {
+	plan := GatewayRequestPlanFromContext(ctx)
+	return (plan == nil || plan.store == nil) &&
+		(s.usageSettlement == nil || s.cfg != nil && s.cfg.RunMode == config.RunModeSimple)
+}
+
+func (s *OpenAIGatewayService) withEmbeddingsPricing(ctx context.Context, key *APIKey, account *Account, body []byte, defaultMappedModel string, billing *BillingService) (context.Context, error) {
+	model := resolveOpenAIForwardModel(account, gjson.GetBytes(body, "model").String(), defaultMappedModel)
+	resolver := s.resolver
+	if resolver == nil {
+		resolver = NewModelPricingResolver(s.channelService, billing)
+	}
+	ctx = WithResolvedTargetPlatform(ctx, account.Platform)
+	resolved := resolver.Resolve(ctx, PricingInput{Mode: BillingModeToken, Model: model, Group: key.Group, GroupID: pricingGroupID(key)})
+	if resolved.pricingErr != nil || resolved.Mode != BillingModeToken {
+		return ctx, ErrModelPricingUnavailable
+	}
+	identified := billing.HasIdentifiedTokenPricing(model)
+	if resolved.descriptor == nil && !identified {
+		if resolved.channelPricing == nil {
+			return ctx, ErrModelPricingUnavailable
+		}
+		// An explicit partial card may only inherit from an identified base.
+		copy := *resolved
+		copy.BasePricing = &ModelPricing{TokenPricePresence: map[string]bool{}}
+		copy.SupportsCacheBreakdown = false
+		resolver.applyTokenOverrides(copy.channelPricing, &copy)
+		resolved = &copy
+	}
+	pricing := resolver.GetIntervalPricing(resolved, 1)
+	if pricing == nil || !pricing.hasTokenPrice("input", pricing.InputPricePerToken) {
+		return ctx, ErrModelPricingUnavailable
+	}
+	if _, err := billing.CalculateCostUnified(CostInput{Ctx: ctx, Mode: BillingModeToken, Model: model,
+		Provider: account.Platform, Group: key.Group, GroupID: pricingGroupID(key), Resolver: resolver,
+		Resolved: resolved, RateMultiplier: 1, Tokens: UsageTokens{InputTokens: 1}}); err != nil {
+		return ctx, fmt.Errorf("%w: %v", ErrModelPricingUnavailable, err)
+	}
+	pinned := embeddingsPricing{model, resolved, resolver}
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+		plan.embeddingsPrice.Store(&pinned)
+	}
+	return context.WithValue(ctx, embeddingsPricingKey{}, pinned), nil
+}
+
+func EmbeddingsUsagePricingContext(ctx, forwardCtx context.Context) context.Context {
+	if pinned, ok := forwardCtx.Value(embeddingsPricingKey{}).(embeddingsPricing); ok {
+		return context.WithValue(ctx, embeddingsPricingKey{}, pinned)
+	}
+	return ctx
+}
 
 func (s *OpenAIGatewayService) ForwardEmbeddings(
 	ctx context.Context,
@@ -30,6 +107,22 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 	if originalModel == "" {
 		writeOpenAIEmbeddingsError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 		return nil, fmt.Errorf("missing model in request")
+	}
+
+	if _, alreadyPriced := ctx.Value(embeddingsPricingKey{}).(embeddingsPricing); !alreadyPriced && c != nil {
+		if key := getAPIKeyFromContext(c); key != nil {
+			if billing := s.billingService.forGatewayRequest(ctx); billing != nil {
+				priced, err := s.withEmbeddingsPricing(ctx, key, account, body, defaultMappedModel, billing)
+				if err != nil {
+					writeOpenAIEmbeddingsError(c, http.StatusUnprocessableEntity, "model_pricing_unavailable", "No applicable pricing is available for this model")
+					return nil, err
+				}
+				ctx = priced
+			} else if !s.embeddingsPricingOptional(ctx) {
+				writeOpenAIEmbeddingsError(c, http.StatusServiceUnavailable, "model_pricing_unavailable", "Model pricing is unavailable")
+				return nil, ErrModelPricingUnavailable
+			}
+		}
 	}
 
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)

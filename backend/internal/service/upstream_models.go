@@ -34,11 +34,14 @@ const (
 )
 
 type UpstreamModelMetadata struct {
-	SupportedParameters []string `json:"supported_parameters,omitempty"`
-	CreatedAt           string   `json:"created_at,omitempty"`
-	ModelVersion        string   `json:"model_version,omitempty"`
-	CreatedAtStatus     string   `json:"created_at_status,omitempty"`
-	ModelVersionStatus  string   `json:"model_version_status,omitempty"`
+	MaxInputTokens      int64                      `json:"max_input_tokens,omitempty"`
+	Free                *bool                      `json:"free,omitempty"`
+	Pricing             map[string]json.RawMessage `json:"pricing,omitempty"`
+	SupportedParameters []string                   `json:"supported_parameters,omitempty"`
+	CreatedAt           string                     `json:"created_at,omitempty"`
+	ModelVersion        string                     `json:"model_version,omitempty"`
+	CreatedAtStatus     string                     `json:"created_at_status,omitempty"`
+	ModelVersionStatus  string                     `json:"model_version_status,omitempty"`
 
 	SupportsPDF             *bool                              `json:"supports_pdf,omitempty"`
 	RejectedCandidates      []ModelCapabilityRejection         `json:"rejected_candidates,omitempty"`
@@ -269,6 +272,10 @@ func (e *UpstreamModelSyncError) SafeMessage() string {
 	return e.Message
 }
 
+func newUpstreamModelSyncCredentialError(message string, err error) error {
+	return &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorCredentials, Message: message, Err: err}
+}
+
 func newUpstreamModelSyncConfigError(message string, err error) error {
 	return &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorConfiguration, Message: message, Err: err}
 }
@@ -361,7 +368,7 @@ func (s *AccountTestService) DiscoverModelCapabilities(ctx context.Context, acco
 	}
 	catalog := &UpstreamModelCatalog{Models: models, CatalogSource: "live", Metadata: make(map[string]UpstreamModelMetadata)}
 	if len(body) > 0 {
-		_, directMetadata, parseErr := extractUpstreamModelCatalog(body, account != nil && account.IsGrok(), account.Platform)
+		_, directMetadata, parseErr := extractAccountModelCatalog(body, account)
 		if parseErr == nil {
 			catalog.Metadata = directMetadata
 			if len(directMetadata) > 0 {
@@ -769,11 +776,18 @@ func mergeUpstreamModelMetadata(primary, fallback UpstreamModelMetadata) (Upstre
 // Clone even unchanged entries: callers must not mutate cached registry or
 // native snapshots through a merged pointer, slice, map, or RawMessage.
 func cloneUpstreamModelMetadata(metadata UpstreamModelMetadata) UpstreamModelMetadata {
-	for _, p := range []**bool{&metadata.SupportsVision, &metadata.SupportsPDF, &metadata.SupportsFunctionCalling, &metadata.SupportsPromptCaching} {
+	for _, p := range []**bool{&metadata.Free, &metadata.SupportsVision, &metadata.SupportsPDF, &metadata.SupportsFunctionCalling, &metadata.SupportsPromptCaching} {
 		if *p != nil {
 			v := **p
 			*p = &v
 		}
+	}
+	if metadata.Pricing != nil {
+		pricing := make(map[string]json.RawMessage, len(metadata.Pricing))
+		for k, v := range metadata.Pricing {
+			pricing[k] = slices.Clone(v)
+		}
+		metadata.Pricing = pricing
 	}
 	metadata.ReasoningControl = cloneReasoningControl(metadata.ReasoningControl)
 	metadata.FieldEvidence = cloneCapabilityEvidence(metadata.FieldEvidence)
@@ -1076,6 +1090,12 @@ func reasoningLevelsFromModelsDevOptions(options []modelsDevReasoningOption) []s
 }
 
 func upstreamModelRegistryBaseURL(account *Account) string {
+	if account != nil && account.Platform == PlatformKilo {
+		return kiloBaseURL(account)
+	}
+	if account != nil && account.Platform == PlatformWorkBuddy {
+		return workBuddyEndpoint(account)
+	}
 	if account == nil {
 		return ""
 	}
@@ -1247,7 +1267,7 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 			key = "access_token"
 		}
 		if strings.TrimSpace(account.GetCredential(key)) == "" {
-			return nil, nil, newUpstreamModelSyncConfigError("Cursor credentials are required", nil)
+			return nil, nil, newUpstreamModelSyncCredentialError("Cursor credentials are required", nil)
 		}
 		if catalogDiscovery, _ := ctx.Value(catalogDiscoveryKey{}).(bool); catalogDiscovery && account.Type == AccountTypeOAuth {
 			return s.fetchCursorOAuthCatalog(ctx, account)
@@ -1280,7 +1300,7 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 			return nil, nil, newUpstreamModelSyncAccountTypeError("Model discovery requires an API key account", nil)
 		}
 		if strings.TrimSpace(account.GetCredential("api_key")) == "" {
-			return nil, nil, newUpstreamModelSyncConfigError("API key is required", nil)
+			return nil, nil, newUpstreamModelSyncCredentialError("API key is required", nil)
 		}
 		baseURL := strings.TrimSpace(account.GetCredential("base_url"))
 		if baseURL != "" {
@@ -1339,10 +1359,22 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		return s.fetchQianwenModelPages(req, account)
 	}
 
+	if account.Platform == PlatformWorkBuddy {
+		return s.fetchWorkBuddyModels(req, account)
+	}
 	return s.fetchCompleteModelPages(req, account)
 }
 
 func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
+	if account.Platform == PlatformKilo {
+		return s.buildKiloModelsRequest(ctx, account)
+	}
+	if account.Platform == PlatformWorkBuddy {
+		if workBuddyToken(account) == "" {
+			return nil, newUpstreamModelSyncCredentialError("WorkBuddy credential is missing", nil)
+		}
+		return s.buildWorkBuddyModelsRequest(ctx, account)
+	}
 	if err := nativeProfileDiscoveryError(account); err != nil {
 		return nil, err
 	}
@@ -1396,7 +1428,7 @@ func (s *AccountTestService) buildGrokUpstreamModelsRequest(ctx context.Context,
 	case AccountTypeAPIKey:
 		authToken = strings.TrimSpace(account.GetCredential("api_key"))
 		if authToken == "" {
-			return nil, newUpstreamModelSyncConfigError("No Grok API key is available", nil)
+			return nil, newUpstreamModelSyncCredentialError("No Grok API key is available", nil)
 		}
 
 		baseURL := strings.TrimSpace(account.GetCredential("base_url"))
@@ -1423,7 +1455,7 @@ func (s *AccountTestService) buildGrokUpstreamModelsRequest(ctx context.Context,
 		}
 		authToken = strings.TrimSpace(accessToken)
 		if authToken == "" {
-			return nil, newUpstreamModelSyncConfigError("No Grok access token is available", nil)
+			return nil, newUpstreamModelSyncCredentialError("No Grok access token is available", nil)
 		}
 
 		validator, err := grokBaseURLValidator(account, s.cfg)
@@ -1493,7 +1525,7 @@ func (s *AccountTestService) buildAnthropicUpstreamModelsRequest(ctx context.Con
 			accessToken = strings.TrimSpace(token)
 		}
 		if accessToken == "" {
-			return nil, newUpstreamModelSyncConfigError("No Anthropic access token is available", nil)
+			return nil, newUpstreamModelSyncCredentialError("No Anthropic access token is available", nil)
 		}
 		authHeaderName = "Authorization"
 		authHeaderValue = "Bearer " + accessToken
@@ -1501,7 +1533,7 @@ func (s *AccountTestService) buildAnthropicUpstreamModelsRequest(ctx context.Con
 	} else if account.Type == AccountTypeAPIKey {
 		apiKey := strings.TrimSpace(account.GetCredential("api_key"))
 		if apiKey == "" {
-			return nil, newUpstreamModelSyncConfigError("No Anthropic API key is available", nil)
+			return nil, newUpstreamModelSyncCredentialError("No Anthropic API key is available", nil)
 		}
 		baseURL = account.GetBaseURL()
 		if strings.TrimSpace(baseURL) == "" {
@@ -1549,7 +1581,7 @@ func (s *AccountTestService) buildAntigravityAPIKeyModelsRequest(ctx context.Con
 	}
 	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
 	if apiKey == "" {
-		return nil, newUpstreamModelSyncConfigError("No Antigravity API key is available", nil)
+		return nil, newUpstreamModelSyncCredentialError("No Antigravity API key is available", nil)
 	}
 
 	baseURL := strings.TrimRight(strings.TrimSpace(account.GetCredential("base_url")), "/")
@@ -1591,6 +1623,9 @@ func (s *AccountTestService) buildOpenAIUpstreamModelsRequest(ctx context.Contex
 // buildOpenAIAPIKeyModelsRequest is shared by admin discovery and public model
 // listing. Codex content negotiation is intentionally absent from this request.
 func buildOpenAIAPIKeyModelsRequest(ctx context.Context, account *Account, validateBaseURL func(string) (string, error)) (*http.Request, error) {
+	if account.IsOpenCodeZenFree() {
+		return buildZenFreeModelsRequest(ctx, account, validateBaseURL)
+	}
 	if err := nativeProfileDiscoveryError(account); err != nil {
 		return nil, err
 	}
@@ -1604,7 +1639,7 @@ func buildOpenAIAPIKeyModelsRequest(ctx context.Context, account *Account, valid
 	}
 	apiKey := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
 	if apiKey == "" {
-		return nil, newUpstreamModelSyncConfigError("No OpenAI API key is available", nil)
+		return nil, newUpstreamModelSyncCredentialError("No OpenAI API key is available", nil)
 	}
 
 	// 协议感知：Anthropic 协议账号的凭证 base_url 指向 /anthropic 端点，模型
@@ -1684,7 +1719,7 @@ func (s *AccountTestService) buildOpenAIOAuthUpstreamModelsRequest(ctx context.C
 	} else {
 		accessToken := strings.TrimSpace(credentialAccount.GetOpenAIAccessToken())
 		if accessToken == "" {
-			return nil, newUpstreamModelSyncConfigError("No OpenAI access token is available", nil)
+			return nil, newUpstreamModelSyncCredentialError("No OpenAI access token is available", nil)
 		}
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 	}
@@ -1720,7 +1755,7 @@ func (s *AccountTestService) buildGeminiUpstreamModelsRequest(ctx context.Contex
 	case AccountTypeAPIKey:
 		apiKey := strings.TrimSpace(account.GetCredential("api_key"))
 		if apiKey == "" {
-			return nil, newUpstreamModelSyncConfigError("No Gemini API key is available", nil)
+			return nil, newUpstreamModelSyncCredentialError("No Gemini API key is available", nil)
 		}
 		req.Header.Set("x-goog-api-key", apiKey)
 	case AccountTypeOAuth:
@@ -1741,7 +1776,7 @@ func (s *AccountTestService) buildGeminiUpstreamModelsRequest(ctx context.Contex
 		}
 		accessToken = strings.TrimSpace(accessToken)
 		if accessToken == "" {
-			return nil, newUpstreamModelSyncConfigError("No Gemini access token is available", nil)
+			return nil, newUpstreamModelSyncCredentialError("No Gemini access token is available", nil)
 		}
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 	default:
@@ -1764,7 +1799,7 @@ func (s *AccountTestService) fetchAntigravityOAuthUpstreamModels(ctx context.Con
 	}
 	accessToken = strings.TrimSpace(accessToken)
 	if accessToken == "" {
-		return nil, newUpstreamModelSyncConfigError("No Antigravity access token is available", nil)
+		return nil, newUpstreamModelSyncCredentialError("No Antigravity access token is available", nil)
 	}
 
 	accountProxyURL, egressErr := account.EgressProxyURL(ctx)
@@ -1909,6 +1944,8 @@ type upstreamModelCapabilityEntry struct {
 	InputTokenLimit            int64    `json:"inputTokenLimit"`
 	OutputTokenLimit           int64    `json:"outputTokenLimit"`
 	DisplayNameCamel           string   `json:"displayName"`
+	SupportsReasoning          *bool    `json:"supports_reasoning"`
+	SupportsVision             *bool    `json:"supports_vision"`
 	SupportsThinking           *bool    `json:"supportsThinking"`
 	Thinking                   *bool    `json:"thinking"`
 	SupportsImages             *bool    `json:"supportsImages"`
@@ -1979,6 +2016,13 @@ func extractGrokUpstreamModelIDs(body []byte) ([]string, error) {
 }
 
 func extractUpstreamModelCatalog(body []byte, grok bool, platform ...string) ([]string, map[string]UpstreamModelMetadata, error) {
+	if len(platform) > 0 && platform[0] == PlatformWorkBuddy {
+		site := "cn"
+		if len(platform) > 1 {
+			site = platform[1]
+		}
+		return extractWorkBuddyModelCatalog(body, site)
+	}
 	entries, err := extractUpstreamModelRawEntries(body)
 	if err != nil {
 		return nil, nil, err
@@ -2115,6 +2159,9 @@ func upstreamMetadataFromCapabilityEntry(modelID string, entry upstreamModelCapa
 	}
 	reasoning := entry.Reasoning
 	if reasoning == nil {
+		reasoning = entry.SupportsReasoning
+	}
+	if reasoning == nil {
 		reasoning = entry.SupportsThinking
 	}
 	if reasoning == nil {
@@ -2132,6 +2179,9 @@ func upstreamMetadataFromCapabilityEntry(modelID string, entry upstreamModelCapa
 		modalities = entry.Modalities.Input
 	}
 	images := entry.SupportsImages
+	if images == nil {
+		images = entry.SupportsVision
+	}
 	if images == nil {
 		images = entry.Capabilities.ImageInput.Supported
 	}
@@ -2605,7 +2655,7 @@ func (service *AccountTestService) fetchCompleteModelPages(request *http.Request
 			Data   []json.RawMessage `json:"data"`
 			Object string            `json:"object,omitempty"`
 		}{entries, object})
-		models, metadata, parseErr := extractUpstreamModelCatalog(merged, account.IsGrok(), account.Platform)
+		models, metadata, parseErr := extractAccountModelCatalog(merged, account)
 		if parseErr != nil {
 			return nil, nil, newUpstreamModelSyncUpstreamError("Invalid model entries", parseErr)
 		}
@@ -2678,13 +2728,17 @@ func (service *AccountTestService) fetchCompleteModelPages(request *http.Request
 			return assemble(newUpstreamModelSyncUpstreamError("Invalid model page", err))
 		}
 		validatedPages++
-		for _, entry := range pageEntries {
-			var identity upstreamModelEntry
-			_ = json.Unmarshal(entry, &identity)
-			modelID := selector(identity)
-			if !seenModels[modelID] {
-				entries = append(entries, entry)
-				seenModels[modelID] = true
+		if publicModelLane(account) {
+			entries = append(entries, pageEntries...)
+		} else {
+			for _, entry := range pageEntries {
+				var identity upstreamModelEntry
+				_ = json.Unmarshal(entry, &identity)
+				modelID := selector(identity)
+				if !seenModels[modelID] {
+					entries = append(entries, entry)
+					seenModels[modelID] = true
+				}
 			}
 		}
 		var paging struct {
@@ -2747,4 +2801,13 @@ func (service *AccountTestService) fetchCompleteModelPages(request *http.Request
 		request = next
 	}
 	return assemble(newUpstreamModelSyncUpstreamError("Model pagination exceeded page limit", nil))
+}
+
+// NormalizeConnectionCredentialMetadata applies the native provider normalizer
+// to credentials installed through the versioned connections API.
+func NormalizeConnectionCredentialMetadata(account *Account) error {
+	if account.Platform == PlatformWorkBuddy {
+		return normalizeWorkBuddyAccount(account)
+	}
+	return nil
 }

@@ -322,6 +322,9 @@ func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricin
 // An explicit zero output price remains free; absent catalog image prices keep
 // the existing text-price fallback in computeTokenBreakdown.
 func applyChannelImagePriceOverrides(chPricing *ChannelModelPricing, pricing *ModelPricing) {
+	if chPricing != nil && (chPricing.ImageInputPrice != nil || chPricing.ImageOutputPrice != nil) {
+		pricing.ExactTokenRates = nil
+	}
 	if chPricing == nil || pricing == nil {
 		return
 	}
@@ -403,6 +406,7 @@ func intervalToModelPricing(iv *PricingInterval, base *ModelPricing, chPricing *
 	if base != nil {
 		*pricing = *base
 	}
+	pricing.ExactTokenRates = nil
 	applyMultiplier := func(value float64, multiplier *float64) float64 {
 		if multiplier == nil {
 			return value

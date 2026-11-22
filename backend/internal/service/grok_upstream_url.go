@@ -41,17 +41,13 @@ func grokBaseURLValidator(account *Account, cfg *config.Config) (xai.BaseURLVali
 }
 
 // grokOperatorPolicyValidator 按全局出站 URL 安全策略校验自定义 base_url：
-// 白名单开启时强制 UpstreamHosts；关闭时仅做格式校验（HTTP 允许与否跟随配置）。
+// 白名单开启时强制 UpstreamHosts；关闭时仍保留 HTTPS 和私网策略。
 func grokOperatorPolicyValidator(cfg *config.Config) xai.BaseURLValidator {
 	if cfg == nil {
 		return xai.ValidateBaseURL
 	}
 	return func(raw string) (string, error) {
-		return urlvalidator.ValidateHTTPURL(raw, cfg.Security.URLAllowlist.AllowInsecureHTTP, urlvalidator.ValidationOptions{
-			AllowedHosts:     cfg.Security.URLAllowlist.UpstreamHosts,
-			RequireAllowlist: cfg.Security.URLAllowlist.Enabled,
-			AllowPrivate:     cfg.Security.URLAllowlist.AllowPrivateHosts,
-		})
+		return urlvalidator.ValidateHTTPURL(raw, cfg.Security.URLAllowlist.AllowInsecureHTTP, cfg.Security.URLAllowlist.UpstreamValidationOptions())
 	}
 }
 
@@ -59,7 +55,7 @@ func redactedGrokBaseURLValidator(validator xai.BaseURLValidator) xai.BaseURLVal
 	return func(raw string) (string, error) {
 		validated, err := validator(raw)
 		if err != nil {
-			return "", errors.New("base URL rejected by URL security policy")
+			return "", &connectionProbeURLError{err: errors.New("base URL rejected by URL security policy")}
 		}
 		return validated, nil
 	}

@@ -3,6 +3,9 @@
 package antigravity
 
 import (
+	"bytes"
+	"encoding/json"
+	"log"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -106,4 +109,18 @@ func BenchmarkGenerateRandomID(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = generateRandomID()
 	}
+}
+
+func TestMalformedToolLogsOmitCandidate(t *testing.T) {
+	const payload = `{"candidates":[{"finishReason":"MALFORMED_FUNCTION_CALL","content":{"parts":[{"text":"candidate-sentinel"}]}}]}`
+	var logs bytes.Buffer
+	prev := log.Writer()
+	log.SetOutput(&logs)
+	defer log.SetOutput(prev)
+	var reply GeminiResponse
+	require.NoError(t, json.Unmarshal([]byte(payload), &reply))
+	NewNonStreamingProcessor().Process(&reply, "request", "model")
+	NewStreamingProcessor("model").ProcessLine("data: {\"response\":" + payload + "}")
+	require.Equal(t, 2, bytes.Count(logs.Bytes(), []byte("MALFORMED_FUNCTION_CALL")))
+	require.NotContains(t, logs.String(), "candidate-sentinel")
 }

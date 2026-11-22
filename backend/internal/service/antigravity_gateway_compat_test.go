@@ -884,7 +884,9 @@ func TestAntigravityCompatStreamErrorCommitsSingleTerminalFrame(t *testing.T) {
 	result, err := svc.handleResponsesStreamingFromAntigravity(c, resp, time.Now(), "gemini-3.1-pro-high")
 
 	require.Error(t, err)
-	require.Nil(t, result)
+	require.NotNil(t, result)
+	require.True(t, result.usageIncomplete)
+	require.Equal(t, 8, result.usage.InputTokens)
 	require.True(t, IsResponseCommitted(c))
 	require.True(t, c.GetBool(apicompat.ResponsesTerminalSentKey))
 	requireAntigravityResponsesFailure(t, recorder.Body.String(), "stream_read_error")
@@ -1019,9 +1021,39 @@ func TestAntigravityCompatKeepaliveAfterFirstEvent(t *testing.T) {
 	)
 	require.NoError(t, err)
 	time.Sleep(1200 * time.Millisecond)
+	_, err = io.WriteString(writer, `data: {"response":{"candidates":[{"finishReason":"STOP"}]}}`+"\n\n")
+	require.NoError(t, err)
 	require.NoError(t, writer.Close())
 	require.NoError(t, <-done)
 	require.Contains(t, recorder.Body.String(), ": ping\n\n")
 	require.Contains(t, recorder.Header().Get("Content-Type"), "text/event-stream")
 	require.NoError(t, reader.Close())
+}
+
+func TestAntigravityPartialStreamDoesNotEmitSuccess(t *testing.T) {
+	const wire = `data:{"response":{"candidates":[{"content":{"parts":[{"text":"partial answer"}]}}],"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":2}}}` + "\n\n"
+	for _, protocol := range []string{"messages", "chat", "responses"} {
+		t.Run(protocol, func(t *testing.T) {
+			c, w := newAntigravityCompatContext("POST", "/v1/"+protocol, nil)
+			s := newAntigravityCompatService(config.GatewayConfig{}, nil)
+			resp := &http.Response{Header: http.Header{}, StatusCode: 200, Body: io.NopCloser(strings.NewReader(wire))}
+			var result *antigravityStreamResult
+			var err error
+			switch protocol {
+			case "messages":
+				result, err = s.handleClaudeStreamingResponse(c, resp, time.Now(), "model")
+			case "chat":
+				result, err = s.handleChatCompletionsStreamingFromAntigravity(c, resp, time.Now(), "model", true)
+			case "responses":
+				result, err = s.handleResponsesStreamingFromAntigravity(c, resp, time.Now(), "model")
+			}
+			require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+			require.True(t, result.usageIncomplete)
+			require.Equal(t, 7, result.usage.InputTokens)
+			require.Contains(t, w.Body.String(), "incomplete_stream")
+			for _, terminal := range []string{"event: message_stop", "data: [DONE]", "event: response.completed"} {
+				require.NotContains(t, w.Body.String(), terminal)
+			}
+		})
+	}
 }

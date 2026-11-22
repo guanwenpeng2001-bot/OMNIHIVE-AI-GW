@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
 	"github.com/stretchr/testify/require"
 )
 
@@ -244,4 +246,24 @@ func TestGatewayBudgetModelUnknownRequiresBillingAndRegistryEvidence(t *testing.
 
 	plan.registrySnapshot = nil
 	require.False(t, GatewayBudgetModelUnknown(plan, RequestBudgetEstimate{Model: "unknown model"}), "a missing registry is an availability fault")
+}
+
+func TestGatewayRequestPlanBalanceGuardRunsWithoutKeyPeriodBudget(t *testing.T) {
+	plan := NewGatewayRequestPlan(GatewayRequestSpec{ExecutionID: "scope", UserID: 1, APIKeyID: 2})
+	plan.billing = NewBillingService(&config.Config{}, nil)
+	price := 0.125
+	group := &Group{ID: 4, Platform: PlatformOpenAI, ModelPricing: []ChannelModelPricing{{
+		Models: []string{"bounded"}, InputPrice: &price, OutputPrice: &price,
+	}}}
+	checked := false
+	plan.balanceBudgetCheck = func(_ context.Context, amount *money.Money) error {
+		checked = true
+		require.Equal(t, "3.75000000", amount.String())
+		return ErrAPIKeyBudgetInsufficientBalance
+	}
+	err := plan.ReserveBudget(t.Context(), RequestBudgetEstimate{Model: "bounded", Group: group, InputTokens: 10,
+		OutputTokens: 20, SkipKeyBudget: true, RateMultiplier: 1})
+	require.ErrorIs(t, err, ErrAPIKeyBudgetInsufficientBalance)
+	require.True(t, checked)
+	require.Nil(t, plan.BudgetHold())
 }

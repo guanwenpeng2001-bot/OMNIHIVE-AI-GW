@@ -36,27 +36,27 @@ func (p compatibleEndpointProber) ProbeConnection(ctx context.Context, account *
 	if !ok {
 		return p.native.ProbeConnection(ctx, account, proxy)
 	}
-	failed := service.ConnectionProbe{Network: "failed", Authorization: "unknown", Discovery: "unknown", Models: []string{}}
+	failed := service.FailedConnectionProbe("PROBE_FAILED")
 	if !ValidEndpoint(base) {
-		return failed
+		return service.FailedConnectionProbe("URL_NOT_ALLOWED")
 	}
 	if mode.Discovery == "openai_models" {
 		native := p.native.ProbeConnection(ctx, account, proxy)
-		if native.Discovery == "passed" || native.Network == "failed" || native.Authorization == "failed" {
+		if native.Discovery == "failed" || native.Discovery == "passed" || native.Network == "failed" || native.Authorization == "failed" || native.DiscoveryReason == "UPSTREAM_RATE_LIMITED" {
 			return native
 		}
 	}
 
 	base, err := p.policy.ValidateProbeURL(base)
 	if err != nil {
-		return failed
+		return service.FailedConnectionProbe("URL_NOT_ALLOWED")
 	}
 	shared, err := httpclient.GetClient(httpclient.Options{
 		Timeout: compatibleProbeTimeout, ProxyURL: proxy,
 		ValidateResolvedIP: true, AllowPrivateHosts: p.policy.AllowPrivateHosts, PrivateHosts: p.policy.UpstreamHosts,
 	})
 	if err != nil {
-		return failed
+		return service.ConnectionProbeTransportFailure(err)
 	}
 	client := *shared
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
@@ -104,7 +104,6 @@ func (p compatibleEndpointProber) ProbeConnection(ctx context.Context, account *
 }
 
 func probeCompatibleModels(client *http.Client, anon *http.Request, auth, key string) (service.ConnectionProbe, bool) {
-	result := service.ConnectionProbe{Network: "failed", Authorization: "unknown", Discovery: "unknown", Models: []string{}}
 	req := anon.Clone(anon.Context())
 	switch auth {
 	case "x_api_key":
@@ -116,33 +115,35 @@ func probeCompatibleModels(client *http.Client, anon *http.Request, auth, key st
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return result, false
+		return service.ConnectionProbeTransportFailure(err), false
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
-		return result, false
-	}
-	result.Network = "passed"
+	result := service.ConnectionProbeHTTPStatus(resp.StatusCode)
 	switch resp.StatusCode {
-	case http.StatusUnauthorized, http.StatusForbidden:
-		result.Authorization = "failed"
-		return result, false
 	case http.StatusNotFound, http.StatusMethodNotAllowed:
 		return result, true
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return result, false
 	}
+
 	const maxCatalogBytes = 1 << 20
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxCatalogBytes+1))
 	if err != nil || len(body) > maxCatalogBytes {
+		result.DiscoveryReason = "PROBE_FAILED"
+		result.Detail = "Could not read the upstream model catalog within the response size limit."
 		return result, false
 	}
 	var catalog struct {
 		Data []struct{ ID string } `json:"data"`
 	}
 	if json.Unmarshal(body, &catalog) != nil || catalog.Data == nil {
+		result.DiscoveryReason = "PROBE_FAILED"
+		result.Detail = "Upstream returned an invalid model catalog."
 		return result, true
+	}
+	if service.ConnectionCatalogIncomplete(body, len(catalog.Data)) {
+		return service.IncompleteConnectionCatalog(), false
 	}
 	seen := map[string]bool{}
 	for _, entry := range catalog.Data {
@@ -159,11 +160,5 @@ func probeCompatibleModels(client *http.Client, anon *http.Request, auth, key st
 
 	// A public catalog alone does not establish that the supplied key works.
 	control, err := client.Do(anon)
-	if err == nil {
-		control.Body.Close()
-		if control.StatusCode == http.StatusUnauthorized || control.StatusCode == http.StatusForbidden {
-			result.Authorization = "passed"
-		}
-	}
-	return result, false
+	return service.ApplyConnectionAuthorizationControl(result, control, err), false
 }

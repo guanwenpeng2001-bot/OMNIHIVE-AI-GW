@@ -5,17 +5,23 @@
       id="drawerMask"
       class="oh-drawer-mask"
       :class="{ open: drawerState.open }"
+      aria-hidden="true"
+      :inert="!drawerState.open"
       @click="closeDrawer"
     ></div>
 
     <!-- 全局右侧抽屉 (#drawer) -->
     <aside
       id="drawer"
+      ref="drawerRef"
       class="oh-drawer"
       :class="{ open: drawerState.open }"
-      role="dialog"
-      aria-modal="true"
+      :role="drawerState.open ? 'dialog' : undefined"
+      :aria-modal="drawerState.open ? 'true' : undefined"
+      :aria-hidden="!drawerState.open ? 'true' : 'false'"
+      :inert="!drawerState.open"
       aria-labelledby="drawerTitle"
+      tabindex="-1"
     >
       <div
         class="flex items-center justify-between border-b border-oh-default p-4"
@@ -24,6 +30,7 @@
         <button
           type="button"
           class="btn btn-ghost btn-icon btn-sm rounded-md"
+          :tabindex="drawerState.open ? 0 : -1"
           :aria-label="isZh ? '关闭详情' : 'Close details'"
           @click="closeDrawer"
         >
@@ -45,6 +52,7 @@
           v-else
           type="button"
           class="btn btn-secondary btn-sm"
+          :tabindex="drawerState.open ? 0 : -1"
           @click="closeDrawer"
         >
           {{ isZh ? '关闭' : 'Close' }}
@@ -89,16 +97,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import DOMPurify from 'dompurify'
 import { useAppStore } from '@/stores'
 import { useThemeDirection } from '@/composables/useThemeDirection'
+import { useOverlayDialog } from '@/components/ui/utils'
 import { useIsZhLocale } from '@/utils/activeLocale'
 
 const router = useRouter()
 const appStore = useAppStore()
 const isZh = useIsZhLocale('zh')
+const drawerRef = ref<HTMLElement | null>(null)
 
 const {
   drawerState,
@@ -110,6 +120,14 @@ const {
   isDark,
   isDense
 } = useThemeDirection()
+
+const isDrawerOpen = computed(() => Boolean(drawerState.value.open))
+
+useOverlayDialog({
+  open: isDrawerOpen,
+  panelRef: drawerRef,
+  onClose: closeDrawer
+})
 
 const DRAWER_SANITIZE_CONFIG = {
   ADD_ATTR: ['data-drawer-close', 'data-drawer-copy', 'data-drawer-nav', 'target', 'rel', 'aria-label', 'role']
@@ -229,12 +247,18 @@ onBeforeUnmount(() => {
   border-left: 1px solid var(--oh-border-default);
   box-shadow: var(--oh-shadow-xl);
   transform: translateX(105%);
-  transition: transform 0.34s cubic-bezier(0.2, 0.8, 0.2, 1);
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    transform 0.34s cubic-bezier(0.2, 0.8, 0.2, 1),
+    visibility 0.34s;
   display: flex;
   flex-direction: column;
 }
 .oh-drawer.open {
   transform: none;
+  visibility: visible;
+  pointer-events: auto;
 }
 .spec-panel {
   position: fixed;

@@ -29,6 +29,8 @@ var identityPlatformContract = []identityContractRow{
 	{"openrouter", "openrouter", ""},
 	{"volcengine", "volcengine", ""},
 	{"commandcode", "commandcode", ""},
+	{"workbuddy", "workbuddy", ""},
+	{"kilo", "kilo", ""},
 	// Compatible transport does not collapse named suppliers into first-party
 	// product, hosted credential, or budget identities.
 	{"astron_coding", "astron_coding", ""},

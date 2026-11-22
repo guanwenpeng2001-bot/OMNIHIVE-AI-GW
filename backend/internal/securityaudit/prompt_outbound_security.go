@@ -65,10 +65,7 @@ func NewSecureHTTPClient(endpoint ActiveEndpoint, policy config.URLAllowlistConf
 		return nil, err
 	}
 	validateURL := func(raw string) error {
-		opts := urlvalidator.ValidationOptions{RequireAllowlist: policy.Enabled, AllowPrivate: policy.AllowPrivateHosts}
-		if policy.Enabled {
-			opts.AllowedHosts = policy.UpstreamHosts
-		}
+		opts := policy.UpstreamValidationOptions()
 		_, err := urlvalidator.ValidateHTTPURL(raw, policy.AllowInsecureHTTP, opts)
 		return err
 	}

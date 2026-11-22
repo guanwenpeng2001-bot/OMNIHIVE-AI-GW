@@ -89,7 +89,15 @@ test-shell:
 	@sh deploy/tests/docker-runtime-resources-test.sh
 	@sh deploy/test-caddyfile-cache.sh
 	@bash deploy/tests/docker-deploy-test.sh
+	@bash deploy/test-docker-deploy-secrets.sh
+	@bash deploy/install_verify_test.sh
+	@bash deploy/tests/install-pricing-resources-test.sh
 	@bash deploy/tests/install-github-token-test.sh
+	@if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then \
+		python3 deploy/tests/deployment-config-test.py; \
+	else \
+		echo "skipping deploy/tests/deployment-config-test.py (docker compose unavailable)"; \
+	fi
 
 test-frontend-critical:
 	@pnpm --dir frontend exec vitest run $(FRONTEND_CRITICAL_VITEST)

@@ -14,6 +14,8 @@ import (
 
 const instanceModule = "instance"
 
+const inventoryStatementTimeout = "15s"
+
 type Report struct {
 	RunID                  *uuid.UUID        `json:"run_id"`
 	Module                 string            `json:"module"`
@@ -162,6 +164,9 @@ func readSnapshot(ctx context.Context, db *sql.DB, read func(*sql.Tx) error) err
 		return err
 	}
 	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "SET LOCAL statement_timeout = '"+inventoryStatementTimeout+"'"); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `SET LOCAL search_path = pg_catalog; SET LOCAL row_security = off`); err != nil {
 		return err
 	}

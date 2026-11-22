@@ -3650,3 +3650,88 @@ func (s *oauthPendingFlowEmailCacheStub) VerifyNotifyCode(ctx context.Context, e
 func (s *oauthPendingFlowEmailCacheStub) ConsumePasswordResetToken(context.Context, string, string) (bool, error) {
 	return false, nil
 }
+
+func TestOIDCPendingAndTicketExchangeRequireLocalTOTP(t *testing.T) {
+	for _, flow := range []string{"pending", "completion code"} {
+		t.Run(flow, func(t *testing.T) {
+			handler, client := newOAuthPendingFlowTestHandlerWithDependencies(t, oauthPendingFlowTestHandlerOptions{
+				settingValues: map[string]string{service.SettingKeyTotpEnabled: "true"},
+				totpCache:     &oauthPendingFlowTotpCacheStub{},
+			})
+			ctx := t.Context()
+			const secret = "JBSWY3DPEHPK3PXP"
+			user, err := client.User.Create().
+				SetEmail("local-totp@example.test").SetUsername("local-totp").SetPasswordHash("hash").
+				SetRole(service.RoleUser).SetStatus(service.StatusActive).
+				SetTotpEnabled(true).SetTotpSecretEncrypted(secret).Save(ctx)
+			require.NoError(t, err)
+
+			var session *dbent.PendingAuthSession
+			rec := httptest.NewRecorder()
+			ginCtx, _ := gin.CreateTestContext(rec)
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth/pending/exchange", nil)
+			const browser = "oidc-2fa-browser-session"
+			req.AddCookie(&http.Cookie{Name: oauthPendingBrowserCookieName, Value: encodeCookieValue(browser)})
+			ginCtx.Request = req
+			if flow == "pending" {
+				_, err := client.AuthIdentity.Create().SetUserID(user.ID).
+					SetProviderType("oidc").SetProviderKey("https://issuer.example").SetProviderSubject("bound-user").Save(ctx)
+				require.NoError(t, err)
+				session, err = client.PendingAuthSession.Create().SetSessionToken("oidc-2fa-session").
+					SetIntent(oauthIntentLogin).SetProviderType("oidc").SetProviderKey("https://issuer.example").
+					SetProviderSubject("bound-user").SetTargetUserID(user.ID).SetResolvedEmail(user.Email).
+					SetBrowserSessionKey(browser).SetRedirectTo("/profile").
+					SetLocalFlowState(map[string]any{oauthCompletionResponseKey: map[string]any{"redirect": "/profile"}}).
+					SetExpiresAt(time.Now().Add(time.Minute)).Save(ctx)
+				require.NoError(t, err)
+				req.AddCookie(&http.Cookie{Name: oauthPendingSessionCookieName, Value: encodeCookieValue(session.SessionToken)})
+				handler.ExchangePendingOAuthCompletion(ginCtx)
+				saved, err := client.PendingAuthSession.Get(ctx, session.ID)
+				require.NoError(t, err)
+				require.Nil(t, saved.ConsumedAt)
+			} else {
+				pending, err := handler.pendingIdentityService()
+				require.NoError(t, err)
+				localUser, err := handler.userService.GetByID(ctx, user.ID)
+				require.NoError(t, err)
+				code, err := pending.IssueIdentityTicket(ctx, "oauth-completion", browser+":"+oauthRequestBinding(ginCtx), map[string]any{
+					"user_id": fmt.Sprint(user.ID), "token_version": fmt.Sprint(localUser.TokenVersion), "redirect": "/profile",
+				}, time.Minute)
+				require.NoError(t, err)
+				handler.exchangeOAuthCompletionCode(ginCtx, code)
+			}
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			challenge := decodeJSONResponseData(t, rec)
+			require.Equal(t, true, challenge["requires_2fa"])
+			require.Equal(t, "/profile", challenge["redirect"])
+			require.NotContains(t, challenge, "access_token")
+			require.NotContains(t, challenge, "refresh_token")
+
+			code, err := totp.GenerateCode(secret, time.Now())
+			require.NoError(t, err)
+			verify := func(code string) *httptest.ResponseRecorder {
+				tempToken, _ := challenge["temp_token"].(string)
+				body, err := json.Marshal(Login2FARequest{TempToken: tempToken, TotpCode: code})
+				require.NoError(t, err)
+				rec := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(rec)
+				c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login/2fa", bytes.NewReader(body))
+				c.Request.Header.Set("Content-Type", "application/json")
+				handler.Login2FA(c)
+				return rec
+			}
+			require.GreaterOrEqual(t, verify("abcdef").Code, 400)
+			verified := verify(code)
+			require.Equal(t, http.StatusOK, verified.Code, verified.Body.String())
+			tokens := decodeJSONResponseData(t, verified)
+			require.NotEmpty(t, tokens["access_token"])
+			require.NotEmpty(t, tokens["refresh_token"])
+			require.GreaterOrEqual(t, verify(code).Code, 400)
+			if session != nil {
+				saved, err := client.PendingAuthSession.Get(ctx, session.ID)
+				require.NoError(t, err)
+				require.NotNil(t, saved.ConsumedAt)
+			}
+		})
+	}
+}

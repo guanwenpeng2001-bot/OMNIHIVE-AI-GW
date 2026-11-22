@@ -557,6 +557,22 @@ export interface OllamaCloudUsageSettings {
   debounce_minutes: number
 }
 
+export type WorkBuddySite = 'cn' | 'global'
+
+export interface WorkBuddyUsageSnapshot {
+  site: WorkBuddySite
+  plan?: string
+  base_used: number
+  base_total: number
+  base_remaining: number
+  base_reset_at?: string
+  extra_used: number
+  extra_total: number
+  extra_remaining: number
+  total_remaining: number
+  updated_at?: string
+}
+
 export interface AccountExtra extends CodexUsageSnapshot, OpenAICompactState, OpenAIResponsesState {
   model_rate_limits?: Record<string, { rate_limited_at: string; rate_limit_reset_at: string }>
   antigravity_credits_overages?: Record<string, { activated_at: string; active_until: string }>
@@ -578,6 +594,7 @@ export interface AccountExtra extends CodexUsageSnapshot, OpenAICompactState, Op
     last_result_at?: string
     error_code?: string
   }
+  workbuddy_usage_snapshot?: WorkBuddyUsageSnapshot | null
   [key: string]: unknown
 }
 
@@ -810,6 +827,7 @@ export interface CursorMonthlyUsage {
 export interface AccountUsageInfo {
   openrouter_key?: { limit: number | null; remaining: number | null; unlimited: boolean; remaining_unlimited: boolean; limit_reset: string | null; usage: number | null; daily: number | null; weekly: number | null; monthly: number | null }
   cursor_monthly?: CursorMonthlyUsage
+  workbuddy_usage_snapshot?: WorkBuddyUsageSnapshot | null
 
   source?: 'passive' | 'active'
   updated_at: string | null

@@ -250,6 +250,9 @@ func (account *Account) EffectiveUpstreamModelCatalogForCredentialAccount(creden
 	decodeCatalogExtra(account.Extra, UpstreamModelAllowlistExtraKey, &allowlist)
 	eligible := make([]AccountCatalogModel, 0, len(snapshot.EligibleModels))
 	for _, model := range snapshot.EligibleModels {
+		if !zenFreeModelAllowed(account, model.ID) {
+			continue
+		}
 		allowed := false
 		for _, id := range allowlist.Models {
 			if id == model.ID {
@@ -285,8 +288,25 @@ func (account *Account) ModelCatalogBaseline() AccountModelCatalogBaseline {
 	return baseline
 }
 
-func AccountCatalogIdentityCredentialFields() []string {
-	return []string{"api_key", "base_url", "account_mode", "api_protocol", "api_base_urls", "project_id", "organization_id", "chatgpt_account_id", "chatgpt_user_id", "sub", "account_id", "user_id", "credential_source_account_id", "credential_shadow_account_id", "header_overrides"}
+func WorkBuddyCatalogIdentityFields() []string {
+	return []string{"site", "domain", "uid", "enterprise_id"}
+}
+
+func AccountCatalogIdentityCredentialFields(platform string) []string {
+	fields := []string{"api_key", "base_url", "account_mode", "api_protocol", "api_base_urls", "project_id", "organization_id", "chatgpt_account_id", "chatgpt_user_id", "sub", "account_id", "user_id", "credential_source_account_id", "credential_shadow_account_id", "header_overrides"}
+	if platform == PlatformWorkBuddy {
+		fields = append(fields, WorkBuddyCatalogIdentityFields()...)
+	}
+	return fields
+}
+
+// Changes to any identity field already revoke the catalog. These nonempty
+// subject identifiers allow an otherwise unchanged OAuth identity to renew.
+func AccountCatalogSubjectFields(platform string) []string {
+	if platform == PlatformWorkBuddy {
+		return []string{"uid"}
+	}
+	return []string{"chatgpt_account_id", "chatgpt_user_id", "sub", "account_id", "user_id"}
 }
 
 func configuredModelMapping(account *Account) map[string]string {

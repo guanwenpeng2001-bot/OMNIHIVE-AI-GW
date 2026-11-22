@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 const { t } = useI18n()
-import { onBeforeUnmount, onMounted, ref, useTemplateRef, nextTick } from 'vue'
+import { onBeforeUnmount, ref, useTemplateRef, nextTick, watch } from 'vue'
 
 const props = withDefaults(defineProps<{
   content?: string
@@ -59,7 +59,7 @@ function onClick(event: MouseEvent) {
   openTooltip()
 }
 
-function onDocumentClick(event: MouseEvent) {
+function onDocumentPointerDown(event: Event) {
   if (props.trigger !== 'click' || !show.value) return
   const target = event.target as Node | null
   if (!target) return
@@ -88,18 +88,38 @@ function updatePosition() {
   }
 }
 
-onMounted(() => {
-  document.addEventListener('click', onDocumentClick, true)
+let listenersAttached = false
+
+function attachGlobalListeners() {
+  if (listenersAttached || typeof document === 'undefined' || typeof window === 'undefined') return
+  listenersAttached = true
+  document.addEventListener('pointerdown', onDocumentPointerDown, true)
+  document.addEventListener('click', onDocumentPointerDown, true)
   document.addEventListener('keydown', onDocumentKeydown)
   window.addEventListener('resize', onViewportChange)
   window.addEventListener('scroll', onViewportChange, true)
-})
+}
 
-onBeforeUnmount(() => {
-  document.removeEventListener('click', onDocumentClick, true)
+function detachGlobalListeners() {
+  if (!listenersAttached || typeof document === 'undefined' || typeof window === 'undefined') return
+  listenersAttached = false
+  document.removeEventListener('pointerdown', onDocumentPointerDown, true)
+  document.removeEventListener('click', onDocumentPointerDown, true)
   document.removeEventListener('keydown', onDocumentKeydown)
   window.removeEventListener('resize', onViewportChange)
   window.removeEventListener('scroll', onViewportChange, true)
+}
+
+watch(show, (isOpen) => {
+  if (isOpen) {
+    attachGlobalListeners()
+  } else {
+    detachGlobalListeners()
+  }
+})
+
+onBeforeUnmount(() => {
+  detachGlobalListeners()
 })
 </script>
 
@@ -107,7 +127,10 @@ onBeforeUnmount(() => {
   <div
     ref="trigger"
     class="group relative ml-1 inline-flex items-center align-middle"
+    role="button"
     tabindex="0"
+    :aria-label="t('common.help')"
+    :aria-expanded="show ? 'true' : 'false'"
     :aria-describedby="show ? tooltipId : undefined"
     @focus="openTooltip"
     @blur="closeTooltip"

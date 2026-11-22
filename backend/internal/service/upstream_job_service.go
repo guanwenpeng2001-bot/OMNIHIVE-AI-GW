@@ -9,10 +9,15 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
+	"github.com/shopspring/decimal"
+	"github.com/tidwall/gjson"
 )
 
 var ErrUpstreamJobNotFound = errors.New("upstream job not found")
@@ -38,6 +43,8 @@ type UpstreamJobBilling struct {
 	KeyQuota              bool                     `json:"key_quota"`
 	KeyRateLimit          bool                     `json:"key_rate_limit"`
 	AccountQuota          bool                     `json:"account_quota"`
+	KeyPeriodBudget       bool                     `json:"-"`
+	AdmissionSeconds      int                      `json:"admission_seconds,omitempty"`
 
 	// Async contains the immutable official tariff and FX provenance.
 	Async *QianwenAsyncSnapshot `json:"async,omitempty"`
@@ -157,7 +164,11 @@ func (s *UpstreamJobService) Submit(ctx context.Context, job *UpstreamJob, body 
 	if job == nil || job.UserID <= 0 || job.APIKeyID <= 0 || job.AccountID <= 0 || submit == nil {
 		return nil, errors.New("invalid job submission")
 	}
-	if (job.Family == "video" || job.Family == "3d" || job.Family == "asr") && !kaggleVideoAllowsUnpricedAdmission(job) && (!finitePositive(job.Billing.UnitPrice) || !finitePositive(job.Billing.RateMultiplier)) {
+	if kaggleVideoAllowsUnpricedAdmission(job) {
+		if _, err := frozenPerRequestVideoCost(job.Billing); err != nil {
+			return nil, err
+		}
+	} else if (job.Family == "video" || job.Family == "3d" || job.Family == "asr") && (!finitePositive(job.Billing.UnitPrice) || !finitePositive(job.Billing.RateMultiplier)) {
 		return nil, ErrUpstreamJobTariff
 	}
 	if len(accounts) > 0 {
@@ -200,6 +211,9 @@ func (s *UpstreamJobService) Submit(ctx context.Context, job *UpstreamJob, body 
 		hash := sha256.Sum256([]byte(ex.RequestID + "|" + fingerprint))
 		claim.RequestFingerprint = hex.EncodeToString(hash[:])
 		claim.SubmissionKey = claim.RequestFingerprint
+	}
+	if err := admitUpstreamJobBudget(ctx, job, body, bound); err != nil {
+		return nil, err
 	}
 	claim.Status = "submitted"
 	claim.UpstreamTaskID = ""
@@ -418,13 +432,24 @@ func (s *UpstreamJobService) settle(ctx context.Context, j *UpstreamJob, tx Upst
 	if j.ChargedUsageLogID != nil {
 		return nil
 	}
+	if j.Platform == PlatformOpenAI && j.Family == "video" && j.Billing.AdmissionSeconds > 0 {
+		usage := gjson.ParseBytes(j.UsageJSON)
+		seconds := usage.Get("billable_seconds")
+		if !seconds.Exists() {
+			seconds = usage.Get("seconds")
+		}
+		if seconds.Float() > float64(j.Billing.AdmissionSeconds) {
+			logJobEvent(ctx, j, "needs_review")
+			j.ResultRef = ""
+			s.finish(j, "failed", "unsupported_usage", "Video exceeded its admitted duration")
+			return nil
+		}
+	}
 	log, cmd, err := s.charge(j)
 	if errors.Is(err, ErrUpstreamJobUnsupportedUsage) || errors.Is(err, ErrUpstreamJobTariff) {
 		logJobEvent(ctx, j, "needs_review")
-		if (j.Platform == PlatformOpenRouter || j.Platform == PlatformKaggle) && j.Family == "video" && j.ResultRef != "" {
-			j.Billing.PricingState = PricingStateUnpriced
-			s.finish(j, "succeeded", "settlement_needs_review", "Generation completed; retail quantity or tariff is unknown and no charge was applied")
-			return nil
+		if kaggleVideoAllowsUnpricedAdmission(j) {
+			j.ResultRef = ""
 		}
 		s.finish(j, "failed", "unsupported_usage", "Usage cannot be priced; evidence retained for review")
 		return nil
@@ -492,4 +517,148 @@ func (s *UpstreamJobService) locked(ctx context.Context, id string, fn func(*Ups
 		s.afterSettle(cacheCtx, job)
 	}
 	return job, err
+}
+
+// Keep the submission gate at the common job entry point. These holds protect
+// admission on the parent execution; terminal jobs still use their own ID.
+func admitUpstreamJobBudget(ctx context.Context, job *UpstreamJob, body []byte, bound bool) error {
+	plan := GatewayRequestPlanFromContext(ctx)
+	if plan == nil || plan.store == nil || job.Family != "video" && job.Family != "batch" {
+		return nil
+	}
+	amount := upstreamJobBudgetAmount(plan, job, body, bound)
+	if job.Billing.SubscriptionID == nil && plan.settlement != nil {
+		if err := plan.settlement.cache.checkBalanceUpperBound(ctx, plan.execution.Scope.FundingUserID, amount); err != nil {
+			return err
+		}
+	}
+	// An unknown estimate must go through the project hard-budget policy.
+	if project, ok := plan.projectBudget.(interface {
+		CheckProjectBudget(context.Context, scope.Authorized, string, *money.Money) error
+	}); ok {
+		if err := project.CheckProjectBudget(ctx, plan.budgetScope, plan.execution.RequestID, amount); err != nil {
+			return err
+		}
+	}
+	if !job.Billing.KeyPeriodBudget || bound {
+		if plan.settlement == nil {
+			return nil
+		}
+		keys, ok := plan.settlement.authCacheInvalidator.(interface {
+			BudgetState(context.Context, int64) (*APIKeyBudgetState, error)
+		})
+		if !ok {
+			return nil
+		}
+		state, err := keys.BudgetState(ctx, job.APIKeyID)
+		if err != nil {
+			return err
+		}
+		if state == nil || !state.Policy.IsActive() || state.LimitUSD <= 0 {
+			return nil
+		}
+		if amount == nil {
+			return ErrAPIKeyBudgetUnavailable
+		}
+		if decimal.RequireFromString(amount.String()).GreaterThan(decimal.NewFromFloat(state.RemainingAfterReservations())) {
+			return ErrAPIKeyBudgetExceeded
+		}
+		return nil
+	}
+	plan.mu.Lock()
+	defer plan.mu.Unlock()
+	estimate := RequestBudgetEstimate{Model: job.Billing.Model, frozenJob: true,
+		frozenAmount: amount, SkipBalanceHold: job.Billing.SubscriptionID != nil}
+	return plan.reserveKeyBudgetLocked(ctx, estimate, amount)
+}
+
+func upstreamJobBudgetAmount(plan *GatewayRequestPlan, job *UpstreamJob, body []byte, bound bool) *money.Money {
+	billing := job.Billing
+	one := decimal.NewFromInt(1)
+	if job.Family == "video" {
+		if kaggleVideoAllowsUnpricedAdmission(job) {
+			cost, err := frozenPerRequestVideoCost(billing)
+			if err != nil {
+				return nil
+			}
+			return budgetAmount(decimal.NewFromFloat(cost.ActualCost), one)
+		}
+		seconds := int64(billing.AdmissionSeconds)
+		if job.Platform == PlatformQianwen {
+			seconds = gjson.GetBytes(body, "parameters.duration").Int()
+			if seconds < 5 {
+				seconds = 5
+			}
+			if bound {
+				seconds = 5
+			} else if isQianwenVaceVideoModel(billing.Model) || strings.Contains(billing.Model, "-r2v") {
+				// Source-video duration contributes to the invoice.
+				return nil
+			}
+		}
+		if seconds <= 0 {
+			return nil
+		}
+		return budgetAmount(decimal.NewFromInt(seconds).Mul(decimal.NewFromFloat(billing.UnitPrice)).
+			Mul(decimal.NewFromFloat(billing.RateMultiplier)), one)
+	}
+	batch := billing.ResourceBatch
+	if batch == nil || batch.RequestCount <= 0 {
+		return nil
+	}
+	if batch.PricingMode == GatewayResourcePricingModeFree {
+		return budgetAmount(decimal.Zero, one)
+	}
+	if batch.TokenPrices == nil || plan.registrySnapshot == nil {
+		return nil
+	}
+	record, ok := plan.registrySnapshot.CapabilitySnapshot().LookupExact(job.Platform, batch.UpstreamModel)
+	if !ok {
+		return nil
+	}
+	var output int64
+	if batch.Endpoint != CompositeRouteEndpointEmbeddings && batch.Endpoint != "/v1/embeddings" {
+		if record.MaxOutputTokens == nil || *record.MaxOutputTokens <= 0 {
+			return nil
+		}
+		output = *record.MaxOutputTokens
+	}
+	input := record.ContextWindow
+	if record.MaxInputTokens != nil && *record.MaxInputTokens > 0 {
+		input = *record.MaxInputTokens
+	}
+	if input <= 0 {
+		return nil
+	}
+	rates := batch.TokenPrices
+	inputRate := rates.InputPricePerToken
+	for _, rate := range []float64{rates.InputPricePerTokenPriority, rates.CacheReadPricePerToken,
+		rates.CacheReadPricePerTokenPriority, rates.CacheCreationPricePerToken, rates.CacheCreationPricePerTokenPriority,
+		rates.CacheCreation5mPrice, rates.CacheCreation1hPrice, rates.ImageInputPricePerToken, rates.ImageCacheReadPricePerToken} {
+		inputRate = math.Max(inputRate, rate)
+	}
+	outputRate := math.Max(math.Max(rates.OutputPricePerToken, rates.OutputPricePerTokenPriority), rates.ImageOutputPricePerToken)
+	if !validBillingNumber(inputRate) || !validBillingNumber(outputRate) || !finitePositive(billing.RateMultiplier) {
+		return nil
+	}
+	quote := decimal.NewFromInt(input).Mul(decimal.NewFromFloat(inputRate)).Mul(decimal.NewFromFloat(math.Max(1, rates.LongContextInputMultiplier))).
+		Add(decimal.NewFromInt(output).Mul(decimal.NewFromFloat(outputRate)).Mul(decimal.NewFromFloat(math.Max(1, rates.LongContextOutputMultiplier))))
+	return budgetAmount(quote.Mul(decimal.NewFromInt(int64(batch.RequestCount))).Mul(decimal.NewFromFloat(billing.RateMultiplier)), one)
+}
+
+func frozenPerRequestVideoCost(billing UpstreamJobBilling) (*CostBreakdown, error) {
+	var snapshot PricingSnapshot
+	if json.Unmarshal([]byte(billing.PricingSnapshot), &snapshot) != nil ||
+		snapshot.Mode != string(BillingModePerRequest) || snapshot.Model != billing.Model ||
+		snapshot.Units != 1 || snapshot.UnitPrice == nil ||
+		(snapshot.Source != PricingSourceGroup && snapshot.Source != PricingSourceChannel) ||
+		(billing.PricingState != PricingStatePriced && billing.PricingState != PricingStateFree) {
+		return nil, ErrUpstreamJobTariff
+	}
+	cost, err := RecalculatePricingSnapshot(billing.PricingSnapshot)
+	if err != nil || cost.PricingState != billing.PricingState ||
+		(billing.PricingState == PricingStateFree && *snapshot.UnitPrice != 0) {
+		return nil, ErrUpstreamJobTariff
+	}
+	return cost, nil
 }

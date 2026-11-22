@@ -69,6 +69,8 @@ var platformDescriptors = []PlatformDescriptor{
 	{ID: PlatformMistral, ResponsesPOST: EndpointBridge, MessagesPOST: EndpointBridge, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformOpenRouter, ResponsesPOST: EndpointNative, MessagesPOST: EndpointNative, ChatOnly: true, MultiProtocol: true, NativeMultiProtocolResponses: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformBedrock, HostedAccountType: AccountTypeBedrock, ProductPlatform: PlatformAnthropic, ResponsesPOST: EndpointBridge, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformWorkBuddy, ResponsesPOST: EndpointBridge, MessagesPOST: EndpointBridge, ChatOnly: true, OAuth: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformKilo, ResponsesPOST: EndpointBridge, MessagesPOST: EndpointBridge, ChatOnly: true, ActiveProbe: true, PassiveMonitor: true, ModelCatalog: true},
 }
 
 // PlatformDescriptors returns a copy so callers cannot mutate the authority.
@@ -184,7 +186,7 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 		}
 	}
 	if identity.HostedAccountType != "" {
-		if platform.ChatOnly && identity.HostedAccountType != AccountTypeAPIKey {
+		if platform.ChatOnly && identity.HostedAccountType != AccountTypeAPIKey && (identity.Platform != PlatformWorkBuddy || identity.HostedAccountType != AccountTypeOAuth) {
 			return descriptor
 		}
 		if identity.Platform == PlatformOpenAI {
@@ -360,6 +362,9 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 	}
 	if identity.Platform == PlatformOpenRouter {
 		return openRouterActionDescriptor(descriptor, action, adapter)
+	}
+	if identity.Platform == PlatformKilo {
+		return kiloActionDescriptor(descriptor, action)
 	}
 	if identity.Platform == PlatformMistral {
 		return mistralActionDescriptor(descriptor, action, adapter)

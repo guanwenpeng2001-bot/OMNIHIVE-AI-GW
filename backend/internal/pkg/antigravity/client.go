@@ -20,6 +20,29 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/servertiming"
 )
 
+const metadataBodyLimit = 1 << 20
+
+func readAntigravityBody(r io.Reader, limit int64) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, limit+1))
+	if err == nil && int64(len(body)) > limit {
+		return nil, fmt.Errorf("响应超过 %d 字节", limit)
+	}
+	return body, err
+}
+
+// Preserve actionable OAuth error codes without propagating provider descriptions.
+func oauthStatusError(operation string, status int, body []byte) error {
+	var payload struct{ Error string }
+	_ = json.Unmarshal(body, &payload)
+	switch payload.Error {
+	case "invalid_request", "invalid_client", "invalid_grant", "unauthorized_client",
+		"unsupported_grant_type", "invalid_scope", "access_denied", "temporarily_unavailable", "server_error":
+		return fmt.Errorf("%s (HTTP %d): %s", operation, status, payload.Error)
+	default:
+		return fmt.Errorf("%s (HTTP %d)", operation, status)
+	}
+}
+
 // ForbiddenError 表示上游返回 403 Forbidden
 type ForbiddenError struct {
 	StatusCode int
@@ -345,13 +368,13 @@ func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier string) (*
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := readAntigravityBody(resp.Body, metadataBodyLimit)
 	if err != nil {
 		return nil, fmt.Errorf("读取响应失败: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("token 交换失败 (HTTP %d): %s", resp.StatusCode, string(bodyBytes))
+		return nil, oauthStatusError("token 交换失败", resp.StatusCode, bodyBytes)
 	}
 
 	var tokenResp TokenResponse
@@ -387,13 +410,13 @@ func (c *Client) RefreshToken(ctx context.Context, refreshToken string) (*TokenR
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := readAntigravityBody(resp.Body, metadataBodyLimit)
 	if err != nil {
 		return nil, fmt.Errorf("读取响应失败: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("token 刷新失败 (HTTP %d): %s", resp.StatusCode, string(bodyBytes))
+		return nil, oauthStatusError("token 刷新失败", resp.StatusCode, bodyBytes)
 	}
 
 	var tokenResp TokenResponse
@@ -418,13 +441,13 @@ func (c *Client) GetUserInfo(ctx context.Context, accessToken string) (*UserInfo
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := readAntigravityBody(resp.Body, metadataBodyLimit)
 	if err != nil {
 		return nil, fmt.Errorf("读取响应失败: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("获取用户信息失败 (HTTP %d): %s", resp.StatusCode, string(bodyBytes))
+		return nil, fmt.Errorf("获取用户信息失败 (HTTP %d)", resp.StatusCode)
 	}
 
 	var userInfo UserInfo
@@ -473,7 +496,7 @@ func (c *Client) LoadCodeAssist(ctx context.Context, accessToken string) (*LoadC
 			return nil, nil, lastErr
 		}
 
-		respBodyBytes, err := io.ReadAll(resp.Body)
+		respBodyBytes, err := readAntigravityBody(resp.Body, metadataBodyLimit)
 		_ = resp.Body.Close() // 立即关闭，避免循环内 defer 导致的资源泄漏
 		if err != nil {
 			return nil, nil, fmt.Errorf("读取响应失败: %w", err)
@@ -486,7 +509,7 @@ func (c *Client) LoadCodeAssist(ctx context.Context, accessToken string) (*LoadC
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			return nil, nil, fmt.Errorf("loadCodeAssist 失败 (HTTP %d): %s", resp.StatusCode, string(respBodyBytes))
+			return nil, nil, fmt.Errorf("loadCodeAssist 失败 (HTTP %d)", resp.StatusCode)
 		}
 
 		var loadResp LoadCodeAssistResponse
@@ -552,7 +575,7 @@ func (c *Client) OnboardUser(ctx context.Context, accessToken, tierID string) (s
 				return "", lastErr
 			}
 
-			respBodyBytes, err := io.ReadAll(resp.Body)
+			respBodyBytes, err := readAntigravityBody(resp.Body, metadataBodyLimit)
 			_ = resp.Body.Close()
 			if err != nil {
 				return "", fmt.Errorf("读取响应失败: %w", err)
@@ -564,7 +587,7 @@ func (c *Client) OnboardUser(ctx context.Context, accessToken, tierID string) (s
 			}
 
 			if resp.StatusCode != http.StatusOK {
-				lastErr = fmt.Errorf("onboardUser 失败 (HTTP %d): %s", resp.StatusCode, string(respBodyBytes))
+				lastErr = fmt.Errorf("onboardUser 失败 (HTTP %d)", resp.StatusCode)
 				return "", lastErr
 			}
 
@@ -694,13 +717,10 @@ func (c *Client) FetchAvailableModels(ctx context.Context, accessToken, projectI
 			return nil, nil, lastErr
 		}
 
-		respBodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, bodyLimit+1))
+		respBodyBytes, err := readAntigravityBody(resp.Body, bodyLimit)
 		_ = resp.Body.Close() // 立即关闭，避免循环内 defer 导致的资源泄漏
 		if err != nil {
 			return nil, nil, fmt.Errorf("读取响应失败: %w", err)
-		}
-		if int64(len(respBodyBytes)) > bodyLimit {
-			return nil, nil, fmt.Errorf("响应超过 %d 字节", bodyLimit)
 		}
 
 		// 检查是否需要 URL 降级
@@ -849,13 +869,13 @@ func (c *Client) SetUserSettings(ctx context.Context, accessToken string) (*SetU
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := readAntigravityBody(resp.Body, metadataBodyLimit)
 	if err != nil {
 		return nil, fmt.Errorf("读取响应失败: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("setUserSettings 失败 (HTTP %d): %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("setUserSettings 失败 (HTTP %d)", resp.StatusCode)
 	}
 
 	var result SetUserSettingsResponse
@@ -892,13 +912,13 @@ func (c *Client) FetchUserInfo(ctx context.Context, accessToken, projectID strin
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := readAntigravityBody(resp.Body, metadataBodyLimit)
 	if err != nil {
 		return nil, fmt.Errorf("读取响应失败: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("fetchUserInfo 失败 (HTTP %d): %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("fetchUserInfo 失败 (HTTP %d)", resp.StatusCode)
 	}
 
 	var result FetchUserInfoResponse

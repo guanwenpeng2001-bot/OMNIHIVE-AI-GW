@@ -3,7 +3,7 @@ import {
   formatCatalogRateBand,
   formatTokenRatePerMillion
 } from '@/features/shared/pricePresentation'
-import type { PublicCatalogMetrics, PublicRate } from './api'
+import type { PublicCatalogMetrics, PublicModelSummary, PublicRate } from './api'
 
 export function formatPriceSourceLabel(source?: string | null, isZh = false): string {
   if (!source) return ''
@@ -88,7 +88,7 @@ export function formatPublicTimestamp(iso?: string | null): string {
 }
 
 export function formatMetricsWindow(
-  metrics?: PublicCatalogMetrics | null,
+  metrics?: (Partial<PublicCatalogMetrics> & { window?: string | null }) | null,
   isZh = false
 ): string {
   const fallback = isZh ? '未观测' : 'Unobserved'
@@ -291,4 +291,196 @@ export function componentDisplayName(id: string, fallbackName: string | undefine
   if (isZh && zhMap[id]) return zhMap[id]
   if (!isZh && enMap[id]) return enMap[id]
   return fallbackName || id
+}
+
+export type ModalityFilterKey =
+  | 'all'
+  | 'text'
+  | 'image'
+  | 'video'
+  | 'audio'
+  | 'embedding'
+  | 'realtime'
+
+export interface ModalityFilterPill {
+  key: ModalityFilterKey
+  labelZh: string
+  labelEn: string
+}
+
+export const MODALITY_FILTER_PILLS: readonly ModalityFilterPill[] = [
+  { key: 'all', labelZh: '全部', labelEn: 'All' },
+  { key: 'text', labelZh: '文本', labelEn: 'Text' },
+  { key: 'image', labelZh: '图片生成', labelEn: 'Image Generation' },
+  { key: 'video', labelZh: '视频生成', labelEn: 'Video Generation' },
+  { key: 'audio', labelZh: '语音音频', labelEn: 'Audio & Speech' },
+  { key: 'embedding', labelZh: '向量嵌入', labelEn: 'Embeddings' },
+  { key: 'realtime', labelZh: '实时交互', labelEn: 'Realtime' }
+] as const
+
+function normalizedTokens(values?: string[] | null): string[] {
+  if (!Array.isArray(values)) return []
+  return values.map((v) => String(v ?? '').trim().toLowerCase()).filter(Boolean)
+}
+
+export function matchesModalityFilter(
+  model: Pick<PublicModelSummary, 'modalities' | 'actions'>,
+  key: ModalityFilterKey
+): boolean {
+  if (key === 'all') return true
+  const mods = normalizedTokens(model.modalities)
+  const acts = normalizedTokens(model.actions)
+
+  switch (key) {
+    case 'text':
+      return (
+        mods.includes('text') ||
+        acts.some((a) => a === 'text.chat' || a === 'text.completion' || a === 'chat')
+      )
+    case 'image':
+      return (
+        mods.includes('image') ||
+        acts.some((a) => a.startsWith('image') || a.includes('image_generation'))
+      )
+    case 'video':
+      return (
+        mods.includes('video') ||
+        acts.some((a) => a.startsWith('video') || a.includes('video_generation'))
+      )
+    case 'audio':
+      return (
+        mods.includes('audio') ||
+        mods.includes('speech') ||
+        acts.some(
+          (a) =>
+            a.startsWith('audio') ||
+            a.includes('speech') ||
+            a.includes('tts') ||
+            a.includes('stt')
+        )
+      )
+    case 'embedding':
+      return (
+        mods.some((m) => m === 'embedding' || m === 'embeddings') ||
+        acts.some((a) => a.includes('embedding'))
+      )
+    case 'realtime':
+      return (
+        mods.includes('realtime') ||
+        acts.some((a) => a.includes('realtime'))
+      )
+  }
+}
+
+export function extractDisplayModalities(
+  model?: Pick<PublicModelSummary, 'modalities' | 'actions'> | null
+): string[] {
+  if (!model) return []
+  const seen = new Set<string>()
+  for (const mod of normalizedTokens(model.modalities)) {
+    if (mod === 'embeddings') seen.add('embedding')
+    else seen.add(mod)
+  }
+  for (const act of normalizedTokens(model.actions)) {
+    if (act.startsWith('image') || act.includes('image_generation')) seen.add('image')
+    else if (act.startsWith('video') || act.includes('video_generation')) seen.add('video')
+    else if (act.startsWith('audio') || act.includes('speech') || act.includes('tts') || act.includes('stt')) {
+      seen.add('audio')
+    } else if (act.includes('embedding')) seen.add('embedding')
+    else if (act.includes('realtime')) seen.add('realtime')
+    else if (act.startsWith('text.chat') || act === 'chat') seen.add('text')
+  }
+  return [...seen]
+}
+
+export function modalityLabel(modality: string, isZh = false): string {
+  const key = modality.trim().toLowerCase()
+  switch (key) {
+    case 'text':
+      return isZh ? '文本' : 'Text'
+    case 'image':
+      return isZh ? '图片' : 'Image'
+    case 'video':
+      return isZh ? '视频' : 'Video'
+    case 'audio':
+    case 'speech':
+      return isZh ? '音频' : 'Audio'
+    case 'embedding':
+    case 'embeddings':
+      return isZh ? '向量' : 'Embedding'
+    case 'realtime':
+      return isZh ? '实时' : 'Realtime'
+    case '3d':
+      return '3D'
+    case 'pdf':
+      return 'PDF'
+    default:
+      return modality
+  }
+}
+
+export function modalityTone(modality: string): UiTone {
+  switch (modality.trim().toLowerCase()) {
+    case 'image':
+      return 'accent'
+    case 'video':
+      return 'info'
+    case 'audio':
+    case 'speech':
+      return 'success'
+    case 'embedding':
+    case 'embeddings':
+      return 'warning'
+    case 'realtime':
+      return 'accent'
+    default:
+      return 'neutral'
+  }
+}
+
+export type ResolvedAvailabilityState = 'live' | 'catalog_only' | 'unknown'
+
+export function resolveAvailabilityState(
+  model?: Pick<
+    PublicModelSummary,
+    'availability_state' | 'price_state' | 'route_state' | 'input_rate' | 'output_rate'
+  > | null
+): ResolvedAvailabilityState {
+  if (!model) return 'unknown'
+  const explicit = model.availability_state?.trim().toLowerCase()
+  if (explicit === 'live') return 'live'
+  if (explicit === 'catalog_only') return 'catalog_only'
+  const hasLiveRate = Boolean(model.input_rate || model.output_rate)
+  if (model.price_state === 'unpriced' && !hasLiveRate && model.route_state !== 'eligible') {
+    return 'catalog_only'
+  }
+  if (
+    model.route_state === 'eligible' &&
+    (model.price_state === 'priced' || model.price_state === 'free' || hasLiveRate)
+  ) {
+    return 'live'
+  }
+  return 'unknown'
+}
+
+export function availabilityStateLabel(state: ResolvedAvailabilityState, isZh = false): string {
+  switch (state) {
+    case 'live':
+      return isZh ? '已接入可调用' : 'Live & Routable'
+    case 'catalog_only':
+      return isZh ? '平台目录 · 按需接入' : 'Platform Catalog · On Demand'
+    default:
+      return ''
+  }
+}
+
+export function availabilityStateTone(state: ResolvedAvailabilityState): UiTone {
+  switch (state) {
+    case 'live':
+      return 'success'
+    case 'catalog_only':
+      return 'info'
+    default:
+      return 'unknown'
+  }
 }

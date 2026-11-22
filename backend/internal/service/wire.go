@@ -66,7 +66,7 @@ func ProvidePricingService(cfg *config.Config, remoteClient PricingRemoteClient,
 // ProvideUpdateService creates UpdateService with BuildInfo
 func ProvideUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, buildInfo BuildInfo, db *sql.DB, cfg *config.Config) *UpdateService {
 	service := NewUpdateService(cache, githubClient, buildInfo.Version, buildInfo.BuildType)
-	service.backupKey = []byte(cfg.Totp.EncryptionKey)
+	service.backupKey = updateBackupKey(cfg)
 	service.readRollbackFloor = func(ctx context.Context) (string, error) {
 		var floor string
 		err := db.QueryRowContext(ctx, "SELECT minimum_rollback_version FROM release_schema_compatibility WHERE singleton").Scan(&floor)
@@ -149,6 +149,7 @@ func ProvideOpenAIOAuthService(
 
 // ProvideTokenRefreshService creates and starts TokenRefreshService
 func ProvideTokenRefreshService(
+	workBuddyOAuth *WorkBuddyOAuthService,
 	accountRepo AccountRepository,
 	oauthService *OAuthService,
 	openaiOAuthService *OpenAIOAuthService,
@@ -166,6 +167,7 @@ func ProvideTokenRefreshService(
 ) *TokenRefreshService {
 	svc := NewTokenRefreshService(accountRepo, oauthService, openaiOAuthService, geminiOAuthService, antigravityOAuthService, cacheInvalidator, schedulerCache, cfg, tempUnschedCache, grokOAuthService)
 	// 注入 OpenAI privacy opt-out 依赖
+	svc.SetWorkBuddyOAuthService(workBuddyOAuth)
 	svc.SetPrivacyDeps(privacyClientFactory, proxyRepo)
 	// 注入统一 OAuth 刷新 API（消除 TokenRefreshService 与 TokenProvider 之间的竞争条件）
 	svc.SetRefreshAPI(refreshAPI)
@@ -243,6 +245,7 @@ func ProvideOpenAIQuotaAutoResetService(
 }
 
 func ProvideAccountUsageService(
+	workBuddyOAuth *WorkBuddyOAuthService,
 	cursorSessions *CursorSessionProvider,
 	accountRepo AccountRepository,
 	usageLogRepo UsageLogRepository,
@@ -273,6 +276,7 @@ func ProvideAccountUsageService(
 	service.agentIdentityWS = openAIGatewayService
 	service.cursorSessions = cursorSessions
 	service.openRouterGateway = openAIGatewayService
+	service.workBuddyOAuth = workBuddyOAuth
 	return service
 }
 
@@ -912,6 +916,7 @@ var ProviderSet = wire.NewSet(
 	wire.Bind(new(AccountRuntimeBlocker), new(*OpenAIGatewayService)),
 	ProvideOAuthServiceWithEgress,
 	ProvideOpenAIOAuthService,
+	NewWorkBuddyOAuthService,
 	ProvideGrokOAuthService,
 	wire.Bind(new(GrokOAuthTokenService), new(*GrokOAuthService)),
 	ProvideGeminiOAuthServiceWithEgress,

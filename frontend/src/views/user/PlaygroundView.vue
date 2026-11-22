@@ -76,6 +76,7 @@ const bootstrapLoading = ref(true)
 const bootstrapRefreshing = ref(false)
 const bootstrapNotice = ref<ConsoleAsyncNotice | null>(null)
 const confirmedNotice = ref<ConsoleAsyncNotice | null>(null)
+const quoteErrorNotice = ref<ConsoleAsyncNotice | null>(null)
 const keysLoadError = ref(false)
 let bootstrapGeneration = 0
 let loadedScopeKey = ''
@@ -83,6 +84,7 @@ let hasBootstrapped = false
 
 const availableKeys = ref<KeyOption[]>([])
 const canActAsKeys = ref(false)
+const canManageByok = ref(true)
 const catalogModels = ref<CatalogModelItem[]>([])
 const modelFilterQuery = ref('')
 
@@ -188,6 +190,37 @@ const filteredModels = computed(() => {
   )
 })
 
+function isModelInList(modelId: string, list: CatalogModelItem[]): boolean {
+  const target = modelId.trim()
+  if (!target) return false
+  return list.some((m) => m.slug === target || m.id === target)
+}
+
+function isCatalogOnlyOrUnrouted(modelId: string): boolean {
+  const target = modelId.trim()
+  if (!target) return false
+  const matched = findCatalogModel(target)
+  if (matched) {
+    return matched.availabilityState === 'catalog_only'
+  }
+  return catalogModels.value.length > 0
+}
+
+const modelACatalogOnly = computed(() => isCatalogOnlyOrUnrouted(sideA.modelId))
+const modelBCatalogOnly = computed(() => compareMode.value && isCatalogOnlyOrUnrouted(sideB.modelId))
+
+function selectFirstRoutedModel(side: 'A' | 'B'): void {
+  const firstRouted =
+    catalogModels.value.find((m) => m.availabilityState !== 'catalog_only') ?? catalogModels.value[0]
+  if (!firstRouted) return
+  const nextId = firstRouted.slug || firstRouted.id
+  if (side === 'A') {
+    sideA.modelId = nextId
+  } else {
+    sideB.modelId = nextId
+  }
+}
+
 const inspectedSession = computed(() =>
   inspectedSide.value === 'B' && compareMode.value ? controllerB.state : controllerA.state
 )
@@ -254,6 +287,7 @@ function resetTransientScopeState(): void {
   controllerA.reset()
   controllerB.reset()
   consentModalOpen.value = false
+  quoteErrorNotice.value = null
   pendingTargets.value = []
   pendingPayloads.value = {}
   pendingReplayPayload.value = null
@@ -261,9 +295,26 @@ function resetTransientScopeState(): void {
   inlinePreviewEstimates.value = []
   availableKeys.value = []
   canActAsKeys.value = false
+  canManageByok.value = true
   sideA.apiKeyId = ''
   sideB.apiKeyId = ''
   keysLoadError.value = false
+}
+
+async function fetchAllProjectKeys(wsId: string, projId: string) {
+  const collected: Awaited<ReturnType<typeof identityApi.listProjectKeys>>['items'] = []
+  let cursor: string | undefined
+  for (let i = 0; i < 20; i++) {
+    const page = await identityApi.listProjectKeys(
+      wsId,
+      projId,
+      cursor ? { limit: 100, cursor } : { limit: 100 }
+    )
+    collected.push(...(page.items || []))
+    if (!page.next_cursor) break
+    cursor = page.next_cursor
+  }
+  return collected.filter((k) => !k.state || k.state === 'active')
 }
 
 async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
@@ -287,9 +338,7 @@ async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
 
     const [keysResult, modelsResult, accessResult] = await Promise.allSettled([
       hasScope
-        ? identityApi.listProjectKeys(wsId, projId, { limit: 100 }).then((page) =>
-            (page.items || []).filter((k) => !k.state || k.state === 'active')
-          )
+        ? fetchAllProjectKeys(wsId, projId)
         : Promise.resolve([]),
       catalogApi.listScopedModels(wsId, projId, { limit: 100 }),
       hasScope && typeof identityApi.getProjectAccess === 'function'
@@ -303,6 +352,11 @@ async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
         ? accessResult.value.actions
         : []
     canActAsKeys.value = accessActions.includes('keys.act_as') || accessActions.includes('*')
+    canManageByok.value =
+      authStore.isAdmin ||
+      (accessResult.status === 'fulfilled' && accessResult.value && Array.isArray(accessResult.value.actions)
+        ? accessActions.includes('credentials.byok.manage') || accessActions.includes('*')
+        : true)
 
     const rawUserId = authStore.user?.id
     const currentUserId =
@@ -321,7 +375,7 @@ async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
           rawOwner !== undefined && rawOwner !== null && String(rawOwner).trim() !== ''
             ? String(rawOwner).trim()
             : null
-        const isOwned = !currentUserId || !ownerId ? true : ownerId === currentUserId
+        const isOwned = !ownerId ? true : Boolean(currentUserId && ownerId === currentUserId)
         return {
           id: String(k.id),
           name: k.name,
@@ -524,7 +578,22 @@ async function resolveServerQuoteForEstimate(
       fundingSource: inferFundingSourceFromQuota(quota?.rules),
       budgetBlocked: Boolean(quota?.blocked)
     })
-  } catch {
+  } catch (err) {
+    const status = (err as { status?: number; response?: { status?: number } })?.status ??
+      (err as { response?: { status?: number } })?.response?.status
+    if (status === 403 || (typeof status === 'number' && status >= 500) || status === 0) {
+      quoteErrorNotice.value = classifyConsoleError(err, {
+        requiredGrantFallback: 'playground.run',
+        isZh: isZh.value
+      })
+      return {
+        ...base,
+        rateKnown: false,
+        maxTotalCost: null,
+        quoteState: 'error',
+        unpricedReason: status === 403 ? 'forbidden' : 'quote_error'
+      }
+    }
     return base.rateKnown
       ? base
       : {
@@ -542,6 +611,7 @@ async function refreshAuthoritativeQuotes(
   if (typeof playgroundApi.quoteProjectModel !== 'function' && scope.activeWorkspaceId.value && scope.activeProjectId.value) {
     return
   }
+  quoteErrorNotice.value = null
   const gen = ++quoteGeneration
   if (target === 'modal') {
     quoteLoading.value = true
@@ -570,6 +640,7 @@ async function refreshAuthoritativeQuotes(
 
 function previewAuthoritativeQuotes(): void {
   toolsJsonError.value = ''
+  quoteErrorNotice.value = null
   try {
     const targets: Array<'A' | 'B'> = compareMode.value ? ['A', 'B'] : ['A']
     const estimates: PlaygroundCostEstimate[] = []
@@ -595,6 +666,7 @@ function previewAuthoritativeQuotes(): void {
 
 function prepareConsentForTargets(targets: Array<'A' | 'B'>): void {
   toolsJsonError.value = ''
+  quoteErrorNotice.value = null
   confirmedNotice.value = null
   if (!hasActiveProjectScope.value || availableKeys.value.length === 0) {
     return
@@ -712,7 +784,9 @@ async function handleConfirmAndExecute(): Promise<void> {
       wsId,
       projId,
       replayRequestId.value.trim(),
-      pendingReplayPayload.value
+      pendingReplayPayload.value,
+      undefined,
+      sideA.protocol
     )
     return
   }
@@ -735,8 +809,8 @@ function handleKeydown(event: KeyboardEvent): void {
     }
   } else if (event.key === 'Escape' && !consentModalOpen.value && anyStreaming.value) {
     event.preventDefault()
-    const wsId = scope.activeWorkspaceId.value || '1'
-    const projId = scope.activeProjectId.value || '1'
+    const wsId = scope.activeWorkspaceId.value || undefined
+    const projId = scope.activeProjectId.value || undefined
     if (controllerA.state.status === 'streaming' || controllerA.state.status === 'submitting') {
       void controllerA.stop(wsId, projId)
     }
@@ -763,16 +837,33 @@ watch(
   }
 )
 
-onMounted(() => {
-  const routeQuery = instance?.appContext.config.globalProperties.$route?.query as
-    | Record<string, string | undefined>
-    | undefined
+function readRouteQuery(): Record<string, string | undefined> | undefined {
+  const proxyRoute = (instance?.proxy as { $route?: { query?: Record<string, string | undefined> } } | null | undefined)?.$route
+  return proxyRoute?.query ?? (instance?.appContext.config.globalProperties.$route?.query as Record<string, string | undefined> | undefined)
+}
+
+function applyRouteQueryOverrides(): void {
+  const routeQuery = readRouteQuery()
   if (routeQuery?.model) {
     sideA.modelId = String(routeQuery.model)
   }
   if (routeQuery?.replay_request_id) {
     replayRequestId.value = String(routeQuery.replay_request_id)
   }
+}
+
+watch(
+  () => {
+    const routeQuery = readRouteQuery()
+    return routeQuery ? `${routeQuery.model ?? ''}|${routeQuery.replay_request_id ?? ''}` : ''
+  },
+  () => {
+    applyRouteQueryOverrides()
+  }
+)
+
+onMounted(() => {
+  applyRouteQueryOverrides()
   if (typeof window !== 'undefined') {
     window.addEventListener('keydown', handleKeydown)
   }
@@ -819,7 +910,7 @@ const linkedRequestPath = computed(() => {
   if (!reqId) return ''
   const wsId = scope.activeWorkspaceId.value
   const projId = scope.activeProjectId.value
-  const qs = wsId && projId ? `?workspace=${encodeURIComponent(wsId)}&project=${encodeURIComponent(projId)}` : ''
+  const qs = wsId && projId ? `?workspace_id=${encodeURIComponent(wsId)}&project_id=${encodeURIComponent(projId)}` : ''
   return `/requests/${encodeURIComponent(reqId)}${qs}`
 })
 
@@ -1080,6 +1171,12 @@ function formatSettlementState(state: string | null | undefined): string {
                 data-testid="select-model-a"
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
               >
+                <option
+                  v-if="sideA.modelId && !isModelInList(sideA.modelId, filteredModels)"
+                  :value="sideA.modelId"
+                >
+                  {{ sideA.modelId }} ({{ isZh ? '平台目录模型 / 暂无可用路由' : 'Catalog only / No route' }})
+                </option>
                 <option v-for="m in filteredModels" :key="m.id" :value="m.slug || m.id">
                   {{ m.displayName && m.displayName !== m.slug ? `${m.displayName} (${m.slug})` : (m.slug || m.displayName) }}
                 </option>
@@ -1093,6 +1190,30 @@ function formatSettlementState(state: string | null | undefined): string {
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2.5 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
               />
             </label>
+
+            <div
+              v-if="modelACatalogOnly"
+              data-testid="playground-catalog-only-notice-A"
+              class="space-y-1.5 rounded-[var(--oh-r-sm,6px)] border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] text-[var(--oh-ink,var(--foreground))]"
+            >
+              <p class="font-medium">
+                {{
+                  isZh
+                    ? `模型「${sideA.modelId}」为平台目录模型，当前项目作用域暂未配置可用路由（按需接入）。`
+                    : `Model "${sideA.modelId}" is catalog-only and has no active route in this project scope.`
+                }}
+              </p>
+              <div v-if="catalogModels.length > 0" class="flex flex-wrap gap-1.5">
+                <Button
+                  data-testid="switch-routed-model-A"
+                  variant="secondary"
+                  size="xs"
+                  @click="selectFirstRoutedModel('A')"
+                >
+                  {{ isZh ? '切换为已就绪模型' : 'Switch to Routed Model' }}
+                </Button>
+              </div>
+            </div>
 
             <label class="block space-y-1 text-xs">
               <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
@@ -1225,6 +1346,12 @@ function formatSettlementState(state: string | null | undefined): string {
                 data-testid="select-model-b"
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
               >
+                <option
+                  v-if="sideB.modelId && !isModelInList(sideB.modelId, filteredModels)"
+                  :value="sideB.modelId"
+                >
+                  {{ sideB.modelId }} ({{ isZh ? '平台目录模型 / 暂无可用路由' : 'Catalog only / No route' }})
+                </option>
                 <option v-for="m in filteredModels" :key="m.id" :value="m.slug || m.id">
                   {{ m.displayName && m.displayName !== m.slug ? `${m.displayName} (${m.slug})` : (m.slug || m.displayName) }}
                 </option>
@@ -1238,6 +1365,29 @@ function formatSettlementState(state: string | null | undefined): string {
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2.5 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
               />
             </label>
+
+            <div
+              v-if="modelBCatalogOnly"
+              data-testid="playground-catalog-only-notice-B"
+              class="space-y-1.5 rounded-[var(--oh-r-sm,6px)] border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] text-[var(--oh-ink,var(--foreground))]"
+            >
+              <p class="font-medium">
+                {{
+                  isZh
+                    ? `模型「${sideB.modelId}」当前作用域暂未配置可用路由。`
+                    : `Model "${sideB.modelId}" has no active route in this project scope.`
+                }}
+              </p>
+              <Button
+                v-if="catalogModels.length > 0"
+                data-testid="switch-routed-model-B"
+                variant="secondary"
+                size="xs"
+                @click="selectFirstRoutedModel('B')"
+              >
+                {{ isZh ? '切换为已就绪模型' : 'Switch to Routed Model' }}
+              </Button>
+            </div>
 
             <label class="block space-y-1 text-xs">
               <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
@@ -1394,6 +1544,14 @@ function formatSettlementState(state: string | null | undefined): string {
               </div>
             </div>
 
+            <ConsoleAsyncBanner
+              v-if="quoteErrorNotice"
+              data-testid="playground-quote-error-banner"
+              :notice="quoteErrorNotice"
+              dismissible
+              @dismiss="quoteErrorNotice = null"
+            />
+
             <div
               v-if="inlinePreviewEstimates.length > 0"
               data-testid="playground-quote-preview"
@@ -1435,6 +1593,10 @@ function formatSettlementState(state: string | null | undefined): string {
                         ? isZh
                           ? '需作用域'
                           : 'Scope Required'
+                        : est.quoteState === 'error'
+                          ? isZh
+                            ? '报价受限/失败'
+                            : 'Quote Failed'
                         : est.rateKnown && est.maxTotalCost !== null
                           ? formatExactMoney(est.maxTotalCost, est.currency)
                           : isZh
@@ -1512,10 +1674,11 @@ function formatSettlementState(state: string | null | undefined): string {
               :inspected="inspectedSide === 'A'"
               :is-zh="isZh"
               :is-admin="authStore.isAdmin"
+              :can-manage-byok="canManageByok"
               @run="prepareConsentForTargets(['A'])"
-              @stop="controllerA.stop(scope.activeWorkspaceId.value || '1', scope.activeProjectId.value || '1')"
-              @recover="controllerA.recoverByIdempotencyKey(scope.activeWorkspaceId.value || '1', scope.activeProjectId.value || '1')"
-              @query-status="controllerA.queryRunStatus(scope.activeWorkspaceId.value || '1', scope.activeProjectId.value || '1')"
+              @stop="controllerA.stop(scope.activeWorkspaceId.value || undefined, scope.activeProjectId.value || undefined)"
+              @recover="controllerA.recoverByIdempotencyKey(scope.activeWorkspaceId.value || undefined, scope.activeProjectId.value || undefined)"
+              @query-status="controllerA.queryRunStatus(scope.activeWorkspaceId.value || undefined, scope.activeProjectId.value || undefined)"
               @inspect="inspectedSide = 'A'"
               @navigate="navigateTo"
               @inject-tool-response="injectToolResultMessage"
@@ -1530,10 +1693,11 @@ function formatSettlementState(state: string | null | undefined): string {
               :inspected="inspectedSide === 'B'"
               :is-zh="isZh"
               :is-admin="authStore.isAdmin"
+              :can-manage-byok="canManageByok"
               @run="prepareConsentForTargets(['B'])"
-              @stop="controllerB.stop(scope.activeWorkspaceId.value || '1', scope.activeProjectId.value || '1')"
-              @recover="controllerB.recoverByIdempotencyKey(scope.activeWorkspaceId.value || '1', scope.activeProjectId.value || '1')"
-              @query-status="controllerB.queryRunStatus(scope.activeWorkspaceId.value || '1', scope.activeProjectId.value || '1')"
+              @stop="controllerB.stop(scope.activeWorkspaceId.value || undefined, scope.activeProjectId.value || undefined)"
+              @recover="controllerB.recoverByIdempotencyKey(scope.activeWorkspaceId.value || undefined, scope.activeProjectId.value || undefined)"
+              @query-status="controllerB.queryRunStatus(scope.activeWorkspaceId.value || undefined, scope.activeProjectId.value || undefined)"
               @inspect="inspectedSide = 'B'"
               @navigate="navigateTo"
               @inject-tool-response="injectToolResultMessage"

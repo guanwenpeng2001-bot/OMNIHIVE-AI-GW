@@ -478,6 +478,12 @@ func compatibleVisionDeclaration(m UpstreamModelMetadata, modalities []string) b
 // entire metadata values for the scalar and string-list fields on the hot path.
 func metadataFieldEqual(left, right *UpstreamModelMetadata, field string) bool {
 	switch field {
+	case "max_input_tokens":
+		return left.MaxInputTokens == right.MaxInputTokens
+	case "free":
+		return reflect.DeepEqual(left.Free, right.Free)
+	case "pricing":
+		return reflect.DeepEqual(left.Pricing, right.Pricing)
 	case "created_at":
 		return left.CreatedAt == right.CreatedAt
 	case "model_version":

@@ -55,6 +55,8 @@ const (
 	PlatformHunyuan    = domain.PlatformHunyuan
 	PlatformMistral    = domain.PlatformMistral
 	PlatformOpenRouter = domain.PlatformOpenRouter
+	PlatformWorkBuddy  = domain.PlatformWorkBuddy
+	PlatformKilo       = domain.PlatformKilo
 	// PlatformKaggle is the compatible-provider id for self-hosted Kaggle notebooks.
 	PlatformKaggle      = "kaggle"
 	PlatformBedrock     = domain.PlatformBedrock
@@ -68,10 +70,11 @@ const (
 
 // 账号接入模式（国产供应商）：按量付费 vs Coding Plan。
 const (
-	AccountModePayG   = domain.AccountModePayG
-	AccountModeCoding = domain.AccountModeCoding
-	AccountModeZen    = domain.AccountModeZen
-	AccountModeGo     = domain.AccountModeGo
+	AccountModePayG    = domain.AccountModePayG
+	AccountModeCoding  = domain.AccountModeCoding
+	AccountModeZenFree = domain.AccountModeZenFree
+	AccountModeZen     = domain.AccountModeZen
+	AccountModeGo      = domain.AccountModeGo
 )
 
 // 上游 API 协议（国产供应商）：决定转发端点与格式，与接入模式正交。

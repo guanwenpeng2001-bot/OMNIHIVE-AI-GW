@@ -239,7 +239,7 @@ func ClearAccountRuntimeObservations(account *Account) {
 	clearCompatibleBalanceSnapshots(account.Extra)
 	for _, field := range []string{
 		"volcengine_daily_used_percent", "volcengine_daily_reset_at", "hunyuan_token_plan", "hunyuan_usage_updated_at",
-		"cursor_usage_snapshot", "cursor_usage_updated_at", "session_window_utilization",
+		"cursor_usage_snapshot", "cursor_usage_updated_at", "session_window_utilization", WorkBuddyUsageSnapshotExtraKey,
 		"passive_usage_sampled_at", "passive_usage_7d_utilization", "passive_usage_7d_reset",
 		"passive_usage_7d_oi_utilization", "passive_usage_7d_oi_reset",
 		grokBillingExtraKey, grokObservedModelsExtraKey, grokQuotaSnapshotExtraKey,

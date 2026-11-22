@@ -105,4 +105,4 @@ go generate ./ent
 
 `assets/logo.svg` 使用 256×256 画布、黑曜石色 `#16161a` 和暖琥珀色 `#f59e0b`。保持外六边形、内环与中心蜂巢单元的比例；四周留白至少为画布宽度的 1/16。最小展示尺寸为 16px，README 使用 112px。单色展示可将琥珀填充和描边统一映射到同一个前景色，并保留中心负形和外轮廓对比。
 
-专题索引见 [README](README.md#目录结构与开发指南)，部署配置见 [deploy/README.md](deploy/README.md)。
+专题索引见 [README](README.md#documentation)，部署配置见 [deploy/README.md](deploy/README.md)。

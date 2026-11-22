@@ -52,6 +52,7 @@ export default {
     inactive: '禁用',
     more: '更多',
     close: '关闭',
+    help: '帮助',
     toggleMenu: '切换菜单',
     userMenu: '用户菜单',
     pageNotFound: '页面不存在',
@@ -461,7 +462,8 @@ export default {
     invalidResetLink: '无效的重置链接',
     invalidResetLinkHint: '此密码重置链接无效或已过期。请重新请求一个新链接。',
     requestNewResetLink: '请求新的重置链接',
-    invalidOrExpiredToken: '密码重置链接无效或已过期。请重新请求一个新链接。'
+    invalidOrExpiredToken: '密码重置链接无效或已过期。请重新请求一个新链接。',
+    passwordResetDisabled: '站点暂未开启密码重置功能，请联系管理员协助处理。'
   },
 
   // Step-up（敏感操作二次验证）
@@ -481,6 +483,56 @@ export default {
   taskCenter: {
     title: '任务中心',
     description: '异步图像与批处理任务管理、受控票据产物下载、取消与付费重试。'
+  },
+
+  ui: {
+    table: {
+      emptyTitle: '暂无记录',
+      filteredEmptyTitle: '无匹配结果',
+      filteredEmptyDescription: '请调整或清空当前筛选条件以恢复列表。',
+      refreshing: '正在刷新表格数据',
+      selectAllRows: '全选所有行',
+      selectRow: '选择第 {index} 行'
+    },
+    empty: {
+      clearAllFilters: '清空所有筛选'
+    },
+    modal: {
+      close: '关闭对话框'
+    },
+    drawer: {
+      close: '关闭抽屉'
+    },
+    commandPalette: {
+      placeholder: '搜索模型、路由、密钥或操作…',
+      emptyText: '未找到匹配的命令或模型。',
+      ariaLabel: '命令面板',
+      availableCommands: '可用命令',
+      searching: '正在搜索目录…',
+      navigateHint: '↑↓ 导航',
+      selectHint: '↵ 选择',
+      closeHint: 'ESC 关闭'
+    },
+    toast: {
+      notifications: '通知',
+      copyRequestId: '复制请求 ID',
+      dismiss: '关闭通知'
+    },
+    input: {
+      clear: '清空输入',
+      hideSecret: '隐藏密钥',
+      revealSecret: '显示密钥',
+      hide: '隐藏',
+      show: '显示'
+    },
+    stat: {
+      free: '免费',
+      noVerifiedData: '暂无已验证数据',
+      settled: '已结算',
+      estimated: '预估',
+      reserved: '预占',
+      pendingCheck: '待核对'
+    }
   },
 
   // Dashboard

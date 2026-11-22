@@ -68,7 +68,7 @@ also allow it. Stream/tool entries describe implemented paths, not every model.
 | zhipu | API key, PAYG/Coding | Chat N; Messages compatibility | B / rejected / rejected | Exact deployment/model and endpoint evidence required |
 | deepseek | API key | Chat N; tools conditional | N conditional / rejected / rejected | Explicit account protocol decides native Responses versus chat bridge |
 | minimax | API key, PAYG/Coding | Account-selected protocol | N conditional / rejected / rejected | Native protocol and model qualification decide effective path |
-| opencode_go | API key, Go/Zen | Model-selected native protocol | N conditional / rejected / rejected | Provider-qualified IDs are retained |
+| opencode_go | API key, paid Go/Zen or keyless Zen Free | Model-selected native protocol | N conditional / rejected / rejected | Provider-qualified IDs are retained |
 | cursor | OAuth/upstream account forms | Cursor conversion | B / rejected / rejected | Cursor-specific count-token estimate and model mapping; no generic provider grant |
 | qianwen | API key, domestic/international and account mode | Compatible chat and bounded native actions | N conditional / rejected / rejected | Native text/image/audio/video/files actions have separate gates below |
 | commandcode | API key | Model-selected native protocol | B / rejected / rejected | Keep model routing and upstream IDs; no static capability-based grant |
@@ -77,7 +77,21 @@ also allow it. Stream/tool entries describe implemented paths, not every model.
 | hunyuan | Compatibility API key | Nonstream chat/tools; native Responses and Anthropic Messages on the same TokenHub site | N / rejected / rejected | Unverified SSE is rejected before upstream; no invented discovery or balance; the Anthropic path authenticates with x-api-key |
 | mistral | API key, original IDs including fine-tuned IDs | Chat N; Messages B; tools conditional | B / rejected / rejected | Public Messages/Responses bridge to Chat; no native Messages/Responses URL is implied; missing usage cannot settle as trusted zero |
 | openrouter | API key only; Bearer at account base URL, default https://openrouter.ai/api/v1 | Raw Chat N; Messages N; Google generateContent B through Chat; tools conditional | N / rejected / rejected | Nonstream/SSE text; adaptive or matching fixed protocol, exact provider/variant IDs; passive monitoring only; media limits below |
+| workbuddy | CN OAuth or API key, default chat base `https://copilot.tencent.com/v2` | Chat N, Messages and Gemini generation B, tools conditional | B / rejected / rejected | Signed CLI discovery at `/v3/config`. Chat uses upstream SSE and aggregates nonstream replies. |
+| workbuddy | Global OAuth or API key, default chat base `https://www.workbuddy.ai/v2` | Chat N, Messages and Gemini generation B, tools conditional | B / rejected / rejected | Global model catalog and account identity. Same signed discovery and SSE transport as CN. |
+| kilo | Keyless free pool or API key, default base `https://api.kilo.ai/api/gateway` | Chat N, Messages B, tools conditional | B / rejected / rejected | JSON and SSE. Free discovery requires `isFree: true`. Free probes omit Authorization. Gemini, media and counting actions are rejected. |
 | bedrock | Regional runtime API key or IAM SigV4 | Claude Invoke or non-Claude Converse; tools conditional | B / rejected / rejected | Messages/Responses/Chat POST admitted; ConverseStream/Claude streams; region/profile/ARN and catalog evidence still required |
+
+WorkBuddy binds OAuth discovery to the site, domain, user and enterprise. The
+cloud catalog uses CLI models and the enterprise `custom:*` models appended
+to that list. Ordinary API keys can fall back to bundled candidates after a
+successful empty listing. Account tests and active probes refuse redirects.
+
+Kilo monitors with an empty key or the public marker select the free pool.
+A paid probe model requires a private API key. Zen Free is an `opencode_go`
+account mode. Its Chat, Responses and Messages requests use identity-bound
+free discovery or reviewed bootstrap IDs, including when a mapping selects
+the upstream model.
 
 The current action dispatcher resolves the concrete target and its registered
 adapter per action, then retains account/model qualification. A provider's lack
@@ -297,13 +311,6 @@ normalization and owner/source classification; administrative DTOs consume the
 stored Ops error fields. SSE and JSON reuse opsJSONScalarString for code conversion.
 Account attribution stays in request context / administrative diagnostics. There
 is no new error-code namespace, trace field, diagnostic storage or public raw body.
-
-## Future scope
-
-| Product | State |
-| --- | --- |
-| WorkBuddy domestic | Not registered; host/auth/model/usage/points and account evidence remain future work |
-| WorkBuddy international | Not registered; separate region contract and explicit authorization still required |
 
 ## Verification and limits
 

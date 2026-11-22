@@ -15,15 +15,29 @@ import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import Tooltip from '@/components/ui/Tooltip.vue'
 import { useAuthStore } from '@/stores/auth'
 import {
+  MODALITY_FILTER_PILLS,
+  availabilityStateLabel,
+  availabilityStateTone,
+  extractDisplayModalities,
   formatContextTokens,
   formatPublicTimestamp,
+  matchesModalityFilter,
   maturityLabel,
+  modalityLabel,
+  modalityTone,
   publicTokenPrice,
   publicValue,
+  resolveAvailabilityState,
   routeStateLabel,
-  routeStateTone
+  routeStateTone,
+  type ModalityFilterKey
 } from '@/features/public/format'
-import { listPublicModels, type ListParams, type PublicModelSummary } from '@/features/public/api'
+import {
+  isSnapshotExpiredError,
+  listPublicModels,
+  type ListParams,
+  type PublicModelSummary
+} from '@/features/public/api'
 
 type ViewMode = 'table' | 'cards'
 
@@ -92,11 +106,16 @@ const loading = ref(true)
 const loadingMore = ref(false)
 const error = ref<unknown>(null)
 const paginationError = ref<unknown>(null)
+const paginationSnapshotExpired = ref(false)
+const snapshotResetAttempts = ref(0)
+const MAX_SNAPSHOT_RESET_ATTEMPTS = 3
 let request = 0
 const query = ref('')
-const sort = ref<NonNullable<ListParams['sort']>>('name')
+const sort = ref<NonNullable<ListParams['sort']>>('availability')
+const availabilityState = ref<'all' | 'live' | 'catalog_only'>('all')
 const viewMode = ref<ViewMode>('table')
 const providers = ref<string[]>([])
+const activeModalityPill = ref<ModalityFilterKey>('all')
 const selectedActions = ref<string[]>([])
 const selectedModalities = ref<string[]>([])
 const selectedProtocols = ref<string[]>([])
@@ -107,6 +126,7 @@ const onlyFavorites = ref(false)
 const FAVORITES_STORAGE_KEY = 'omnihive.public.favorite_models'
 const favoriteIds = ref<string[]>([])
 const compareIds = ref<string[]>([])
+const compareLabelCache = ref<Record<string, string>>({})
 
 const providerOptions = ref<string[]>([])
 const discoveredRegions = ref<string[]>([])
@@ -153,6 +173,13 @@ function toggleCompare(modelId: string): void {
     return
   }
   if (compareIds.value.length >= 3) return
+  const match = models.value.find((entry) => entry.id === modelId)
+  if (match) {
+    compareLabelCache.value = {
+      ...compareLabelCache.value,
+      [modelId]: match.display_name || match.model || modelId
+    }
+  }
   compareIds.value = [...compareIds.value, modelId]
 }
 
@@ -162,13 +189,65 @@ function clearCompare(): void {
 
 function compareLabel(modelId: string): string {
   const match = models.value.find((entry) => entry.id === modelId)
-  return match?.display_name || match?.model || modelId
+  return match?.display_name || match?.model || compareLabelCache.value[modelId] || modelId
 }
 
+function modelSupportsInputModality(entry: PublicModelSummary, wanted: string): boolean {
+  const normalized = wanted.trim().toLowerCase()
+  if (!normalized) return true
+  const declared = (entry.modalities ?? []).map((item) => item.trim().toLowerCase())
+  if (
+    declared.includes(normalized) ||
+    (normalized === 'audio' && declared.includes('speech')) ||
+    (normalized === 'embedding' && declared.includes('embeddings'))
+  ) {
+    return true
+  }
+  if (
+    normalized === 'text' ||
+    normalized === 'image' ||
+    normalized === 'audio' ||
+    normalized === 'video' ||
+    normalized === 'embedding' ||
+    normalized === 'realtime'
+  ) {
+    return matchesModalityFilter(entry, normalized)
+  }
+  return false
+}
+
+const hasClientSideFilter = computed(
+  () =>
+    onlyFavorites.value ||
+    (activeModalityPill.value !== 'all' && selectedModalities.value.length > 0)
+)
+
 const displayedModels = computed(() => {
-  if (!onlyFavorites.value) return models.value
-  return models.value.filter((entry) => favoriteSet.value.has(entry.id))
+  return models.value.filter((entry) => {
+    if (activeModalityPill.value !== 'all' && !matchesModalityFilter(entry, activeModalityPill.value)) {
+      return false
+    }
+    if (
+      activeModalityPill.value !== 'all' &&
+      selectedModalities.value.length > 0 &&
+      !selectedModalities.value.every((mod) => modelSupportsInputModality(entry, mod))
+    ) {
+      return false
+    }
+    if (onlyFavorites.value && !favoriteSet.value.has(entry.id)) {
+      return false
+    }
+    return true
+  })
 })
+
+const modalityPillOptions = computed(() =>
+  MODALITY_FILTER_PILLS.map((pill) => ({
+    ...pill,
+    label: isZh.value ? pill.labelZh : pill.labelEn,
+    count: models.value.filter((entry) => matchesModalityFilter(entry, pill.key)).length
+  }))
+)
 
 const categoryChips = computed(() => [
   { value: 'text.chat', label: isZh.value ? '对话推理' : 'Chat & Reasoning' },
@@ -215,14 +294,23 @@ const retentionChips = computed(() => [
 ])
 
 const sortOptions = computed(() => [
+  { value: 'availability', label: isZh.value ? '优先已接入可用' : 'Sort: Availability' },
   { value: 'name', label: isZh.value ? '按模型名称' : 'Sort: Name' },
   { value: 'price_input', label: isZh.value ? '按输入价格' : 'Sort: Input Price' },
   { value: 'context', label: isZh.value ? '按上下文长度' : 'Sort: Context Window' },
   { value: 'ttft', label: isZh.value ? '按首字延迟 (TTFT)' : 'Sort: TTFT' }
 ])
 
+const availabilityFilterOptions = computed(() => [
+  { key: 'all' as const, label: isZh.value ? '全部模型' : 'All' },
+  { key: 'live' as const, label: isZh.value ? '已接入可调用' : 'Live & Routable' },
+  { key: 'catalog_only' as const, label: isZh.value ? '平台目录' : 'Platform Catalog' }
+])
+
 const activeFilters = computed(
   () =>
+    availabilityState.value !== 'all' ||
+    activeModalityPill.value !== 'all' ||
     providers.value.length > 0 ||
     selectedActions.value.length > 0 ||
     selectedModalities.value.length > 0 ||
@@ -237,6 +325,7 @@ async function load(reset = true): Promise<void> {
   if (!reset && (loading.value || loadingMore.value || !nextCursor.value)) return
   const currentRequest = ++request
   paginationError.value = null
+  paginationSnapshotExpired.value = false
   if (reset) {
     appliedQuery = query.value.trim()
     loadingMore.value = false
@@ -246,21 +335,32 @@ async function load(reset = true): Promise<void> {
     loadingMore.value = true
   }
   try {
+    // Keep channel pill (single-select) and input modality chips decoupled:
+    // backend evaluates modality[] as OR, so merging both would pull unrelated rows.
+    const backendModalities =
+      activeModalityPill.value !== 'all'
+        ? [activeModalityPill.value]
+        : selectedModalities.value.length
+          ? [...selectedModalities.value]
+          : undefined
     const page = await listPublicModels({
       q: appliedQuery || undefined,
       provider: providers.value.length ? providers.value : undefined,
       action: selectedActions.value.length ? selectedActions.value : undefined,
-      modality: selectedModalities.value.length ? selectedModalities.value : undefined,
+      modality: backendModalities,
       protocol: selectedProtocols.value.length ? selectedProtocols.value : undefined,
       region: selectedRegions.value.length ? selectedRegions.value : undefined,
       retention: selectedRetentions.value.length ? selectedRetentions.value : undefined,
+      availability_state: availabilityState.value === 'all' ? undefined : availabilityState.value,
       sort: sort.value,
       cursor: reset ? undefined : nextCursor.value,
-      limit: 20
+      limit: 100
     })
     if (currentRequest !== request) return
     if (
       !appliedQuery &&
+      availabilityState.value === 'all' &&
+      activeModalityPill.value === 'all' &&
       !providers.value.length &&
       !selectedActions.value.length &&
       !selectedModalities.value.length &&
@@ -281,13 +381,31 @@ async function load(reset = true): Promise<void> {
       providerOptions.value = [...seen].sort()
       discoveredRegions.value = [...seenRegions].sort()
     }
-    models.value = reset ? page.items ?? [] : [...models.value, ...(page.items ?? [])]
+    const incoming = page.items ?? []
+    if (incoming.length) {
+      const nextCache = { ...compareLabelCache.value }
+      for (const item of incoming) {
+        nextCache[item.id] = item.display_name || item.model || item.id
+      }
+      compareLabelCache.value = nextCache
+    }
+    models.value = reset ? incoming : [...models.value, ...incoming]
     nextCursor.value = page.next_cursor ?? null
     asOf.value = page.as_of ?? null
+    if (reset) {
+      snapshotResetAttempts.value = 0
+    }
   } catch (err) {
     if (currentRequest === request) {
-      if (reset) error.value = err
-      else paginationError.value = err
+      if (reset) {
+        error.value = err
+      } else {
+        paginationError.value = err
+        if (isSnapshotExpiredError(err)) {
+          paginationSnapshotExpired.value = true
+          nextCursor.value = null
+        }
+      }
     }
   } finally {
     if (currentRequest === request) {
@@ -297,10 +415,21 @@ async function load(reset = true): Promise<void> {
   }
 }
 
+function retryPagination(): void {
+  if (paginationSnapshotExpired.value) {
+    if (snapshotResetAttempts.value >= MAX_SNAPSHOT_RESET_ATTEMPTS) return
+    snapshotResetAttempts.value += 1
+    void load(true)
+    return
+  }
+  void load(false)
+}
+
 function toggleFilterByKey(
   kind: 'action' | 'modality' | 'protocol' | 'provider' | 'region' | 'retention',
   item: string
 ): void {
+  snapshotResetAttempts.value = 0
   const map = {
     action: selectedActions,
     modality: selectedModalities,
@@ -317,7 +446,10 @@ function toggleFilterByKey(
 }
 
 function resetFilters(): void {
+  snapshotResetAttempts.value = 0
   query.value = ''
+  availabilityState.value = 'all'
+  activeModalityPill.value = 'all'
   providers.value = []
   selectedActions.value = []
   selectedModalities.value = []
@@ -325,14 +457,45 @@ function resetFilters(): void {
   selectedRegions.value = []
   selectedRetentions.value = []
   onlyFavorites.value = false
-  sort.value = 'name'
+  sort.value = 'availability'
+  void load()
+}
+
+function selectAvailabilityState(next: 'all' | 'live' | 'catalog_only'): void {
+  snapshotResetAttempts.value = 0
+  availabilityState.value = next
+  void load()
+}
+
+function selectModalityPill(next: ModalityFilterKey): void {
+  snapshotResetAttempts.value = 0
+  activeModalityPill.value = next
   void load()
 }
 
 function displayRate(model: PublicModelSummary, kind: 'input' | 'output'): string {
   if (model.price_state === 'free') return isZh.value ? '免费' : 'Free'
   const rate = kind === 'input' ? model.input_rate : model.output_rate
+  if (rate) return publicTokenPrice(rate, 'adaptive', isZh.value)
+  const refRate = kind === 'input' ? model.reference_price?.input_rate : model.reference_price?.output_rate
+  if (refRate) {
+    const formatted = publicTokenPrice(refRate, 'adaptive', isZh.value)
+    return isZh.value ? `参考 ${formatted}` : `Ref ${formatted}`
+  }
+  if (resolveAvailabilityState(model) === 'catalog_only') {
+    return isZh.value ? '按需接入' : 'On demand'
+  }
   return publicTokenPrice(rate, 'adaptive', isZh.value)
+}
+
+function availabilityBadge(model: PublicModelSummary) {
+  const state = resolveAvailabilityState(model)
+  if (state === 'unknown') return null
+  return {
+    state,
+    label: availabilityStateLabel(state, isZh.value),
+    tone: availabilityStateTone(state)
+  }
 }
 
 function modelTtftMs(model: PublicModelSummary): number | null {
@@ -356,9 +519,17 @@ function openConsoleEmptyAction(): void {
 }
 
 function handleGlobalShortcut(event: KeyboardEvent): void {
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-    const activeTag = (document.activeElement as HTMLElement | null)?.tagName
-    if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return
+  if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key === '/') {
+    const activeEl = document.activeElement as HTMLElement | null
+    const activeTag = activeEl?.tagName
+    if (
+      activeTag === 'INPUT' ||
+      activeTag === 'TEXTAREA' ||
+      activeTag === 'SELECT' ||
+      activeEl?.isContentEditable
+    ) {
+      return
+    }
     event.preventDefault()
     searchContainerRef.value?.querySelector('input')?.focus()
   }
@@ -416,7 +587,7 @@ onBeforeUnmount(() => {
             v-model="query"
             type="search"
             clearable
-            :placeholder="isZh ? '搜索模型 ID、显示名称或供应商… (⌘K)' : 'Search model ID, name, or provider... (⌘K)'"
+            :placeholder="isZh ? '搜索模型 ID、显示名称或供应商… (/)' : 'Search model ID, name, or provider... (/)'"
             @keydown.enter="load()"
             @clear="load()"
           />
@@ -460,6 +631,60 @@ onBeforeUnmount(() => {
             ]"
             @update:model-value="viewMode = $event as ViewMode"
           />
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-1.5" data-testid="availability-filter-pills-row">
+        <span class="mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+          {{ isZh ? '接入状态' : 'Availability' }}
+        </span>
+        <div class="mr-3 inline-flex flex-wrap items-center gap-1.5" data-testid="availability-filter-bar">
+          <button
+            v-for="opt in availabilityFilterOptions"
+            :key="opt.key"
+            type="button"
+            :data-testid="`availability-pill-${opt.key}`"
+            class="oh-focus-ring inline-flex items-center rounded-full border px-3 py-1 text-xs transition-colors"
+            :class="
+              availabilityState === opt.key
+                ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
+                : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
+            "
+            :aria-pressed="availabilityState === opt.key"
+            @click="selectAvailabilityState(opt.key)"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-1.5" data-testid="modality-filter-pills-row">
+        <span class="mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+          {{ isZh ? '模态通道' : 'Modalities' }}
+        </span>
+        <div class="inline-flex flex-wrap items-center gap-1.5" data-testid="modality-filter-pills">
+          <button
+            v-for="pill in modalityPillOptions"
+            :key="pill.key"
+            type="button"
+            :data-testid="`modality-pill-${pill.key}`"
+            class="oh-focus-ring inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors"
+            :class="
+              activeModalityPill === pill.key
+                ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
+                : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
+            "
+            :aria-pressed="activeModalityPill === pill.key"
+            @click="selectModalityPill(pill.key)"
+          >
+            <span>{{ pill.label }}</span>
+            <span
+              v-if="models.length > 0 && !nextCursor && activeModalityPill === 'all' && !hasClientSideFilter"
+              class="font-mono text-[10px] tabular-nums opacity-75"
+            >
+              {{ pill.count }}
+            </span>
+          </button>
         </div>
       </div>
 
@@ -601,53 +826,6 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section
-      v-if="compareIds.length > 0"
-      class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-oh-md border border-oh-accent/40 bg-oh-accent-subtle/50 px-4 py-3"
-      role="region"
-      :aria-label="isZh ? '快捷模型对比栏' : 'Quick model comparison bar'"
-    >
-      <div class="flex min-w-0 flex-wrap items-center gap-2">
-        <span class="font-mono text-xs font-semibold text-oh-accent-text">
-          {{ isZh ? `已选对比 (${compareIds.length}/3)` : `Compare tray (${compareIds.length}/3)` }}
-        </span>
-        <span
-          v-for="selectedId in compareIds"
-          :key="selectedId"
-          class="inline-flex max-w-full items-center gap-1.5 rounded-full border border-oh-default bg-oh-surface px-2.5 py-0.5 text-xs text-oh-primary"
-        >
-          <span class="truncate max-w-[12rem]">{{ compareLabel(selectedId) }}</span>
-          <button
-            type="button"
-            class="oh-focus-ring rounded-full px-0.5 font-mono text-oh-muted hover:text-oh-primary"
-            :aria-label="isZh ? `从对比移除 ${compareLabel(selectedId)}` : `Remove ${compareLabel(selectedId)} from comparison`"
-            @click="toggleCompare(selectedId)"
-          >
-            ×
-          </button>
-        </span>
-      </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          class="oh-focus-ring rounded-oh-xs text-xs text-oh-secondary hover:text-oh-primary hover:underline"
-          @click="clearCompare"
-        >
-          {{ isZh ? '清空' : 'Clear' }}
-        </button>
-        <RouterLink
-          :to="{ path: '/model-plaza/compare', query: { ids: compareIds.join(',') } }"
-          class="oh-focus-ring inline-flex h-8 items-center rounded-oh-md bg-[var(--oh-accent,#f59e0b)] px-3 text-xs font-semibold text-slate-950 transition-opacity hover:opacity-90"
-        >
-          {{
-            compareIds.length >= 2
-              ? (isZh ? `横向对比 (${compareIds.length}) →` : `Compare (${compareIds.length}) →`)
-              : (isZh ? '进入对比页添加更多 →' : 'Open Compare →')
-          }}
-        </RouterLink>
-      </div>
-    </section>
-
     <Skeleton v-if="loading" class="py-4" :lines="8" :label="isZh ? '正在加载公开模型目录' : 'Loading model catalog'" />
     <ErrorState
       v-else-if="error"
@@ -656,32 +834,78 @@ onBeforeUnmount(() => {
       :retry-label="isZh ? '重新加载' : 'Retry'"
       @retry="load()"
     />
-    <EmptyState
-      v-else-if="displayedModels.length === 0"
-      :variant="activeFilters ? 'filtered' : 'empty'"
-      :title="
-        onlyFavorites
-          ? (isZh ? '当前列表下暂无已收藏模型' : 'No favorited models in this view')
-          : activeFilters
-            ? (isZh ? '没有符合筛选条件的模型' : 'No models match these filters')
-            : (isZh ? '暂未发布公开模型目录' : 'No public models published yet')
-      "
-      :description="
-        activeFilters
-          ? (isZh ? '请尝试清空筛选条件，或更换模型关键词与协议类别。' : 'Clear active filters or try a broader search query.')
-          : (isZh
-              ? '当管理员在控制台完成上游连接验证、配置分组定价并确认模型上架后，模型规格与实时费率将自动在此公开展示。'
-              : 'Models and per-token rates appear here automatically once an administrator verifies upstream connections, configures pricing, and publishes the catalog.')
-      "
-      :action-label="
-        activeFilters
-          ? undefined
-          : (authStore.isAuthenticated ? (isZh ? '前往控制台发布模型' : 'Open Console') : (isZh ? '管理员登录配置' : 'Sign in to Console'))
-      "
-      :clear-filter-label="isZh ? '清空全部筛选' : 'Reset filters'"
-      @action="openConsoleEmptyAction"
-      @clear-filters="resetFilters"
-    />
+    <template v-else-if="displayedModels.length === 0">
+      <EmptyState
+        :variant="activeFilters ? 'filtered' : 'empty'"
+        :title="
+          onlyFavorites
+            ? (isZh ? '当前已加载列表中暂无已收藏模型' : 'No favorited models in loaded pages')
+            : activeFilters
+              ? (isZh ? '没有符合筛选条件的模型' : 'No models match these filters')
+              : (isZh ? '暂未发布公开模型目录' : 'No public models published yet')
+        "
+        :description="
+          nextCursor && hasClientSideFilter
+            ? (isZh
+                ? `已扫描 ${models.length} 个模型，仍有更多目录分页未加载；可继续加载下一页以查找匹配项或清空筛选。`
+                : `Scanned ${models.length} loaded models with more catalog pages available. Load the next page to find matches or clear filters.`)
+            : activeFilters
+              ? (isZh ? '请尝试清空筛选条件，或更换模型关键词与协议类别。' : 'Clear active filters or try a broader search query.')
+              : (isZh
+                  ? '当管理员在控制台完成上游连接验证、配置分组定价并确认模型上架后，模型规格与实时费率将自动在此公开展示。'
+                  : 'Models and per-token rates appear here automatically once an administrator verifies upstream connections, configures pricing, and publishes the catalog.')
+        "
+        :action-label="
+          activeFilters
+            ? undefined
+            : (authStore.isAuthenticated ? (isZh ? '前往控制台发布模型' : 'Open Console') : (isZh ? '管理员登录配置' : 'Sign in to Console'))
+        "
+        :clear-filter-label="isZh ? '清空全部筛选' : 'Reset filters'"
+        @action="openConsoleEmptyAction"
+        @clear-filters="resetFilters"
+      />
+      <ErrorState
+        v-if="paginationError"
+        compact
+        class="mt-4"
+        :title="
+          paginationSnapshotExpired
+            ? (isZh ? '目录快照已更新' : 'Catalog snapshot expired')
+            : (isZh ? '加载更多模型失败' : 'Could not load more models')
+        "
+        :message="
+          paginationSnapshotExpired
+            ? (isZh
+                ? '模型目录已发布新快照，请刷新最新目录以继续浏览。'
+                : 'A newer model catalog snapshot was published. Reload the latest catalog to continue.')
+            : extractApiErrorMessage(paginationError, '')
+        "
+        :retryable="!paginationSnapshotExpired || snapshotResetAttempts < MAX_SNAPSHOT_RESET_ATTEMPTS"
+        :retry-label="
+          paginationSnapshotExpired
+            ? (isZh ? '刷新最新目录' : 'Reload latest catalog')
+            : (isZh ? '重试加载' : 'Retry')
+        "
+        @retry="retryPagination()"
+      />
+      <div v-if="nextCursor && !paginationError" class="flex flex-col items-center gap-2 py-4">
+        <p role="status" class="text-xs text-oh-muted">
+          {{
+            isZh
+              ? `当前已展示 0 个匹配模型（已加载 ${models.length} 个，仍有后续分页）`
+              : `Showing 0 matching models (${models.length} loaded, more pages available)`
+          }}
+        </p>
+        <Button
+          data-testid="empty-state-load-more"
+          variant="secondary"
+          :loading="loadingMore"
+          @click="load(false)"
+        >
+          {{ isZh ? '继续加载下一页' : 'Load next page' }}
+        </Button>
+      </div>
+    </template>
 
     <template v-else>
       <div
@@ -706,7 +930,7 @@ onBeforeUnmount(() => {
           <tbody>
             <tr v-for="model in displayedModels" :key="model.id" class="border-b border-oh-subtle last:border-0 hover:bg-oh-hover">
               <td class="max-w-[18rem] break-all px-4 py-3 xl:max-w-[24rem]">
-                <div class="flex items-center gap-2">
+                <div class="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     class="oh-focus-ring shrink-0 rounded-oh-xs px-0.5 text-sm leading-none transition-colors"
@@ -724,7 +948,22 @@ onBeforeUnmount(() => {
                   <RouterLink :to="`/model-plaza/${encodeURIComponent(model.id)}`" class="oh-focus-ring rounded-oh-xs font-medium text-oh-primary hover:text-oh-accent-text">
                     {{ model.display_name || model.model }}
                   </RouterLink>
-                  <Badge :tone="routeStateTone(model.route_state)" size="xs" variant="subtle">
+                  <Badge
+                    v-if="availabilityBadge(model)"
+                    :data-testid="`availability-badge-${availabilityBadge(model)!.state}`"
+                    :tone="availabilityBadge(model)!.tone"
+                    size="xs"
+                    variant="subtle"
+                    dot
+                  >
+                    {{ availabilityBadge(model)!.label }}
+                  </Badge>
+                  <Badge
+                    v-else-if="model.route_state"
+                    :tone="routeStateTone(model.route_state)"
+                    size="xs"
+                    variant="subtle"
+                  >
                     {{ routeStateLabel(model.route_state, isZh) }}
                   </Badge>
                 </div>
@@ -735,14 +974,17 @@ onBeforeUnmount(() => {
               </td>
               <td class="px-4 py-3">
                 <div class="font-mono text-xs text-oh-primary">{{ publicValue(model.provider, isZh ? '未声明' : 'Undeclared') }}</div>
-                <div v-if="model.modalities?.length || model.protocols?.length" class="mt-1 flex flex-wrap gap-1">
-                  <span
-                    v-for="mod in (model.modalities ?? []).slice(0, 3)"
+                <div v-if="extractDisplayModalities(model).length || model.protocols?.length" class="mt-1 flex flex-wrap gap-1">
+                  <Badge
+                    v-for="mod in extractDisplayModalities(model).slice(0, 4)"
                     :key="mod"
-                    class="rounded-oh-xs bg-oh-subtle px-1.5 py-0.5 font-mono text-[10px] text-oh-secondary"
+                    :tone="modalityTone(mod)"
+                    size="xs"
+                    variant="subtle"
+                    :data-testid="`modality-badge-${mod}`"
                   >
-                    {{ mod }}
-                  </span>
+                    {{ modalityLabel(mod, isZh) }}
+                  </Badge>
                   <span
                     v-for="proto in (model.protocols ?? []).slice(0, 2)"
                     :key="proto"
@@ -830,6 +1072,27 @@ onBeforeUnmount(() => {
               <Badge tone="neutral" size="xs" variant="subtle">{{ formatContextTokens(model.context_tokens) }}</Badge>
             </div>
           </div>
+          <div v-if="availabilityBadge(model) || extractDisplayModalities(model).length" class="mt-2.5 flex flex-wrap items-center gap-1.5">
+            <Badge
+              v-if="availabilityBadge(model)"
+              :data-testid="`card-availability-badge-${availabilityBadge(model)!.state}`"
+              :tone="availabilityBadge(model)!.tone"
+              size="xs"
+              variant="subtle"
+              dot
+            >
+              {{ availabilityBadge(model)!.label }}
+            </Badge>
+            <Badge
+              v-for="mod in extractDisplayModalities(model).slice(0, 4)"
+              :key="mod"
+              :tone="modalityTone(mod)"
+              size="xs"
+              variant="subtle"
+            >
+              {{ modalityLabel(mod, isZh) }}
+            </Badge>
+          </div>
           <dl class="mt-4 grid grid-cols-2 gap-2 border-t border-oh-subtle pt-3 font-mono text-xs tabular-nums">
             <div>
               <dt class="text-[10px] uppercase text-oh-muted">{{ isZh ? '输入 / 1M' : 'Input / 1M' }}</dt>
@@ -879,51 +1142,88 @@ onBeforeUnmount(() => {
         v-if="paginationError"
         compact
         class="mt-4"
-        :title="isZh ? '加载更多模型失败' : 'Could not load more models'"
-        :retry-label="isZh ? '重试加载' : 'Retry'"
-        @retry="load(false)"
+        :title="
+          paginationSnapshotExpired
+            ? (isZh ? '目录快照已更新' : 'Catalog snapshot expired')
+            : (isZh ? '加载更多模型失败' : 'Could not load more models')
+        "
+        :message="
+          paginationSnapshotExpired
+            ? (isZh
+                ? '模型目录已发布新快照，请刷新最新目录以继续浏览。'
+                : 'A newer model catalog snapshot was published. Reload the latest catalog to continue.')
+            : extractApiErrorMessage(paginationError, '')
+        "
+        :retryable="!paginationSnapshotExpired || snapshotResetAttempts < MAX_SNAPSHOT_RESET_ATTEMPTS"
+        :retry-label="
+          paginationSnapshotExpired
+            ? (isZh ? '刷新最新目录' : 'Reload latest catalog')
+            : (isZh ? '重试加载' : 'Retry')
+        "
+        @retry="retryPagination()"
       />
       <div class="flex flex-col items-center gap-2 py-8">
         <p role="status" class="text-xs text-oh-muted">
           {{
             onlyFavorites
-              ? (isZh ? `当前已展示 ${displayedModels.length} 个收藏模型（共加载 ${models.length} 个）` : `Showing ${displayedModels.length} favorited of ${models.length} loaded`)
-              : (isZh ? `已加载 ${models.length} 个模型` : `${models.length} models loaded`)
+              ? (isZh ? `当前已展示 ${displayedModels.length} 个收藏模型（已加载 ${models.length} 个）` : `Showing ${displayedModels.length} favorited of ${models.length} loaded`)
+              : displayedModels.length !== models.length
+                ? (isZh ? `当前已展示 ${displayedModels.length} 个匹配模型（已加载 ${models.length} 个）` : `Showing ${displayedModels.length} matching of ${models.length} loaded`)
+                : (isZh ? `已加载 ${displayedModels.length} 个模型` : `${displayedModels.length} models loaded`)
           }}
         </p>
         <Button v-if="nextCursor && !paginationError" variant="secondary" :loading="loadingMore" @click="load(false)">
           {{ isZh ? '加载更多' : 'Load more' }}
         </Button>
       </div>
+    </template>
 
-      <div
-        v-if="compareIds.length > 0"
-        class="sticky bottom-4 z-20 mt-2 flex flex-wrap items-center justify-between gap-3 rounded-oh-md border border-oh-accent/50 bg-oh-surface/95 px-4 py-2.5 shadow-lg backdrop-blur"
-      >
-        <div class="flex min-w-0 flex-wrap items-center gap-2 text-xs">
-          <span class="font-mono font-semibold text-oh-accent-text">
-            {{ isZh ? `对比托盘 ${compareIds.length}/3` : `Compare ${compareIds.length}/3` }}
-          </span>
-          <span class="truncate text-oh-secondary">
-            {{ compareIds.map((selectedId) => compareLabel(selectedId)).join(' · ') }}
-          </span>
-        </div>
-        <div class="flex items-center gap-2">
+    <section
+      v-if="compareIds.length > 0"
+      data-testid="models-compare-tray"
+      class="sticky bottom-4 z-20 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-oh-md border border-oh-accent/50 bg-oh-surface/95 px-4 py-2.5 shadow-lg backdrop-blur"
+      role="region"
+      :aria-label="isZh ? '快捷模型对比栏' : 'Quick model comparison bar'"
+    >
+      <div class="flex min-w-0 flex-wrap items-center gap-2 text-xs">
+        <span class="font-mono font-semibold text-oh-accent-text">
+          {{ isZh ? `已选对比 (${compareIds.length}/3)` : `Compare tray (${compareIds.length}/3)` }}
+        </span>
+        <span
+          v-for="selectedId in compareIds"
+          :key="selectedId"
+          class="inline-flex max-w-full items-center gap-1.5 rounded-full border border-oh-default bg-oh-surface px-2.5 py-0.5 text-xs text-oh-primary"
+        >
+          <span class="max-w-[12rem] truncate">{{ compareLabel(selectedId) }}</span>
           <button
             type="button"
-            class="oh-focus-ring rounded-oh-xs text-xs text-oh-muted hover:text-oh-primary"
-            @click="clearCompare"
+            class="oh-focus-ring rounded-full px-0.5 font-mono text-oh-muted hover:text-oh-primary"
+            :aria-label="isZh ? `从对比移除 ${compareLabel(selectedId)}` : `Remove ${compareLabel(selectedId)} from comparison`"
+            @click="toggleCompare(selectedId)"
           >
-            {{ isZh ? '清空' : 'Clear' }}
+            ×
           </button>
-          <RouterLink
-            :to="{ path: '/model-plaza/compare', query: { ids: compareIds.join(',') } }"
-            class="oh-focus-ring inline-flex h-8 items-center rounded-oh-md bg-[var(--oh-accent,#f59e0b)] px-3 text-xs font-semibold text-slate-950 transition-opacity hover:opacity-90"
-          >
-            {{ isZh ? '前往对比 →' : 'Compare now →' }}
-          </RouterLink>
-        </div>
+        </span>
       </div>
-    </template>
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          class="oh-focus-ring rounded-oh-xs text-xs text-oh-secondary hover:text-oh-primary hover:underline"
+          @click="clearCompare"
+        >
+          {{ isZh ? '清空' : 'Clear' }}
+        </button>
+        <RouterLink
+          :to="{ path: '/model-plaza/compare', query: { ids: compareIds.join(',') } }"
+          class="oh-focus-ring inline-flex h-8 items-center rounded-oh-md bg-[var(--oh-accent,#f59e0b)] px-3 text-xs font-semibold text-slate-950 transition-opacity hover:opacity-90"
+        >
+          {{
+            compareIds.length >= 2
+              ? (isZh ? `横向对比 (${compareIds.length}) →` : `Compare (${compareIds.length}) →`)
+              : (isZh ? '进入对比页添加更多 →' : 'Open Compare →')
+          }}
+        </RouterLink>
+      </div>
+    </section>
   </PublicShell>
 </template>

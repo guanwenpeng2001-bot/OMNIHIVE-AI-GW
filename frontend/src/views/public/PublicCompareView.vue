@@ -11,13 +11,15 @@ import ErrorState from '@/components/ui/ErrorState.vue'
 import Input from '@/components/ui/Input.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
 import {
+  availabilityStateLabel,
   formatContextTokens,
   formatMetricsSource,
   formatMetricsWindow,
   formatPublicTimestamp,
   formatShortVersion,
   publicTokenPrice,
-  publicValue
+  publicValue,
+  resolveAvailabilityState
 } from '@/features/public/format'
 import {
   calculateExactScenarioBreakdown,
@@ -27,6 +29,7 @@ import {
 } from '@/features/shared/pricePresentation'
 import {
   comparePublicModels,
+  getPublicModel,
   listPublicModels,
   type PublicCompareResponse,
   type PublicCompareRow,
@@ -76,6 +79,7 @@ const COMPARE_MESSAGES = {
     secTelemetry: 'Observed Telemetry, Window & Source',
 
     rowProvider: 'Provider',
+    rowAvailability: 'Availability',
     rowContext: 'Context window',
     rowTools: 'Tool calling',
     rowStream: 'Streaming',
@@ -96,6 +100,9 @@ const COMPARE_MESSAGES = {
     unsupported: 'Unsupported',
     free: 'Free',
     unpriced: 'Unpriced',
+    onDemand: 'On demand',
+    refPrefix: 'Ref ',
+    loadMoreCandidates: 'Load more candidates',
     snapshotPrefix: 'Catalog ',
     snapshotMid: ' · Snapshot ',
     emptyResultTitle: 'No comparison data published',
@@ -144,6 +151,7 @@ const COMPARE_MESSAGES = {
     secTelemetry: '实测运行指标、统计时间窗与来源',
 
     rowProvider: '供应商',
+    rowAvailability: '接入状态',
     rowContext: '上下文窗口',
     rowTools: '工具调用 (Tools)',
     rowStream: '流式输出 (Stream)',
@@ -164,6 +172,9 @@ const COMPARE_MESSAGES = {
     unsupported: '不支持',
     free: '免费',
     unpriced: '未定价',
+    onDemand: '按需接入',
+    refPrefix: '参考 ',
+    loadMoreCandidates: '加载更多候选模型',
     snapshotPrefix: '目录版本 ',
     snapshotMid: ' · 快照时间 ',
     emptyResultTitle: '暂无对比结果数据',
@@ -203,6 +214,8 @@ const zhFlag = computed(() => activeLocaleCode.value.toLowerCase().startsWith('z
 const route = useRoute()
 const router = useRouter()
 const options = ref<PublicModelSummary[]>([])
+const optionsNextCursor = ref<string | null>(null)
+const loadingMoreOptions = ref(false)
 const filterQuery = ref('')
 const selected = ref<string[]>([])
 const result = ref<PublicCompareResponse | null>(null)
@@ -448,6 +461,27 @@ interface CompareSection {
   }>
 }
 
+function formatCompareRateCell(
+  summary: PublicModelSummary | undefined,
+  kind: 'input' | 'output'
+): string {
+  if (summary?.price_state === 'free') return tr('free')
+  const rate = kind === 'input' ? summary?.input_rate : summary?.output_rate
+  if (rate) return publicTokenPrice(rate, 'adaptive', zhFlag.value)
+  const refRate =
+    kind === 'input' ? summary?.reference_price?.input_rate : summary?.reference_price?.output_rate
+  if (refRate) {
+    const formatted = publicTokenPrice(refRate, 'adaptive', zhFlag.value)
+    if (formatted && formatted !== '—') {
+      return `${tr('refPrefix')}${formatted}`
+    }
+  }
+  if (summary && resolveAvailabilityState(summary) === 'catalog_only') {
+    return tr('onDemand')
+  }
+  return publicTokenPrice(rate, 'adaptive', zhFlag.value)
+}
+
 const comparisonSections = computed<CompareSection[]>(() => {
   const rows = result.value?.rows ?? []
   return [
@@ -461,6 +495,17 @@ const comparisonSections = computed<CompareSection[]>(() => {
           values: rows.map((row) =>
             publicValue(findSummary(row.model_id)?.provider, tr('undeclared'))
           )
+        },
+        {
+          key: 'availability',
+          label: tr('rowAvailability'),
+          values: rows.map((row) => {
+            const summary = findSummary(row.model_id)
+            const state = resolveAvailabilityState(summary)
+            return state === 'unknown'
+              ? tr('undeclared')
+              : availabilityStateLabel(state, zhFlag.value)
+          })
         },
         {
           key: 'context',
@@ -488,20 +533,12 @@ const comparisonSections = computed<CompareSection[]>(() => {
         {
           key: 'input-rate',
           label: tr('rowInputRate'),
-          values: rows.map((row) => {
-            const summary = findSummary(row.model_id)
-            if (summary?.price_state === 'free') return tr('free')
-            return publicTokenPrice(summary?.input_rate, 'adaptive', zhFlag.value)
-          })
+          values: rows.map((row) => formatCompareRateCell(findSummary(row.model_id), 'input'))
         },
         {
           key: 'output-rate',
           label: tr('rowOutputRate'),
-          values: rows.map((row) => {
-            const summary = findSummary(row.model_id)
-            if (summary?.price_state === 'free') return tr('free')
-            return publicTokenPrice(summary?.output_rate, 'adaptive', zhFlag.value)
-          })
+          values: rows.map((row) => formatCompareRateCell(findSummary(row.model_id), 'output'))
         },
         {
           key: 'scenario-quote',
@@ -562,18 +599,68 @@ const comparisonSections = computed<CompareSection[]>(() => {
   ]
 })
 
+function mergeCatalogOptions(items: PublicModelSummary[]): void {
+  const byId = new Map<string, PublicModelSummary>()
+  for (const item of options.value) {
+    byId.set(item.id, item)
+  }
+  for (const item of items) {
+    byId.set(item.id, item)
+  }
+  options.value = [...byId.values()]
+}
+
+async function hydrateMissingSelectedOptions(): Promise<void> {
+  const missing = selected.value.filter((token) => !findSummary(token))
+  if (!missing.length) return
+  const results = await Promise.allSettled(missing.map((token) => getPublicModel(token)))
+  const hydrated: PublicModelSummary[] = []
+  for (const settled of results) {
+    if (settled.status !== 'fulfilled' || !settled.value?.model) continue
+    const summary: PublicModelSummary = {
+      ...settled.value.model,
+      reference_price: settled.value.reference_price ?? settled.value.model.reference_price
+    }
+    hydrated.push(summary)
+  }
+  if (hydrated.length) {
+    mergeCatalogOptions(hydrated)
+  }
+}
+
+async function loadMoreOptions(): Promise<void> {
+  if (loadingOptions.value || loadingMoreOptions.value || !optionsNextCursor.value) return
+  loadingMoreOptions.value = true
+  try {
+    const page = await listPublicModels({
+      limit: 100,
+      sort: 'availability',
+      cursor: optionsNextCursor.value
+    })
+    mergeCatalogOptions(page.items ?? [])
+    optionsNextCursor.value = page.next_cursor ?? null
+    normalizeSelectedWithCatalog()
+  } catch {
+    // Preserve loaded options; user can retry or use query filter.
+  } finally {
+    loadingMoreOptions.value = false
+  }
+}
+
 async function loadOptions(): Promise<void> {
   loadingOptions.value = true
   optionsError.value = null
   try {
-    const page = await listPublicModels({ limit: 80, sort: 'name' })
+    const page = await listPublicModels({ limit: 100, sort: 'availability' })
     options.value = page.items ?? []
+    optionsNextCursor.value = page.next_cursor ?? null
   } catch (err) {
     optionsError.value = err
     return
   } finally {
     loadingOptions.value = false
   }
+  await hydrateMissingSelectedOptions()
   normalizeSelectedWithCatalog()
   if (canCompare.value) void run()
 }
@@ -610,6 +697,7 @@ onMounted(() => {
     <ErrorState
       v-else-if="optionsError"
       :title="tr('loadOptionsError')"
+      :message="extractApiErrorMessage(optionsError, '')"
       :retry-label="tr('retry')"
       @retry="loadOptions"
     />
@@ -644,6 +732,15 @@ onMounted(() => {
         >
           {{ option.display_name || option.model }}
         </button>
+        <Button
+          v-if="optionsNextCursor"
+          variant="secondary"
+          size="sm"
+          :loading="loadingMoreOptions"
+          @click="loadMoreOptions"
+        >
+          {{ tr('loadMoreCandidates') }}
+        </Button>
       </div>
       <div class="flex flex-wrap items-center gap-3 pb-5">
         <Button :disabled="!canCompare" :loading="loading" @click="run">

@@ -73,7 +73,7 @@
             <button @click="fetchOrders" :disabled="loading" class="btn btn-secondary" :title="t('common.refresh')">
               <Icon name="refresh" size="md" :class="loading ? 'motion-safe:animate-spin' : ''" />
             </button>
-            <button class="btn btn-primary" @click="router.push('/purchase')">{{ t('payment.result.backToRecharge') }}</button>
+            <button v-if="!isPaymentDisabled" class="btn btn-primary" @click="router.push('/purchase')">{{ t('payment.result.backToRecharge') }}</button>
           </div>
         </div>
       </div>
@@ -159,7 +159,7 @@
           </div>
           <div class="mt-2 flex justify-between text-sm">
             <span class="text-[var(--muted-foreground)]">{{ t('payment.orders.amount') }}</span>
-            <span class="font-mono font-semibold tabular-nums text-[var(--foreground)]">${{ refundTarget.amount.toFixed(2) }}</span>
+            <span class="font-mono font-semibold tabular-nums text-[var(--foreground)]">{{ formatExactMoney(refundTarget.amount, 'USD') }}</span>
           </div>
         </div>
         <div>
@@ -184,6 +184,7 @@ import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores'
 import { paymentAPI } from '@/api/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
+import { formatExactMoney } from '@/utils/money'
 import type { PaymentOrder } from '@/types/payment'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import BillingNav from '@/features/billing/components/BillingNav.vue'
@@ -224,6 +225,12 @@ const pendingOrderCount = computed(
 )
 
 async function fetchOrders() {
+  if (isPaymentDisabled.value) {
+    orders.value = []
+    pagination.total = 0
+    loading.value = false
+    return
+  }
   loading.value = true
   try {
     const res = await paymentAPI.getMyOrders({
@@ -285,11 +292,16 @@ function canRequestRefund(order: PaymentOrder): boolean {
 }
 
 async function loadRefundEligibility() {
+  if (isPaymentDisabled.value) return
   try {
     const res = await paymentAPI.getRefundEligibleProviders()
     refundEligibleProviders.value = new Set(res.data.provider_instance_ids || [])
   } catch { /* ignore — default to hiding refund button */ }
 }
 
-onMounted(() => { fetchOrders(); loadRefundEligibility() })
+onMounted(() => {
+  if (isPaymentDisabled.value) return
+  fetchOrders()
+  loadRefundEligibility()
+})
 </script>

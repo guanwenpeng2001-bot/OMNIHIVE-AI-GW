@@ -44,7 +44,18 @@ const detailLoading = ref(false)
 const detailError = ref<unknown>(null)
 const activeIncidentDetail = ref<PublicStatusIncident | null>(null)
 const selectedIncidentId = ref<string>('')
+const selectedIncidentSummary = ref<PublicStatusIncidentSummary | null>(null)
 const compactHistoryViewport = ref(typeof window !== 'undefined' ? window.innerWidth < 640 : false)
+let statusRequestSeq = 0
+let statusAbortController: AbortController | null = null
+let detailRequestSeq = 0
+let detailAbortController: AbortController | null = null
+
+function isAbortError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const candidate = err as { name?: string; code?: string }
+  return candidate.name === 'AbortError' || candidate.name === 'CanceledError' || candidate.code === 'ERR_CANCELED'
+}
 
 const components = computed(() => status.value?.components ?? [])
 const isOverallUnknown = computed(() => !status.value?.overall || status.value.overall === 'unknown')
@@ -84,19 +95,27 @@ function formatPercent(val?: number | null): string {
 }
 
 async function load(): Promise<void> {
+  const seq = ++statusRequestSeq
+  statusAbortController?.abort()
+  const controller = new AbortController()
+  statusAbortController = controller
   loading.value = true
   error.value = null
   try {
     const [statusResp, incidentsResp] = await Promise.all([
-      getPublicStatus(windowRange.value),
-      listPublicIncidents({ limit: 20 }).catch(() => ({ items: [] }))
+      getPublicStatus(windowRange.value, { signal: controller.signal }),
+      listPublicIncidents({ limit: 20 }, { signal: controller.signal }).catch(() => ({ items: [] }))
     ])
+    if (seq !== statusRequestSeq) return
     status.value = statusResp
     incidentItems.value = incidentsResp.items ?? []
   } catch (err) {
+    if (seq !== statusRequestSeq || isAbortError(err)) return
     error.value = err
   } finally {
-    loading.value = false
+    if (seq === statusRequestSeq) {
+      loading.value = false
+    }
   }
 }
 
@@ -106,17 +125,27 @@ function onWindowChange(next: string): void {
 }
 
 async function inspectIncident(summary: PublicStatusIncidentSummary): Promise<void> {
+  const seq = ++detailRequestSeq
+  detailAbortController?.abort()
+  const controller = new AbortController()
+  detailAbortController = controller
+  selectedIncidentSummary.value = summary
   selectedIncidentId.value = summary.id
   activeIncidentDetail.value = null
   detailError.value = null
   detailOpen.value = true
   detailLoading.value = true
   try {
-    activeIncidentDetail.value = await getPublicIncident(summary.id)
+    const detail = await getPublicIncident(summary.id, { signal: controller.signal })
+    if (seq !== detailRequestSeq) return
+    activeIncidentDetail.value = detail
   } catch (err) {
+    if (seq !== detailRequestSeq || isAbortError(err)) return
     detailError.value = err
   } finally {
-    detailLoading.value = false
+    if (seq === detailRequestSeq) {
+      detailLoading.value = false
+    }
   }
 }
 
@@ -129,6 +158,12 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  statusRequestSeq++
+  detailRequestSeq++
+  statusAbortController?.abort()
+  detailAbortController?.abort()
+  statusAbortController = null
+  detailAbortController = null
   if (typeof window !== 'undefined') {
     window.removeEventListener('resize', updateViewportMode)
   }
@@ -400,7 +435,7 @@ onBeforeUnmount(() => {
         :title="isZh ? '事件时间线加载失败' : 'Failed to load incident updates'"
         :message="extractApiErrorMessage(detailError, '')"
         :retry-label="isZh ? '重试' : 'Retry'"
-        @retry="selectedIncidentId && activeIncidentDetail ? inspectIncident(activeIncidentDetail) : (detailOpen = false)"
+        @retry="selectedIncidentSummary ? inspectIncident(selectedIncidentSummary) : (detailOpen = false)"
       />
       <div v-else-if="activeIncidentDetail" class="space-y-4">
         <div class="flex flex-wrap items-center gap-2">

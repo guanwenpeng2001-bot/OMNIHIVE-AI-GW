@@ -142,6 +142,31 @@ func TestConnectionWorkflow(t *testing.T) {
 		}
 		return out["data"].(obj)
 	}
+	for _, lane := range []struct{ provider, mode string }{{"kilo", "apikey"}, {"opencode_go", "go"}, {"opencode_go", "zen"}} {
+		paid := call(201, "POST", cpath, obj{"name": "paid", "schema_version": "1", "provider": lane.provider, "auth_type": "api_key", "account_mode": lane.mode}, "")
+		require.Equal(t, lane.mode, paid["account_mode"])
+	}
+	free := call(201, "POST", cpath, obj{"name": "public", "schema_version": "1", "provider": "opencode_go", "auth_type": "api_key", "account_mode": "zen_free"}, "")
+	path := cpath + "/" + free["id"].(string)
+	call(409, "PATCH", path, obj{"account_mode": "go"}, free["version"].(string))
+	cleared := call(200, "POST", path+"/credentials", obj{"operation": "clear"}, free["version"].(string))
+	paid := call(200, "PATCH", path, obj{"account_mode": "go"}, cleared["version"].(string))
+	require.Equal(t, "go", paid["account_mode"])
+	call(422, "POST", path+"/credentials", obj{"operation": "set", "type": "api_key", "secret": "public"}, paid["version"].(string))
+	buddy := call(201, "POST", cpath, obj{"name": "WorkBuddy", "schema_version": "1", "provider": "workbuddy", "auth_type": "oauth"}, "")
+	path = cpath + "/" + buddy["id"].(string)
+	token := uuid.NewString()
+	call(200, "POST", path+"/credentials", obj{"operation": "set", "type": "oauth", "secret": token, "refresh_token": uuid.NewString(), "metadata": obj{"site": "intl", "uid": "user-1", "expires_at": 1800000000}}, buddy["version"].(string))
+	var inline string
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT credentials::text FROM accounts WHERE id=$1", buddy["id"]).Scan(&inline))
+	require.NotContains(t, inline, token)
+	numeric, err := strconv.ParseInt(buddy["id"].(string), 10, 64)
+	require.NoError(t, err)
+	native, err := accounts.GetByID(domain.WithWorkspaceScope(ctx, w), numeric)
+	require.NoError(t, err)
+	require.Equal(t, "global", native.GetCredential("site"))
+	require.Equal(t, "user-1", native.GetCredential("uid"))
+	require.Equal(t, token, native.GetCredential("access_token"))
 	oauth := call(201, "POST", cpath, obj{"name": "oauth", "schema_version": "1", "provider": "openai", "auth_type": "oauth"}, "")
 	binding := sha256.Sum256([]byte(domain.WorkspaceActorScope(domain.WithWorkspaceScope(ctx, w), "admin:"+strconv.FormatInt(admin, 10)) + ":" + browser))
 	pending := service.NewAuthPendingIdentityService(ent)

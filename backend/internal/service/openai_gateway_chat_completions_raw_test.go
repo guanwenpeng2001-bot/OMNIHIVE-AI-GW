@@ -980,68 +980,23 @@ func TestForwardAsRawChatCompletions_ClientCancelTruncationStillBills(t *testing
 }
 
 func TestOpenAIRawStreamTerminalState(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name           string
-		payloads       []string
-		clientStarted  bool
-		wantTerminated bool
-		wantTruncated  bool
+	for _, tc := range []struct {
+		name     string
+		payloads []string
+		complete bool
 	}{
-		{
-			name:           "done sentinel",
-			payloads:       []string{`{"choices":[{"delta":{"content":"a"}}]}`, "[DONE]"},
-			clientStarted:  true,
-			wantTerminated: true,
-		},
-		{
-			name:           "usage chunk",
-			payloads:       []string{`{"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1}}`},
-			clientStarted:  true,
-			wantTerminated: true,
-		},
-		{
-			name:           "finish reason",
-			payloads:       []string{`{"choices":[{"delta":{},"finish_reason":"length"}]}`},
-			clientStarted:  true,
-			wantTerminated: true,
-		},
-		{
-			name:          "null finish reason is not terminal",
-			payloads:      []string{`{"choices":[{"delta":{"content":"a"},"finish_reason":null}]}`},
-			clientStarted: true,
-			wantTruncated: true,
-		},
-		{
-			name:          "usage null is not terminal",
-			payloads:      []string{`{"choices":[{"delta":{"content":"a"}}],"usage":null}`},
-			clientStarted: true,
-			wantTruncated: true,
-		},
-		{
-			// 上游对 stream 请求回了裸 JSON：无 data: 行，既有行为是原样透传。
-			name:          "non-sse body already forwarded",
-			payloads:      nil,
-			clientStarted: true,
-		},
-		{
-			name:          "no bytes at all",
-			payloads:      nil,
-			clientStarted: false,
-			wantTruncated: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			var state openAIRawStreamTerminalState
-			for _, payload := range tt.payloads {
-				state.ObserveDataLine(payload)
+		{"empty", nil, false},
+		{"usage only", []string{`{"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1}}`}, false},
+		{"delta only", []string{`{"choices":[{"delta":{"content":"a"}}]}`}, false},
+		{"done", []string{`{"choices":[{"delta":{"content":"a"}}]}`, "[DONE]"}, true},
+		{"finish", []string{`{"choices":[{"delta":{},"finish_reason":"length"}]}`}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var state rawChatChoices
+			for _, payload := range tc.payloads {
+				require.NoError(t, state.observe(payload))
 			}
-			require.Equal(t, tt.wantTerminated, state.Terminated())
-			require.Equal(t, tt.wantTruncated, state.IsTruncated(tt.clientStarted))
+			require.Equal(t, tc.complete, state.complete())
 		})
 	}
 }

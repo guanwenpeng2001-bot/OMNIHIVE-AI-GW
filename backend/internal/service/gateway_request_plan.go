@@ -89,24 +89,30 @@ type GatewayRequestPlan struct {
 	// rateLimitCounted 是本逻辑请求的用户级 RPM 计数名额；rateLimitScopes 是已经
 	// 计过数的分组维度。重试/账号切换/同组兜底复用同一个请求计划，因此不会把
 	// 同一个逻辑请求重复计成多次（T3-2.13）。
-	rateLimitCounted atomic.Bool
-	rateLimitScopes  map[int64]struct{}
-	projectBudget    ProjectBudgetCoordinator
-	budgetScope      scope.Authorized
-	projectRef       string
-	projectHold      *money.Money
-	projectReleased  bool
-	budgetRate       func(context.Context, int64, int64, float64) float64
-	keyBudgetAmount  *money.Money
-	budgetHold       *KeyBudgetReservation
-	budgetAdmitted   bool
-	tpmAttempts      map[int]*tpmPlanAttempt
-	tpmSequence      int
-	tpmRejection     error
-	catalogRepo      AccountRepository
-	affinityState    *AffinityBindingState
-	bindingAccountID int64
-	binding          func(context.Context) error
+	rateLimitCounted   atomic.Bool
+	rateLimitScopes    map[int64]struct{}
+	projectBudget      ProjectBudgetCoordinator
+	budgetScope        scope.Authorized
+	projectRef         string
+	projectHold        *money.Money
+	projectReleased    bool
+	balanceBudgetCheck func(context.Context, *money.Money) error
+	selectedPrice      atomic.Pointer[requestLanePricing]
+	embeddingsPrice    atomic.Pointer[embeddingsPricing]
+	embeddingsBudget   *money.Money
+	budgetEstimate     *RequestBudgetEstimate
+	budgetPlatform     string
+	budgetRate         func(context.Context, int64, int64, float64) float64
+	keyBudgetAmount    *money.Money
+	budgetHold         *KeyBudgetReservation
+	budgetAdmitted     bool
+	tpmAttempts        map[int]*tpmPlanAttempt
+	tpmSequence        int
+	tpmRejection       error
+	catalogRepo        AccountRepository
+	affinityState      *AffinityBindingState
+	bindingAccountID   int64
+	binding            func(context.Context) error
 }
 
 type gatewayPlanLease struct {
@@ -262,14 +268,19 @@ func (p *GatewayRequestPlan) bindBudgetReceipt(command *UsageBillingCommand) {
 }
 
 func (p *GatewayRequestPlan) releaseProjectBudget() {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := p.projectBudget.ReleaseProjectBudget(ctx, p.budgetScope, p.projectRef); err != nil {
-		slog.Warn("release project budget hold", "request_id", p.spec.ExecutionID, "error", err)
-		p.mu.Lock()
-		p.projectReleased = false
-		p.mu.Unlock()
+	var err error
+	for range 3 {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		err = p.projectBudget.ReleaseProjectBudget(ctx, p.budgetScope, p.projectRef)
+		cancel()
+		if err == nil {
+			return
+		}
 	}
+	slog.Warn("release project budget hold", "request_id", p.spec.ExecutionID, "error", err)
+	p.mu.Lock()
+	p.projectReleased = false
+	p.mu.Unlock()
 }
 
 // RequestBudgetEstimate is the bounded cost estimate used to reserve budget
@@ -286,6 +297,10 @@ type RequestBudgetEstimate struct {
 	// SkipBalanceHold keeps the reservation on the period budget only.
 	SkipBalanceHold bool
 	SkipKeyBudget   bool
+	InvalidBounds   bool
+	InputOnly       bool
+	frozenAmount    *money.Money
+	frozenJob       bool
 }
 
 // Conservative token bounds keep the reservation meaningful when a caller
@@ -302,7 +317,7 @@ func NormalizeBudgetEstimateBounds(estimate RequestBudgetEstimate) (inputTokens,
 		inputTokens = defaultBudgetEstimateInputTokens
 	}
 	outputTokens = estimate.OutputTokens
-	if outputTokens <= 0 {
+	if outputTokens <= 0 && !estimate.InputOnly {
 		outputTokens = defaultBudgetEstimateOutputTokens
 	}
 	multiplier = estimate.RateMultiplier
@@ -367,6 +382,22 @@ func (p *GatewayRequestPlan) HasProjectBudgetCoordinator() bool {
 	return p != nil && p.projectBudget != nil
 }
 
+func (p *GatewayRequestPlan) HasBalanceBudgetCheck() bool {
+	if p == nil {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.balanceBudgetCheck != nil || p.requestBalanceCache() != nil
+}
+
+func (p *GatewayRequestPlan) requestBalanceCache() *BillingCacheService {
+	if p.settlement == nil || p.settlement.cache == nil || p.settlement.cache.userRepo == nil {
+		return nil
+	}
+	return p.settlement.cache
+}
+
 // ReserveBudget admits one request against its configured project and key budgets. It is idempotent per plan: failover retries reuse the first hold.
 //
 // The estimate is priced with the plan's frozen pricing snapshot, so a price
@@ -381,16 +412,83 @@ func (p *GatewayRequestPlan) ReserveBudget(ctx context.Context, estimate Request
 		return p.admissionErr
 	}
 	if p.budgetAdmitted {
+		if estimate.InputOnly && p.embeddingsBudget != nil {
+			amount := p.estimateBudgetHold(ctx, estimate)
+			if amount == nil || amount.Amount().Compare(p.embeddingsBudget.Amount()) > 0 {
+				return ErrAPIKeyBudgetUnavailable
+			}
+		}
 		return nil
 	}
-	if estimate.SkipKeyBudget && p.projectBudget == nil {
+	platform := p.budgetPlatform
+	if estimate.Group != nil {
+		platform = channelLookupPlatform(ctx, estimate.Group.Platform)
+	}
+	if p.store != nil && publicModelPricingPlatform(platform) && estimate.Meter == nil && !estimate.frozenJob {
+		p.budgetPlatform = platform
+		p.budgetEstimate = &estimate
+		return nil
+	}
+	return p.reserveBudgetLocked(ctx, estimate)
+}
+
+func (p *GatewayRequestPlan) reserveBudgetLocked(ctx context.Context, estimate RequestBudgetEstimate) error {
+	if estimate.SkipKeyBudget && p.projectBudget == nil && p.balanceBudgetCheck == nil && p.requestBalanceCache() == nil {
 		p.budgetAdmitted = true
 		return nil
 	}
 	if p.state.Finalized || p.spec.APIKeyID <= 0 || p.spec.UserID <= 0 || strings.TrimSpace(p.spec.ExecutionID) == "" {
 		return ErrAPIKeyBudgetUnavailable
 	}
-	amount := p.estimateBudgetHold(ctx, estimate)
+	if estimate.InvalidBounds {
+		return ErrAPIKeyBudgetUnavailable
+	}
+	amount := estimate.frozenAmount
+	if amount == nil && !estimate.frozenJob {
+		amount = p.estimateBudgetHold(ctx, estimate)
+	}
+	if estimate.SkipKeyBudget && amount != nil {
+		if p.balanceBudgetCheck != nil {
+			if err := p.balanceBudgetCheck(ctx, amount); err != nil {
+				return err
+			}
+		} else if !estimate.SkipBalanceHold {
+			payer := p.spec.UserID
+			if p.store != nil && p.execution.Scope.FundingUserID > 0 {
+				payer = p.execution.Scope.FundingUserID
+			}
+			if err := p.requestBalanceCache().checkBalanceUpperBound(ctx, payer, amount); err != nil {
+				return err
+			}
+		}
+	}
+	if err := p.reserveKeyBudgetLocked(ctx, estimate, amount); err != nil {
+		return err
+	}
+	if p.projectBudget != nil {
+		if p.projectRef == "" {
+			p.projectRef = p.execution.RequestID
+			if p.projectRef == "" {
+				p.projectRef = journal.NewID()
+			}
+		}
+		held, err := p.projectBudget.ReserveProjectBudget(ctx, p.budgetScope, p.projectRef, amount)
+		if held {
+			// A lost commit acknowledgement still needs a scoped release on failure.
+			p.projectHold = amount
+		}
+		if err != nil {
+			return err
+		}
+	}
+	if estimate.InputOnly {
+		p.embeddingsBudget = amount
+	}
+	p.budgetAdmitted = true
+	return nil
+}
+
+func (p *GatewayRequestPlan) reserveKeyBudgetLocked(ctx context.Context, estimate RequestBudgetEstimate, amount *money.Money) error {
 	// Acquire the key hold first. If project admission fails the request's
 	// finalizer refunds it, including after client cancellation.
 	if !estimate.SkipKeyBudget && p.budgetHold == nil {
@@ -416,23 +514,6 @@ func (p *GatewayRequestPlan) ReserveBudget(ctx context.Context, estimate Request
 			p.keyBudgetAmount = amount
 		}
 	}
-	if p.projectBudget != nil {
-		if p.projectRef == "" {
-			p.projectRef = p.execution.RequestID
-			if p.projectRef == "" {
-				p.projectRef = journal.NewID()
-			}
-		}
-		held, err := p.projectBudget.ReserveProjectBudget(ctx, p.budgetScope, p.projectRef, amount)
-		if held {
-			// A lost commit acknowledgement still needs a scoped release on failure.
-			p.projectHold = amount
-		}
-		if err != nil {
-			return err
-		}
-	}
-	p.budgetAdmitted = true
 	return nil
 }
 
@@ -634,6 +715,9 @@ func (p *GatewayRequestPlan) journalDispatch(ctx context.Context, accountID int6
 	}
 	if failed != nil {
 		return journal.Attempt{}, failed
+	}
+	if err := p.admitPublicModelLane(ctx, accountID); err != nil {
+		return journal.Attempt{}, err
 	}
 	if err := journal.Authorize(ctx, p.execution.Scope, p.spec.Model); err != nil {
 		p.logJournalError(err)

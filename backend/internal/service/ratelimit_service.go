@@ -331,6 +331,9 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 // HandleUpstreamError 处理上游错误响应，标记账号状态
 // 返回是否应该停止该账号的调度
 func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) (shouldDisable bool) {
+	if publicModelLane(account) && statusCode == http.StatusUnauthorized {
+		return false // A shared public lane has no expiring account credential.
+	}
 	ctx = WithAccountRuntimeIdentity(ctx, account)
 	ctx = withTempUnschedulableModel(ctx, requestedModel)
 	if account.IsOpenCodeGoPlan() && (statusCode == http.StatusPaymentRequired || statusCode == http.StatusTooManyRequests && isOpenCodeUsageLimitFailure(responseBody)) && firstRequestedModel(requestedModel) != "" {

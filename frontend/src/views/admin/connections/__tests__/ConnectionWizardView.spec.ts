@@ -347,4 +347,241 @@ describe('ConnectionWizardView state machine & truth invariants (FE-F09-01)', ()
       endpoint: 'https://new.example.com'
     })
   })
+
+  it('renders URL_NOT_ALLOWED, UPSTREAM_RATE_LIMITED, and safe plain-text check.detail diagnostics on Step 3', async () => {
+    mockRoute.params = { id: 'conn_diag_1' }
+    const draftCustom = buildActiveResource({
+      id: 'conn_diag_1',
+      state: 'draft',
+      provider: 'custom_compat',
+      endpoint: 'https://custom-llm.internal.example',
+      last_verification: null,
+      model_ids: []
+    })
+    mockConnectionsApi.getConnection.mockResolvedValue(draftCustom)
+    mockConnectionsApi.verifyConnection.mockResolvedValue({
+      operation_id: 'op_diag_1',
+      state: 'running',
+      status_url: '/api/v2/workspaces/10/operations/op_diag_1'
+    })
+    mockPollConnectionOperation.mockResolvedValueOnce({
+      operation_id: 'op_diag_1',
+      state: 'failed',
+      status_url: '/api/v2/workspaces/10/operations/op_diag_1',
+      result: {
+        verification_id: 'ver_url_1',
+        models: [],
+        verified_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+        checks: [
+          {
+            name: 'network',
+            state: 'failed',
+            reason: 'URL_NOT_ALLOWED',
+            detail: 'Endpoint host custom-llm.internal.example rejected <script>alert(1)</script>'
+          }
+        ]
+      }
+    })
+
+    const wrapper = mountWizard()
+    await flushPromises()
+
+    for (let step = 0; step < 2; step += 1) {
+      const continueBtn = wrapper.findAll('button').find((btn) => btn.text().includes('Continue'))!
+      await continueBtn.trigger('click')
+      await flushPromises()
+    }
+
+    const runProbeBtn = wrapper
+      .findAll('button')
+      .find((btn) => btn.text().includes('Run Verification Probe'))!
+    await runProbeBtn.trigger('click')
+    await flushPromises()
+
+    const failedBanner = wrapper.get('[data-testid="verify-failed-diagnostic-banner"]')
+    expect(failedBanner.text()).toContain('URL_NOT_ALLOWED')
+    expect(failedBanner.text()).toContain('SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS')
+    expect(failedBanner.text()).toContain('.env')
+
+    const detailEl = wrapper.get('[data-testid="verification-check-detail"]')
+    expect(detailEl.text()).toContain('custom-llm.internal.example')
+    expect(detailEl.text()).toContain('<script>alert(1)</script>')
+    expect(detailEl.find('script').exists()).toBe(false)
+
+    // Re-run probe returning UPSTREAM_RATE_LIMITED
+    mockPollConnectionOperation.mockResolvedValueOnce({
+      operation_id: 'op_diag_2',
+      state: 'failed',
+      status_url: '/api/v2/workspaces/10/operations/op_diag_2',
+      result: {
+        verification_id: 'ver_429',
+        models: [],
+        verified_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+        checks: [
+          {
+            name: 'network',
+            state: 'failed',
+            reason: 'UPSTREAM_RATE_LIMITED',
+            detail: 'upstream returned 429 Too Many Requests'
+          }
+        ]
+      }
+    })
+
+    await wrapper.get('[data-testid="verify-retry-probe-btn"]').trigger('click')
+    await flushPromises()
+
+    const updatedBanner = wrapper.get('[data-testid="verify-failed-diagnostic-banner"]')
+    expect(updatedBanner.text()).toContain('UPSTREAM_RATE_LIMITED')
+    expect(updatedBanner.text()).toContain('429')
+    expect(wrapper.get('[data-testid="verification-check-detail"]').text()).toContain(
+      'upstream returned 429 Too Many Requests'
+    )
+  })
+
+  it('sends account_mode on Kilo apikey creation, patches account_mode before credential change, and locks keyless Step 2 input (FE-01, FE-07)', async () => {
+    const kiloAndOpenCodeSchemas: ConnectionSchema[] = [
+      {
+        provider: 'kilo',
+        schema_version: '1',
+        auth_types: ['api_key'],
+        fields: [{ path: 'endpoint', required: false }]
+      } as unknown as ConnectionSchema,
+      {
+        provider: 'opencode_go',
+        schema_version: '1',
+        auth_types: ['api_key'],
+        fields: [{ path: 'endpoint', required: false }]
+      } as unknown as ConnectionSchema
+    ]
+    mockConnectionsApi.listProviderSchemas.mockResolvedValue({ items: kiloAndOpenCodeSchemas })
+    const callOrder: string[] = []
+    mockConnectionsApi.createConnection.mockImplementation(async (payload: Record<string, unknown>) => {
+      callOrder.push(`create:${String(payload.account_mode)}`)
+      return buildActiveResource({
+        id: 'conn_kilo_new',
+        state: 'draft',
+        provider: 'kilo',
+        account_mode: String(payload.account_mode),
+        endpoint: 'https://api.kilo.ai/api/gateway',
+        credential: { version: '1', type: 'api_key', state: 'unset', last_four: null, updated_at: '' },
+        last_verification: null,
+        model_ids: [],
+        pool_ids: [],
+        redactions: []
+      })
+    })
+    mockConnectionsApi.patchConnection.mockImplementation(async (_id: string, version: string, patch: Record<string, unknown>) => {
+      callOrder.push(`patch@v${version}:${String(patch.account_mode)}`)
+      return { version: '6', redactions: [] }
+    })
+    mockConnectionsApi.changeCredential.mockImplementation(async (_id: string, version: string, payload: Record<string, unknown>) => {
+      if (payload.operation === 'clear') {
+        callOrder.push(`cred@v${version}:clear`)
+        return {
+          version: '8',
+          credential: { version: '2', type: 'api_key', state: 'revoked', last_four: null, updated_at: '' }
+        }
+      }
+      callOrder.push(`cred@v${version}:${String(payload.secret)}`)
+      return {
+        version: '7',
+        credential: { version: '2', type: 'api_key', state: 'unverified', last_four: '1234', updated_at: '' }
+      }
+    })
+
+    const wrapper = mountWizard()
+    await flushPromises()
+
+    // Step 1 -> Step 2 (Kilo defaults to free)
+    const continueBtn = wrapper.findAll('button').find((btn) => btn.text().includes('Continue'))!
+    await continueBtn.trigger('click')
+    await flushPromises()
+
+    const secretInputFree = wrapper.findAll('input').find((el) => el.attributes('type') === 'password')!
+    expect(secretInputFree.attributes('disabled')).toBeDefined()
+
+    // Switch to apikey mode -> secret input enabled -> Save Draft sends account_mode: 'apikey'
+    await wrapper.get('[data-testid="wizard-kilo-mode-apikey"]').trigger('click')
+    await flushPromises()
+    const secretInputPaid = wrapper.findAll('input').find((el) => el.attributes('type') === 'password')!
+    expect(secretInputPaid.attributes('disabled')).toBeUndefined()
+    await secretInputPaid.setValue('sk-kilo-real-key-1234')
+
+    const saveDraftBtn = wrapper.findAll('button').find((btn) => btn.text().trim() === 'Save Draft')!
+    await saveDraftBtn.trigger('click')
+    await flushPromises()
+
+    expect(mockConnectionsApi.createConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'kilo', account_mode: 'apikey' })
+    )
+    expect(callOrder).toEqual(['create:apikey', 'cred@v5:sk-kilo-real-key-1234'])
+
+    // Switch existing connection back to free directly from keep mode:
+    // clears credential BEFORE patching account_mode='free' (avoiding CLEAR_CREDENTIAL_BEFORE_MODE_CHANGE), then sets empty keyless secret
+    callOrder.length = 0
+    await wrapper.get('[data-testid="wizard-kilo-mode-free"]').trigger('click')
+    await flushPromises()
+    await saveDraftBtn.trigger('click')
+    await flushPromises()
+    expect(callOrder).toEqual(['cred@v7:clear', 'patch@v8:free', 'cred@v6:'])
+
+    // Switching back from free to apikey in edit mode shows selector without toggling Replace Secret first and blocks missing key
+    callOrder.length = 0
+    await wrapper.get('[data-testid="wizard-kilo-mode-apikey"]').trigger('click')
+    await flushPromises()
+    await saveDraftBtn.trigger('click')
+    await flushPromises()
+    expect(callOrder).toEqual([])
+    const paidInputAfterSwitch = wrapper.findAll('input').find((el) => el.attributes('type') === 'password')!
+    await paidInputAfterSwitch.setValue('kilo-paid-key-999')
+    await saveDraftBtn.trigger('click')
+    await flushPromises()
+    expect(callOrder).toEqual(['cred@v7:clear', 'patch@v8:apikey', 'cred@v6:kilo-paid-key-999'])
+
+    // Also verify OpenCode Go <-> Zen Free endpoint auto-switching
+    mockRoute.params = { id: 'conn_oc_edit' }
+    mockConnectionsApi.getConnection.mockResolvedValue(
+      buildActiveResource({
+        id: 'conn_oc_edit',
+        state: 'draft',
+        provider: 'opencode_go',
+        account_mode: 'go',
+        endpoint: 'https://opencode.ai/zen/go/v1',
+        credential: { version: '1', type: 'api_key', state: 'unset', last_four: null, updated_at: '' },
+        last_verification: null
+      })
+    )
+    const ocWrapper = mountWizard()
+    await flushPromises()
+    const ocContinue = ocWrapper.findAll('button').find((btn) => btn.text().includes('Continue'))!
+    await ocContinue.trigger('click')
+    await flushPromises()
+
+    await ocWrapper.get('[data-testid="wizard-opencode-mode-zen-free"]').trigger('click')
+    await flushPromises()
+    const ocSecretInput = ocWrapper.findAll('input').find((el) => el.attributes('type') === 'password')!
+    expect(ocSecretInput.attributes('disabled')).toBeDefined()
+
+    // Go back to Step 1 and verify endpoint switched to zen/v1
+    const backBtn = ocWrapper.findAll('button').find((btn) => btn.text().trim() === 'Previous')!
+    await backBtn.trigger('click')
+    await flushPromises()
+    expect(
+      ocWrapper.findAll('input').some((el) => (el.element as HTMLInputElement).value === 'https://opencode.ai/zen/v1')
+    ).toBe(true)
+
+    // Switch to 'go' in Step 2 -> endpoint switches back to zen/go/v1
+    await ocWrapper.findAll('button').find((btn) => btn.text().includes('Continue'))!.trigger('click')
+    await flushPromises()
+    await ocWrapper.get('[data-testid="wizard-opencode-mode-go"]').trigger('click')
+    await flushPromises()
+    await ocWrapper.findAll('button').find((btn) => btn.text().trim() === 'Previous')!.trigger('click')
+    await flushPromises()
+    expect(
+      ocWrapper.findAll('input').some((el) => (el.element as HTMLInputElement).value === 'https://opencode.ai/zen/go/v1')
+    ).toBe(true)
+  })
 })

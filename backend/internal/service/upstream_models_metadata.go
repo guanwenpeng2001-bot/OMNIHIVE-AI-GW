@@ -70,6 +70,8 @@ func decodeUpstreamModelCapabilities(body []byte, entry *upstreamModelCapability
 		"outputTokenLimit":           &entry.OutputTokenLimit,
 		"displayName":                &entry.DisplayNameCamel,
 		"supportsThinking":           &entry.SupportsThinking,
+		"supports_reasoning":         &entry.SupportsReasoning,
+		"supports_vision":            &entry.SupportsVision,
 		"thinking":                   &entry.Thinking,
 		"supportsImages":             &entry.SupportsImages,
 		"maxOutputTokens":            &entry.MaxOutputTokensCamel,
@@ -220,7 +222,7 @@ func catalogModalities(groups ...[]string) []string {
 	for _, values := range groups {
 		for _, value := range values {
 			switch value {
-			case "text", "image", "audio", "video", "pdf", "embedding":
+			case "text", "image", "audio", "video", "pdf", "embedding", "3d":
 				result = append(result, value)
 			}
 		}
@@ -254,6 +256,11 @@ func (b PlazaCatalogBinding) CatalogModelFacts(expires, now time.Time) []catalog
 		{"input_modalities", func(f *catalog.Facts) bool {
 			f.Modalities = append(f.Modalities, catalogModalities(m.InputModalities)...)
 			return m.InputModalities != nil
+		}},
+		{"task_type", func(f *catalog.Facts) bool {
+			modalities, _ := catalog.TaskPresentation(m.TaskType)
+			f.Modalities = append(f.Modalities, modalities...)
+			return len(modalities) > 0
 		}},
 		{"output_modalities", func(f *catalog.Facts) bool {
 			f.Modalities = append(f.Modalities, catalogModalities(m.OutputModalities)...)

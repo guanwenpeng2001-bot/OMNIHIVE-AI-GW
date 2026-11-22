@@ -361,7 +361,7 @@ describe('late platform protocol declarations', () => {
 
   it('keeps every other chat-only entry free of native text protocols', () => {
     const chatOnlyIds = backendDescriptors.filter(descriptor => descriptor.chatOnly).map(descriptor => descriptor.id)
-    expect(chatOnlyIds.sort()).toEqual(['hunyuan', 'mistral', 'openrouter', 'qianfan', 'volcengine'])
+    expect(chatOnlyIds.sort()).toEqual(['hunyuan', 'kilo', 'mistral', 'openrouter', 'qianfan', 'volcengine', 'workbuddy'])
     expect(backendDescriptors.find(descriptor => descriptor.id === 'mistral')).toMatchObject({ multiProtocol: false })
     expect(backendDescriptors.find(descriptor => descriptor.id === 'hunyuan')).toMatchObject({ multiProtocol: true })
   })

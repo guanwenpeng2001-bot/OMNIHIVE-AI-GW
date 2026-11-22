@@ -13,8 +13,8 @@ describe('platform expansion account flow', () => {
       expect(CHAT_PLATFORM_BASE_URLS[platform]).toMatch(/^https:\/\//)
     })
   }
-  it('does not register unverified WorkBuddy', () => {
-    expect(isChatOnlyPlatform('workbuddy')).toBe(false)
-    expect(CONCRETE_PLATFORM_OPTIONS.some(option => String(option.value) === 'workbuddy')).toBe(false)
+  it('registers WorkBuddy as a verified first-class OAuth platform', () => {
+    expect(CONCRETE_PLATFORM_OPTIONS.some(option => String(option.value) === 'workbuddy')).toBe(true)
+    expect(platformSupportsOAuth('workbuddy')).toBe(true)
   })
 })

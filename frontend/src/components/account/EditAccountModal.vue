@@ -247,14 +247,26 @@
       </div>
       <CursorKeyFields v-if="account.platform === 'cursor'" editing :mode="cursorKeyMode" v-model:auto-credentials="cursorAutoCredentials" v-model:api-key="editApiKey" v-model:base-url="editBaseUrl" v-model:client-version="cursorClientVersion" />
       <CursorBrowserAuthorization v-if="account.platform === 'cursor' && cursorKeyMode === 'auto'" :account-id="account.id" :client-version="cursorClientVersion" @busy="cursorAuthorizing = $event" @draft="cursorCredentialDraft = $event" />
+      <WorkBuddyAuthFields
+        v-if="account.platform === 'workbuddy'"
+        editing
+        :mode="account.type === 'oauth' ? 'oauth' : 'apikey'"
+        :proxy-id="form.proxy_id"
+        :proxy-group-id="form.proxy_group_id"
+        v-model:site="workbuddySite"
+        v-model:oauth-credentials="workbuddyOAuthCredentials"
+        v-model:api-key="editApiKey"
+        v-model:base-url="editBaseUrl"
+        @busy="workbuddyAuthorizing = $event"
+      />
       <!-- API Key fields (only for apikey type) -->
-      <div v-if="account.type === 'apikey' && account.platform !== 'cursor'" class="space-y-4">
+      <div v-if="account.type === 'apikey' && account.platform !== 'cursor' && account.platform !== 'workbuddy'" class="space-y-4">
         <div v-if="selectedSupplier" class="space-y-3" data-testid="edit-supplier">
           <p class="font-medium">{{ t(`admin.accounts.supplier.names.${selectedSupplier.id}`) }}</p>
           <SupplierVariantCards :supplier="selectedSupplier" :model-value="selectedSupplier.members.find(member => member.platform === account?.platform)?.selection ?? {}" locked />
         </div>
         <CompatibleProviderFields v-if="selectedCompatibleProvider" :provider="selectedCompatibleProvider" v-model="compatibleDraft" @reset-secret="editApiKey = ''" />
-        <div v-else-if="!isProtocolApiKeyAccount || editApiProtocol !== 'adaptive'">
+        <div v-else-if="account.platform !== 'workbuddy' && (!isProtocolApiKeyAccount || editApiProtocol !== 'adaptive')">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
             v-model="editBaseUrl" data-account-field="editBaseUrl"
@@ -278,7 +290,7 @@
             @select="onCnPresetSelect"
           />
         </div>
-        <div v-else>
+        <div v-else-if="account.platform !== 'workbuddy'">
           <label class="input-label">{{ t('admin.accounts.cnProviders.apiProtocol.endpoints') }}</label>
           <div class="mt-2 space-y-3">
             <div v-for="item in editAdaptiveProtocolOptions" :key="item.value">
@@ -295,10 +307,11 @@
         <!-- OpenCode Zen vs GO -->
         <div v-if="isProtocolApiKeyAccount && account.platform === 'opencode_go'">
           <label class="input-label">{{ t('admin.accounts.supplier.planType') }}</label>
-          <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.supplier.planType')" @keydown="navigateAccountChoices">
+          <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" role="radiogroup" :aria-label="t('admin.accounts.supplier.planType')" @keydown="navigateAccountChoices">
             <button
               type="button"
               @click="editOpenCodeAccountMode = 'zen'"
+              data-testid="edit-opencode-mode-zen"
               :class="[
                 'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
                 editOpenCodeAccountMode === 'zen'
@@ -321,7 +334,32 @@
             </button>
             <button
               type="button"
+              @click="editOpenCodeAccountMode = 'zen_free'"
+              data-testid="edit-opencode-mode-zen-free"
+              :class="[
+                'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+                editOpenCodeAccountMode === 'zen_free'
+                  ? 'border-lime-500 bg-lime-50 dark:bg-lime-900/20'
+                  : 'hover:border-gray-400 border-[var(--border)] dark:hover:border-gray-600'
+              ]" role="radio" :aria-checked="editOpenCodeAccountMode === 'zen_free'" :tabindex="editOpenCodeAccountMode === 'zen_free' ? 0 : -1"
+            >
+              <div
+                :class="[
+                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                  editOpenCodeAccountMode === 'zen_free' ? 'bg-lime-500 text-white' : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
+                ]"
+              >
+                <Icon name="sparkles" size="sm" />
+              </div>
+              <div>
+                <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.opencodeGo.accountMode.zenFree') }}</span>
+                <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.opencodeGo.accountMode.zenFreeDesc') }}</span>
+              </div>
+            </button>
+            <button
+              type="button"
               @click="editOpenCodeAccountMode = 'go'"
+              data-testid="edit-opencode-mode-go"
               :class="[
                 'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
                 editOpenCodeAccountMode === 'go'
@@ -340,6 +378,60 @@
               <div>
                 <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.opencodeGo.accountMode.go') }}</span>
                 <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.opencodeGo.accountMode.goDesc') }}</span>
+              </div>
+            </button>
+          </div>
+        </div>
+        <!-- Kilo Free Pool vs API Key -->
+        <div v-if="account.platform === 'kilo'">
+          <label class="input-label">{{ t('admin.accounts.kilo.accountMode.label') }}</label>
+          <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.kilo.accountMode.label')" @keydown="navigateAccountChoices">
+            <button
+              type="button"
+              @click="editKiloAccountMode = 'free'"
+              data-testid="edit-kilo-mode-free"
+              :class="[
+                'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+                editKiloAccountMode === 'free'
+                  ? 'border-slate-500 bg-slate-50 dark:bg-slate-900/30'
+                  : 'hover:border-gray-400 border-[var(--border)] dark:hover:border-gray-600'
+              ]" role="radio" :aria-checked="editKiloAccountMode === 'free'" :tabindex="editKiloAccountMode === 'free' ? 0 : -1"
+            >
+              <div
+                :class="[
+                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                  editKiloAccountMode === 'free' ? 'bg-slate-600 text-white' : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
+                ]"
+              >
+                <Icon name="sparkles" size="sm" />
+              </div>
+              <div>
+                <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.kilo.accountMode.free') }}</span>
+                <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.kilo.accountMode.freeDesc') }}</span>
+              </div>
+            </button>
+            <button
+              type="button"
+              @click="editKiloAccountMode = 'apikey'"
+              data-testid="edit-kilo-mode-apikey"
+              :class="[
+                'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+                editKiloAccountMode === 'apikey'
+                  ? 'border-slate-500 bg-slate-50 dark:bg-slate-900/30'
+                  : 'hover:border-gray-400 border-[var(--border)] dark:hover:border-gray-600'
+              ]" role="radio" :aria-checked="editKiloAccountMode === 'apikey'" :tabindex="editKiloAccountMode === 'apikey' ? 0 : -1"
+            >
+              <div
+                :class="[
+                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                  editKiloAccountMode === 'apikey' ? 'bg-slate-600 text-white' : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
+                ]"
+              >
+                <Icon name="key" size="sm" />
+              </div>
+              <div>
+                <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.kilo.accountMode.apikey') }}</span>
+                <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.kilo.accountMode.apikeyDesc') }}</span>
               </div>
             </button>
           </div>
@@ -451,8 +543,8 @@
           </div>
           <p class="input-hint mt-2">{{ t('admin.accounts.cnProviders.zhipuTeam.hint') }}</p>
         </div>
-        <div>
-          <label class="input-label">{{ t('admin.accounts.apiKey') }}</label>
+        <div v-if="account.platform !== 'workbuddy'">
+          <label class="input-label">{{ isEditKeylessPublicLane ? t('admin.accounts.apiKeyOptional') : t('admin.accounts.apiKey') }}</label>
           <input
             v-model="editApiKey" data-account-field="editApiKey"
             type="password"
@@ -2546,6 +2638,7 @@ import QianwenPricingPanel from './QianwenPricingPanel.vue'
 import BedrockRegionSelect from './BedrockRegionSelect.vue'
 import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
+import WorkBuddyAuthFields from './WorkBuddyAuthFields.vue'
 import { extractApiErrorCode, extractApiErrorStatus, extractApiErrorMetadata, extractApiErrorMessage } from '@/utils/apiError'
 import CompatibleProviderFields from './CompatibleProviderFields.vue'
 import SupplierVariantCards from './SupplierVariantCards.vue'
@@ -2557,7 +2650,8 @@ import TencentQuotaFields from './TencentQuotaFields.vue'
 import { byteplusQuotaDraft, byteplusQuotaProfile, applyByteplusQuotaCredentials, tencentQuotaDraft, tencentQuotaProfile, applyTencentQuotaCredentials } from './credentialsBuilder'
 import UsageQueryCredentialFields from './UsageQueryCredentialFields.vue'
 import { usageQueryDraft, supportsUsageQuery, applyUsageQueryCredentials } from './credentialsBuilder'
-import { volcengineQuotaDraft, volcengineQuotaProfile, applyVolcengineQuotaCredentials, buildCursorCredentials, resolveCursorRelayProtocol } from './credentialsBuilder'
+import { volcengineQuotaDraft, volcengineQuotaProfile, applyVolcengineQuotaCredentials, buildCursorCredentials, resolveCursorRelayProtocol, buildWorkBuddyCredentials, extractWorkBuddyOAuthDraft, extractWorkBuddySite, type WorkBuddyOAuthDraft, buildKiloCredentials, DEFAULT_KILO_BASE_URL, resolveKiloAccountMode, type KiloAccountMode } from './credentialsBuilder'
+import type { WorkBuddySite } from '@/api/admin/workbuddy'
 import { ref, reactive, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { platformSelectionClass, platformSelectionIconClass } from '@/utils/platformColors'
@@ -2812,6 +2906,7 @@ const editBaseUrlPlaceholder = computed(() => {
   if (platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (platform === 'antigravity') return 'https://cloudcode-pa.googleapis.com'
   if (platform === 'grok') return 'https://api.x.ai/v1'
+  if (platform === 'kilo') return DEFAULT_KILO_BASE_URL
   return 'https://api.anthropic.com'
 })
 
@@ -2826,6 +2921,8 @@ const editApiKeyPlaceholder = computed(() => {
   if (platform === 'gemini') return 'AIza...'
   if (platform === 'antigravity') return 'sk-...'
   if (platform === 'grok') return 'xai-...'
+  if (platform === 'opencode_go' && editOpenCodeAccountMode.value === 'zen_free') return 'public'
+  if (platform === 'kilo') return editKiloAccountMode.value === 'free' ? 'public' : 'sk-...'
   if (platform === 'kimi' || platform === 'deepseek' || platform === 'minimax' || platform === 'opencode_go') return 'sk-...'
   if (platform === 'zhipu') return '<api-key>.<secret>'
   return 'sk-ant-...'
@@ -2849,6 +2946,12 @@ const proxySelectionValid = ref(true)
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
+const editKiloAccountMode = ref<KiloAccountMode>('free')
+const isEditKeylessPublicLane = computed(
+  () =>
+    (props.account?.platform === 'opencode_go' && editOpenCodeAccountMode.value === 'zen_free') ||
+    (props.account?.platform === 'kilo' && editKiloAccountMode.value === 'free')
+)
 const cursorKeyMode = ref<'official' | 'relay' | 'auto'>('official')
 // Cursor 一级账号类型在本页只读：回填自已有 account.type，卡片仅展示当前类型。
 // 顺序与图标沿用创建页/字段组件原有的三张卡（Auto、官方 Key、Relay）。
@@ -2866,6 +2969,9 @@ const cursorAutoCredentials = ref<Record<string, string>>({})
 const cursorAuthorizing = ref(false)
 const cursorClientVersion = ref('')
 const cursorCredentialDraft = ref<AccountCredentialDraft | null>(null)
+const workbuddySite = ref<WorkBuddySite>('cn')
+const workbuddyAuthorizing = ref(false)
+const workbuddyOAuthCredentials = ref<WorkBuddyOAuthDraft>(extractWorkBuddyOAuthDraft(undefined, 'cn'))
 const isCursorRelay = computed(() => props.account?.platform === 'cursor' && cursorKeyMode.value === 'relay')
 // 只读回显用的原始协议值（非法值只在提示文案里展示，不参与构造）。
 const cursorStoredRelayProtocol = computed(() => props.account?.credentials?.api_protocol)
@@ -3115,7 +3221,7 @@ const editVertexLocation = ref('us-central1')
 const modelCandidateIdentity = computed(() => ({
   host: selectedCompatibleProvider.value ? String(compatibleDraft.value.base_url || '') : editBaseUrl.value,
   type: props.account?.type,
-  profile: String(props.account?.credentials?.provider_profile || ''),
+  profile: props.account?.platform === 'workbuddy' ? `workbuddy-${workbuddySite.value}` : String(props.account?.credentials?.provider_profile || ''),
   region: props.account?.type === 'bedrock' ? editBedrockRegion.value
     : props.account?.type === 'service_account' ? editVertexLocation.value : '',
   mode: selectedCompatibleProvider.value ? compatibleMode(selectedCompatibleProvider.value, compatibleDraft.value.account_mode)?.mode : currentOpenCodeOrCNMode()
@@ -3570,6 +3676,7 @@ const tempUnschedPresets = computed(() => [
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
   if (selectedCompatibleProvider.value) return ''
+  if (props.account?.platform === 'workbuddy') return ''
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
@@ -3755,6 +3862,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   }
   cursorAutoCredentials.value = { machine_id: String(newAccount.credentials?.machine_id || ''), mac_machine_id: String(newAccount.credentials?.mac_machine_id || '') }
   cursorClientVersion.value = String(newAccount.credentials?.client_version || '')
+  if (newAccount.platform === 'workbuddy') {
+    workbuddySite.value = extractWorkBuddySite(newAccount.credentials, newAccount.extra)
+    workbuddyOAuthCredentials.value = extractWorkBuddyOAuthDraft(newAccount.credentials, workbuddySite.value)
+    workbuddyAuthorizing.value = false
+  }
   form.tpm_limit = newAccount.tpm_limit ?? 0
   form.concurrency = newAccount.concurrency
   form.load_factor = newAccount.load_factor ?? null
@@ -3974,6 +4086,13 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   // Initialize API Key fields for apikey type
   if (newAccount.type === 'apikey' && newAccount.credentials) {
     const credentials = newAccount.credentials as Record<string, unknown>
+    if (newAccount.platform === 'kilo') {
+      const hasStoredApiKey = newAccount.credentials_status?.has_api_key ?? Boolean(credentials.api_key)
+      editKiloAccountMode.value =
+        !credentials.account_mode && hasStoredApiKey
+          ? 'apikey'
+          : resolveKiloAccountMode(credentials.account_mode)
+    }
     // 国产供应商：读取 account_mode 与 api_protocol 作为可编辑初始值
     // （编辑弹窗允许修正两者，用于修复早期存错默认值的账号）。
     if (isMultiProtocolApiKeyPlatform(newAccount.platform) || isDeclaredProtocolPlatform(newAccount.platform)) {
@@ -4029,7 +4148,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       }
     }
     const platformDefaultUrl =
-      newAccount.platform === 'openai'
+      newAccount.platform === 'workbuddy'
+        ? ''
+        : newAccount.platform === 'openai'
         ? 'https://api.openai.com'
         : newAccount.platform === 'gemini'
           ? 'https://generativelanguage.googleapis.com'
@@ -4694,6 +4815,32 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
         ...currentCredentials,
         base_url: newBaseUrl
       }
+      if (props.account.platform === 'workbuddy') {
+        Object.assign(
+          newCredentials,
+          buildWorkBuddyCredentials({
+            mode: 'apikey',
+            site: workbuddySite.value,
+            apiKey: editApiKey.value,
+            baseUrl: editBaseUrl.value,
+            existing: currentCredentials
+          })
+        )
+        if (!editBaseUrl.value.trim()) {
+          delete newCredentials.base_url
+        }
+      }
+      if (props.account.platform === 'kilo') {
+        Object.assign(
+          newCredentials,
+          buildKiloCredentials({
+            mode: editKiloAccountMode.value,
+            apiKey: editApiKey.value,
+            baseUrl: editBaseUrl.value,
+            existing: currentCredentials
+          })
+        )
+      }
       if (selectedCompatibleProvider.value) {
         delete newCredentials.base_url
         Object.assign(newCredentials, compatibleDraft.value)
@@ -4752,10 +4899,29 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
       // 两者都无才报错。
       const hasExistingApiKey =
         (props.account.credentials_status?.has_api_key ?? Boolean(currentCredentials.api_key)) && !specialCompatibleModeChanged(props.account.platform, currentCredentials, compatibleDraft.value)
-      if (editApiKey.value.trim()) {
+      if (props.account.platform === 'opencode_go' && editOpenCodeAccountMode.value === 'zen_free') {
+        newCredentials.api_key = editApiKey.value.trim() || 'public'
+      } else if (props.account.platform === 'kilo' && editKiloAccountMode.value === 'free') {
+        delete newCredentials.api_key
+      } else if (
+        props.account.platform === 'opencode_go' &&
+        currentCredentials.account_mode === 'zen_free' &&
+        editOpenCodeAccountMode.value !== 'zen_free' &&
+        (!editApiKey.value.trim() || editApiKey.value.trim().toLowerCase() === 'public')
+      ) {
+        revealSection('account-connection-settings'); appStore.showError(t('admin.accounts.apiKeyIsRequired'))
+        return
+      } else if (editApiKey.value.trim()) {
         newCredentials.api_key = editApiKey.value.trim()
       } else if (specialCompatibleKeyOptional(props.account.platform, compatibleDraft.value)) {
         if (specialCompatibleModeChanged(props.account.platform, currentCredentials, compatibleDraft.value)) newCredentials.api_key = ''
+      } else if (
+        props.account.platform === 'kilo' &&
+        editKiloAccountMode.value === 'apikey' &&
+        (!hasExistingApiKey || currentCredentials.account_mode === 'free')
+      ) {
+        revealSection('account-connection-settings'); appStore.showError(t('admin.accounts.apiKeyIsRequired'))
+        return
       } else if (!hasExistingApiKey) {
         revealSection('account-connection-settings'); appStore.showError(t('admin.accounts.apiKeyIsRequired'))
         return
@@ -4972,6 +5138,25 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
         return
       }
 
+      updatePayload.credentials = newCredentials
+    }
+
+    if (props.account.platform === 'workbuddy' && props.account.type === 'oauth') {
+      const currentCredentials =
+        (updatePayload.credentials as Record<string, unknown>) ||
+        ((props.account.credentials as Record<string, unknown>) || {})
+      const newCredentials = buildWorkBuddyCredentials({
+        mode: 'oauth',
+        site: workbuddySite.value,
+        oauthCredentials: workbuddyOAuthCredentials.value,
+        existing: currentCredentials
+      })
+      const modelMapping = buildModelRestrictionMapping()
+      if (modelMapping) {
+        newCredentials.model_mapping = modelMapping
+      } else {
+        delete newCredentials.model_mapping
+      }
       updatePayload.credentials = newCredentials
     }
 

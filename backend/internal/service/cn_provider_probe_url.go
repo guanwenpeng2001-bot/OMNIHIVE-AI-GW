@@ -18,8 +18,8 @@ import (
 )
 
 // cnValidateProbeURL 按全局出站 URL 安全策略校验探测端点，返回规范化 URL。
-// 白名单开启时强制 UpstreamHosts（阻断私网与未列名主机）；关闭时仅做格式
-// 校验（HTTP 允许与否跟随配置）；cfg 为 nil 时退化为纯格式校验。
+// 白名单开启时强制 UpstreamHosts；关闭时仅取消主机名限制，URL
+// 校验仍保留 HTTPS 和私网策略；cfg 为 nil 时使用默认 HTTPS/公网策略。
 func cnValidateProbeURL(cfg *config.Config, raw string) (string, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
@@ -29,7 +29,7 @@ func cnValidateProbeURL(cfg *config.Config, raw string) (string, error) {
 	var options urlvalidator.ValidationOptions
 	if cfg != nil {
 		allowInsecureHTTP = cfg.Security.URLAllowlist.AllowInsecureHTTP
-		options = urlvalidator.ValidationOptions{AllowedHosts: cfg.Security.URLAllowlist.UpstreamHosts, RequireAllowlist: cfg.Security.URLAllowlist.Enabled, AllowPrivate: cfg.Security.URLAllowlist.AllowPrivateHosts}
+		options = cfg.Security.URLAllowlist.UpstreamValidationOptions()
 	}
 	normalized, err := urlvalidator.ValidateHTTPURL(trimmed, allowInsecureHTTP, options)
 	if err != nil {

@@ -61,14 +61,16 @@ func TestLogRequestBodyParseFailure_ShortBodyHasNoTail(t *testing.T) {
 
 func TestLogRequestBodyParseFailure_LargeBodyBoundedSnippets(t *testing.T) {
 	log, logs := newObservedLogger(t)
-	// ~1MB body: head must show the structural prefix, tail the trailing bytes,
+	// A large body within the redaction limit retains bounded head and tail snippets,
 	// and neither snippet may exceed the configured bound (plus quoting overhead).
-	body := []byte(`{"model":"claude-sonnet-4-6","big":"` + strings.Repeat("A", 1<<20) + `"`)
+	body := []byte(`{"model":"claude-sonnet-4-6","big":"` + strings.Repeat("A", 32<<10) + `"`)
 
 	logRequestBodyParseFailure(log, body, nil)
 
 	fields := loggedFields(t, logs)
 	require.Equal(t, len(body), fields["body_len"])
+	require.IsType(t, "", fields["body_head"])
+	require.IsType(t, "", fields["body_tail"])
 	head := fields["body_head"].(string)
 	tail := fields["body_tail"].(string)
 	require.Contains(t, head, "claude-sonnet-4-6")
@@ -77,6 +79,19 @@ func TestLogRequestBodyParseFailure_LargeBodyBoundedSnippets(t *testing.T) {
 	// strconv.Quote adds surrounding quotes and escapes; 4x is a generous cap.
 	require.LessOrEqual(t, len(head), parseFailureSnippetLen*4)
 	require.LessOrEqual(t, len(tail), parseFailureSnippetLen*4)
+}
+
+func TestLogRequestBodyParseFailure_OversizedBodyIsRedacted(t *testing.T) {
+	log, logs := newObservedLogger(t)
+	body := []byte(`{"authorization":"Bearer sensitive-value","big":"` + strings.Repeat("A", 1<<20) + `"`)
+
+	logRequestBodyParseFailure(log, body, nil)
+
+	fields := loggedFields(t, logs)
+	require.Equal(t, len(body), fields["body_len"])
+	require.Equal(t, `"<payload size limit exceeded>"`, fields["body_head"])
+	require.NotContains(t, fields, "body_tail")
+	require.NotContains(t, fields["error"], "sensitive-value")
 }
 
 func TestLogRequestBodyParseFailure_EscapesControlCharacters(t *testing.T) {

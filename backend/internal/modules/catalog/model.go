@@ -17,6 +17,17 @@ type Perspective struct {
 
 func (p Perspective) Public() bool { return p.Project == 0 }
 
+type publicViewerAuthKey struct{}
+
+func WithPublicViewerAuthenticated(ctx context.Context) context.Context {
+	return context.WithValue(ctx, publicViewerAuthKey{}, true)
+}
+
+func PublicViewerAuthenticated(ctx context.Context) bool {
+	ok, _ := ctx.Value(publicViewerAuthKey{}).(bool)
+	return ok
+}
+
 type EffectiveScope struct {
 	Workspace int64 `json:"workspace_id,string"`
 	Project   int64 `json:"project_id,string"`
@@ -69,6 +80,7 @@ type RegistryModel struct {
 	Provider, Model, Canonical, DisplayName string
 	Facts                                   ModelFacts
 	Capabilities                            []Capability
+	Actions                                 []string
 }
 
 type Capability struct {
@@ -99,6 +111,8 @@ type Endpoint struct {
 type Offer struct {
 	GroupID          int64
 	Access, Eligible bool
+	CatalogOnly      bool
+	Actions          []string
 	Facts            []ModelFacts
 	Endpoints        []Endpoint
 	Capabilities     []Capability
@@ -160,26 +174,27 @@ type Price struct {
 }
 
 type Summary struct {
-	ID            string          `json:"id"`
-	Model         string          `json:"model"`
-	DisplayName   string          `json:"display_name"`
-	Provider      string          `json:"provider"`
-	Modalities    []string        `json:"modalities"`
-	Protocols     []string        `json:"protocols"`
-	Actions       []string        `json:"actions"`
-	Regions       []string        `json:"regions"`
-	Context       *int64          `json:"context_tokens,string"`
-	Maturity      string          `json:"maturity"`
-	Version       string          `json:"catalog_version"`
-	CatalogState  string          `json:"catalog_state"`
-	AccessState   string          `json:"access_state"`
-	RouteState    string          `json:"route_state"`
-	PriceState    string          `json:"price_state"`
-	Input         *money.Rate     `json:"input_rate"`
-	Output        *money.Rate     `json:"output_rate"`
-	ObservedAt    *time.Time      `json:"observed_at"`
-	EvidenceState string          `json:"evidence_state"`
-	Scope         *EffectiveScope `json:"effective_scope,omitempty"`
+	ID                string          `json:"id"`
+	Model             string          `json:"model"`
+	DisplayName       string          `json:"display_name"`
+	Provider          string          `json:"provider"`
+	Modalities        []string        `json:"modalities"`
+	Protocols         []string        `json:"protocols"`
+	Actions           []string        `json:"actions"`
+	Regions           []string        `json:"regions"`
+	Context           *int64          `json:"context_tokens,string"`
+	Maturity          string          `json:"maturity"`
+	Version           string          `json:"catalog_version"`
+	CatalogState      string          `json:"catalog_state"`
+	AvailabilityState string          `json:"availability_state,omitempty"`
+	AccessState       string          `json:"access_state"`
+	RouteState        string          `json:"route_state"`
+	PriceState        string          `json:"price_state"`
+	Input             *money.Rate     `json:"input_rate"`
+	Output            *money.Rate     `json:"output_rate"`
+	ObservedAt        *time.Time      `json:"observed_at"`
+	EvidenceState     string          `json:"evidence_state"`
+	Scope             *EffectiveScope `json:"effective_scope,omitempty"`
 }
 
 type Benchmark struct {

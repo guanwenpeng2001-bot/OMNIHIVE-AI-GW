@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, toRef, watch } from 'vue'
 import type { UiCommandGroup, UiCommandItem } from './types'
-import { cn, useOverlayDialog, useUiId } from './utils'
+import { cn, useOverlayDialog, useUiI18n, useUiId } from './utils'
 
 export interface CommandPaletteProps {
   open: boolean
@@ -14,12 +14,20 @@ export interface CommandPaletteProps {
 }
 
 const props = withDefaults(defineProps<CommandPaletteProps>(), {
-  placeholder: 'Search models, routes, keys, or actions…',
-  emptyText: 'No matching commands or models.',
+  placeholder: undefined,
+  emptyText: undefined,
   loading: false,
   registerShortcut: false,
   teleportDisabled: false
 })
+
+const { t } = useUiI18n()
+const resolvedPlaceholder = computed(
+  () => props.placeholder ?? t('ui.commandPalette.placeholder')
+)
+const resolvedEmptyText = computed(
+  () => props.emptyText ?? t('ui.commandPalette.emptyText')
+)
 
 const emit = defineEmits<{
   'update:open': [open: boolean]
@@ -151,7 +159,7 @@ onBeforeUnmount(() => {
         ref="panelRef"
         role="dialog"
         aria-modal="true"
-        aria-label="Command palette"
+        :aria-label="t('ui.commandPalette.ariaLabel')"
         tabindex="-1"
         class="relative z-10 flex max-h-[72vh] w-full max-w-xl flex-col overflow-hidden rounded-oh-xl border border-oh-default bg-oh-elevated text-oh-primary shadow-oh-xl focus:outline-none"
       >
@@ -176,7 +184,7 @@ onBeforeUnmount(() => {
             aria-expanded="true"
             :aria-controls="listboxId"
             :aria-activedescendant="activeItem ? `${listboxId}-${activeItem.id}` : undefined"
-            :placeholder="placeholder"
+            :placeholder="resolvedPlaceholder"
             class="w-full bg-transparent text-sm text-oh-primary placeholder:text-oh-muted focus:outline-none"
             @keydown="handleInputKeydown"
           />
@@ -189,25 +197,26 @@ onBeforeUnmount(() => {
         <div
           :id="listboxId"
           role="listbox"
-          aria-label="Available commands"
+          :aria-label="t('ui.commandPalette.availableCommands')"
           class="flex-1 overflow-y-auto p-2"
         >
           <div v-if="loading" class="px-3 py-6 text-center font-mono text-xs text-oh-muted">
-            Searching catalog…
+            {{ t('ui.commandPalette.searching') }}
           </div>
 
           <div
             v-else-if="filteredGroups.length === 0"
             class="px-3 py-8 text-center text-xs text-oh-muted"
           >
-            {{ emptyText }}
+            {{ resolvedEmptyText }}
           </div>
 
-          <div
-            v-for="group in filteredGroups"
-            :key="group.id"
-            class="mb-2 last:mb-0"
-          >
+          <template v-else>
+            <div
+              v-for="group in filteredGroups"
+              :key="group.id"
+              class="mb-2 last:mb-0"
+            >
             <p class="oh-eyebrow px-2.5 py-1.5">{{ group.label }}</p>
             <div class="space-y-0.5">
               <button
@@ -256,14 +265,15 @@ onBeforeUnmount(() => {
                 </kbd>
               </button>
             </div>
-          </div>
+            </div>
+          </template>
         </div>
 
         <footer class="flex items-center justify-between border-t border-oh-subtle bg-oh-subtle/60 px-4 py-2 text-[11px] text-oh-muted">
           <div class="flex items-center gap-3 font-mono">
-            <span>↑↓ Navigate</span>
-            <span>↵ Select</span>
-            <span>ESC Close</span>
+            <span>{{ t('ui.commandPalette.navigateHint') }}</span>
+            <span>{{ t('ui.commandPalette.selectHint') }}</span>
+            <span>{{ t('ui.commandPalette.closeHint') }}</span>
           </div>
           <span class="font-mono text-[10px] uppercase tracking-wider">{{ 'OmniHive' }} Command</span>
         </footer>

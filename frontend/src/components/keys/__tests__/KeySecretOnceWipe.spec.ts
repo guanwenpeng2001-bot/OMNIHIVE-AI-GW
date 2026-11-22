@@ -54,4 +54,35 @@ describe('KeySecretDialog one-time display and copy feedback', () => {
 
     wrapper.unmount()
   })
+
+  it('blocks closing until secret is copied or saved confirmation is checked', async () => {
+    copiedRef.value = false
+    const wrapper = mount(KeySecretDialog, {
+      props: {
+        show: true,
+        secret: 'oh_live_secret_guard_123',
+        graceUntil: null
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            props: ['show', 'title', 'closeOnEscape', 'closeOnClickOutside', 'showCloseButton'],
+            template: '<div v-if="show" :data-esc="String(closeOnEscape)" :data-outside="String(closeOnClickOutside)"><slot /><slot name="footer" /></div>'
+          }
+        }
+      }
+    })
+
+    const confirmBtn = wrapper.get('[data-testid="confirm-secret-close-btn"]')
+    expect(confirmBtn.attributes('disabled')).toBeDefined()
+    await confirmBtn.trigger('click')
+    expect(wrapper.emitted('close')).toBeUndefined()
+
+    await wrapper.get('[data-testid="confirm-secret-saved-checkbox"]').setValue(true)
+    expect(confirmBtn.attributes('disabled')).toBeUndefined()
+    await confirmBtn.trigger('click')
+    expect(wrapper.emitted('close')).toHaveLength(1)
+
+    wrapper.unmount()
+  })
 })

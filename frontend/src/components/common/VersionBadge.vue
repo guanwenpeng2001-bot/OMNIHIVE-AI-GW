@@ -63,8 +63,8 @@
             </div>
             <button
               @click="refreshVersion(true)"
-              class="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
-              :disabled="loading"
+              class="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="loading || updating || rollingBack || restarting"
               :title="t('version.refresh')"
             >
               <Icon
@@ -167,7 +167,7 @@
 
                 <!-- Retry button -->
                 <button
-                  @click="handleUpdate"
+                  @click="requestUpdateConfirm"
                   :disabled="updating"
                   class="flex w-full items-center justify-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -208,6 +208,14 @@
                 </div>
 
                 <!-- Restart button with countdown -->
+                <p
+                  v-if="restartError"
+                  role="alert"
+                  data-testid="version-restart-error"
+                  class="rounded-lg border border-red-200 bg-red-50 p-2 text-xs text-red-600 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400"
+                >
+                  {{ restartError }}
+                </p>
                 <button
                   @click="handleRestart"
                   :disabled="restarting"
@@ -376,8 +384,9 @@
 
                 <!-- Update button -->
                 <button
-                  @click="handleUpdate"
+                  @click="requestUpdateConfirm"
                   :disabled="updating"
+                  data-testid="version-update-now-btn"
                   class="flex w-full items-center justify-center gap-2 btn btn-primary rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <svg v-if="updating" class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -675,8 +684,9 @@
                             </p>
 
                             <button
-                              @click="handleRollback"
+                              @click="requestRollbackConfirm"
                               :disabled="rollingBack"
+                              data-testid="version-rollback-btn"
                               class="flex w-full items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               <svg
@@ -725,6 +735,17 @@
     <span v-else-if="version" class="text-xs text-[var(--muted-foreground)]">
       {{ formatVersionTag(version) }}
     </span>
+
+    <ConfirmDialog
+      :show="confirmAction !== null"
+      :title="confirmDialogTitle"
+      :message="confirmDialogMessage"
+      :confirm-text="confirmDialogConfirmText"
+      :cancel-text="t('common.cancel')"
+      :danger="confirmAction === 'rollback'"
+      @confirm="executeConfirmedAction"
+      @cancel="confirmAction = null"
+    />
   </div>
 </template>
 
@@ -743,6 +764,7 @@ import {
 } from '@/api/admin/system'
 import { useClipboard } from '@/composables/useClipboard'
 import Icon from '@/components/icons/Icon.vue'
+import ConfirmDialog from './ConfirmDialog.vue'
 
 const GITHUB_REPO = 'guanwenpeng2001-bot/OMNIHIVE-AI-GW'
 // GHCR image published by CI (tags carry no "v" prefix).
@@ -820,10 +842,81 @@ const updating = ref(false)
 const restarting = ref(false)
 const needRestart = ref(false)
 const updateError = ref('')
+const restartError = ref('')
 const updateSuccess = ref(false)
 const restartCountdown = ref(0)
+const confirmAction = ref<'update' | 'rollback' | null>(null)
 // Distinguishes the success + restart panel between update and rollback flows
 const successKind = ref<'update' | 'rollback'>('update')
+
+let isUnmounted = false
+let countdownInterval: ReturnType<typeof setInterval> | null = null
+let healthRetryTimer: ReturnType<typeof setTimeout> | null = null
+let healthAbortController: AbortController | null = null
+
+function clearRestartTimers() {
+  if (countdownInterval !== null) {
+    clearInterval(countdownInterval)
+    countdownInterval = null
+  }
+  if (healthRetryTimer !== null) {
+    clearTimeout(healthRetryTimer)
+    healthRetryTimer = null
+  }
+  if (healthAbortController) {
+    healthAbortController.abort()
+    healthAbortController = null
+  }
+}
+
+const confirmDialogTitle = computed(() => {
+  if (confirmAction.value === 'rollback') {
+    return isZh.value ? '确认回滚服务版本' : 'Confirm Version Rollback'
+  }
+  return isZh.value ? '确认一键更新服务' : 'Confirm Service Update'
+})
+
+const confirmDialogMessage = computed(() => {
+  if (confirmAction.value === 'rollback') {
+    const target = selectedRollbackVersion.value ? `v${selectedRollbackVersion.value}` : ''
+    return isZh.value
+      ? `将把服务端二进制替换为 ${target} 并需要重启服务，可能导致短暂中断。建议操作前先完成数据备份，确认继续吗？`
+      : `This will replace the server binary with ${target} and require a restart, which may cause brief downtime. Back up data first. Continue?`
+  }
+  const target = latestVersion.value ? formatVersionTag(latestVersion.value) : ''
+  return isZh.value
+    ? `将把服务端更新至 ${target} 并需要重启服务，可能导致短暂中断。建议操作前先完成数据备份，确认继续吗？`
+    : `This will update the server to ${target} and require a restart, which may cause brief downtime. Back up data first. Continue?`
+})
+
+const confirmDialogConfirmText = computed(() => {
+  if (confirmAction.value === 'rollback') {
+    return selectedRollbackVersion.value
+      ? t('version.rollbackConfirm', { version: 'v' + selectedRollbackVersion.value })
+      : t('common.confirm')
+  }
+  return t('version.updateNow')
+})
+
+function requestUpdateConfirm() {
+  if (updating.value || restarting.value) return
+  confirmAction.value = 'update'
+}
+
+function requestRollbackConfirm() {
+  if (!isAdmin.value || rollingBack.value || restarting.value || !selectedRollbackVersion.value) return
+  confirmAction.value = 'rollback'
+}
+
+function executeConfirmedAction() {
+  const action = confirmAction.value
+  confirmAction.value = null
+  if (action === 'update') {
+    void handleUpdate()
+  } else if (action === 'rollback') {
+    void handleRollback()
+  }
+}
 
 // Rollback states
 const rollbackPanelOpen = ref(false)
@@ -878,13 +971,15 @@ function closeDropdown() {
 }
 
 async function refreshVersion(force = true) {
-  if (!isAdmin.value) return
+  if (!isAdmin.value || updating.value || rollingBack.value || restarting.value) return
 
-  // Reset update states when refreshing
-  updateError.value = ''
-  updateSuccess.value = false
-  needRestart.value = false
-  resetRollbackState()
+  // Preserve pending restart state so users do not lose the Restart button
+  if (!needRestart.value) {
+    updateError.value = ''
+    restartError.value = ''
+    updateSuccess.value = false
+    resetRollbackState()
+  }
 
   await appStore.fetchVersion(force)
 }
@@ -990,23 +1085,45 @@ async function handleRestart() {
   if (restarting.value) return
 
   restarting.value = true
+  restartError.value = ''
   restartCountdown.value = 8
+  clearRestartTimers()
 
   try {
     await restartService()
     // Service will restart, page will reload automatically or show disconnected
-  } catch (error) {
-    // Expected - connection will be lost during restart
-    console.log('Service restarting...')
+  } catch (error: unknown) {
+    const err = error as { response?: { status?: number }; status?: number }
+    const httpStatus = err?.response?.status ?? err?.status
+    // Explicit HTTP errors (e.g. 401/403/500) mean restart was rejected or failed; do not swallow
+    if (typeof httpStatus === 'number' && httpStatus >= 400) {
+      restarting.value = false
+      restartCountdown.value = 0
+      restartError.value =
+        extractApiErrorMessage(error, '') ||
+        (isZh.value ? '服务重启失败，请检查权限或服务端日志。' : 'Service restart failed. Check permissions or server logs.')
+      appStore.showError?.(restartError.value)
+      return
+    }
+    // Connection drop / network error is expected while service shuts down for restart
   }
 
+  if (isUnmounted) return
+
   // Start countdown
-  const countdownInterval = setInterval(() => {
+  countdownInterval = setInterval(() => {
+    if (isUnmounted) {
+      clearRestartTimers()
+      return
+    }
     restartCountdown.value--
     if (restartCountdown.value <= 0) {
-      clearInterval(countdownInterval)
+      if (countdownInterval !== null) {
+        clearInterval(countdownInterval)
+        countdownInterval = null
+      }
       // Try to check if service is back before reload
-      checkServiceAndReload()
+      void checkServiceAndReload()
     }
   }, 1000)
 }
@@ -1014,32 +1131,56 @@ async function handleRestart() {
 async function checkServiceAndReload() {
   const maxRetries = 5
   const retryDelay = 1000
+  healthAbortController = new AbortController()
+  const signal = healthAbortController.signal
 
   for (let i = 0; i < maxRetries; i++) {
+    if (isUnmounted || signal.aborted) return
     try {
       const response = await fetch('/health', {
         method: 'GET',
-        cache: 'no-cache'
+        cache: 'no-cache',
+        signal
       })
-      if (response.ok) {
+      if (response.ok && !isUnmounted && !signal.aborted) {
         // Service is back, reload page
         window.location.reload()
         return
       }
     } catch {
+      if (isUnmounted || signal.aborted) return
       // Service not ready yet
     }
 
     if (i < maxRetries - 1) {
-      await new Promise((resolve) => setTimeout(resolve, retryDelay))
+      await new Promise<void>((resolve) => {
+        healthRetryTimer = setTimeout(() => {
+          healthRetryTimer = null
+          resolve()
+        }, retryDelay)
+        signal.addEventListener(
+          'abort',
+          () => {
+            if (healthRetryTimer !== null) {
+              clearTimeout(healthRetryTimer)
+              healthRetryTimer = null
+            }
+            resolve()
+          },
+          { once: true }
+        )
+      })
     }
   }
 
   // After retries, reload anyway
-  window.location.reload()
+  if (!isUnmounted && !signal.aborted) {
+    window.location.reload()
+  }
 }
 
 function handleClickOutside(event: MouseEvent) {
+  if (confirmAction.value !== null) return
   const target = event.target as Node
   const button = (event.target as Element).closest('button')
   if (dropdownRef.value && !dropdownRef.value.contains(target) && !button?.contains(target)) {
@@ -1056,6 +1197,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  isUnmounted = true
+  clearRestartTimers()
   document.removeEventListener('click', handleClickOutside)
 })
 </script>

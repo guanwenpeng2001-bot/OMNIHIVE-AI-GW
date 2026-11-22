@@ -1023,6 +1023,20 @@ func (s *GatewayService) calculateTokenCost(
 		gid := pricingGroupID(apiKey)
 		resolved = s.resolver.Resolve(ctx, PricingInput{Model: billingModel, GroupID: gid, Group: apiKey.Group})
 	}
+	// The token-cost adapter supplies a default request count of one. An
+	// image tariff needs the observed count even when that count is zero.
+	if result.ImageCount == 0 && resolved != nil && (resolved.Mode == BillingModeImage ||
+		resolved.Mode == BillingModePerRequest && isImageGenerationModel(result.UpstreamModel)) {
+		tier := NormalizeImageBillingTierOrDefault(result.ImageSize)
+		price, found := s.resolver.LookupRequestTierPrice(resolved, tier)
+		if !found {
+			if !resolved.DefaultPerRequestPriceFound && resolved.DefaultPerRequestPrice == 0 {
+				return pricingFailure(ErrModelPricingUnavailable)
+			}
+			price = resolved.DefaultPerRequestPrice
+		}
+		return calculateUnitCost(billingModel, tier, string(resolved.Mode), resolved.Source, 0, price, multiplier)
+	}
 	if cursorFast && resolved != nil && resolved.channelPricing != nil {
 		exact := false
 		for _, model := range resolved.channelPricing.Models {

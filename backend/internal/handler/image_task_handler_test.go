@@ -296,3 +296,40 @@ func TestAsyncImageHandlerQueueFullReturns503Not202(t *testing.T) {
 		require.Contains(t, string(record.Error), "queue_full")
 	}
 }
+
+func TestAsyncImageDrainRecordsUnknownForUnfinishedJobs(t *testing.T) {
+	store := &asyncImageMemoryStore{tasks: make(map[string]*service.ImageTaskRecord)}
+	tasks := service.NewImageTaskServiceWithUploader(store, nil, time.Hour, time.Minute)
+	handler := NewAsyncImageHandler(tasks, nil)
+	owner := service.ImageTaskOwner{WorkspaceID: 1, UserID: 2, APIKeyID: 3}
+	task, err := tasks.Create(t.Context(), owner)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancelCause(t.Context())
+	defer cancel(nil)
+	started := make(chan struct{})
+	require.True(t, handler.submitTask(task.ID, cancel, func() {
+		close(started)
+		<-ctx.Done()
+	}))
+	<-started
+	drained := handler.BeginDrain()
+	require.False(t, handler.submitTask("new-job", cancel, func() {}))
+	select {
+	case <-drained:
+		t.Fatal("drain returned before the active job exited")
+	default:
+	}
+
+	handler.ExpireDrain(t.Context())
+	select {
+	case <-drained:
+	case <-time.After(time.Second):
+		t.Fatal("canceled job did not drain")
+	}
+	require.ErrorIs(t, context.Cause(ctx), errImageTaskShutdown)
+	result, err := tasks.Get(t.Context(), owner, task.ID)
+	require.NoError(t, err)
+	require.Equal(t, service.ImageTaskStatusFailed, result.Status)
+	require.Contains(t, string(result.Error), "execution_outcome_unknown")
+}

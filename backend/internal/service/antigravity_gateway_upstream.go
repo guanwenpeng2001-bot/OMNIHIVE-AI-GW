@@ -107,7 +107,7 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 	// 处理成功响应（流式/非流式）
 	var usage *ClaudeUsage
 	var firstTokenMs *int
-	var clientDisconnect bool
+	var clientDisconnect, usageIncomplete bool
 
 	if claudeReq.Stream {
 		// 流式响应：透传
@@ -119,6 +119,7 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 
 		streamRes := s.streamUpstreamResponse(c, resp, startTime)
 		usage = streamRes.usage
+		usageIncomplete = streamRes.usageIncomplete
 		firstTokenMs = streamRes.firstTokenMs
 		clientDisconnect = streamRes.clientDisconnect
 	} else {
@@ -139,7 +140,7 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 
 	// 构建计费结果
 	duration := time.Since(startTime)
-	logger.LegacyPrintf("service.antigravity_gateway", "%s status=success duration_ms=%d", prefix, duration.Milliseconds())
+	logger.LegacyPrintf("service.antigravity_gateway", "%s duration_ms=%d usage_incomplete=%t", prefix, duration.Milliseconds(), usageIncomplete)
 
 	return &ForwardResult{
 		Model:                         originalModel,
@@ -150,12 +151,8 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 		FirstTokenMs:                  firstTokenMs,
 		ClientDisconnect:              clientDisconnect,
 		UpstreamHeaders:               resp.Header,
-		Usage: ClaudeUsage{
-			InputTokens:              usage.InputTokens,
-			OutputTokens:             usage.OutputTokens,
-			CacheReadInputTokens:     usage.CacheReadInputTokens,
-			CacheCreationInputTokens: usage.CacheCreationInputTokens,
-		},
+		UsageIncomplete:               usageIncomplete,
+		Usage:                         *usage,
 	}, nil
 }
 
@@ -163,6 +160,7 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp *http.Response, startTime time.Time) *antigravityStreamResult {
 	usage := &ClaudeUsage{}
 	var firstTokenMs *int
+	var sawStart, sawFinalUsage, sawStop, sawError bool
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -234,24 +232,37 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 	flusher, _ := c.Writer.(http.Flusher)
 	cw := newAntigravityClientWriter(c.Writer, flusher, "antigravity upstream")
 
+	result := func(disconnect bool) *antigravityStreamResult {
+		return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: disconnect,
+			usageIncomplete: sawError || !sawStart || !sawFinalUsage || !sawStop}
+	}
+	writeIncomplete := func() {
+		cw.Fprintf("\nevent: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Incomplete upstream stream\"}}\n\n")
+	}
 	defer func() { _ = resp.Body.Close() }()
 	for {
 		if cw.Disconnected() || c.Request.Context().Err() != nil {
-			return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}
+			return result(true)
 		}
 		select {
 		case <-c.Request.Context().Done():
-			return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}
+			return result(true)
 		case ev, ok := <-events:
 			if !ok {
-				return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: cw.Disconnected()}
+				if !sawStop && !sawError && !cw.Disconnected() {
+					writeIncomplete()
+				}
+				return result(cw.Disconnected())
 			}
 			if ev.err != nil {
 				if disconnect, handled := handleStreamReadError(ev.err, cw.Disconnected(), "antigravity upstream"); handled {
-					return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: disconnect}
+					return result(disconnect)
+				}
+				if !sawStop && !sawError {
+					writeIncomplete()
 				}
 				logger.LegacyPrintf("service.antigravity_gateway", "Stream read error (antigravity upstream): %v", ev.err)
-				return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}
+				return result(false)
 			}
 
 			lastDataAt = time.Now()
@@ -268,7 +279,17 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 			}
 
 			// 尝试从 message_delta 或 message_stop 事件提取 usage
-			s.extractSSEUsage(line, usage)
+			kind, measured := s.extractSSEUsage(line, usage)
+			switch kind {
+			case "error":
+				sawError = true
+			case "message_start":
+				sawStart = measured
+			case "message_delta":
+				sawFinalUsage = sawFinalUsage || measured
+			case "message_stop":
+				sawStop = true
+			}
 
 			// 透传行
 			cw.Fprintf("%s\n", line)
@@ -280,10 +301,13 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 			}
 			if cw.Disconnected() {
 				logger.LegacyPrintf("service.antigravity_gateway", "Upstream timeout after client disconnect (antigravity upstream), returning collected usage")
-				return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}
+				return result(true)
+			}
+			if !sawStop && !sawError {
+				writeIncomplete()
 			}
 			logger.LegacyPrintf("service.antigravity_gateway", "Stream data interval timeout (antigravity upstream)")
-			return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}
+			return result(false)
 
 		case <-keepaliveCh:
 			if cw.Disconnected() {
@@ -311,17 +335,18 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 //
 // 仅读取顶层 event.usage 会漏掉 message_start 的输入侧字段，导致流式透传请求落库的
 // usage_logs 记录 input_tokens=0。
-func (s *AntigravityGatewayService) extractSSEUsage(line string, usage *ClaudeUsage) {
-	if !strings.HasPrefix(line, "data: ") {
-		return
+func (s *AntigravityGatewayService) extractSSEUsage(line string, usage *ClaudeUsage) (string, bool) {
+	dataStr, ok := extractAnthropicSSEDataLine(line)
+	if !ok {
+		return "", false
 	}
-	dataStr := strings.TrimPrefix(line, "data: ")
 	var event map[string]any
 	if json.Unmarshal([]byte(dataStr), &event) != nil {
-		return
+		return "", false
 	}
 	var u map[string]any
-	if eventType, _ := event["type"].(string); eventType == "message_start" {
+	eventType, _ := event["type"].(string)
+	if eventType == "message_start" {
 		if msg, ok := event["message"].(map[string]any); ok {
 			u, _ = msg["usage"].(map[string]any)
 		}
@@ -329,18 +354,18 @@ func (s *AntigravityGatewayService) extractSSEUsage(line string, usage *ClaudeUs
 		u, _ = event["usage"].(map[string]any)
 	}
 	if u == nil {
-		return
+		return eventType, false
 	}
-	if v, ok := u["input_tokens"].(float64); ok && int(v) > 0 {
+	if v, ok := u["input_tokens"].(float64); ok && v >= 0 {
 		usage.InputTokens = int(v)
 	}
-	if v, ok := u["output_tokens"].(float64); ok && int(v) > 0 {
+	if v, ok := u["output_tokens"].(float64); ok && v >= 0 {
 		usage.OutputTokens = int(v)
 	}
-	if v, ok := u["cache_read_input_tokens"].(float64); ok && int(v) > 0 {
+	if v, ok := u["cache_read_input_tokens"].(float64); ok && v >= 0 {
 		usage.CacheReadInputTokens = int(v)
 	}
-	if v, ok := u["cache_creation_input_tokens"].(float64); ok && int(v) > 0 {
+	if v, ok := u["cache_creation_input_tokens"].(float64); ok && v >= 0 {
 		usage.CacheCreationInputTokens = int(v)
 	}
 	// 解析嵌套的 cache_creation 对象中的 5m/1h 明细
@@ -352,6 +377,12 @@ func (s *AntigravityGatewayService) extractSSEUsage(line string, usage *ClaudeUs
 			usage.CacheCreation1hTokens = int(v)
 		}
 	}
+	field := "output_tokens"
+	if eventType == "message_start" {
+		field = "input_tokens"
+	}
+	value, present := u[field].(float64)
+	return eventType, present && value >= 0
 }
 
 // extractClaudeUsage 从非流式 Claude 响应提取 usage

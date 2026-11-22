@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
 	"net/url"
 	"regexp"
 	"slices"
@@ -22,6 +23,7 @@ import (
 
 type filter struct {
 	Text, Sort, Access, Route string
+	Availability              string `json:",omitempty"`
 	Values                    map[string][]string
 }
 
@@ -42,6 +44,11 @@ var facetValue = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$`)
 func filters(q url.Values, p catalog.Perspective) (filter, int, error) {
 	f, limit := filter{Sort: "name", Values: map[string][]string{}}, 25
 	for k, values := range q {
+		if k == "availability_state" && (len(values) != 1 || (values[0] != "live" && values[0] != "catalog_only")) {
+			err := fault.Invalid("/availability_state")
+			err.Status = http.StatusBadRequest
+			return f, 0, err
+		}
 		if len(values) == 0 || len(values) > 20 {
 			return f, 0, fault.Invalid("/" + k)
 		}
@@ -68,10 +75,12 @@ func filters(q url.Values, p catalog.Perspective) (filter, int, error) {
 			}
 			f.Text = strings.ToLower(strings.TrimSpace(v))
 		case "sort":
-			if !slices.Contains([]string{"name", "price_input", "context", "ttft"}, v) {
+			if !slices.Contains([]string{"name", "price_input", "context", "ttft", "availability"}, v) {
 				return f, 0, fault.Invalid("/sort")
 			}
 			f.Sort = v
+		case "availability_state":
+			f.Availability = v
 		case "limit":
 			n, err := strconv.Atoi(v)
 			if err != nil || n < 1 || n > 100 || strconv.Itoa(n) != v {
@@ -148,6 +157,9 @@ func (h *Handler) list(ctx context.Context, p catalog.Perspective, c *gin.Contex
 
 func (f filter) matches(d catalog.Detail) bool {
 	m := d.Model
+	if f.Availability != "" && m.AvailabilityState != f.Availability {
+		return false
+	}
 	if !catalog.MatchesText(m.Model, f.Text) && !catalog.MatchesText(m.DisplayName, f.Text) && !catalog.MatchesText(m.Provider, f.Text) &&
 		!slices.ContainsFunc(d.Aliases, func(alias string) bool { return catalog.MatchesText(alias, f.Text) }) {
 		return false
@@ -156,10 +168,16 @@ func (f filter) matches(d catalog.Detail) bool {
 		f.Route == "true" && m.RouteState != "eligible" || f.Route == "false" && m.RouteState != "ineligible" {
 		return false
 	}
-	if (len(f.Values["action"]) > 0 || len(f.Values["protocol"]) > 0) &&
-		!slices.ContainsFunc(d.Capabilities, func(c catalog.Capability) bool {
+	// Action-only browsing includes descriptive registry tasks even when no
+	// gateway protocol implements them. A protocol filter still requires the
+	// action/protocol pair on the same non-stale capability.
+	if len(f.Values["protocol"]) > 0 {
+		if !slices.ContainsFunc(d.Capabilities, func(c catalog.Capability) bool {
 			return c.State != "stale" && f.any("action", []string{c.Action}) && f.any("protocol", []string{c.Protocol})
 		}) {
+			return false
+		}
+	} else if !f.any("action", m.Actions) {
 		return false
 	}
 	if (len(f.Values["region"]) > 0 || len(f.Values["retention"]) > 0) &&
@@ -168,7 +186,7 @@ func (f filter) matches(d catalog.Detail) bool {
 		}) {
 		return false
 	}
-	return f.any("provider", []string{m.Provider}) && f.any("modality", m.Modalities) && f.any("stability", []string{m.Maturity})
+	return f.any("provider", []string{m.Provider}) && f.modality(m) && f.any("stability", []string{m.Maturity})
 }
 
 func (f filter) any(facet string, values []string) bool {
@@ -181,6 +199,16 @@ func compareModels(a, b catalog.Detail, sort string) int {
 	x, y := a.Model, b.Model
 	var order int
 	switch sort {
+	case "availability":
+		if x.AvailabilityState != y.AvailabilityState {
+			if x.AvailabilityState == "live" {
+				return -1
+			}
+			if y.AvailabilityState == "live" {
+				return 1
+			}
+		}
+		order = cmp.Compare(strings.ToLower(x.DisplayName), strings.ToLower(y.DisplayName))
 	case "name":
 		order = cmp.Compare(strings.ToLower(x.DisplayName), strings.ToLower(y.DisplayName))
 	case "context":
@@ -242,4 +270,43 @@ func (h *Handler) signCursor(payload []byte) []byte {
 	mac := hmac.New(sha256.New, h.cursorKey[:])
 	_, _ = mac.Write(payload)
 	return mac.Sum(nil)
+}
+
+// Modality families include descriptive actions, even without a live route.
+func (f filter) modality(m catalog.Summary) bool {
+	wanted := f.Values["modality"]
+	if len(wanted) == 0 {
+		return true
+	}
+	for _, raw := range m.Modalities {
+		token := strings.ToLower(strings.TrimSpace(raw))
+		if slices.Contains(wanted, token) || (token == "speech" && slices.Contains(wanted, "audio")) ||
+			(token == "embeddings" && slices.Contains(wanted, "embedding")) {
+			return true
+		}
+	}
+	for _, raw := range m.Actions {
+		action := strings.ToLower(strings.TrimSpace(raw))
+		for _, key := range wanted {
+			switch key {
+			case "text":
+				if action == "chat" || action == "text.chat" || action == "text.completion" {
+					return true
+				}
+			case "image", "video":
+				if strings.HasPrefix(action, key) || strings.Contains(action, key+"_generation") {
+					return true
+				}
+			case "embedding", "realtime":
+				if strings.Contains(action, key) {
+					return true
+				}
+			case "audio":
+				if strings.HasPrefix(action, "audio") || strings.Contains(action, "speech") || strings.Contains(action, "tts") || strings.Contains(action, "stt") {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

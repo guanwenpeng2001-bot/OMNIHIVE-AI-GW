@@ -395,7 +395,7 @@ func TestAccountHandlerGetAvailableModels_GeminiGoogleOneUsesConservativeCatalog
 	require.NotContains(t, ids, "gemini-2.5-flash-image")
 }
 
-func TestAccountHandlerSyncUpstreamModels_ConfigErrorReturnsBadRequest(t *testing.T) {
+func TestAccountHandlerSyncUpstreamModels_MissingCredentialsReturnsBadRequest(t *testing.T) {
 	svc := &availableModelsAdminService{
 		stubAdminService: newStubAdminService(),
 		account: service.Account{
@@ -416,7 +416,7 @@ func TestAccountHandlerSyncUpstreamModels_ConfigErrorReturnsBadRequest(t *testin
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Contains(t, rec.Body.String(), "No OpenAI API key is available")
+	require.Equal(t, "upstream_model_sync_credentials", gjson.Get(rec.Body.String(), "reason").String())
 }
 
 func TestAccountHandlerSyncUpstreamModelsReturnsCapabilityMetadata(t *testing.T) {
@@ -616,7 +616,7 @@ func TestSyncPreviewErrorReasons(t *testing.T) {
 		name, platform, key, reason string
 		upstreamStatus, status      int
 	}{
-		{"missing credentials", "qianwen", "", "configuration", 200, 400},
+		{"missing credentials", "qianwen", "", "credentials", 200, 400},
 		{"unsupported", "unknown", "key", "not_adapted", 200, 400},
 		{"authentication", "qianwen", "key", "credentials", 401, 400},
 		{"authorization", "qianwen", "key", "permission", 403, 502},
@@ -878,6 +878,10 @@ func TestSyncPreviewCandidatesReturnUnconfirmed(test *testing.T) {
 		for _, saved := range []bool{false, true} {
 			test.Run(fmt.Sprintf("%s/saved=%t", platform, saved), func(test *testing.T) {
 				credentials := map[string]any{"api_key": "private-secret", "model_mapping": map[string]any{"kept": "kept"}}
+				if platform == service.PlatformVolcengine {
+					// PAYG discovery is confirmed; the coding profile remains manual.
+					credentials["base_url"] = "https://ark.cn-beijing.volces.com/api/coding/v3"
+				}
 				if platform == service.PlatformHunyuan {
 					credentials["base_url"] = "https://api.hunyuan.cloud.tencent.com/v1"
 				}

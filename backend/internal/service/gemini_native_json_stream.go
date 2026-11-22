@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/protocol"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/gatewayerror"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
@@ -43,10 +44,20 @@ func (s *GeminiMessagesCompatService) handleNativeJSONStreamingResponse(ctx *gin
 			result.firstTokenMs = &elapsed
 		}
 	}
+	finishArray := protocol.BeginJSONArray(ctx)
+	closed := false
+	defer func() { finishArray(closed) }()
+	write := func(data []byte) error {
+		n, err := ctx.Writer.Write(data)
+		if err == nil && n != len(data) {
+			return io.ErrShortWrite
+		}
+		return err
+	}
 	if upstreamSSE {
 		reader := newUpstreamFrameReader(response.Body, defaultMaxLineSize, ctx.Request.Context(), 300*time.Second)
 		defer reader.Close()
-		if _, err := io.WriteString(ctx.Writer, "["); err != nil {
+		if err := write([]byte("[")); err != nil {
 			return nil, err
 		}
 		separator := ""
@@ -68,7 +79,7 @@ func (s *GeminiMessagesCompatService) handleNativeJSONStreamingResponse(ctx *gin
 			}
 			observe(body)
 			body, _ = sanitizeGoogleErrorPayload(body)
-			if _, err := io.WriteString(ctx.Writer, separator+string(body)); err != nil {
+			if err := write([]byte(separator + string(body))); err != nil {
 				return nil, err
 			}
 			separator = ","
@@ -77,7 +88,8 @@ func (s *GeminiMessagesCompatService) handleNativeJSONStreamingResponse(ctx *gin
 		if err := reader.Err(); err != nil {
 			return nil, err
 		}
-		_, err := io.WriteString(ctx.Writer, "]")
+		err := write([]byte("]"))
+		closed = err == nil
 		return result, err
 	}
 	var pending bytes.Buffer
@@ -85,7 +97,7 @@ func (s *GeminiMessagesCompatService) handleNativeJSONStreamingResponse(ctx *gin
 	var consumed int64
 	flushParsed := func() error {
 		length := decoder.InputOffset() - consumed
-		_, err := ctx.Writer.Write(pending.Next(int(length)))
+		err := write(pending.Next(int(length)))
 		consumed = decoder.InputOffset()
 		return err
 	}
@@ -108,10 +120,10 @@ func (s *GeminiMessagesCompatService) handleNativeJSONStreamingResponse(ctx *gin
 		if sanitized, changed := sanitizeGoogleErrorPayload(body); changed {
 			parsed := pending.Next(int(decoder.InputOffset() - consumed))
 			prefix := parsed[:len(parsed)-len(body)]
-			if _, err := ctx.Writer.Write(prefix); err != nil {
+			if err := write(prefix); err != nil {
 				return nil, err
 			}
-			if _, err := ctx.Writer.Write(sanitized); err != nil {
+			if err := write(sanitized); err != nil {
 				return nil, err
 			}
 			consumed = decoder.InputOffset()
@@ -126,6 +138,7 @@ func (s *GeminiMessagesCompatService) handleNativeJSONStreamingResponse(ctx *gin
 	if err := flushParsed(); err != nil {
 		return nil, err
 	}
+	closed = true
 	return result, nil
 }
 

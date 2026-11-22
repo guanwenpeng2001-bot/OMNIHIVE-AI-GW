@@ -74,6 +74,11 @@ func UserID(v int64) predicate.WorkspaceMember {
 	return predicate.WorkspaceMember(sql.FieldEQ(FieldUserID, v))
 }
 
+// InheritsGlobalRole applies equality check predicate on the "inherits_global_role" field. It's identical to InheritsGlobalRoleEQ.
+func InheritsGlobalRole(v bool) predicate.WorkspaceMember {
+	return predicate.WorkspaceMember(sql.FieldEQ(FieldInheritsGlobalRole, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.WorkspaceMember {
 	return predicate.WorkspaceMember(sql.FieldEQ(FieldCreatedAt, v))
@@ -252,6 +257,16 @@ func RoleIn(vs ...Role) predicate.WorkspaceMember {
 // RoleNotIn applies the NotIn predicate on the "role" field.
 func RoleNotIn(vs ...Role) predicate.WorkspaceMember {
 	return predicate.WorkspaceMember(sql.FieldNotIn(FieldRole, vs...))
+}
+
+// InheritsGlobalRoleEQ applies the EQ predicate on the "inherits_global_role" field.
+func InheritsGlobalRoleEQ(v bool) predicate.WorkspaceMember {
+	return predicate.WorkspaceMember(sql.FieldEQ(FieldInheritsGlobalRole, v))
+}
+
+// InheritsGlobalRoleNEQ applies the NEQ predicate on the "inherits_global_role" field.
+func InheritsGlobalRoleNEQ(v bool) predicate.WorkspaceMember {
+	return predicate.WorkspaceMember(sql.FieldNEQ(FieldInheritsGlobalRole, v))
 }
 
 // And groups predicates with the AND operator between them.

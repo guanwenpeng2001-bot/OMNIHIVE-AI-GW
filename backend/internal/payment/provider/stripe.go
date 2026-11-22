@@ -167,9 +167,10 @@ func (s *Stripe) QueryOrder(ctx context.Context, tradeNo string) (*payment.Query
 		amount = pi.AmountReceived
 	}
 	return &payment.QueryOrderResponse{
-		TradeNo: pi.ID,
-		Status:  status,
-		Amount:  payment.LegacyCallbackAmount(amount, currency),
+		TradeNo:    pi.ID,
+		InstanceID: s.instanceID, Currency: currency, Minor: amount,
+		Status: status,
+		Amount: payment.LegacyCallbackAmount(amount, currency),
 		Metadata: map[string]string{
 			"currency": currency,
 		},

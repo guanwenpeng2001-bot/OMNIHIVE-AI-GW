@@ -298,7 +298,7 @@ export function createPlaygroundRunController(
   }
 
   function summarizeEvent(eventName: string, ev: PlaygroundEvent): string {
-    if (eventName === 'started') return `run=${ev.run_id.slice(0, 8)} price=${ev.price_version || '—'}`
+    if (eventName === 'started') return `run=${ev.run_id?.slice(0, 8) || '—'} price=${ev.price_version || '—'}`
     if (eventName === 'delta') {
       if (ev.kind === 'tool_arguments') {
         return `tool[${ev.index ?? 0}] ${ev.name || ev.tool_call_id || ''}`
@@ -318,15 +318,21 @@ export function createPlaygroundRunController(
     return eventName === 'failed'
   }
 
-  async function executeApprovedRun(
+  async function executeApprovedSubmission(
     workspaceId: string,
     projectId: string,
-    payload: PlaygroundSubmit,
-    explicitIdempotencyKey?: string
-  ): Promise<void> {
-    if (!payload.funding_acknowledged) {
-      throw new Error('Funding acknowledgement is required before submitting a Playground run')
+    payload: PlaygroundSubmit | PlaygroundReplay,
+    options: {
+      explicitIdempotencyKey?: string
+      requiredGrantFallback: string
+      protocol: PlaygroundSubmit['protocol'] | null
+      dispatch: (args: {
+        idempotencyKey: string
+        signal: AbortSignal
+        onFrame: (frame: ParsedSseRecord) => void
+      }) => ReturnType<typeof api.submitRun>
     }
+  ): Promise<void> {
     abortActiveLocalStream()
     const generation = ++activeGeneration
     const controller = new AbortController()
@@ -338,16 +344,16 @@ export function createPlaygroundRunController(
     toolCallIndexMap.clear()
     startedTimestampMs = now()
 
-    const idemKey = explicitIdempotencyKey || generateIdempotencyKey()
+    const idemKey = options.explicitIdempotencyKey || generateIdempotencyKey()
     Object.assign(state, createInitialSnapshot(), {
       status: 'submitting',
       idempotencyKey: idemKey,
-      protocol: payload.protocol,
+      protocol: options.protocol,
       submittedPayload: payload
     })
 
     try {
-      const result = await api.submitRun(workspaceId, projectId, payload, {
+      const result = await options.dispatch({
         idempotencyKey: idemKey,
         signal: controller.signal,
         onFrame: (frame) => handleSseFrame(frame, generation)
@@ -392,7 +398,7 @@ export function createPlaygroundRunController(
       }
 
       const classified = normalizePlaygroundError(err, {
-        requiredGrantFallback: 'playground.run',
+        requiredGrantFallback: options.requiredGrantFallback,
         isZh: isZh(),
         isNonOwnedKey: !isKeyOwned(payload.api_key_id)
       })
@@ -403,6 +409,23 @@ export function createPlaygroundRunController(
         activeAbortController = null
       }
     }
+  }
+
+  async function executeApprovedRun(
+    workspaceId: string,
+    projectId: string,
+    payload: PlaygroundSubmit,
+    explicitIdempotencyKey?: string
+  ): Promise<void> {
+    if (!payload.funding_acknowledged) {
+      throw new Error('Funding acknowledgement is required before submitting a Playground run')
+    }
+    return executeApprovedSubmission(workspaceId, projectId, payload, {
+      explicitIdempotencyKey,
+      requiredGrantFallback: 'playground.run',
+      protocol: payload.protocol,
+      dispatch: (opts) => api.submitRun(workspaceId, projectId, payload, opts)
+    })
   }
 
   async function executeApprovedReplay(
@@ -410,65 +433,26 @@ export function createPlaygroundRunController(
     projectId: string,
     sourceRequestId: string,
     payload: PlaygroundReplay,
-    explicitIdempotencyKey?: string
+    explicitIdempotencyKey?: string,
+    protocolHint?: PlaygroundSubmit['protocol'] | null
   ): Promise<void> {
     if (!payload.funding_acknowledged) {
       throw new Error('Funding acknowledgement is required before replaying a request')
     }
-    abortActiveLocalStream()
-    const generation = ++activeGeneration
-    const controller = new AbortController()
-    activeAbortController = controller
-    lastWorkspaceId = workspaceId
-    lastProjectId = projectId
-    terminalEventSeen = false
-    stopRequestedByUser = false
-    toolCallIndexMap.clear()
-    startedTimestampMs = now()
-
-    const idemKey = explicitIdempotencyKey || generateIdempotencyKey()
-    Object.assign(state, createInitialSnapshot(), {
-      status: 'submitting',
-      idempotencyKey: idemKey,
-      submittedPayload: payload
+    return executeApprovedSubmission(workspaceId, projectId, payload, {
+      explicitIdempotencyKey,
+      requiredGrantFallback: 'requests.replay',
+      protocol: protocolHint ?? state.protocol ?? null,
+      dispatch: (opts) => api.replayRequest(workspaceId, projectId, sourceRequestId, payload, opts)
     })
-
-    try {
-      const result = await api.replayRequest(workspaceId, projectId, sourceRequestId, payload, {
-        idempotencyKey: idemKey,
-        signal: controller.signal,
-        onFrame: (frame) => handleSseFrame(frame, generation)
-      })
-      if (generation !== activeGeneration) return
-      if (result.kind === 'summary') {
-        applySummary(result.summary)
-      } else if (result.kind === 'result') {
-        applyResult(result.result)
-      } else if (!terminalEventSeen) {
-        state.elapsedMs = Math.max(0, now() - startedTimestampMs)
-        state.status = stopRequestedByUser ? 'canceled' : 'disconnected_recoverable'
-      }
-    } catch (err) {
-      if (generation !== activeGeneration) return
-      state.elapsedMs = Math.max(0, now() - startedTimestampMs)
-      const classified = normalizePlaygroundError(err, {
-        requiredGrantFallback: 'requests.replay',
-        isZh: isZh(),
-        isNonOwnedKey: !isKeyOwned(payload.api_key_id)
-      })
-      state.errorNotice = classified
-      state.status = classified.kind === 'unknown' ? 'unknown' : 'failed'
-    } finally {
-      if (activeAbortController === controller) {
-        activeAbortController = null
-      }
-    }
   }
 
   async function stop(workspaceId = lastWorkspaceId, projectId = lastProjectId): Promise<void> {
+    const generation = activeGeneration
+    const runId = state.runId
     stopRequestedByUser = true
-    if (!state.runId) {
-      abortActiveLocalStream()
+    abortActiveLocalStream()
+    if (!runId) {
       if (state.idempotencyKey) {
         state.status = 'disconnected_recoverable'
       } else {
@@ -479,17 +463,18 @@ export function createPlaygroundRunController(
 
     state.status = 'cancel_requested'
     try {
-      const summary = await api.cancelRun(workspaceId, projectId, state.runId)
-      abortActiveLocalStream()
+      const summary = await api.cancelRun(workspaceId, projectId, runId)
+      if (generation !== activeGeneration) return
       applySummary(summary)
       if (summary.state === 'cancel_requested' || summary.state === 'running') {
         const refreshed = await api
-          .getRunDetail(workspaceId, projectId, state.runId)
+          .getRunDetail(workspaceId, projectId, runId)
           .catch(() => summary)
+        if (generation !== activeGeneration) return
         applySummary(refreshed)
       }
     } catch (err) {
-      abortActiveLocalStream()
+      if (generation !== activeGeneration) return
       state.errorNotice = classifyConsoleError(err, {
         requiredGrantFallback: 'playground.cancel',
         isZh: isZh()
@@ -501,17 +486,21 @@ export function createPlaygroundRunController(
     workspaceId = lastWorkspaceId,
     projectId = lastProjectId
   ): Promise<PlaygroundSummary | null> {
-    if (!state.idempotencyKey) return null
+    const idempotencyKey = state.idempotencyKey
+    if (!idempotencyKey) return null
+    const generation = activeGeneration
     state.errorNotice = null
     try {
       const summary = await api.getRunByIdempotencyKey(
         workspaceId,
         projectId,
-        state.idempotencyKey
+        idempotencyKey
       )
+      if (generation !== activeGeneration) return null
       applySummary(summary)
       return summary
     } catch (err) {
+      if (generation !== activeGeneration) return null
       state.errorNotice = classifyConsoleError(err, {
         requiredGrantFallback: 'playground.read',
         isZh: isZh()
@@ -524,15 +513,19 @@ export function createPlaygroundRunController(
     workspaceId = lastWorkspaceId,
     projectId = lastProjectId
   ): Promise<PlaygroundSummary | null> {
-    if (!state.runId) {
+    const runId = state.runId
+    if (!runId) {
       return recoverByIdempotencyKey(workspaceId, projectId)
     }
+    const generation = activeGeneration
     state.errorNotice = null
     try {
-      const summary = await api.getRunDetail(workspaceId, projectId, state.runId)
+      const summary = await api.getRunDetail(workspaceId, projectId, runId)
+      if (generation !== activeGeneration) return null
       applySummary(summary)
       return summary
     } catch (err) {
+      if (generation !== activeGeneration) return null
       state.errorNotice = classifyConsoleError(err, {
         requiredGrantFallback: 'playground.read',
         isZh: isZh()

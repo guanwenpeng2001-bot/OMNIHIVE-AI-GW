@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"sort"
 	"strings"
 	"time"
@@ -24,6 +25,8 @@ type proxyRepository struct {
 }
 
 const proxyProbeOutboxAccountChunkSize = 500
+const proxyExpirySweepBatchSize = 500
+const proxyFallbackTraversalLimit = 64
 
 func NewProxyRepository(client *dbent.Client, sqlDB *sql.DB) service.ProxyRepository {
 	return newProxyRepositoryWithSQL(client, sqlDB)
@@ -679,7 +682,10 @@ func applyProxyEntityToService(dst *service.Proxy, src *dbent.Proxy) {
 
 // ListAllForFallback 返回所有代理（含过期/非活跃），供改投逻辑使用。
 func (r *proxyRepository) ListAllForFallback(ctx context.Context) ([]service.Proxy, error) {
-	proxies, err := r.client.Proxy.Query().All(ctx)
+	// Retained for interface compatibility. Expiry sweeping uses keyset-like
+	// bounded candidates below; callers of this legacy snapshot cannot allocate
+	// an unbounded proxy graph either.
+	proxies, err := r.client.Proxy.Query().Order(dbent.Asc(proxy.FieldID)).Limit(proxyExpirySweepBatchSize).All(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -696,22 +702,30 @@ func (r *proxyRepository) ListAllForFallback(ctx context.Context) ([]service.Pro
 // 全部代理处理完后若有账号被改投，再统一 enqueue 一次 account_bulk_changed 事件——该 enqueue 在子事务之外
 // （走 r.sql、失败仅记日志、由调度器周期性 full rebuild 兜底），故「改投 → 失效」整体并非原子。
 func (r *proxyRepository) SweepExpiredProxies(ctx context.Context, now time.Time) (int64, error) {
-	// 快照用于选择候选；事务内条件更新再次校验有效期、状态及回退配置。
-	all, err := r.ListAllForFallback(ctx)
+	// Fetch only an expiring work batch. Each successful update changes status
+	// away from active, so following periodic runs advance rather than repeatedly
+	// reading the same prefix of a large proxy table.
+	candidates, err := r.client.Proxy.Query().
+		Where(
+			proxy.StatusEQ(service.StatusActive),
+			proxy.ExpiresAtNotNil(),
+			proxy.ExpiresAtLTE(now),
+		).
+		Order(dbent.Asc(proxy.FieldExpiresAt), dbent.Asc(proxy.FieldID)).
+		Limit(proxyExpirySweepBatchSize).
+		All(ctx)
 	if err != nil {
 		return 0, err
 	}
-	byID := make(map[int64]service.Proxy, len(all))
-	for _, p := range all {
-		byID[p.ID] = p
-	}
+	byID := make(map[int64]service.Proxy, len(candidates))
 
 	var totalChanged int64
 	allChangedAccountIDs := make([]int64, 0)
 
-	for _, p := range all {
-		if p.Status != service.StatusActive || !p.IsExpired(now) {
-			continue
+	for _, entity := range candidates {
+		p := *proxyEntityToService(entity)
+		if err := r.loadProxyFallbackChain(ctx, p, byID); err != nil {
+			return totalChanged, err
 		}
 
 		target, change := service.ResolveProxyFallbackTarget(p, byID, now)
@@ -738,6 +752,34 @@ func (r *proxyRepository) SweepExpiredProxies(ctx context.Context, now time.Time
 		}
 	}
 	return totalChanged, nil
+}
+
+// loadProxyFallbackChain fetches only the backup nodes reachable from one
+// expired candidate. It preserves multi-hop/cycle resolution without taking a
+// full proxy-table snapshot into the periodic expiry job.
+func (r *proxyRepository) loadProxyFallbackChain(ctx context.Context, start service.Proxy, byID map[int64]service.Proxy) error {
+	current := start
+	for depth := 0; depth < proxyFallbackTraversalLimit; depth++ {
+		if _, known := byID[current.ID]; known {
+			return nil
+		}
+		byID[current.ID] = current
+		if current.BackupProxyID == nil {
+			return nil
+		}
+		if _, known := byID[*current.BackupProxyID]; known {
+			return nil
+		}
+		loaded, err := r.GetByID(ctx, *current.BackupProxyID)
+		if errors.Is(err, service.ErrProxyNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		current = *loaded
+	}
+	return nil
 }
 
 func sortedUniqueAccountIDs(accountIDs []int64) []int64 {

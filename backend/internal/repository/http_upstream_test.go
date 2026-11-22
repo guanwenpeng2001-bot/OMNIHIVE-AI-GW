@@ -1033,11 +1033,11 @@ func TestHTTPUpstreamPublicHostsOnlyValidatesEveryRedirectHop(t *testing.T) {
 	require.True(t, ok)
 	base := &http.Client{}
 
-	plain, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://cdn.example.com/a.png", nil)
+	plain, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://93.184.216.34/a.png", nil)
 	require.NoError(t, err)
 	require.Same(t, base, upstream.httpClientForUpstreamRequest(base, plain))
 
-	guarded, err := http.NewRequestWithContext(service.WithHTTPUpstreamPublicHostsOnly(t.Context()), http.MethodGet, "https://cdn.example.com/a.png", nil)
+	guarded, err := http.NewRequestWithContext(service.WithHTTPUpstreamPublicHostsOnly(t.Context()), http.MethodGet, "https://93.184.216.34/a.png", nil)
 	require.NoError(t, err)
 	client := upstream.httpClientForUpstreamRequest(base, guarded)
 	require.NotSame(t, base, client)
@@ -1056,7 +1056,7 @@ func TestHTTPUpstreamPublicHostsOnlyValidatesEveryRedirectHop(t *testing.T) {
 		require.NoError(t, err)
 		require.Error(t, client.CheckRedirect(hopReq, via), "hop=%s", hop)
 	}
-	publicHop, err := http.NewRequestWithContext(guarded.Context(), http.MethodGet, "http://93.184.216.34/a.png", nil)
+	publicHop, err := http.NewRequestWithContext(guarded.Context(), http.MethodGet, "https://93.184.216.34/b.png", nil)
 	require.NoError(t, err)
 	require.NoError(t, client.CheckRedirect(publicHop, via))
 	require.Error(t, client.CheckRedirect(publicHop, make([]*http.Request, 10)), "redirect chain stays capped")
@@ -1072,11 +1072,36 @@ func TestHTTPUpstreamDNSPreflightRespectsRequestContext(t *testing.T) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://8.8.8.8/", nil)
 	require.NoError(t, err)
 	require.ErrorIs(t, upstream.validateRequestHost(request), context.Canceled)
-	require.ErrorIs(t, upstream.redirectChecker(request, nil), context.Canceled)
+	require.ErrorIs(t, upstream.redirectChecker(request, []*http.Request{request}), context.Canceled)
 	cfg.Security.URLAllowlist.Enabled = false
 	require.ErrorIs(t, upstream.validateRequestHost(request), context.Canceled)
 }
 
 func loopbackUpstreamConfig() *config.Config {
 	return &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{AllowPrivateHosts: true, UpstreamHosts: []string{"127.0.0.1"}}}}
+}
+
+func TestGatewayRedirectPolicy(t *testing.T) {
+	s := &httpUpstreamService{cfg: loopbackUpstreamConfig()}
+	for _, status := range []int{301, 302, 307, 308} {
+		for _, target := range []string{"http://approved.test/data", "https://other.test/data", "https://127.0.0.1/data", "https://approved.test:8443/data"} {
+			t.Run(fmt.Sprintf("%d/%s", status, target), func(t *testing.T) {
+				calls := 0
+				client := &http.Client{CheckRedirect: s.redirectChecker, Transport: pricingRedirectTransport(func(r *http.Request) (*http.Response, error) {
+					calls++
+					require.Equal(t, "https://approved.test/data", r.URL.String())
+					return &http.Response{StatusCode: status, Header: http.Header{"Location": {target}}, Body: http.NoBody, Request: r}, nil
+				})}
+				req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://approved.test/data", strings.NewReader("fixture body"))
+				require.NoError(t, err)
+				req.Header.Set("Authorization", "Bearer fixture")
+				response, err := client.Do(req)
+				if response != nil {
+					require.NoError(t, response.Body.Close())
+				}
+				require.ErrorContains(t, err, "cross-origin")
+				require.Equal(t, 1, calls)
+			})
+		}
+	}
 }

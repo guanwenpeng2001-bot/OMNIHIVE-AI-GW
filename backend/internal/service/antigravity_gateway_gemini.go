@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/antigravity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/tidwall/gjson"
 )
 
 // ForwardGemini 转发 Gemini 协议请求
@@ -72,8 +73,22 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 	case "generateContent", "streamGenerateContent":
 		// ok
 	case "countTokens":
-		// 直接返回空值，不透传上游
-		c.JSON(http.StatusOK, map[string]any{"totalTokens": 0})
+		if !json.Valid(body) || !gjson.ParseBytes(body).IsObject() {
+			return nil, s.writeGoogleError(c, http.StatusBadRequest, "Invalid countTokens request")
+		}
+		countBody := body
+		if nested := gjson.GetBytes(body, "generateContentRequest"); nested.Exists() {
+			if !nested.IsObject() {
+				return nil, s.writeGoogleError(c, http.StatusBadRequest, "Invalid generateContentRequest")
+			}
+			countBody = []byte(nested.Raw)
+		}
+		if !antigravityTextCountSupported(countBody) {
+			return nil, s.writeGoogleError(c, http.StatusBadRequest, "Token estimation supports text parts only")
+		}
+		tokens := estimateGeminiCountTokens(countBody)
+		c.Header("X-Token-Count-Estimated", "true")
+		c.JSON(http.StatusOK, map[string]any{"totalTokens": tokens})
 		return &ForwardResult{
 			RequestID:    "",
 			Usage:        ClaudeUsage{},
@@ -418,46 +433,20 @@ handleSuccess:
 		c.Header("x-request-id", requestID)
 	}
 
-	var usage *ClaudeUsage
-	var firstTokenMs *int
-	var clientDisconnect bool
-
+	var streamRes *antigravityStreamResult
 	if stream {
-		// 客户端要求流式，直接透传
-		streamRes, err := s.handleGeminiStreamingResponse(c, resp, startTime)
-		if err != nil {
-			logger.LegacyPrintf("service.antigravity_gateway", "%s status=stream_error error=%v", prefix, err)
-			return nil, err
-		}
-		usage = streamRes.usage
-		firstTokenMs = streamRes.firstTokenMs
-		clientDisconnect = streamRes.clientDisconnect
+		streamRes, err = s.handleGeminiStreamingResponse(c, resp, startTime)
 	} else {
-		// 客户端要求非流式，收集流式响应后返回
-		streamRes, err := s.handleGeminiStreamToNonStreaming(c, resp, startTime)
-		if err != nil {
-			logger.LegacyPrintf("service.antigravity_gateway", "%s status=stream_collect_error error=%v", prefix, err)
-			return nil, err
-		}
-		usage = streamRes.usage
-		firstTokenMs = streamRes.firstTokenMs
+		streamRes, err = s.handleGeminiStreamToNonStreaming(c, resp, startTime)
 	}
-
-	if usage == nil {
-		usage = &ClaudeUsage{}
-	}
-
-	// 判断是否为图片生成模型
-	imageCount := 0
-	if isImageGenerationModel(mappedModel) {
-		// Gemini 图片生成 API 每次请求只生成一张图片（API 限制）
-		imageCount = 1
+	if streamRes == nil {
+		return nil, err
 	}
 
 	return &ForwardResult{
 		RequestID:                     requestID,
 		UpstreamHeaders:               resp.Header,
-		Usage:                         *usage,
+		Usage:                         *streamRes.usage,
 		Model:                         originalModel,
 		UpstreamModel:                 forwardedModel,
 		UpstreamResponseModel:         observedUpstreamResponseModel(c),
@@ -465,12 +454,37 @@ handleSuccess:
 		Stream:                        stream,
 		ReasoningEffort:               extractGeminiReasoningEffortFromBody(injectedBody),
 		Duration:                      time.Since(startTime),
-		FirstTokenMs:                  firstTokenMs,
-		ClientDisconnect:              clientDisconnect,
-		ImageCount:                    imageCount,
+		FirstTokenMs:                  streamRes.firstTokenMs,
+		ClientDisconnect:              streamRes.clientDisconnect,
+		UsageIncomplete:               streamRes.usageIncomplete || err != nil,
+		ImageCount:                    streamRes.imageCount,
 		ImageSize:                     imageSize,
 		ImageInputSize:                imageInputSize,
-	}, nil
+	}, err
+}
+
+func antigravityTextCountSupported(body []byte) bool {
+	req := gjson.ParseBytes(body)
+	if req.Get("tools.#").Int() != 0 || req.Get("cachedContent").Str != "" {
+		return false
+	}
+	textParts := func(parts gjson.Result) bool {
+		for _, part := range parts.Array() {
+			if part.Get("text").Type != gjson.String {
+				return false
+			}
+		}
+		return true
+	}
+	if !textParts(req.Get("systemInstruction.parts")) {
+		return false
+	}
+	for _, content := range req.Get("contents").Array() {
+		if !textParts(content.Get("parts")) {
+			return false
+		}
+	}
+	return true
 }
 
 // cleanGeminiRequest 清理 Gemini 请求体中的 Schema

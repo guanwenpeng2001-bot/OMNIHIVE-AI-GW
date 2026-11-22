@@ -371,6 +371,15 @@ func (a *Account) CanGetUsage() bool {
 }
 
 func (a *Account) GetCredential(key string) string {
+	// Public lanes have no per-account secret, including older unnormalized rows.
+	if key == "api_key" {
+		if a.IsOpenCodeZenFree() {
+			return "public"
+		}
+		if a.IsKiloFree() {
+			return ""
+		}
+	}
 	if a.Credentials == nil {
 		return ""
 	}
@@ -404,6 +413,9 @@ func (a *Account) GetCredential(key string) string {
 //   - Unix 时间戳字符串: "1735689600"
 //   - Unix 时间戳数字: 1735689600 (float64/int64/json.Number)
 func (a *Account) GetCredentialAsTime(key string) *time.Time {
+	if a != nil && a.Platform == PlatformWorkBuddy {
+		return workBuddyTime(a.Credentials[key])
+	}
 	s := a.GetCredential(key)
 	if s == "" {
 		return nil
@@ -1426,6 +1438,12 @@ func (a *Account) IsOpenAIApiKey() bool {
 // 适用 openai、国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）与 OpenCode Go；
 // grok 走 GetGrokBaseURL，此处对 grok 返回 "" 以保持原有行为。
 func (a *Account) GetOpenAIBaseURL() string {
+	if a != nil && a.Platform == PlatformKilo {
+		return kiloBaseURL(a)
+	}
+	if a != nil && a.Platform == PlatformWorkBuddy {
+		return workBuddyEndpoint(a) + "/v2"
+	}
 	if IsCompatibleProvider(a.Platform) {
 		if a.compatibleBinding != nil {
 			return a.compatibleBinding.Base
@@ -2031,6 +2049,9 @@ func (a *Account) GetOpenAIApiKey() string {
 // 注意 IsOpenAIApiKey 语义上仅指 openai 平台账号，调度倍率/WS 能力门控
 // 继续以其为准，不受本方法影响。
 func (a *Account) GetOpenAIProtocolAPIKey() string {
+	if a != nil && a.Platform == PlatformWorkBuddy {
+		return workBuddyToken(a)
+	}
 	if a != nil && IsCompatibleProvider(a.Platform) && a.Type == AccountTypeAPIKey {
 		return a.GetCredential("api_key")
 	}
@@ -2121,7 +2142,7 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 		return false
 	}
 	if IsChatOnlyPlatform(a.Platform) {
-		if a.Type != AccountTypeAPIKey {
+		if a.Type != AccountTypeAPIKey && (a.Platform != PlatformWorkBuddy || a.Type != AccountTypeOAuth) {
 			return false
 		}
 		// Chat-only is a platform classification, not a permanent capability

@@ -94,8 +94,9 @@ archives:
       - deploy/DOCKER.md
       - deploy/Dockerfile
       - deploy/EDGE_SECURITY.md
-      - deploy/Makefile
       - deploy/README.md
+      - deploy/.env.example
+      - deploy/compose.restore.yml
       - deploy/apple-container.sh
       - deploy/build_image.sh
       - deploy/codex-instructions.md.tmpl

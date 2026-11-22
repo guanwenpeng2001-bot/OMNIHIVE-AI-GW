@@ -42,6 +42,46 @@
         </div>
       </div>
 
+      <div
+        v-else-if="publicSettingsError"
+        data-testid="forgot-password-settings-error"
+        role="alert"
+        class="auth-summary flex items-center justify-between gap-3 border border-red-200 bg-red-50/80 p-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200"
+      >
+        <span>{{ t('publicPortal.legal.settingsLoadFailedHint') }}</span>
+        <button
+          type="button"
+          class="btn btn-outline shrink-0 text-xs"
+          :disabled="isLoading"
+          @click="loadPublicSettings"
+        >
+          {{ t('publicPortal.legal.retry') }}
+        </button>
+      </div>
+
+      <div
+        v-else-if="settingsLoaded && !passwordResetEnabled"
+        data-testid="forgot-password-disabled"
+        class="space-y-4"
+      >
+        <div class="auth-summary">
+          <div class="flex items-start gap-3">
+            <div class="flex-shrink-0">
+              <Icon name="exclamationCircle" size="md" class="text-amber-500" />
+            </div>
+            <p class="text-sm text-amber-700 dark:text-amber-400">
+              {{ passwordResetDisabledMessage }}
+            </p>
+          </div>
+        </div>
+        <div class="auth-actions">
+          <router-link to="/login" class="btn btn-primary w-full">
+            <Icon name="arrowLeft" size="sm" />
+            {{ t('auth.backToLogin') }}
+          </router-link>
+        </div>
+      </div>
+
       <!-- Form State -->
       <form v-else @submit.prevent="handleSubmit" class="space-y-3">
         <p v-if="errorMessage" role="alert" class="auth-error">{{ errorMessage }}</p>
@@ -89,7 +129,7 @@
         <div class="auth-actions">
         <button
           type="submit"
-          :disabled="isLoading || (turnstileEnabled && !turnstileToken)"
+          :disabled="isLoading || !settingsLoaded || publicSettingsError || !passwordResetEnabled || (turnstileActive && !turnstileToken)"
           class="btn btn-primary w-full"
         >
           <svg
@@ -131,10 +171,22 @@ import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
 import Icon from '@/components/icons/Icon.vue'
 import TurnstileWidget from '@/components/CaptchaChallenge.vue'
+import { resolveActiveCaptchaProvider } from '@/components/auth/captchaProvider'
 import { useAppStore } from '@/stores'
 import { getPublicSettings, forgotPassword } from '@/api/auth'
 
-const { t } = useI18n()
+const i18n = useI18n()
+const { t } = i18n
+const isZh = computed(() => String(i18n.locale?.value ?? 'zh').toLowerCase().startsWith('zh'))
+const passwordResetDisabledMessage = computed(() => {
+  const translated = i18n.te?.('auth.passwordResetDisabled') ? t('auth.passwordResetDisabled') : ''
+  if (translated && translated !== 'auth.passwordResetDisabled') {
+    return translated
+  }
+  return isZh.value
+    ? '密码重置功能暂时关闭，请联系管理员。'
+    : 'Password reset is currently disabled. Please contact the administrator.'
+})
 
 // ==================== Stores ====================
 
@@ -145,6 +197,9 @@ const appStore = useAppStore()
 const isLoading = ref<boolean>(false)
 const isSubmitted = ref<boolean>(false)
 const errorMessage = ref<string>('')
+const settingsLoaded = ref<boolean>(false)
+const publicSettingsError = ref<boolean>(false)
+const passwordResetEnabled = ref<boolean>(true)
 
 // Public settings
 const turnstileEnabled = ref<boolean>(false)
@@ -161,22 +216,23 @@ const aliyunCaptchaRegion = ref<string>('cn')
 const turnstileRef = ref<InstanceType<typeof TurnstileWidget> | null>(null)
 const turnstileToken = ref<string>('')
 const tencentCaptchaRandstr = ref<string>('')
-const aliyunCaptchaReady = computed(
-  () =>
-    aliyunCaptchaEnabled.value &&
-    Boolean(aliyunCaptchaSceneId.value) &&
-    Boolean(aliyunCaptchaPrefix.value)
+const activeCaptchaProvider = computed(() =>
+  resolveActiveCaptchaProvider({
+    turnstileEnabled: turnstileEnabled.value,
+    turnstileSiteKey: turnstileSiteKey.value,
+    tencentEnabled: tencentCaptchaEnabled.value,
+    tencentAppId: tencentCaptchaAppId.value,
+    aliyunEnabled: aliyunCaptchaEnabled.value,
+    aliyunSceneId: aliyunCaptchaSceneId.value,
+    aliyunPrefix: aliyunCaptchaPrefix.value
+  })
 )
+const turnstileActive = computed(() => activeCaptchaProvider.value === 'turnstile')
+const tencentActive = computed(() => activeCaptchaProvider.value === 'tencent')
+const aliyunActive = computed(() => activeCaptchaProvider.value === 'aliyun')
 // 动作触发式验证码（腾讯/阿里云）：提交时弹窗验证
-const actionCaptchaEnabled = computed(
-  () =>
-    (tencentCaptchaEnabled.value && Boolean(tencentCaptchaAppId.value)) ||
-    aliyunCaptchaReady.value
-)
-const captchaEnabled = computed(
-  () =>
-    (turnstileEnabled.value && Boolean(turnstileSiteKey.value)) || actionCaptchaEnabled.value
-)
+const actionCaptchaEnabled = computed(() => tencentActive.value || aliyunActive.value)
+const captchaEnabled = computed(() => activeCaptchaProvider.value !== 'none')
 
 const formData = reactive({
   email: ''
@@ -197,9 +253,13 @@ watch(validationToastMessage, (value, previousValue) => {
 
 // ==================== Lifecycle ====================
 
-onMounted(async () => {
+async function loadPublicSettings(): Promise<void> {
+  settingsLoaded.value = false
+  publicSettingsError.value = false
   try {
     const settings = await getPublicSettings()
+    passwordResetEnabled.value =
+      settings.password_reset_enabled !== false && settings.backend_mode_enabled !== true
     turnstileEnabled.value = settings.turnstile_enabled
     turnstileSiteKey.value = settings.turnstile_site_key || ''
     tencentCaptchaEnabled.value = settings.tencent_captcha_enabled === true
@@ -211,7 +271,14 @@ onMounted(async () => {
     aliyunCaptchaRegion.value = settings.aliyun_captcha_region || 'cn'
   } catch (error) {
     console.error('Failed to load public settings:', error)
+    publicSettingsError.value = true
+  } finally {
+    settingsLoaded.value = true
   }
+}
+
+onMounted(async () => {
+  await loadPublicSettings()
 })
 
 // ==================== Turnstile Handlers ====================
@@ -261,16 +328,17 @@ function validateForm(): boolean {
   let isValid = true
 
   // Email validation
-  if (!formData.email.trim()) {
+  const normalizedEmail = formData.email.trim()
+  if (!normalizedEmail) {
     errors.email = t('auth.emailRequired')
     isValid = false
-  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
     errors.email = t('auth.invalidEmail')
     isValid = false
   }
 
   // Turnstile validation
-  if (turnstileEnabled.value && !turnstileToken.value) {
+  if (turnstileActive.value && !turnstileToken.value) {
     errors.turnstile = t('auth.completeVerification')
     isValid = false
   }
@@ -281,6 +349,9 @@ function validateForm(): boolean {
 // ==================== Form Handlers ====================
 
 async function handleSubmit(): Promise<void> {
+  if (isLoading.value || !settingsLoaded.value || publicSettingsError.value || !passwordResetEnabled.value) {
+    return
+  }
   errorMessage.value = ''
 
   if (!validateForm()) {
@@ -294,12 +365,14 @@ async function handleSubmit(): Promise<void> {
   isLoading.value = true
 
   try {
+    const normalizedEmail = formData.email.trim()
+    formData.email = normalizedEmail
     await forgotPassword({
-      email: formData.email,
+      email: normalizedEmail,
       turnstile_token:
-        turnstileEnabled.value || aliyunCaptchaEnabled.value ? turnstileToken.value : undefined,
-      tencent_captcha_ticket: tencentCaptchaEnabled.value ? turnstileToken.value : undefined,
-      tencent_captcha_randstr: tencentCaptchaEnabled.value ? tencentCaptchaRandstr.value : undefined
+        turnstileActive.value || aliyunActive.value ? turnstileToken.value : undefined,
+      tencent_captcha_ticket: tencentActive.value ? turnstileToken.value : undefined,
+      tencent_captcha_randstr: tencentActive.value ? tencentCaptchaRandstr.value : undefined
     })
 
     isSubmitted.value = true

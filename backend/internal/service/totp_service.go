@@ -70,6 +70,7 @@ type TotpLoginSession struct {
 }
 
 type PendingOAuthBindLoginSession struct {
+	AdoptionOnly        bool   `json:"adoption_only,omitempty"`
 	PendingSessionToken string `json:"pending_session_token,omitempty"`
 	BrowserSessionKey   string `json:"browser_session_key,omitempty"`
 }
@@ -444,6 +445,13 @@ func (s *TotpService) CreatePendingOAuthBindLoginSession(
 	return s.createLoginSession(ctx, userID, email, &PendingOAuthBindLoginSession{
 		PendingSessionToken: pendingSessionToken,
 		BrowserSessionKey:   browserSessionKey,
+	})
+}
+
+// CreateOAuthCompletionLoginSession defers adoption and login until after 2FA.
+func (s *TotpService) CreateOAuthCompletionLoginSession(ctx context.Context, userID int64, email, sessionToken, browserKey string) (string, error) {
+	return s.createLoginSession(ctx, userID, email, &PendingOAuthBindLoginSession{
+		AdoptionOnly: true, PendingSessionToken: sessionToken, BrowserSessionKey: browserKey,
 	})
 }
 

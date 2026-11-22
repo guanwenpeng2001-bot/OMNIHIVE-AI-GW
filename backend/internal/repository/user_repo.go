@@ -159,6 +159,18 @@ func (r *userRepository) create(ctx context.Context, userIn *service.User, guard
 		return translatePersistenceError(err, nil, service.ErrEmailExists)
 	}
 
+	// Every application signup path shares this transaction. Do not grant project
+	// actions on the platform's shared Default project: those reads are project-wide.
+	role := "member"
+	if created.Role == service.RoleAdmin {
+		role = "admin"
+	}
+	if _, err := txClient.ExecContext(txCtx, `INSERT INTO workspace_members(workspace_id,user_id,role,created_at,updated_at,inherits_global_role)
+ VALUES((SELECT id FROM workspaces WHERE is_default ORDER BY CASE WHEN id=1 THEN 0 ELSE 1 END,id LIMIT 1),$1,$2,$3,$3,true)
+ ON CONFLICT(workspace_id,user_id) DO NOTHING`, created.ID, role, time.Now()); err != nil {
+		return fmt.Errorf("provision default workspace membership: %w", err)
+	}
+
 	if consent := userIn.SignupAgreement; consent != nil {
 		settings, err := NewSettingRepository(txClient).GetMultiple(txCtx, []string{service.SettingKeyLoginAgreementEnabled, service.SettingKeyLoginAgreementUpdatedAt, service.SettingKeyLoginAgreementDocuments})
 		if err != nil {
@@ -262,7 +274,13 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User, field
 	}
 
 	// 使用 ent 事务包裹用户更新与 allowed_groups 同步，避免跨层事务不一致。
-	tx, err := r.client.Tx(ctx)
+	var tx *dbent.Tx
+	var err error
+	if dbent.TxFromContext(ctx) != nil {
+		err = dbent.ErrTxStarted
+	} else {
+		tx, err = r.client.Tx(ctx)
+	}
 	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
 		return err
 	}
@@ -359,6 +377,20 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User, field
 	updated, err := updateOp.Save(txCtx)
 	if err != nil {
 		return translatePersistenceError(err, service.ErrUserNotFound, service.ErrEmailExists)
+	}
+
+	// The membership trigger advances workspace.scope_version atomically.
+	if fields.Role {
+		role := "member"
+		if updated.Role == service.RoleAdmin {
+			role = "admin"
+		}
+		if _, err := txClient.ExecContext(txCtx, `UPDATE workspace_members
+ SET role=CASE WHEN inherits_global_role THEN $1 ELSE role END,updated_at=$2
+ WHERE user_id=$3 AND ((inherits_global_role AND role<>$1)
+ OR (workspace_id=(SELECT id FROM workspaces WHERE is_default ORDER BY CASE WHEN id=1 THEN 0 ELSE 1 END,id LIMIT 1) AND $4))`, role, time.Now(), updated.ID, existing.Role != updated.Role); err != nil {
+			return fmt.Errorf("synchronize default workspace role: %w", err)
+		}
 	}
 
 	if fields.AllowedGroups {

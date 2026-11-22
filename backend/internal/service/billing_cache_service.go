@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"fmt"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
+	"github.com/shopspring/decimal"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -773,6 +775,23 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 			return err
 		}
 	}
+	return s.RecheckBillingEligibility(ctx, user, apiKey, group, subscription, platform)
+}
+
+// RecheckBillingEligibility validates a fallback group under the instance slot
+// already held by the admitted request.
+func (s *BillingCacheService) RecheckBillingEligibility(ctx context.Context, user *User, apiKey *APIKey, group *Group, subscription *UserSubscription, platform string) error {
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+		plan.mu.Lock()
+		if group != nil {
+			plan.budgetPlatform = channelLookupPlatform(ctx, group.Platform)
+		}
+		if apiKey != nil && publicModelPricingPlatform(plan.budgetPlatform) && plan.budgetEstimate == nil {
+			plan.budgetEstimate = &RequestBudgetEstimate{Model: plan.spec.Model, Group: group,
+				SkipKeyBudget: !apiKey.HasPeriodBudget(), SkipBalanceHold: subscription != nil}
+		}
+		plan.mu.Unlock()
+	}
 	// 简易模式：跳过所有计费检查
 	if s.cfg.RunMode == config.RunModeSimple {
 		return nil
@@ -791,6 +810,17 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 	} else {
 		if err := s.checkBalanceEligibility(ctx, user.ID); err != nil {
 			return err
+		}
+		if plan := GatewayRequestPlanFromContext(ctx); plan != nil && s.userRepo != nil {
+			payer := user.ID
+			if plan.store != nil && plan.execution.Scope.FundingUserID > 0 {
+				payer = plan.execution.Scope.FundingUserID
+			}
+			plan.mu.Lock()
+			plan.balanceBudgetCheck = func(ctx context.Context, amount *money.Money) error {
+				return s.checkBalanceUpperBound(ctx, payer, amount)
+			}
+			plan.mu.Unlock()
 		}
 	}
 
@@ -963,6 +993,20 @@ func (s *BillingCacheService) checkBalanceEligibility(ctx context.Context, userI
 		return ErrInsufficientBalance
 	}
 
+	return nil
+}
+
+func (s *BillingCacheService) checkBalanceUpperBound(ctx context.Context, userID int64, amount *money.Money) error {
+	if s == nil || s.userRepo == nil || (s.cfg != nil && s.cfg.RunMode == config.RunModeSimple) || amount == nil || amount.Amount().Compare(money.Amount{}) == 0 {
+		return nil
+	}
+	balance, err := s.getUserBalanceFromDB(ctx, userID)
+	if err != nil {
+		return ErrBillingServiceUnavailable.WithCause(err)
+	}
+	if !validBillingNumber(balance) || decimal.NewFromFloat(balance).LessThan(decimal.RequireFromString(amount.String())) {
+		return ErrAPIKeyBudgetInsufficientBalance
+	}
 	return nil
 }
 

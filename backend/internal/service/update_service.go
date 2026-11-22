@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -26,6 +27,8 @@ import (
 )
 
 var (
+	errReleaseChecksumMismatch   = errors.New("checksum mismatch")
+	ErrUpdateCheckUnavailable    = infraerrors.ServiceUnavailable("UPDATE_CHECK_UNAVAILABLE", "could not check the latest release")
 	ErrNoUpdateAvailable         = infraerrors.Conflict("ALREADY_UP_TO_DATE", "no update available; current version is latest")
 	ErrRollbackManifestInvalid   = infraerrors.Conflict("ROLLBACK_MANIFEST_INVALID", "invalid backup identity or manifest authentication")
 	ErrRollbackVersionNotAllowed = infraerrors.BadRequest("ROLLBACK_VERSION_NOT_ALLOWED", "version is not in the allowed rollback list")
@@ -217,7 +220,10 @@ func copyUpdateBinary(source, target string) error {
 	if err := out.Close(); err != nil {
 		return err
 	}
-	return os.Rename(out.Name(), target)
+	if err := os.Rename(out.Name(), target); err != nil {
+		return err
+	}
+	return syncUpdatePath(filepath.Dir(target))
 }
 
 func (s *UpdateService) stagePersistentBinary(exePath, newBinaryPath string) (bool, error) {
@@ -235,16 +241,20 @@ func (s *UpdateService) stagePersistentBinary(exePath, newBinaryPath string) (bo
 	}
 	defer func() { _ = os.Remove(probe) }()
 	current := filepath.Join(updatesDir, "current", updateBinaryName)
-	previous := current
-	if _, err := os.Stat(current); os.IsNotExist(err) {
-		previous = exePath
-	} else if err != nil {
+	// The staged file can already be a later release when an operator
+	// requests another update before restarting.
+	running, err := s.runningBinary()
+	if err != nil {
 		return false, err
 	}
-	if err := copyUpdateBinary(previous, filepath.Join(updatesDir, "backup", updateBinaryName)); err != nil {
+	backup := filepath.Join(updatesDir, "backup", updateBinaryName)
+	if err := copyUpdateBinary(running, backup); err != nil {
 		return false, err
 	}
-	if err := s.prepareBackupManifest(filepath.Join(updatesDir, "backup", updateBinaryName)); err != nil {
+	if err := s.prepareBackupManifest(backup); err != nil {
+		return false, err
+	}
+	if err := syncUpdatePath(filepath.Dir(backup)); err != nil {
 		return false, err
 	}
 	if err := copyUpdateBinary(newBinaryPath, current); err != nil {
@@ -287,6 +297,9 @@ func (s *UpdateService) CheckUpdate(ctx context.Context, force bool) (*UpdateInf
 	// Fetch from GitHub
 	info, err := s.fetchLatestRelease(ctx)
 	if err != nil {
+		if force {
+			return nil, ErrUpdateCheckUnavailable.WithCause(err)
+		}
 		// Return cached on error
 		if cached, cacheErr := s.getFromCache(ctx); cacheErr == nil && cached != nil {
 			cached.Warning = "Using cached data: " + err.Error()
@@ -298,7 +311,7 @@ func (s *UpdateService) CheckUpdate(ctx context.Context, force bool) (*UpdateInf
 			HasUpdate:      false,
 			Warning:        err.Error(),
 			BuildType:      s.buildType,
-		}, nil
+		}, ErrUpdateCheckUnavailable.WithCause(err)
 	}
 
 	// Cache result
@@ -411,48 +424,55 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, version string, 
 		return fmt.Errorf("executable directory and persistent data directory are not writable")
 	}
 
-	// Atomic replacement using rename pattern:
-	// 1. Rename current -> backup (atomic on Unix)
-	// 2. Rename new -> current (atomic on Unix, same filesystem)
-	// If step 2 fails, restore backup
-	backupPath := exePath + ".backup"
-	backupManifest, err := s.runningManifest()
+	if err := s.replaceExecutable(tempDir, exePath, newBinaryPath); err != nil {
+		if staged {
+			return nil // The persistent path has already been prepared for restart.
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *UpdateService) replaceExecutable(stagingDir, exePath, newBinaryPath string) error {
+	manifest, err := s.runningManifest()
 	if err != nil {
 		return fmt.Errorf("backup manifest failed: %w", err)
 	}
-
-	// Remove old backup if exists
-	_ = os.Remove(backupPath)
-
-	// Step 1: Move current binary to backup
-	if err := os.Rename(exePath, backupPath); err != nil {
-		if staged {
-			return nil
-		}
-		return fmt.Errorf("backup failed: %w", err)
+	if err := syncUpdatePath(newBinaryPath); err != nil {
+		return fmt.Errorf("new executable sync failed: %w", err)
 	}
-	if err := writeBackupManifest(backupPath, backupManifest); err != nil {
-		if restoreErr := os.Rename(backupPath, exePath); restoreErr != nil {
-			return fmt.Errorf("backup manifest failed and restore failed: %w (restore error: %v)", err, restoreErr)
-		}
+	// Prepare the backup while the original executable stays at its live path.
+	stagedBackup := filepath.Join(stagingDir, "previous")
+	if err := os.Link(exePath, stagedBackup); err != nil {
+		return fmt.Errorf("backup link failed: %w", err)
+	}
+	if err := verifyReleaseChecksum(stagedBackup, manifest.Digest); err != nil {
+		return fmt.Errorf("backup verification failed: %w", err)
+	}
+	backupPath := exePath + ".backup"
+	if err := os.Rename(stagedBackup, backupPath); err != nil {
+		return fmt.Errorf("backup publish failed: %w", err)
+	}
+	if err := writeBackupManifest(backupPath, manifest); err != nil {
 		return fmt.Errorf("backup manifest failed: %w", err)
 	}
-
-	// Step 2: Move new binary to target location (atomic, same filesystem)
-	if err := os.Rename(newBinaryPath, exePath); err != nil {
-		// Restore backup on failure
-		if restoreErr := os.Rename(backupPath, exePath); restoreErr != nil {
-			return fmt.Errorf("replace failed and restore failed: %w (restore error: %v)", err, restoreErr)
-		}
-		if staged {
-			return nil
-		}
-		return fmt.Errorf("replace failed (restored backup): %w", err)
+	dir := filepath.Dir(exePath)
+	if err := syncUpdatePath(dir); err != nil {
+		return fmt.Errorf("backup directory sync failed: %w", err)
 	}
+	if err := os.Rename(newBinaryPath, exePath); err != nil {
+		return fmt.Errorf("replace executable failed: %w", err)
+	}
+	return syncUpdatePath(dir)
+}
 
-	// Success - backup file is kept for rollback capability
-	// It will be cleaned up on next successful update
-	return nil
+func syncUpdatePath(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return f.Sync()
 }
 
 // Rollback restores the previous version
@@ -481,7 +501,7 @@ func (s *UpdateService) rollback(ctx context.Context) error {
 	}
 	directBackup := statErr == nil && directInfo.Mode().IsRegular()
 	if statErr == nil && !directBackup && !directInfo.IsDir() {
-		return fmt.Errorf("unexpected direct backup file type")
+		return ErrRollbackManifestInvalid
 	}
 	if directBackup {
 		if err := s.verifyBackup(backupFile, floor); err != nil {
@@ -628,9 +648,6 @@ func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubR
 
 func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, error) {
 	release, err := s.githubClient.FetchLatestRelease(ctx, resolveGitHubRepo())
-	if err != nil && strings.Contains(err.Error(), "GitHub API returned 404") {
-		return &UpdateInfo{CurrentVersion: s.currentVersion, LatestVersion: s.currentVersion, BuildType: s.buildType}, nil
-	}
 	if err != nil {
 		return nil, err
 	}
@@ -786,7 +803,7 @@ func verifyReleaseChecksum(filePath, expected string) error {
 	}
 	actual := hex.EncodeToString(h.Sum(nil))
 	if actual != expected {
-		return fmt.Errorf("checksum mismatch for %s: expected %s, got %s", filepath.Base(filePath), expected, actual)
+		return fmt.Errorf("%w for %s: expected %s, got %s", errReleaseChecksumMismatch, filepath.Base(filePath), expected, actual)
 	}
 	return nil
 }

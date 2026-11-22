@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
@@ -101,4 +102,38 @@ func TestBudgetReceiptPreservesFrozenDecimal(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &replay))
 	require.NotNil(t, replay.ChargedAmount)
 	require.Equal(t, text, replay.ChargedAmount.String())
+}
+
+func TestProjectBudgetRejectsUnsupportedCurrencyAndExternalCosts(t *testing.T) {
+	for _, input := range []struct {
+		currency money.Currency
+		external bool
+	}{
+		{"CNY", false}, {"USD", true},
+	} {
+		limit, err := money.NewMoney(input.currency, "10")
+		require.NoError(t, err)
+		_, err = (Store{}).UpdateBudget(t.Context(), Scope{}, "project-"+string(input.currency), "", 0,
+			Budget{Limit: limit, Mode: "hard", Period: "calendar_day", Timezone: "UTC", External: input.external})
+		require.Error(t, err)
+	}
+}
+
+func TestProjectBudgetRecoveryRechecksEvidenceAfterJournalLock(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	mock.ExpectBegin()
+	mock.ExpectQuery("(?s)SELECT e.request_id::text.*FOR UPDATE OF e SKIP LOCKED").
+		WithArgs(int64(1), int64(2), "USD").
+		WillReturnRows(sqlmock.NewRows([]string{"request_id"}).AddRow("expired-execution"))
+	mock.ExpectExec("(?s)UPDATE billing_project_holds.*NOT EXISTS.*gateway_execution_attempts.*NOT EXISTS.*usage_settlement_receipts").
+		WithArgs(int64(1), int64(2), "USD", `["expired-execution"]`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	tx, err := db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	require.NoError(t, recoverProjectHolds(t.Context(), tx, Scope{Workspace: 1, Project: 2}, "USD"))
+	require.NoError(t, tx.Commit())
+	require.NoError(t, mock.ExpectationsWereMet())
 }

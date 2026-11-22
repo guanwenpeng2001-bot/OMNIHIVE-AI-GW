@@ -63,6 +63,9 @@ func DefaultOpenCodeZenProtocolRules() []OpenCodeGoProtocolRule {
 }
 
 func defaultOpenCodeProtocolRules(mode string) []OpenCodeGoProtocolRule {
+	if mode == AccountModeZenFree {
+		return append([]OpenCodeGoProtocolRule{{Pattern: "union-alpha", Protocol: APIProtocolAnthropic}}, DefaultOpenCodeZenProtocolRules()...)
+	}
 	if mode == AccountModeZen {
 		return DefaultOpenCodeZenProtocolRules()
 	}
@@ -133,10 +136,17 @@ func (a *Account) GetOpenCodeAccountMode() string {
 	if a == nil || !a.IsOpenCodeGo() {
 		return ""
 	}
-	if strings.TrimSpace(a.GetCredential("account_mode")) == AccountModeZen {
+	switch strings.TrimSpace(a.GetCredential("account_mode")) {
+	case AccountModeZenFree:
+		return AccountModeZenFree
+	case AccountModeZen:
 		return AccountModeZen
 	}
 	return AccountModeGo
+}
+
+func (a *Account) IsOpenCodeZenFree() bool {
+	return a != nil && a.Platform == PlatformOpenCodeGo && a.GetOpenCodeAccountMode() == AccountModeZenFree
 }
 
 func (a *Account) IsOpenCodeZen() bool {
@@ -148,14 +158,14 @@ func (a *Account) IsOpenCodeGoPlan() bool {
 }
 
 func (a *Account) openCodeDefaultChatBaseURL() string {
-	if a.IsOpenCodeZen() {
+	if a.IsOpenCodeZen() || a.IsOpenCodeZenFree() {
 		return DefaultOpenCodeZenBaseURL
 	}
 	return DefaultOpenCodeGoBaseURL
 }
 
 func (a *Account) openCodeDefaultAnthropicBaseURL() string {
-	if a.IsOpenCodeZen() {
+	if a.IsOpenCodeZen() || a.IsOpenCodeZenFree() {
 		return DefaultOpenCodeZenAnthropicBaseURL
 	}
 	return DefaultOpenCodeGoAnthropicBaseURL

@@ -17,8 +17,11 @@ import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { getSetupStatus } from '@/api/setup'
 import {
   evaluateRoutePolicy,
+  isBackendModePublicRouteAllowed,
+  isModelPlazaPath,
   shouldAllowNavigation
 } from './routePolicy'
+import { sanitizeInternalRedirect } from './redirect'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
 import { resolveRouteDocumentTitle } from './title'
 import { lazyIdentityScoped } from './identityScope'
@@ -229,7 +232,8 @@ const routes: RouteRecordRaw[] = [
       requiresAuth: false,
       title: 'Model Plaza',
       titleZh: '模型广场',
-      titleKey: 'nav.modelPlaza'
+      titleKey: 'nav.modelPlaza',
+      featureFlag: 'modelPlaza'
     }
   },
   {
@@ -239,7 +243,8 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: false,
       title: 'Compare Models',
-      titleZh: '模型对比'
+      titleZh: '模型对比',
+      featureFlag: 'modelPlaza'
     }
   },
   {
@@ -249,7 +254,8 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: false,
       title: 'Model Detail',
-      titleZh: '模型详情'
+      titleZh: '模型详情',
+      featureFlag: 'modelPlaza'
     }
   },
   {
@@ -259,7 +265,8 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: false,
       title: 'Pricing',
-      titleZh: '定价方案'
+      titleZh: '定价方案',
+      featureFlag: 'modelPlaza'
     }
   },
   {
@@ -566,7 +573,8 @@ const routes: RouteRecordRaw[] = [
       requiresAdmin: false,
       title: 'Purchase Subscription',
       titleKey: 'nav.buySubscription',
-      descriptionKey: 'purchase.description'
+      descriptionKey: 'purchase.description',
+      requiresPayment: true
     }
   },
   {
@@ -577,7 +585,8 @@ const routes: RouteRecordRaw[] = [
       requiresAuth: true,
       requiresAdmin: false,
       title: 'My Orders',
-      titleKey: 'nav.myOrders'
+      titleKey: 'nav.myOrders',
+      requiresPayment: true
     }
   },
   {
@@ -1212,7 +1221,19 @@ router.beforeEach(async (to, _from, next) => {
 
   // If route doesn't require auth, allow access
   if (!requiresAuth) {
-    if (to.path === '/model-plaza' || to.path === '/models' || to.meta.featureFlag === 'modelPlaza') {
+    const allowDevGallery = Boolean(import.meta.env.DEV)
+    const needsPublicSettingsForPublicRoute =
+      to.path !== '/setup' &&
+      (isModelPlazaPath(to.path) ||
+        to.meta.featureFlag === 'modelPlaza' ||
+        !isBackendModePublicRouteAllowed(
+          to.path,
+          authStore.hasPendingAuthSession,
+          allowDevGallery
+        ) ||
+        (authStore.isAuthenticated &&
+          (to.meta.guestOnly === true || to.path === '/login' || to.path === '/register')))
+    if (needsPublicSettingsForPublicRoute) {
       if (!appStore.publicSettingsLoaded) {
         try {
           await appStore.fetchPublicSettings()
@@ -1225,6 +1246,7 @@ router.beforeEach(async (to, _from, next) => {
     const publicPolicy = evaluateRoutePolicy(
       {
         requiresAuth: false,
+        guestOnly: to.meta.guestOnly === true,
         featureFlag: to.meta.featureFlag
       },
       {
@@ -1238,7 +1260,7 @@ router.beforeEach(async (to, _from, next) => {
         publicSettingsLoaded: appStore.publicSettingsLoaded,
         publicSettings: appStore.cachedPublicSettings
       },
-      { allowDevGallery: Boolean(import.meta.env.DEV) }
+      { allowDevGallery }
     )
     if (!shouldAllowNavigation(publicPolicy) && publicPolicy.redirectTo) {
       next(publicPolicy.redirectTo)
@@ -1299,8 +1321,9 @@ router.beforeEach(async (to, _from, next) => {
     if (to.path === '/admin/compliance') {
       if (adminComplianceStore.status?.required === false) {
         const redirect = to.query.redirect
-        next(typeof redirect === 'string' && redirect.startsWith('/admin/') &&
-          !redirect.startsWith('/admin/compliance') ? redirect : '/admin/dashboard')
+        const safeRedirect = sanitizeInternalRedirect(redirect, '/admin/dashboard')
+        next(safeRedirect.startsWith('/admin/') &&
+          !safeRedirect.startsWith('/admin/compliance') ? safeRedirect : '/admin/dashboard')
       } else {
         next()
       }
@@ -1390,21 +1413,27 @@ router.afterEach((to, _from, failure) => {
  * Handles dynamic import failures caused by deployment updates
  */
 router.onError((error) => {
+  navigationLoading.endNavigation()
   console.error('Router error:', error)
 
   // Check if this is a dynamic import failure (chunk loading error)
+  const message = String(error?.message || '')
   const isChunkLoadError =
-    error.message?.includes('Failed to fetch dynamically imported module') ||
-    error.message?.includes('Loading chunk') ||
-    error.message?.includes('Loading CSS chunk') ||
-    error.name === 'ChunkLoadError'
+    message.includes('Failed to fetch dynamically imported module') ||
+    message.includes('Importing a module script failed') ||
+    message.includes('error loading dynamically imported module') ||
+    message.includes('dynamically imported module') ||
+    message.includes('Loading chunk') ||
+    message.includes('Loading CSS chunk') ||
+    error?.name === 'ChunkLoadError'
 
   if (isChunkLoadError) {
     const lastReload = routerChunkReloadStorage.get()
+    const parsedLastReload = Number.parseInt(lastReload || '', 10)
     const now = Date.now()
 
     // Allow reload if never attempted or more than 10 seconds ago
-    if (!lastReload || now - parseInt(lastReload) > 10000) {
+    if (!Number.isFinite(parsedLastReload) || now - parsedLastReload > 10000) {
       routerChunkReloadStorage.set(now.toString())
       console.warn('Chunk load error detected, reloading page to fetch latest version...')
       window.location.reload()

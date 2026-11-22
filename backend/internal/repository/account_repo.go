@@ -54,6 +54,9 @@ type accountRepository struct {
 	// Used to proactively sync account snapshot to cache when status changes,
 	// ensuring sticky sessions can promptly detect unavailable accounts.
 	schedulerCache service.SchedulerCache
+	// credentialDecryptionCache avoids repeatedly decrypting unchanged referenced
+	// credentials while scheduler reads rebuild account candidates.
+	credentialDecryptionCache *credentialDecryptionCache
 }
 
 var schedulerNeutralExtraKeyPrefixes = []string{
@@ -75,6 +78,7 @@ var schedulerNeutralExtraKeys = map[string]struct{}{
 }
 
 const postgresParameterBatchSize = 50000
+const schedulerScoreAccountLimit = 1000
 
 const codexFingerprintSeedCanonicalPattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 const codexFingerprintNilSeed = "00000000-0000-0000-0000-000000000000"
@@ -124,7 +128,12 @@ func NewAdminAccountRepository(client *dbent.Client, sqlDB *sql.DB, schedulerCac
 // newAccountRepositoryWithSQL 是内部构造函数，支持依赖注入 SQL 执行器。
 // 这种设计便于单元测试时注入 mock 对象。
 func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedulerCache service.SchedulerCache) *accountRepository {
-	repository := &accountRepository{client: client, sql: sqlq, schedulerCache: schedulerCache}
+	repository := &accountRepository{
+		client:                    client,
+		sql:                       sqlq,
+		schedulerCache:            schedulerCache,
+		credentialDecryptionCache: newCredentialDecryptionCache(),
+	}
 	repository.bulkUpdateSecrets = repository.bulkUpdateCredentialSecrets
 	return repository
 }
@@ -1334,7 +1343,13 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 }
 
 func (r *accountRepository) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, error) {
-	accounts, err := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode).All(ctx)
+	// This helper powers the scheduler-score management view, not a bulk export.
+	// Keep the legacy all-in-one API bounded until it can be replaced by cursor
+	// pagination; normal installations remain unaffected while a pathological
+	// account table cannot trigger unbounded hydration/decryption.
+	accounts, err := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode).
+		Limit(schedulerScoreAccountLimit).
+		All(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -2556,6 +2571,18 @@ func (r *accountRepository) ListModelAvailabilityCandidates(
 // The SQL platform predicates preserve raw account types; the group's COALESCE
 // mirrors RequiredAccountType (explicit type first, then legacy hosted default).
 func (r *accountRepository) queryModelCatalogAccounts(ctx context.Context, id int64, groupID *int64, platforms []string, includeGrouped bool, groupIDs ...[]int64) ([]service.Account, error) {
+	return r.queryCatalogAccounts(ctx, id, groupID, platforms, includeGrouped, false, groupIDs...)
+}
+
+// Configured inventory ignores scheduling switches; callers must never use it for routing.
+func (r *accountRepository) ListConfiguredModelCatalogAccountsForGroups(ctx context.Context, groupIDs []int64) ([]service.Account, error) {
+	if len(groupIDs) == 0 {
+		return []service.Account{}, nil
+	}
+	return r.queryCatalogAccounts(ctx, 0, nil, nil, true, true, groupIDs)
+}
+
+func (r *accountRepository) queryCatalogAccounts(ctx context.Context, id int64, groupID *int64, platforms []string, includeGrouped, configured bool, groupIDs ...[]int64) ([]service.Account, error) {
 	// Composite catalogs have no platform restriction. pq.Array encodes nil as
 	// SQL NULL, so normalize it to an empty array before applying the predicate.
 	if platforms == nil {
@@ -2569,15 +2596,19 @@ func (r *accountRepository) queryModelCatalogAccounts(ctx context.Context, id in
 		parentSelection = " OR a.id IN (SELECT child.parent_account_id FROM accounts child JOIN account_groups membership ON membership.account_id=child.id WHERE child.deleted_at IS NULL AND membership.group_id=ANY($5::bigint[]))"
 		arguments = append(arguments, pq.Array(groupIDs[0]))
 	}
+	schedulingPredicate := " AND a.schedulable"
+	if configured {
+		schedulingPredicate = ""
+	}
 	rows, err := r.sql.QueryContext(ctx, `SELECT a.id, a.platform, a.type, a.status, a.schedulable,
  a.parent_account_id, a.expires_at, a.auto_pause_on_expired, a.temp_unschedulable_until, a.workspace_id, a.proxy_id, a.proxy_group_id,
  COALESCE((SELECT jsonb_object_agg(key,value) FROM jsonb_each(CASE WHEN jsonb_typeof(a.credentials) = 'object' THEN a.credentials ELSE '{}'::jsonb END)
- WHERE key IN ('model_mapping','compact_model_mapping','api_protocol','account_mode','base_url','aws_region','aws_force_global','protocol_rules','api_base_urls','openai_capabilities')), '{}'::jsonb),
+ WHERE key IN ('model_mapping','compact_model_mapping','api_protocol','account_mode','base_url','aws_region','aws_force_global','protocol_rules','api_base_urls','openai_capabilities') OR (a.platform = 'workbuddy' AND key IN ('site','domain'))), '{}'::jsonb),
  COALESCE((SELECT jsonb_object_agg(key,value) FROM jsonb_each(CASE WHEN jsonb_typeof(a.extra) = 'object' THEN a.extra ELSE '{}'::jsonb END)
  WHERE key IN ('upstream_model_catalog','upstream_model_catalog_state','upstream_model_allowlist','upstream_model_metadata','model_availability',
  'hosted_bedrock_runtime','mixed_scheduling','anthropic_passthrough','openai_passthrough','openai_oauth_passthrough','openai_responses_supported','openai_responses_mode')), '{}'::jsonb)`+groupProjection+`
  FROM accounts a WHERE `+workspacePredicate(ctx, "a.workspace_id")+` AND a.deleted_at IS NULL AND (
- (($1::bigint <> 0 AND a.id = $1) OR ($1::bigint = 0 AND a.status = 'active' AND a.schedulable
+ (($1::bigint <> 0 AND a.id = $1) OR ($1::bigint = 0 AND a.status = 'active'`+schedulingPredicate+`
  AND (cardinality($2::text[]) = 0 OR a.platform = ANY($2::text[])
  OR (a.platform = 'bedrock' AND a.type = 'bedrock' AND 'anthropic' = ANY($2::text[]))
  OR (a.platform = 'anthropic' AND a.type = 'bedrock' AND 'bedrock' = ANY($2::text[]))
@@ -4791,7 +4822,7 @@ func clearChangedAccountRuntimeObservationsSQL(incomingCredentials, incomingExtr
 	}
 	fields := []string{
 		"volcengine_daily_used_percent", "volcengine_daily_reset_at", "hunyuan_token_plan", "hunyuan_usage_updated_at",
-		"cursor_usage_snapshot", "cursor_usage_updated_at", "session_window_utilization",
+		"cursor_usage_snapshot", "cursor_usage_updated_at", "session_window_utilization", service.WorkBuddyUsageSnapshotExtraKey,
 		"passive_usage_sampled_at", "passive_usage_7d_utilization", "passive_usage_7d_reset",
 		"passive_usage_7d_oi_utilization", "passive_usage_7d_oi_reset",
 		"grok_billing_snapshot", "grok_observed_models", "grok_usage_snapshot",
@@ -4814,22 +4845,30 @@ func clearChangedAccountRuntimeObservationsSQL(incomingCredentials, incomingExtr
 }
 
 func accountCatalogRevisionPatchSQL(incoming, incomingExtra, proxyChanged string, manual bool) string {
-	fields := service.AccountCatalogIdentityCredentialFields()
+	fields := service.AccountCatalogIdentityCredentialFields("")
 	changes := make([]string, 0, len(fields)+1)
 	versionChanged := "(credentials->'credential_secret_version' IS DISTINCT FROM " + incoming + "->'credential_secret_version')"
 	changes = append(changes, "(type <> 'oauth' AND "+versionChanged+")")
 	for _, field := range fields {
 		changes = append(changes, "credentials->'"+field+"' IS DISTINCT FROM "+incoming+"->'"+field+"'")
 	}
+	for _, field := range service.WorkBuddyCatalogIdentityFields() {
+		changes = append(changes, "(platform = 'workbuddy' AND credentials->'"+field+"' IS DISTINCT FROM "+incoming+"->'"+field+"')")
+	}
 	legacyIdentity := "(" + strings.Join(changes, " OR ") + ")"
-	stable := []string{}
-	for _, field := range []string{"chatgpt_account_id", "chatgpt_user_id", "account_id", "user_id", "sub"} {
-		stable = append(stable, "(COALESCE(credentials->>'"+field+"','') <> '' AND credentials->'"+field+"' = "+incoming+"->'"+field+"')")
+	stable := "FALSE"
+	if !manual {
+		// Every subject field is already compared in legacyIdentity above.
+		hasSubject := func(platform string) string {
+			terms := []string{}
+			for _, field := range service.AccountCatalogSubjectFields(platform) {
+				terms = append(terms, "COALESCE(credentials->>'"+field+"','') <> ''")
+			}
+			return "(" + strings.Join(terms, " OR ") + ")"
+		}
+		stable = "CASE WHEN platform = 'workbuddy' THEN " + hasSubject(service.PlatformWorkBuddy) + " ELSE " + hasSubject("") + " END"
 	}
-	if manual {
-		stable = []string{"FALSE"}
-	}
-	changes = append(changes, "(("+versionChanged+" OR credentials->'access_token' IS DISTINCT FROM "+incoming+"->'access_token') AND NOT ("+strings.Join(stable, " OR ")+"))")
+	changes = append(changes, "(("+versionChanged+" OR credentials->'access_token' IS DISTINCT FROM "+incoming+"->'access_token') AND NOT ("+stable+"))")
 	identity := "(" + strings.Join(changes, " OR ") + ")"
 	ruleChanges := []string{identity}
 	for _, field := range service.AccountCatalogRuleCredentialFields() {

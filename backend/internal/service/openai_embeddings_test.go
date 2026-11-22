@@ -216,3 +216,27 @@ func TestModelExcludesEmbeddingsUsesEndpointEvidence(t *testing.T) {
 	require.False(t, modelExcludesEmbeddings(ctx, &account, nil, "vector"))
 	require.False(t, modelExcludesEmbeddings(ctx, &account, nil, "unknown"))
 }
+
+func TestForwardEmbeddingsPricingRejectsGuessedRateAndFreezesMappedCard(t *testing.T) {
+	billing := NewBillingService(&config.Config{}, nil)
+	gateway := &OpenAIGatewayService{billingService: billing}
+	account := &Account{ID: 9, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{
+		"model_mapping": map[string]any{"alias": "claude-unknown-opus"},
+	}}
+	ctx := t.Context()
+	group := &Group{ID: 8, Platform: PlatformOpenAI}
+	key := &APIKey{Group: group}
+	body := []byte(`{"model":"alias","input":"sample"}`)
+	_, err := gateway.WithEmbeddingsPricing(ctx, key, account, body)
+	require.ErrorIs(t, err, ErrModelPricingUnavailable)
+
+	price := 0.000002
+	group.ModelPricing = []ChannelModelPricing{{Models: []string{"claude-unknown-opus"}, InputPrice: &price}}
+	frozen, err := gateway.WithEmbeddingsPricing(ctx, key, account, body)
+	require.NoError(t, err)
+	group.ModelPricing[0].InputPrice = nil
+	cost, err := billing.CalculateCostUnified(CostInput{Ctx: EmbeddingsUsagePricingContext(t.Context(), frozen),
+		Model: "alias", RateMultiplier: 1, Tokens: UsageTokens{InputTokens: 5}})
+	require.NoError(t, err)
+	require.InDelta(t, 0.000010, cost.ActualCost, 0.0000000001)
+}

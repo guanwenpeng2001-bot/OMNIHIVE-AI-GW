@@ -87,6 +87,7 @@ func RegisterAdminRoutes(
 
 		// Grok OAuth
 		registerGrokOAuthRoutes(admin, h)
+		registerWorkBuddyOAuthRoutes(admin, h)
 
 		// 国产供应商（kimi/zhipu/deepseek）额度与余额
 		registerCNProviderRoutes(admin, h)
@@ -932,4 +933,12 @@ func registerProxyGroupRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	groups.PUT("/:id/members", h.Admin.ProxyGroup.ReplaceMembers)
 	groups.GET("/:id/bindings", h.Admin.ProxyGroup.Bindings)
 	groups.DELETE("/:id/bindings", h.Admin.ProxyGroup.ResetBindings)
+}
+
+func registerWorkBuddyOAuthRoutes(router *gin.RouterGroup, h *handler.Handlers) {
+	if h.Admin.WorkBuddyOAuth == nil {
+		return
+	}
+	router.POST("/workbuddy/oauth/start", h.Admin.WorkBuddyOAuth.Start)
+	router.POST("/workbuddy/oauth/poll", h.Admin.WorkBuddyOAuth.Poll)
 }

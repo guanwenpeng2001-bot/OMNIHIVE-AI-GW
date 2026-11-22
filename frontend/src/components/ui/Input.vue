@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { UiSize } from './types'
-import { cn, useUiId } from './utils'
+import { cn, useUiI18n, useUiId } from './utils'
 
 export interface InputProps {
   modelValue?: string | number | null
@@ -55,6 +55,7 @@ const generatedId = useUiId('oh-input')
 const inputId = computed(() => props.id || generatedId)
 const hintId = computed(() => `${inputId.value}-hint`)
 const errorId = computed(() => `${inputId.value}-error`)
+const { t } = useUiI18n()
 
 const effectiveType = computed(() => {
   if (props.type === 'password' && props.revealable && revealed.value) {
@@ -171,7 +172,7 @@ defineExpose({
           v-if="clearable && hasValue && !disabled && !readonly"
           type="button"
           class="oh-focus-ring inline-flex h-5 w-5 items-center justify-center rounded-oh-xs text-oh-muted hover:bg-oh-hover hover:text-oh-primary"
-          aria-label="Clear input"
+          :aria-label="t('ui.input.clear')"
           @click="handleClear"
         >
           <svg viewBox="0 0 16 16" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
@@ -183,11 +184,11 @@ defineExpose({
           v-if="type === 'password' && revealable"
           type="button"
           class="oh-focus-ring inline-flex h-6 items-center rounded-oh-xs px-1.5 font-mono text-[11px] text-oh-secondary hover:bg-oh-hover hover:text-oh-primary"
-          :aria-label="revealed ? 'Hide secret' : 'Reveal secret'"
+          :aria-label="revealed ? t('ui.input.hideSecret') : t('ui.input.revealSecret')"
           :aria-pressed="revealed ? 'true' : 'false'"
           @click="revealed = !revealed"
         >
-          {{ revealed ? 'Hide' : 'Show' }}
+          {{ revealed ? t('ui.input.hide') : t('ui.input.show') }}
         </button>
 
         <slot name="suffix" />

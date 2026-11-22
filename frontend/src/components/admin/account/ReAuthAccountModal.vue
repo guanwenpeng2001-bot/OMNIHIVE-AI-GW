@@ -111,7 +111,17 @@
 
       <AccountModelConfigurationSection v-if="pendingAuthorization" v-model="authorizationModels" v-model:mappings="authorizationMappings" :platform="account.platform" :candidate-identity="authorizationCandidateIdentity" :sync-credentials="authorizationPreview" :active="show" />
       <p v-if="authorizationError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ authorizationError }}</p>
-      <OAuthAuthorizationFlow v-show="!pendingAuthorization"
+      <WorkBuddyAuthFields
+        v-if="isWorkBuddy && !pendingAuthorization"
+        mode="oauth"
+        editing
+        :proxy-id="account?.proxy_id"
+        :proxy-group-id="account?.proxy_group_id"
+        v-model:site="workbuddySite"
+        v-model:oauth-credentials="workbuddyOAuthCredentials"
+        @busy="workbuddyAuthorizing = $event"
+      />
+      <OAuthAuthorizationFlow v-else-if="!pendingAuthorization"
         ref="oauthFlowRef"
         :add-method="addMethod"
         :auth-url="currentAuthUrl"
@@ -144,7 +154,21 @@
           {{ t('common.cancel') }}
         </button>
         <button
-          v-if="isManualInputMethod && !pendingAuthorization"
+          v-if="isWorkBuddy && !pendingAuthorization"
+          type="button"
+          data-testid="workbuddy-reauth-submit"
+          :disabled="workbuddyAuthorizing || workbuddySubmitting || !workbuddyOAuthCredentials.access_token.trim()"
+          class="btn btn-primary"
+          @click="handleWorkBuddyReauth"
+        >
+          {{
+            workbuddySubmitting
+              ? t('admin.accounts.oauth.verifying')
+              : t('admin.accounts.oauth.completeAuth')
+          }}
+        </button>
+        <button
+          v-else-if="isManualInputMethod && !pendingAuthorization"
           type="button"
           :disabled="!canExchangeCode"
           class="btn btn-primary"
@@ -185,6 +209,9 @@
 import { oauthProxyPayload, type OAuthProxySelection } from '@/utils/accountProxy'
 import { apiClient } from '@/api/client'
 import AccountModelConfigurationSection from '@/components/account/AccountModelConfigurationSection.vue'
+import WorkBuddyAuthFields from '@/components/account/WorkBuddyAuthFields.vue'
+import { buildWorkBuddyCredentials, extractWorkBuddyOAuthDraft, extractWorkBuddySite, type WorkBuddyOAuthDraft } from '@/components/account/credentialsBuilder'
+import type { WorkBuddySite } from '@/api/admin/workbuddy'
 import { readAccountCredentialDraft, credentialsFromAuthorization, type AccountCredentialDraft } from '@/components/account/accountCredentialDraft'
 import { splitModelMappingObject, buildModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors, type ModelMappingEntry } from '@/composables/useModelWhitelist'
 
@@ -326,6 +353,11 @@ const isGemini = computed(() => props.account?.platform === 'gemini')
 const isAnthropic = computed(() => props.account?.platform === 'anthropic')
 const isAntigravity = computed(() => props.account?.platform === 'antigravity')
 const isGrok = computed(() => props.account?.platform === 'grok')
+const isWorkBuddy = computed(() => props.account?.platform === 'workbuddy')
+const workbuddySite = ref<WorkBuddySite>('cn')
+const workbuddyAuthorizing = ref(false)
+const workbuddySubmitting = ref(false)
+const workbuddyOAuthCredentials = ref<WorkBuddyOAuthDraft>(extractWorkBuddyOAuthDraft(undefined, 'cn'))
 
 /**
  * Grok reauth default tab (password auth is hidden):
@@ -416,6 +448,12 @@ watch(
               ? 'ai_studio'
               : 'code_assist'
       }
+      if (isWorkBuddy.value) {
+        workbuddySite.value = extractWorkBuddySite(props.account.credentials, props.account.extra)
+        workbuddyOAuthCredentials.value = extractWorkBuddyOAuthDraft(props.account.credentials, workbuddySite.value)
+        workbuddyAuthorizing.value = false
+        workbuddySubmitting.value = false
+      }
     } else {
       resetState()
     }
@@ -426,6 +464,10 @@ watch(
 const resetState = () => {
   addMethod.value = 'oauth'
   geminiOAuthType.value = 'code_assist'
+  workbuddySite.value = 'cn'
+  workbuddyAuthorizing.value = false
+  workbuddySubmitting.value = false
+  workbuddyOAuthCredentials.value = extractWorkBuddyOAuthDraft(undefined, 'cn')
   claudeOAuth.resetState()
   openaiOAuth.resetState()
   geminiOAuth.resetState()
@@ -438,6 +480,31 @@ const handleClose = () => {
   if (confirmingAuthorization.value) return
   void cancelAuthorizationReview()
   emit('close')
+}
+
+const handleWorkBuddyReauth = async () => {
+  if (!props.account || !isWorkBuddy.value || workbuddySubmitting.value) return
+  if (!workbuddyOAuthCredentials.value.access_token.trim()) {
+    appStore.showError(t('admin.accounts.workbuddy.oauth.accessTokenRequired'))
+    return
+  }
+  workbuddySubmitting.value = true
+  try {
+    const credentials = buildWorkBuddyCredentials({
+      mode: 'oauth',
+      site: workbuddySite.value,
+      oauthCredentials: workbuddyOAuthCredentials.value,
+      existing: props.account.credentials as Record<string, unknown> | undefined
+    })
+    const updatedAccount = await adminAPI.accounts.update(props.account.id, { credentials })
+    appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
+    emit('reauthorized', updatedAccount)
+    emit('close')
+  } catch (error: unknown) {
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed')))
+  } finally {
+    workbuddySubmitting.value = false
+  }
 }
 
 const handleGenerateUrl = async () => {

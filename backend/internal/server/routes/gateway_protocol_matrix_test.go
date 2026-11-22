@@ -58,19 +58,24 @@ func TestGatewayPlatformProtocolMatrix(test *testing.T) {
 			for _, endpoint := range []string{"messages", "responses", "chat_completions", "generate_content", "embeddings", "images", "live"} {
 				test.Run(descriptor.ID+"/"+accountType+"/"+endpoint, func(test *testing.T) {
 					account := &service.Account{ID: 1, Platform: descriptor.ID, Type: accountType, Status: service.StatusActive, Schedulable: true}
+					if descriptor.ID == service.PlatformKilo {
+						// Arbitrary synthetic models require paid mode; an omitted
+						// mode selects the evidence-restricted public free lane.
+						account.Credentials = map[string]any{"account_mode": service.KiloAccountModeAPIKey, "api_key": "matrix-local-key"}
+					}
 					// Exercise the wire family used by the account's actual adapter.
 					// Cursor Responses and TokenHub's non-native Responses branch
 					// bridge through Chat Completions; they do not send /responses.
 					wireEndpoint := endpoint
 					if endpoint == "messages" {
 						switch descriptor.ID {
-						case service.PlatformMistral:
+						case service.PlatformMistral, service.PlatformWorkBuddy, service.PlatformKilo:
 							wireEndpoint = "chat_completions"
 						case service.PlatformVolcengine, service.PlatformQianfan:
 							wireEndpoint = "responses"
 						}
 					}
-					if endpoint == "responses" && (descriptor.ID == service.PlatformCursor || descriptor.ID == service.PlatformHunyuan || descriptor.ID == service.PlatformMistral) {
+					if endpoint == "responses" && (descriptor.ID == service.PlatformCursor || descriptor.ID == service.PlatformHunyuan || descriptor.ID == service.PlatformMistral || descriptor.ID == service.PlatformWorkBuddy || descriptor.ID == service.PlatformKilo) {
 						wireEndpoint = "chat_completions"
 					}
 					if endpoint == "responses" && descriptor.ID == service.PlatformGemini {
@@ -80,7 +85,7 @@ func TestGatewayPlatformProtocolMatrix(test *testing.T) {
 						switch descriptor.ID {
 						case service.PlatformAnthropic, service.PlatformBedrock:
 							wireEndpoint = "messages"
-						case service.PlatformCursor, service.PlatformMistral, service.PlatformOpenRouter, service.PlatformHunyuan:
+						case service.PlatformCursor, service.PlatformMistral, service.PlatformOpenRouter, service.PlatformHunyuan, service.PlatformWorkBuddy, service.PlatformKilo:
 							wireEndpoint = "chat_completions"
 						default:
 							wireEndpoint = "responses"
@@ -386,5 +391,6 @@ func TestGatewayProtocolMatrixDocumentation(test *testing.T) {
 			}
 		})
 	}
-	require.False(test, domain.IsConcretePlatform("workbuddy"))
+	require.True(test, domain.IsConcretePlatform("workbuddy"))
+	require.True(test, domain.IsConcretePlatform("kilo"))
 }

@@ -1,7 +1,7 @@
 const delegatedResources = new Set([
   'model-access-groups', 'accounts', 'groups', 'channels', 'proxies', 'proxy-groups', 'api-keys', 'channel-monitors',
   'channel-monitor-templates', 'channel-telemetry', 'channel-telemetry', 'scheduled-test-plans',
-  'platform-model-presets', 'openai', 'gemini', 'antigravity', 'grok', 'cn-providers',
+  'platform-model-presets', 'openai', 'gemini', 'antigravity', 'grok', 'cn-providers', 'workbuddy',
 ])
 
 export function workspaceIDFromPath(pathname: string): string | undefined {

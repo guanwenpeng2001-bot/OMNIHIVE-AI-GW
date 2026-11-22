@@ -1071,3 +1071,42 @@ describe('UseKeyModal', () => {
       wrapper.unmount()
     }
   )
+
+  it.each([
+    ['workbuddy', 'glm-5.3'],
+    ['kilo', 'kilo-auto/free']
+  ] as const)('uses preferred fallback model %s -> %s in routed Codex config', async (platform, expectedModel) => {
+    const wrapper = mount(UseKeyModal, {
+      props: { show: true, apiKey: 'sk-test-token', baseUrl: 'https://example.com/v1', platform },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' }, Icon: true } }
+    })
+    const codexTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('keys.useKeyModal.cliTabs.codexCli')
+    )
+    expect(codexTab).toBeDefined()
+    await codexTab!.trigger('click')
+    await nextTick()
+
+    const config = wrapper.findAll('pre code')
+      .map((code) => code.text())
+      .find((content) => content.includes('[model_providers.omnihive]'))
+    expect(config).toContain(`model = "${expectedModel}"`)
+    wrapper.unmount()
+  })
+
+  it('keeps Codex model manifest fetch disabled when apiKey is placeholder <YOUR_API_KEY>', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: { show: true, apiKey: '<YOUR_API_KEY>', baseUrl: 'https://example.com/v1', platform: 'openai' },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' }, Icon: true } }
+    })
+    const codexTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('keys.useKeyModal.cliTabs.codexCli')
+    )
+    expect(codexTab).toBeDefined()
+    await codexTab!.trigger('click')
+    await nextTick()
+
+    const fetchBtn = wrapper.get('[data-testid="codex-model-catalog-fetch"]')
+    expect(fetchBtn.attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })

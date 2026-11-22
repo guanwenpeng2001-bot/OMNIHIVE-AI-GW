@@ -215,7 +215,7 @@
               type="button"
               data-testid="codex-model-catalog-fetch"
               class="btn btn-primary min-h-9 flex-shrink-0 px-3 text-xs"
-              :disabled="codexModelManifestState === 'loading' || !apiKey"
+              :disabled="codexModelManifestState === 'loading' || !hasUsableApiKey"
               @click="loadCodexModelManifest"
             >
               <Icon
@@ -670,6 +670,10 @@ const platformNote = computed(() => {
 })
 
 const showPlatformNote = computed(() => activeClientTab.value !== 'opencode' || ['qianwen', 'commandcode', 'cursor'].includes(props.platform || ''))
+const hasUsableApiKey = computed(() => {
+  const trimmed = (props.apiKey || '').trim()
+  return trimmed !== '' && trimmed !== '<YOUR_API_KEY>'
+})
 
 function resetCodexModelManifest() {
   codexModelManifestController?.abort()
@@ -681,7 +685,7 @@ function resetCodexModelManifest() {
 }
 
 async function loadCodexModelManifest() {
-  if (!showCodexModelCatalog.value || !props.apiKey) return
+  if (!showCodexModelCatalog.value || !hasUsableApiKey.value) return
 
   codexModelManifestController?.abort()
   const controller = new AbortController()
@@ -1298,6 +1302,8 @@ function generateRoutedCodexFiles(
     hunyuan: '',
     qianfan: '',
     cursor: 'default',
+    workbuddy: 'glm-5.3',
+    kilo: 'kilo-auto/free',
     composite: 'gpt-5.5'
   }
   const preferredModel = preferredModels[platform] || ''

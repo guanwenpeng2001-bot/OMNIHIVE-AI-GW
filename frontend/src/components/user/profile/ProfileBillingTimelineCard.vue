@@ -86,6 +86,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { billingAPI, type UserBillingTimelineEntry, type UserBillingTimelinePage } from '@/api/billing'
 import { formatDateTime } from '@/utils/format'
+import { formatExactMoney } from '@/utils/money'
 
 const { t } = useI18n()
 
@@ -99,7 +100,7 @@ const error = ref('')
 
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 
-const formatAmount = (amount: number) => `${amount >= 0 ? '+' : '-'}$${Math.abs(amount).toFixed(4)}`
+const formatAmount = (amount: number) => `${amount >= 0 ? '+' : '-'}${formatExactMoney(Math.abs(amount), 'USD', '$0.0000', 4)}`
 const amountClass = (amount: number) => (amount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-900 dark:text-white')
 
 const kindBadgeClass = (kind: string) =>
@@ -115,25 +116,25 @@ const summaries = computed(() => [
   {
     key: 'credits',
     label: t('billing.timeline.credits'),
-    value: `+$${(totals.value?.credits ?? 0).toFixed(4)}`,
+    value: `+${formatExactMoney(Math.abs(totals.value?.credits ?? 0), 'USD', '$0.0000', 4)}`,
     className: 'text-green-600 dark:text-green-400'
   },
   {
     key: 'debits',
     label: t('billing.timeline.debits'),
-    value: `-$${Math.abs(totals.value?.debits ?? 0).toFixed(4)}`,
+    value: `-${formatExactMoney(Math.abs(totals.value?.debits ?? 0), 'USD', '$0.0000', 4)}`,
     className: 'text-gray-900 dark:text-white'
   },
   {
     key: 'net',
     label: t('billing.timeline.net'),
-    value: `${(totals.value?.net ?? 0) >= 0 ? '+' : '-'}$${Math.abs(totals.value?.net ?? 0).toFixed(4)}`,
+    value: `${(totals.value?.net ?? 0) >= 0 ? '+' : '-'}${formatExactMoney(Math.abs(totals.value?.net ?? 0), 'USD', '$0.0000', 4)}`,
     className: 'text-gray-900 dark:text-white'
   },
   {
     key: 'accrued_rebate',
     label: t('billing.timeline.accruedRebate'),
-    value: `$${(totals.value?.accrued_rebate ?? 0).toFixed(4)}`,
+    value: formatExactMoney(Math.abs(totals.value?.accrued_rebate ?? 0), 'USD', '$0.0000', 4),
     className: 'text-gray-900 dark:text-white'
   }
 ])

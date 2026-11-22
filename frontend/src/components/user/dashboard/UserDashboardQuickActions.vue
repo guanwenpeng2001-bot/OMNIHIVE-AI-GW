@@ -5,7 +5,7 @@
       <span class="font-mono text-[11px] opacity-50">SHORTCUTS</span>
     </div>
     <div class="px-5">
-      <button type="button" @click="router.push('/keys')" class="oh-action-row flex w-full items-center gap-3 py-4 text-left">
+      <button v-if="canCreateKey" type="button" data-testid="quick-action-create-key" @click="router.push('/keys')" class="oh-action-row flex w-full items-center gap-3 py-4 text-left">
         <Icon name="key" size="md" class="shrink-0 opacity-60" aria-hidden="true" />
         <div class="min-w-0 flex-1">
           <div class="flex items-center justify-between gap-2">
@@ -17,7 +17,7 @@
         <span class="text-xl opacity-40" aria-hidden="true">›</span>
       </button>
 
-      <button type="button" @click="router.push('/usage')" class="oh-action-row flex w-full items-center gap-3 py-4 text-left">
+      <button v-if="canViewUsage" type="button" data-testid="quick-action-view-usage" @click="router.push('/usage')" class="oh-action-row flex w-full items-center gap-3 py-4 text-left">
         <Icon name="chart" size="md" class="shrink-0 opacity-60" aria-hidden="true" />
         <div class="min-w-0 flex-1">
           <div class="flex items-center justify-between gap-2">
@@ -62,6 +62,18 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
+
+withDefaults(
+  defineProps<{
+    canCreateKey?: boolean
+    canViewUsage?: boolean
+  }>(),
+  {
+    canCreateKey: true,
+    canViewUsage: true,
+  }
+)
+
 const router = useRouter()
 const { t } = useI18n()
 const { canUseBatchImage, refreshBatchImageAccess } = useBatchImageAccess()

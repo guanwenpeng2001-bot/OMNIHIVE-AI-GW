@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { mount as mountComponent } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import zh from '@/i18n/locales/zh'
-const mount: typeof mountComponent = (component, options) => mountComponent(component, { ...options, global: { ...options?.global, plugins: [createI18n({ legacy: false, locale: 'zh', messages: { zh: { common: { close: () => zh.common.close } } } })] } })
+const mount: typeof mountComponent = (component, options) => mountComponent(component, { ...options, global: { ...options?.global, plugins: [createI18n({ legacy: false, locale: 'zh', messages: { zh: { common: { close: () => zh.common.close, help: () => zh.common.help } } } })] } })
 import { nextTick } from 'vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 
@@ -31,14 +31,19 @@ describe('HelpTooltip', () => {
     const tooltip = getTooltipElement()
 
     expect(tooltip.style.display).toBe('none')
+    expect(trigger.attributes('role')).toBe('button')
+    expect(trigger.attributes('tabindex')).toBe('0')
+    expect(trigger.attributes('aria-expanded')).toBe('false')
 
     await trigger.trigger('mouseenter')
     await nextTick()
     expect(tooltip.style.display).not.toBe('none')
+    expect(trigger.attributes('aria-expanded')).toBe('true')
 
     await trigger.trigger('mouseleave')
     await nextTick()
     expect(tooltip.style.display).toBe('none')
+    expect(trigger.attributes('aria-expanded')).toBe('false')
 
     wrapper.unmount()
   })

@@ -4,6 +4,85 @@ info:
   title: OmniHive API
   version: 2.0.0
 paths:
+  /api/v1/admin/workbuddy/oauth/poll:
+    post:
+      operationId: workBuddyAdminOAuthPoll
+      summary: Poll a WorkBuddy device authorization
+      description: |
+        Polls the login session created by the start route. Returns `pending`
+        while the browser authorization is incomplete and `completed` once the
+        account identity and tokens are available. The explicit exchange is the
+        only response that carries tokens; responses are never cached.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkBuddyOAuthPollRequest'
+      responses:
+        '200':
+          description: Login state
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/WorkBuddyOAuthPoll'
+                additionalProperties: false
+        default:
+          description: Login error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+  /api/v1/admin/workbuddy/oauth/start:
+    post:
+      operationId: workBuddyAdminOAuthStart
+      summary: Start a WorkBuddy device authorization
+      description: |
+        Creates a short-lived WorkBuddy login session for the administrator
+        deployment scope. The response carries the browser authorization URL and
+        the opaque `session_id` used by the poll route. Responses are never cached.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkBuddyOAuthStartRequest'
+      responses:
+        '200':
+          description: Login session created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/WorkBuddyOAuthStart'
+                additionalProperties: false
+        default:
+          description: Login error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
   /api/v1/workspaces/{workspace_id}/connections/{id}/authorization:
     parameters:
       - $ref: '#/components/parameters/IdentityWorkspaceID'
@@ -45,6 +124,88 @@ paths:
               schema:
                 $ref: '#/components/schemas/IdentityError'
       summary: Consume a workspace and browser-bound authorization draft
+  /api/v1/workspaces/{workspace_id}/workbuddy/oauth/poll:
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+    post:
+      operationId: workBuddyWorkspaceOAuthPoll
+      summary: Poll a workspace-scoped WorkBuddy device authorization
+      description: |
+        Requires workspace administrator membership in the addressed workspace.
+        A login session created in another workspace, or by another administrator
+        session, is reported as expired.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkBuddyOAuthPollRequest'
+      responses:
+        '200':
+          description: Login state
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/WorkBuddyOAuthPoll'
+                additionalProperties: false
+        default:
+          description: Login error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+  /api/v1/workspaces/{workspace_id}/workbuddy/oauth/start:
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+    post:
+      operationId: workBuddyWorkspaceOAuthStart
+      summary: Start a workspace-scoped WorkBuddy device authorization
+      description: |
+        Requires workspace administrator membership in the addressed workspace.
+        The login session remains bound to the initiating workspace and cannot be
+        polled from another workspace.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkBuddyOAuthStartRequest'
+      responses:
+        '200':
+          description: Login session created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/WorkBuddyOAuthStart'
+                additionalProperties: false
+        default:
+          description: Login error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
   /api/v2/admin/catalog/verification-targets:
     post:
       operationId: catalogCreateVerificationTarget
@@ -483,6 +644,13 @@ paths:
             type: array
             items:
               type: string
+        - name: availability_state
+          in: query
+          schema:
+            type: string
+            enum:
+              - live
+              - catalog_only
         - name: sort
           in: query
           schema:
@@ -492,6 +660,7 @@ paths:
               - price_input
               - context
               - ttft
+              - availability
         - $ref: '#/components/parameters/IdentityLimit'
         - $ref: '#/components/parameters/IdentityCursor'
       responses:
@@ -2987,6 +3156,13 @@ paths:
             type: array
             items:
               type: string
+        - name: availability_state
+          in: query
+          schema:
+            type: string
+            enum:
+              - live
+              - catalog_only
         - name: sort
           in: query
           schema:
@@ -2996,6 +3172,7 @@ paths:
               - price_input
               - context
               - ttft
+              - availability
         - $ref: '#/components/parameters/IdentityLimit'
         - $ref: '#/components/parameters/IdentityCursor'
         - name: accessible
@@ -4143,9 +4320,20 @@ components:
       name: id
       in: path
       required: true
+      description: |
+        Stable opaque catalog ID (`m_` followed by 32 lowercase hex characters)
+        or a `provider/model` slug resolved against the same catalog snapshot.
+        The detail handler also accepts a bare model suffix as an unambiguous
+        compatibility fallback; clients should prefer the stable ID or slug and
+        must not assume every accepted value matches the opaque ID pattern.
       schema:
-        type: string
-        pattern: ^m_[0-9a-f]{32}$
+        oneOf:
+          - type: string
+            pattern: ^m_[0-9a-f]{32}$
+            description: Stable opaque model ID.
+          - type: string
+            pattern: ^[^/]+/.+$
+            description: Provider/model slug, for example `openai/gpt-4o`.
     CatalogVerificationIdempotency:
       name: Idempotency-Key
       in: header
@@ -5771,6 +5959,42 @@ components:
             - type: 'null'
         label:
           type: string
+    CatalogReferencePrice:
+      type: object
+      required:
+        - state
+        - source
+        - input_rate
+        - output_rate
+        - additional_rates
+        - time_bands
+      properties:
+        state:
+          type: string
+        source:
+          type: string
+        input_rate:
+          anyOf:
+            - $ref: '#/components/schemas/CatalogRate'
+            - type: 'null'
+        output_rate:
+          anyOf:
+            - $ref: '#/components/schemas/CatalogRate'
+            - type: 'null'
+        additional_rates:
+          anyOf:
+            - type: array
+              items:
+                $ref: '#/components/schemas/CatalogRateBand'
+            - type: 'null'
+        context_basis:
+          type: string
+        time_bands:
+          anyOf:
+            - type: array
+              items:
+                $ref: '#/components/schemas/CatalogTimeBand'
+            - type: 'null'
     CatalogScope:
       type: object
       required:
@@ -5893,6 +6117,19 @@ components:
         account_mode: {$ref: '#/components/schemas/CatalogVerificationAccountMode'}
         protocol: {type: string}
         interval_seconds: {$ref: '#/components/schemas/CatalogVerificationInterval'}
+    ConnectionAccountMode:
+      type: string
+      enum:
+        - free
+        - apikey
+        - go
+        - zen
+        - zen_free
+      description: |
+        Provider-selected authorization lane. `kilo` accepts `free` (keyless
+        public lane) or `apikey` (private key). `opencode_go` accepts `go`,
+        `zen` or `zen_free`. Other providers ignore the field. Switching between
+        a public and paid lane requires clearing the existing credential version.
     ConnectionActivate:
       type: object
       required:
@@ -5990,6 +6227,8 @@ components:
           type:
             - string
             - 'null'
+        detail:
+          type: string
       additionalProperties: false
     ConnectionCreate:
       type: object
@@ -6005,6 +6244,8 @@ components:
           const: '1'
         auth_type:
           type: string
+        account_mode:
+          $ref: '#/components/schemas/ConnectionAccountMode'
         name:
           type: string
         endpoint:
@@ -6044,6 +6285,8 @@ components:
               type: string
               format: password
               writeOnly: true
+            metadata:
+              $ref: '#/components/schemas/ConnectionWorkBuddyCredentialMetadata'
           additionalProperties: false
     ConnectionCredentialResult:
       type: object
@@ -6151,6 +6394,9 @@ components:
           format: uuid
         reason:
           type: string
+        message:
+          type: string
+          description: Actionable detail for the current item state, when available.
         version:
           type: string
           pattern: ^[1-9][0-9]*$
@@ -6271,6 +6517,8 @@ components:
     ConnectionPatch:
       type: object
       properties:
+        account_mode:
+          $ref: '#/components/schemas/ConnectionAccountMode'
         name:
           type: string
         endpoint:
@@ -6450,6 +6698,8 @@ components:
           const: '1'
         auth_type:
           type: string
+        account_mode:
+          $ref: '#/components/schemas/ConnectionAccountMode'
         name:
           type: string
         endpoint:
@@ -6495,6 +6745,11 @@ components:
           type: array
           items:
             type: string
+        metadata:
+          $ref: '#/components/schemas/ConnectionWorkBuddyCredentialMetadata'
+          description: |
+            Non-sensitive WorkBuddy metadata echoed for callers with credential
+            metadata permission. Secret token material is never included.
       additionalProperties: false
     ConnectionResourcePage:
       type: object
@@ -6633,6 +6888,36 @@ components:
         credential_version:
           type: string
           pattern: ^[1-9][0-9]*$
+      additionalProperties: false
+    ConnectionWorkBuddyCredentialMetadata:
+      type: object
+      description: |
+        Non-sensitive WorkBuddy credential metadata accepted by the credential
+        write path. Secret token material must stay in `secret` / `refresh_token`
+        and is never accepted through `metadata`. API-key connections accept
+        only `site`; OAuth connections accept every field below.
+      properties:
+        site:
+          type: string
+          enum:
+            - cn
+            - global
+          description: Normalized site; OAuth input also accepts desktop import aliases.
+        uid:
+          type: string
+          maxLength: 2048
+        domain:
+          type: string
+          maxLength: 2048
+        enterprise_id:
+          type: string
+          maxLength: 2048
+        expires_at:
+          type: string
+          description: RFC3339 timestamp or a numeric timestamp accepted by the normalizer.
+        refresh_expires_at:
+          type: string
+          description: RFC3339 timestamp or a numeric timestamp accepted by the normalizer.
       additionalProperties: false
     ConnectionWriteResult:
       oneOf:
@@ -8045,6 +8330,10 @@ components:
       properties:
         model:
           $ref: '#/components/schemas/ModelSummary'
+        reference_price:
+          anyOf:
+            - $ref: '#/components/schemas/CatalogReferencePrice'
+            - type: 'null'
         aliases:
           type: array
           items:
@@ -8160,6 +8449,11 @@ components:
           type: string
           enum:
             - listed
+        availability_state:
+          type: string
+          enum:
+            - live
+            - catalog_only
         access_state:
           type: string
           enum:
@@ -9460,3 +9754,111 @@ components:
             format: {const: mp4}
             size: {const: 1280x720}
             duration_seconds: {const: 5}
+    WorkBuddyOAuthCredentials:
+      type: object
+      required:
+        - site
+        - access_token
+        - uid
+        - domain
+      properties:
+        site:
+          $ref: '#/components/schemas/WorkBuddySite'
+        access_token:
+          type: string
+          description: WorkBuddy access token. Returned only by this explicit exchange.
+        refresh_token:
+          type: string
+          description: WorkBuddy refresh token when the upstream grants one. Returned only by this explicit exchange.
+        token_type:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        refresh_expires_at:
+          type: string
+          format: date-time
+        uid:
+          type: string
+        domain:
+          type: string
+        enterprise_id:
+          type: string
+      additionalProperties: false
+    WorkBuddyOAuthPoll:
+      type: object
+      required:
+        - status
+        - site
+      properties:
+        status:
+          type: string
+          enum:
+            - pending
+            - completed
+            - failed
+        site:
+          $ref: '#/components/schemas/WorkBuddySite'
+        account_name:
+          type: string
+        credentials:
+          $ref: '#/components/schemas/WorkBuddyOAuthCredentials'
+        error:
+          type: string
+      additionalProperties: false
+    WorkBuddyOAuthPollRequest:
+      type: object
+      required:
+        - session_id
+      properties:
+        session_id:
+          type: string
+          minLength: 1
+      additionalProperties: false
+    WorkBuddyOAuthStart:
+      type: object
+      required:
+        - session_id
+        - auth_url
+        - state
+        - site
+        - expires_in
+      properties:
+        session_id:
+          type: string
+          description: Opaque server-side login session identifier for the poll route.
+        auth_url:
+          type: string
+          format: uri
+          description: HTTPS browser URL that completes the device authorization.
+        state:
+          type: string
+          description: WorkBuddy authorization state bound to the login session.
+        site:
+          $ref: '#/components/schemas/WorkBuddySite'
+        expires_in:
+          type: integer
+          minimum: 1
+          description: Login session lifetime in seconds.
+      additionalProperties: false
+    WorkBuddyOAuthStartRequest:
+      type: object
+      required:
+        - site
+      properties:
+        site:
+          $ref: '#/components/schemas/WorkBuddySite'
+        proxy_id:
+          type: integer
+          minimum: 1
+          description: Existing proxy node used for the outbound login exchange.
+      additionalProperties: false
+    WorkBuddySite:
+      type: string
+      enum:
+        - cn
+        - global
+      description: |
+        Normalized WorkBuddy site. OAuth input also accepts the desktop import
+        aliases `china`/`workbuddy` for `cn` and
+        `intl`/`international`/`workbuddy-ai`/`workbuddy_ai` for `global`.

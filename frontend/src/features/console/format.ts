@@ -1,3 +1,5 @@
+import { formatExactMoney as formatExactMoneyCore } from '@/utils/money'
+
 export const EM_DASH = '—'
 
 export function formatNullableInteger(value: number | string | null | undefined): string {
@@ -36,24 +38,7 @@ export function formatExactMoney(
   amount: string | number | null | undefined,
   currency = 'USD'
 ): string {
-  if (amount === null || amount === undefined || amount === '') return EM_DASH
-  const rawStr = typeof amount === 'number' ? amount.toFixed(8) : String(amount).trim()
-  const numeric = Number(rawStr)
-  if (!Number.isFinite(numeric)) return EM_DASH
-
-  const prefix = currency.toUpperCase() === 'USD' ? '$' : `${currency.toUpperCase()} `
-  const sign = numeric < 0 ? '-' : ''
-  const abs = Math.abs(numeric)
-
-  if (abs === 0) return `${sign}${prefix}0.00`
-  if (abs >= 0.01) {
-    const trimmed = abs.toFixed(8).replace(/0+$/, '').replace(/\.$/, '')
-    const decimals = trimmed.includes('.') ? trimmed.split('.')[1].length : 0
-    const digits = Math.max(2, Math.min(8, decimals))
-    return `${sign}${prefix}${abs.toFixed(digits)}`
-  }
-  const microTrimmed = abs.toFixed(8).replace(/0+$/, '')
-  return `${sign}${prefix}${microTrimmed}`
+  return formatExactMoneyCore(amount, currency, EM_DASH)
 }
 
 export function formatChargeObject(

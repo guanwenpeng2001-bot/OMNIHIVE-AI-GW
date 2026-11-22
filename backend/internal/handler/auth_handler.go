@@ -289,6 +289,7 @@ type TotpLoginResponse struct {
 	Requires2FA     bool   `json:"requires_2fa"`
 	TempToken       string `json:"temp_token,omitempty"`
 	UserEmailMasked string `json:"user_email_masked,omitempty"`
+	Redirect        string `json:"redirect,omitempty"`
 }
 
 // Login2FARequest represents the 2FA login request
@@ -300,6 +301,10 @@ type Login2FARequest struct {
 // Login2FA completes the login with 2FA verification
 // POST /api/v1/auth/login/2fa
 func (h *AuthHandler) Login2FA(c *gin.Context) {
+	if h.totpService == nil {
+		response.ErrorFrom(c, infraerrors.ServiceUnavailable("TOTP_UNAVAILABLE", "2FA service unavailable"))
+		return
+	}
 	var req Login2FARequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request")
@@ -313,12 +318,7 @@ func (h *AuthHandler) Login2FA(c *gin.Context) {
 	// Get the login session
 	session, err := h.totpService.GetLoginSession(c.Request.Context(), req.TempToken)
 	if err != nil || session == nil {
-		tokenPrefix := ""
-		if len(req.TempToken) >= 8 {
-			tokenPrefix = req.TempToken[:8]
-		}
 		slog.Debug("login_2fa_session_invalid",
-			"temp_token_prefix", tokenPrefix,
 			"error", err)
 		response.BadRequest(c, "Invalid or expired 2FA session")
 		return
@@ -353,6 +353,12 @@ func (h *AuthHandler) Login2FA(c *gin.Context) {
 		return
 	}
 
+	// Claim the challenge once, even if two submissions both verified the same code.
+	if err := h.totpService.DeleteLoginSession(c.Request.Context(), req.TempToken); err != nil {
+		response.BadRequest(c, "Invalid or expired 2FA session")
+		return
+	}
+
 	if session.PendingOAuthBind != nil {
 		pendingSvc, err := h.pendingIdentityService()
 		if err != nil {
@@ -375,7 +381,18 @@ func (h *AuthHandler) Login2FA(c *gin.Context) {
 			response.ErrorFrom(c, err)
 			return
 		}
-		if err := h.authService.CompletePendingOAuthBindLogin(c.Request.Context(), h.userService, pendingSession, decision, user.ID); err != nil {
+		if session.PendingOAuthBind.AdoptionOnly {
+			payload, valid := readCompletionResponse(pendingSession.LocalFlowState)
+			if !valid || !pendingOAuthCompletionCanIssueTokenPair(pendingSession, normalizePendingOAuthCompletionResponse(payload)) ||
+				*pendingSession.TargetUserID != user.ID {
+				response.ErrorFrom(c, service.ErrInvalidToken)
+				return
+			}
+			err = h.authService.ApplyPendingOAuthAdoptionAndConsumeSession(c.Request.Context(), h.userService, pendingSession, decision, user.ID)
+		} else {
+			err = h.authService.CompletePendingOAuthBindLogin(c.Request.Context(), h.userService, pendingSession, decision, user.ID)
+		}
+		if err != nil {
 			response.ErrorFrom(c, err)
 			return
 		}
@@ -391,9 +408,6 @@ func (h *AuthHandler) Login2FA(c *gin.Context) {
 			return
 		}
 	}
-
-	// Delete the login session (only after all checks pass)
-	_ = h.totpService.DeleteLoginSession(c.Request.Context(), req.TempToken)
 
 	if session.PendingOAuthBind == nil {
 		h.authService.RecordSuccessfulLogin(c.Request.Context(), user.ID)

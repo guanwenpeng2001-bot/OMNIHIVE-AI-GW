@@ -15,9 +15,9 @@ bounded_model_probes_enabled: false
 # 服务器配置
 # =============================================================================
 server:
-  # Bind address (0.0.0.0 for all interfaces)
-  # 绑定地址（0.0.0.0 表示监听所有网络接口）
-  host: "0.0.0.0"
+  # Bind address. Keep loopback unless a TLS reverse proxy is configured.
+  # 绑定地址。默认仅监听回环地址，公网请通过 TLS 反向代理暴露。
+  host: "127.0.0.1"
   # Port to listen on
   # 监听端口
   port: 8080
@@ -940,8 +940,9 @@ jwt:
 totp:
   # IMPORTANT: Set a fixed encryption key for TOTP secrets.
   # 重要：设置固定的 TOTP 加密密钥。
-  # Release requires a fixed 64-character hex key for account credentials and 2FA.
-  # Preserve the existing key during upgrades and keep a separate protected backup.
+  # Set a fixed 64-character hex key before production. The binary does not
+  # fail-fast on an empty value, so generate one, reuse it across restarts, and
+  # keep a separate protected backup alongside the database and .env.
   encryption_key: ""
 
 # =============================================================================
@@ -1019,7 +1020,9 @@ default:
   # Initial admin account (created on first run)
   # 初始管理员账户（首次运行时创建）
   admin_email: "admin@example.com"
-  admin_password: "admin123"
+  # Leave empty; setup/AUTO_SETUP generates a strong value instead of using a
+  # shared example credential.
+  admin_password: ""
 
   # Default settings for new users
   # 新用户默认设置

@@ -16,6 +16,15 @@ type ScheduledTestService struct {
 	resultRepo ScheduledTestResultRepository
 }
 
+const MaxScheduledTestResults = 100
+
+func scheduledTestResultLimit(limit int) int {
+	if limit <= 0 {
+		return 50
+	}
+	return min(limit, MaxScheduledTestResults)
+}
+
 // NewScheduledTestService creates a new ScheduledTestService.
 func NewScheduledTestService(
 	planRepo ScheduledTestPlanRepository,
@@ -35,9 +44,7 @@ func (s *ScheduledTestService) CreatePlan(ctx context.Context, plan *ScheduledTe
 	}
 	plan.NextRunAt = &nextRun
 
-	if plan.MaxResults <= 0 {
-		plan.MaxResults = 50
-	}
+	plan.MaxResults = scheduledTestResultLimit(plan.MaxResults)
 
 	return s.planRepo.Create(ctx, plan)
 }
@@ -60,6 +67,7 @@ func (s *ScheduledTestService) UpdatePlan(ctx context.Context, plan *ScheduledTe
 	}
 	plan.NextRunAt = &nextRun
 
+	plan.MaxResults = scheduledTestResultLimit(plan.MaxResults)
 	return s.planRepo.Update(ctx, plan)
 }
 
@@ -70,10 +78,7 @@ func (s *ScheduledTestService) DeletePlan(ctx context.Context, id int64) error {
 
 // ListResults returns the most recent results for a plan.
 func (s *ScheduledTestService) ListResults(ctx context.Context, planID int64, limit int) ([]*ScheduledTestResult, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	return s.resultRepo.ListByPlanID(ctx, planID, limit)
+	return s.resultRepo.ListByPlanID(ctx, planID, scheduledTestResultLimit(limit))
 }
 
 // SaveResult inserts a result and prunes old entries beyond maxResults.
@@ -82,7 +87,7 @@ func (s *ScheduledTestService) SaveResult(ctx context.Context, planID int64, max
 	if _, err := s.resultRepo.Create(ctx, result); err != nil {
 		return err
 	}
-	return s.resultRepo.PruneOldResults(ctx, planID, maxResults)
+	return s.resultRepo.PruneOldResults(ctx, planID, scheduledTestResultLimit(maxResults))
 }
 
 func computeNextRun(cronExpr string, from time.Time) (time.Time, error) {

@@ -24,6 +24,8 @@ import {
   PROVIDER_DEEPSEEK,
   PROVIDER_MINIMAX,
   PROVIDER_OPENCODE_GO,
+  PROVIDER_WORKBUDDY,
+  PROVIDER_KILO,
   PROVIDERS,
   STATUS_OPERATIONAL,
   STATUS_DEGRADED,
@@ -123,6 +125,10 @@ export function useChannelMonitorFormat() {
         return 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300'
       case PROVIDER_OPENCODE_GO:
         return 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300'
+      case PROVIDER_WORKBUDDY:
+        return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300'
+      case PROVIDER_KILO:
+        return 'bg-slate-100 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300'
       default:
         return NEUTRAL_BADGE
     }
@@ -191,6 +197,14 @@ export function useChannelMonitorFormat() {
         return active
           ? 'border-amber-500 bg-amber-50 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-400'
           : 'border-gray-200 bg-white text-gray-600 hover:border-amber-300 hover:text-amber-700 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-amber-500/50'
+      case PROVIDER_WORKBUDDY:
+        return active
+          ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-400'
+          : 'border-gray-200 bg-white text-gray-600 hover:border-emerald-300 hover:text-emerald-700 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-emerald-500/50'
+      case PROVIDER_KILO:
+        return active
+          ? 'border-slate-500 bg-slate-50 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300 dark:border-slate-400'
+          : 'border-gray-200 bg-white text-gray-600 hover:border-slate-300 hover:text-slate-700 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-slate-500/50'
       default:
         return active
           ? 'border-gray-400 bg-gray-50 text-gray-700 dark:border-dark-500 dark:bg-dark-700 dark:text-gray-200'
@@ -279,6 +293,8 @@ export function providerGradient(provider: string): string {
       return 'bg-gradient-to-br from-rose-50 to-rose-100 dark:from-rose-500/10 dark:to-rose-500/20'
     case PROVIDER_OPENCODE_GO:
       return 'bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-500/10 dark:to-amber-500/20'
+    case PROVIDER_WORKBUDDY:
+      return 'bg-gradient-to-br from-emerald-50 to-teal-100 dark:from-emerald-500/10 dark:to-teal-500/20'
     default:
       return 'bg-gradient-to-br from-gray-100 to-gray-200 dark:from-dark-700 dark:to-dark-600'
   }

@@ -70,7 +70,7 @@ func (r *Session) verify(in Verify, replacement *credentials.Change) (any, error
 	action := "connections.verify"
 	if replacement != nil {
 		action = "credentials.rotate"
-		secret, e = replacement.Payload(c.AuthType)
+		secret, e = c.credentialPayload(*replacement)
 	} else {
 		secret, e = credentials.Resolve(r.ctx, r.tx, r.store.enc, r.Workspace, c.ID, in.CredentialVersion)
 	}
@@ -85,11 +85,21 @@ func (r *Session) verify(in Verify, replacement *credentials.Change) (any, error
 	if e != nil {
 		return nil, e
 	}
+	if c.Provider == service.PlatformWorkBuddy && replacement == nil {
+		// Current non-sensitive account metadata overrides legacy metadata that may
+		// still be embedded in an older encrypted credential payload.
+		for _, key := range workBuddyMetadataFields {
+			delete(secret, key)
+		}
+	}
 	maps.Copy(fields, secret)
 	if c.Endpoint != "" {
 		fields["base_url"] = c.Endpoint
 	}
 	native := service.Account{ID: c.ID, WorkspaceID: c.Workspace, Platform: c.Provider, Type: legacy.AccountType(c.AuthType), Credentials: fields}
+	if err := service.NormalizeFreeModelCredentials(&native); err != nil {
+		return nil, err
+	}
 	if len(c.HeaderOverrides) != 0 {
 		native.Extra = map[string]any{"header_overrides": c.HeaderOverrides}
 	}
@@ -126,20 +136,15 @@ func (r *Session) verify(in Verify, replacement *credentials.Change) (any, error
 	}
 	now := time.Now().UTC()
 	v := Verification{ID: uuid.NewString(), Models: []string{}, Checks: []Check{}, VerifiedAt: now, Expires: now.Add(24 * time.Hour)}
-	eligible := result.Network == "passed" && result.Authorization == "passed"
+	eligible := result.Network == "passed" && result.Authorization == "passed" && result.Discovery == "passed"
 	for _, s := range in.Checks {
-		state := map[string]string{"network": result.Network, "authorization": result.Authorization, "discover_models": result.Discovery}[s]
-		check := Check{Name: s, State: state}
-		if state != "passed" {
-			reason := map[string]string{"failed": "PROBE_FAILED", "unknown": "EVIDENCE_UNAVAILABLE", "unsupported": "CHECK_UNSUPPORTED"}[state]
-			check.Reason = &reason
-		}
+		check := connectionProbeCheck(s, result)
 		v.Checks = append(v.Checks, check)
 		if s == "discover_models" {
 			v.Models = result.Models
 		}
 	}
-	if replacement != nil && eligible && c.State == "active" && len(difference(c.Models, result.Models)) > 0 {
+	if replacement != nil && result.Discovery == "passed" && eligible && c.State == "active" && len(difference(c.Models, result.Models)) > 0 {
 		eligible = false
 		reason := "ACTIVE_MODEL_MISSING"
 		for i := range v.Checks {
@@ -157,7 +162,7 @@ func (r *Session) verify(in Verify, replacement *credentials.Change) (any, error
 		if e = record("switching", c.Credential.Version); e != nil {
 			return nil, e
 		}
-		if e = legacy.ChangeSecret(r.ctx, r.tx, r.store.enc, r.Workspace, c.ID, c.Credential.Version, secret, false); e != nil {
+		if e = r.changeSecret(c, secret, false); e != nil {
 			return nil, e
 		}
 		if e = record("draining", c.Credential.Version); e != nil {
@@ -230,8 +235,14 @@ func (r *Session) fresh(c Connection, verification string) error {
 	return nil
 }
 func (r *Session) applicable(c Connection, p Patch) error {
+	if p.Metadata != nil {
+		return conflict("EDIT_METADATA_BEFORE_VERIFICATION")
+	}
 	if e := r.checkPatch(c, p); e != nil {
 		return e
+	}
+	if c.modeChanged(p) {
+		return conflict("VERIFICATION_REQUIRED")
 	}
 	if c.Verification == nil {
 		return r.verificationBlock(c)
@@ -535,4 +546,18 @@ func (r *Session) BulkApply(in BulkApply) (any, error) {
 		out = append(out, index[s])
 	}
 	return r.operation(0, "connections.activate", "succeeded", map[string]any{"items": out})
+}
+
+func connectionProbeCheck(name string, result service.ConnectionProbe) Check {
+	state := map[string]string{"network": result.Network, "authorization": result.Authorization, "discover_models": result.Discovery}[name]
+	check := Check{Name: name, State: state}
+	if state != "passed" {
+		reason := map[string]string{"failed": "PROBE_FAILED", "unknown": "EVIDENCE_UNAVAILABLE", "unsupported": "CHECK_UNSUPPORTED"}[state]
+		if specific := map[string]string{"network": result.NetworkReason, "authorization": result.AuthorizationReason, "discover_models": result.DiscoveryReason}[name]; specific != "" {
+			reason = specific
+		}
+		check.Reason = &reason
+		check.Detail = result.Detail
+	}
+	return check
 }

@@ -43,7 +43,14 @@
         v-if="dialogVisible"
         class="fixed inset-0 z-[140] flex items-center justify-center overflow-y-auto bg-gray-950/60 p-4 backdrop-blur-sm"
       >
-        <div role="dialog" aria-modal="true" aria-labelledby="agreement-dialog-title" class="w-full max-w-[600px] overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)]">
+        <div
+          ref="dialogRef"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="agreement-dialog-title"
+          tabindex="-1"
+          class="w-full max-w-[600px] overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] focus:outline-none"
+        >
           <div class="border-b border-[var(--border)] bg-[var(--card)] px-6 py-6">
             <div class="flex items-start gap-4">
               <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-[var(--brand-text)]">
@@ -146,7 +153,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -191,6 +198,86 @@ const emit = defineEmits<{
 }>()
 
 const dialogVisible = computed(() => props.visible)
+const dialogRef = ref<HTMLElement | null>(null)
+let previousFocusedElement: HTMLElement | null = null
+
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])'
+].join(', ')
+
+function getFocusableElements(): HTMLElement[] {
+  if (!dialogRef.value) return []
+  return Array.from(dialogRef.value.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (element) => element.offsetParent !== null || element === document.activeElement
+  )
+}
+
+function handleDialogKeydown(event: KeyboardEvent): void {
+  if (!dialogVisible.value) return
+  if (event.key === 'Escape') {
+    if (!props.enabled || props.accepted || props.mode === 'checkbox') {
+      event.preventDefault()
+      emit('close')
+    }
+    return
+  }
+  if (event.key !== 'Tab') return
+  const focusable = getFocusableElements()
+  if (focusable.length === 0) {
+    event.preventDefault()
+    dialogRef.value?.focus()
+    return
+  }
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  const active = document.activeElement as HTMLElement | null
+  if (event.shiftKey) {
+    if (!active || active === first || !dialogRef.value?.contains(active)) {
+      event.preventDefault()
+      last.focus()
+    }
+  } else if (!active || active === last || !dialogRef.value?.contains(active)) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+
+watch(
+  dialogVisible,
+  async (visible) => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return
+    if (visible) {
+      previousFocusedElement = document.activeElement as HTMLElement | null
+      window.addEventListener('keydown', handleDialogKeydown)
+      await nextTick()
+      const focusable = getFocusableElements()
+      if (focusable.length > 0) {
+        focusable[0].focus()
+      } else {
+        dialogRef.value?.focus()
+      }
+    } else {
+      window.removeEventListener('keydown', handleDialogKeydown)
+      if (previousFocusedElement && document.contains(previousFocusedElement)) {
+        previousFocusedElement.focus()
+      }
+      previousFocusedElement = null
+    }
+  },
+  { immediate: true }
+)
+
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('keydown', handleDialogKeydown)
+  }
+  previousFocusedElement = null
+})
 const documents = computed(() => props.documents.filter((doc) => doc.id?.trim() || doc.title?.trim()))
 const termsDocument = computed(() => documents.value.find((doc) => isTermsLegalDocument(doc)))
 const privacyDocument = computed(() => documents.value.find((doc) => isPrivacyLegalDocument(doc)))

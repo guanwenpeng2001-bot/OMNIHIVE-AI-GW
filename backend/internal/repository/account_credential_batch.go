@@ -2,11 +2,177 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
+	"sync"
+	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/lib/pq"
+	"golang.org/x/sync/singleflight"
 )
+
+const (
+	credentialDecryptionCacheTTL     = 30 * time.Second
+	credentialDecryptionCacheEntries = 512
+)
+
+// credentialDecryptionCacheKey deliberately includes every persisted value that
+// can change the decrypted document. A credential rotation or a same-version
+// ciphertext rewrite therefore misses immediately; expiry only bounds how long
+// unchanged plaintext remains resident in this process.
+type credentialDecryptionCacheKey struct {
+	accountID      int64
+	version        int64
+	updatedAtNanos int64
+	reference      string
+	ciphertextHash [sha256.Size]byte
+}
+
+func (k credentialDecryptionCacheKey) flightKey() string {
+	return fmt.Sprintf("%d/%d/%d/%s/%x", k.accountID, k.version, k.updatedAtNanos, k.reference, k.ciphertextHash)
+}
+
+type credentialDecryptionCacheEntry struct {
+	credentials map[string]any
+	expiresAt   time.Time
+}
+
+// credentialDecryptionCache is intentionally small and process-local. It
+// never returns the stored map: callers may enrich/mutate Credentials, and
+// sharing that map would permit a concurrent-map-write panic or secret bleed.
+type credentialDecryptionCache struct {
+	mu      sync.Mutex
+	entries map[credentialDecryptionCacheKey]credentialDecryptionCacheEntry
+	flights singleflight.Group
+	now     func() time.Time
+}
+
+func newCredentialDecryptionCache() *credentialDecryptionCache {
+	return &credentialDecryptionCache{
+		entries: make(map[credentialDecryptionCacheKey]credentialDecryptionCacheEntry),
+		now:     time.Now,
+	}
+}
+
+func credentialDecryptionKey(metadata service.CredentialSecret, ciphertext string) credentialDecryptionCacheKey {
+	return credentialDecryptionCacheKey{
+		accountID:      metadata.AccountID,
+		version:        metadata.Version,
+		updatedAtNanos: metadata.UpdatedAt.UTC().UnixNano(),
+		reference:      metadata.Reference,
+		ciphertextHash: sha256.Sum256([]byte(ciphertext)),
+	}
+}
+
+func cloneCredentialMap(in map[string]any) map[string]any {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for key, value := range in {
+		out[key] = cloneCredentialValue(value)
+	}
+	return out
+}
+
+func cloneCredentialValue(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		return cloneCredentialMap(v)
+	case []any:
+		out := make([]any, len(v))
+		for i := range v {
+			out[i] = cloneCredentialValue(v[i])
+		}
+		return out
+	case map[string]string:
+		out := make(map[string]string, len(v))
+		for key, item := range v {
+			out[key] = item
+		}
+		return out
+	case []string:
+		return append([]string(nil), v...)
+	default:
+		return value
+	}
+}
+
+func (c *credentialDecryptionCache) load(key credentialDecryptionCacheKey) (map[string]any, bool) {
+	if c == nil {
+		return nil, false
+	}
+	now := c.now()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.entries[key]
+	if !ok {
+		return nil, false
+	}
+	if !now.Before(entry.expiresAt) {
+		delete(c.entries, key)
+		return nil, false
+	}
+	return cloneCredentialMap(entry.credentials), true
+}
+
+func (c *credentialDecryptionCache) store(key credentialDecryptionCacheKey, credentials map[string]any) {
+	if c == nil {
+		return
+	}
+	now := c.now()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for cacheKey, entry := range c.entries {
+		if !now.Before(entry.expiresAt) {
+			delete(c.entries, cacheKey)
+		}
+	}
+	if len(c.entries) >= credentialDecryptionCacheEntries {
+		var oldestKey credentialDecryptionCacheKey
+		var oldestExpiry time.Time
+		for cacheKey, entry := range c.entries {
+			if oldestExpiry.IsZero() || entry.expiresAt.Before(oldestExpiry) {
+				oldestKey, oldestExpiry = cacheKey, entry.expiresAt
+			}
+		}
+		delete(c.entries, oldestKey)
+	}
+	c.entries[key] = credentialDecryptionCacheEntry{
+		credentials: cloneCredentialMap(credentials),
+		expiresAt:   now.Add(credentialDecryptionCacheTTL),
+	}
+}
+
+func (r *accountRepository) resolveStoredCredentialSecret(ctx context.Context, metadata service.CredentialSecret, ciphertext string) (map[string]any, error) {
+	cache := r.credentialDecryptionCache
+	if cache == nil {
+		return service.ResolveCredentialSecret(ctx, r.credentialEncryptor, metadata, ciphertext)
+	}
+	key := credentialDecryptionKey(metadata, ciphertext)
+	if credentials, ok := cache.load(key); ok {
+		return credentials, nil
+	}
+
+	value, err, _ := cache.flights.Do(key.flightKey(), func() (any, error) {
+		if credentials, ok := cache.load(key); ok {
+			return credentials, nil
+		}
+		credentials, err := service.ResolveCredentialSecret(ctx, r.credentialEncryptor, metadata, ciphertext)
+		if err != nil {
+			return nil, err
+		}
+		cache.store(key, credentials)
+		return cloneCredentialMap(credentials), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	creds, _ := value.(map[string]any)
+	return cloneCredentialMap(creds), nil
+}
 
 type storedCredentialSecret struct {
 	metadata   service.CredentialSecret
@@ -62,7 +228,7 @@ func (r *accountRepository) applyStoredCredentialSecret(ctx context.Context, acc
 			return service.ErrCredentialSecretInvalid
 		}
 	}
-	secrets, err := service.ResolveCredentialSecret(ctx, r.credentialEncryptor, *metadata, ciphertext)
+	secrets, err := r.resolveStoredCredentialSecret(ctx, *metadata, ciphertext)
 	if err != nil {
 		return err
 	}

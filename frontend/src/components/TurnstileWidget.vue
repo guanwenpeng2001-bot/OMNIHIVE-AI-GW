@@ -11,10 +11,7 @@
   </div>
 </template>
 
-<script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
-
+<script lang="ts">
 interface TurnstileRenderOptions {
   sitekey: string
   callback: (token: string) => void
@@ -36,6 +33,13 @@ declare global {
     onTurnstileLoad?: () => void
   }
 }
+
+let sharedTurnstileScriptPromise: Promise<void> | null = null
+</script>
+
+<script setup lang="ts">
+import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 const props = withDefaults(
   defineProps<{
@@ -60,22 +64,45 @@ const loading = ref(true)
 const containerRef = ref<HTMLElement | null>(null)
 const widgetId = ref<string | null>(null)
 const scriptLoaded = ref(false)
+let isMounted = true
 
 const loadScript = (): Promise<void> => {
-  return new Promise((resolve, reject) => {
-    if (window.turnstile) {
+  if (window.turnstile) {
+    scriptLoaded.value = true
+    return Promise.resolve()
+  }
+
+  if (sharedTurnstileScriptPromise) {
+    return sharedTurnstileScriptPromise.then(() => {
       scriptLoaded.value = true
-      resolve()
-      return
+    })
+  }
+
+  sharedTurnstileScriptPromise = new Promise<void>((resolve, reject) => {
+    const existingScript = document.querySelector<HTMLScriptElement>(
+      'script[src*="challenges.cloudflare.com/turnstile"], script[src*="turnstile"]'
+    )
+
+    const cleanupPromise = () => {
+      sharedTurnstileScriptPromise = null
     }
 
-    // Check if script is already loading
-    const existingScript = document.querySelector('script[src*="turnstile"]')
+    const previousOnLoad = window.onTurnstileLoad
+    const handleReady = () => {
+      cleanupPromise()
+      previousOnLoad?.()
+      resolve()
+    }
+
     if (existingScript) {
-      window.onTurnstileLoad = () => {
-        scriptLoaded.value = true
-        resolve()
+      window.onTurnstileLoad = handleReady
+      const handleExistingError = () => {
+        existingScript.removeEventListener('error', handleExistingError)
+        existingScript.remove()
+        cleanupPromise()
+        reject(new Error('Failed to load Turnstile script'))
       }
+      existingScript.addEventListener('error', handleExistingError, { once: true })
       return
     }
 
@@ -84,16 +111,19 @@ const loadScript = (): Promise<void> => {
     script.async = true
     script.defer = true
 
-    window.onTurnstileLoad = () => {
-      scriptLoaded.value = true
-      resolve()
-    }
+    window.onTurnstileLoad = handleReady
 
     script.onerror = () => {
+      script.remove()
+      cleanupPromise()
       reject(new Error('Failed to load Turnstile script'))
     }
 
     document.head.appendChild(script)
+  })
+
+  return sharedTurnstileScriptPromise.then(() => {
+    scriptLoaded.value = true
   })
 }
 
@@ -141,28 +171,36 @@ const reset = () => {
 defineExpose({ reset })
 
 onMounted(async () => {
+  isMounted = true
   if (!props.siteKey) {
+    loading.value = false
     return
   }
 
   try {
     await loadScript()
+    if (!isMounted) return
     renderWidget()
   } catch (error) {
+    if (!isMounted) return
     console.error('Failed to initialize Turnstile:', error)
     emit('error')
   } finally {
-    loading.value = false
+    if (isMounted) {
+      loading.value = false
+    }
   }
 })
 
 onUnmounted(() => {
+  isMounted = false
   if (window.turnstile && widgetId.value) {
     try {
       window.turnstile.remove(widgetId.value)
     } catch {
       // Ignore errors when removing
     }
+    widgetId.value = null
   }
 })
 

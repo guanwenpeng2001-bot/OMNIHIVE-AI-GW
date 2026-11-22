@@ -160,6 +160,33 @@ func TestHostedModelBindingDoesNotBroadenVisibility(t *testing.T) {
 	require.Equal(t, PlatformBedrock, candidates.Candidates[0].Platform)
 }
 
+func TestHostedPlazaRestrictedGroupFallback(t *testing.T) {
+	for _, tc := range []struct {
+		product, hosted, kind string
+	}{
+		{PlatformAnthropic, PlatformBedrock, AccountTypeBedrock},
+		{PlatformGemini, "vertex", AccountTypeServiceAccount},
+	} {
+		for _, group := range []Group{
+			{ID: 10, Platform: tc.hosted},
+			{ID: 10, Platform: tc.product, AccountType: tc.kind},
+		} {
+			t.Run(group.Platform+"/"+group.AccountType, func(t *testing.T) {
+				channel := Channel{ID: 1, Status: StatusActive, GroupIDs: []int64{10}, ModelPricing: []ChannelModelPricing{
+					{Platform: tc.hosted, Models: []string{"hosted-model"}},
+					{Platform: tc.product, Models: []string{"direct-model"}},
+				}}
+				plaza := NewModelPlazaService(&visiblePolicyChannelRepo{channels: []Channel{channel}}, &visiblePolicyGroupRepo{groups: []Group{group}}, nil, nil, nil)
+				groups, err := plaza.ListGroups(context.Background())
+				require.NoError(t, err)
+				require.Len(t, groups, 1)
+				require.Len(t, groups[0].Models, 1)
+				require.Equal(t, "hosted-model", groups[0].Models[0].Name)
+			})
+		}
+	}
+}
+
 func TestHostedAuthRejectsSnapshotWithoutSubtype(t *testing.T) {
 	auth := &APIKeyService{}
 	_, accepted, err := auth.applyAuthCacheEntry("fixture", &APIKeyAuthCacheEntry{Snapshot: &APIKeyAuthSnapshot{Version: 24}})

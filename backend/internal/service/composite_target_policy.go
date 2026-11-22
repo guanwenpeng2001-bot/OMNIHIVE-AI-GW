@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"strings"
+	"time"
 
 	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 
@@ -17,6 +18,8 @@ var ErrCompositeTargetActionUnsupported = infraerrors.BadRequest(
 	"COMPOSITE_TARGET_ACTION_UNSUPPORTED",
 	"no ordered composite target implements the requested action",
 )
+
+var ErrCompositeTargetLookup = infraerrors.ServiceUnavailable("COMPOSITE_TARGET_LOOKUP_FAILED", "Composite target availability could not be verified")
 
 type compositeTargetAdvancementKey struct{}
 
@@ -158,10 +161,25 @@ func (s *OpenAIGatewayService) CompositeTargetForAttempt(ctx context.Context, gr
 	if !compositeTargetAdvancementEnabled(ctx) {
 		return CompositeRouteTarget{}, false, nil
 	}
-	target, ok := compositeWalkTargets(ctx, gated, func(walkCtx context.Context, candidate CompositeRouteTarget) bool {
-		return s.compositeTargetHasCandidate(walkCtx, groupID, candidate, publicModel)
-	})
-	return target, ok, nil
+	if len(gated) == 1 {
+		return gated[0], true, nil
+	}
+
+	var lookupErr error
+	for _, target := range gated {
+		ok, err := s.compositeTargetHasCandidate(ctx, groupID, target, publicModel)
+		if err != nil {
+			lookupErr = err
+			continue
+		}
+		if ok {
+			return target, true, nil
+		}
+	}
+	if lookupErr != nil {
+		return CompositeRouteTarget{}, false, lookupErr
+	}
+	return gated[len(gated)-1], true, nil
 }
 
 // compositeGatedTargetsForAttempt returns the action-gated ordered targets of the
@@ -197,23 +215,43 @@ func compositeWalkTargets(ctx context.Context, targets []CompositeRouteTarget, h
 }
 
 // compositeTargetHasCandidate is the OpenAI trunk candidate check.
-func (s *OpenAIGatewayService) compositeTargetHasCandidate(ctx context.Context, groupID *int64, target CompositeRouteTarget, requestedModel string) bool {
+func (s *OpenAIGatewayService) compositeTargetHasCandidate(ctx context.Context, groupID *int64, target CompositeRouteTarget, requestedModel string) (bool, error) {
 	targetCtx := WithCompositeRouteDecision(ctx, CompositeRouteDecision{
 		Matched:        true,
 		PublicModel:    requestedModel,
 		TargetPlatform: target.TargetPlatform,
 		AccountType:    target.AccountType,
 		UpstreamModel:  compositeTargetUpstreamModel(target, requestedModel),
+		SelectedTarget: &target,
 	})
 	accounts, err := s.listSchedulableAccounts(targetCtx, groupID, target.TargetPlatform)
 	if err != nil {
-		return false
+		return false, ErrCompositeTargetLookup
 	}
-	excluded := compositeExcludedAccounts(ctx)
+	scheduler := &defaultOpenAIAccountScheduler{service: s}
 	model := compositeTargetUpstreamModel(target, requestedModel)
+	req := OpenAIAccountScheduleRequest{
+		Platform: target.TargetPlatform, GroupID: groupID,
+		RequestedModel: model, RequiredTransport: OpenAIUpstreamTransportAny,
+		RequirePrivacySet: s.openAIGroupRequiresPrivacySet(ctx, groupID),
+		ExcludedIDs:       compositeExcludedAccounts(ctx),
+	}
+	if forwardModel, ok := openAIForwardModelFromContext(ctx); ok {
+		req.RequireCompact = forwardModel.useCompactModelMapping
+	}
+	targetCtx = WithOpenAIForwardModel(targetCtx, model, req.RequireCompact)
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil && plan.Snapshot().Protocol == "chat_completions" {
+		req.RequiredCapability = OpenAIEndpointCapabilityChatCompletions
+	}
+	if target.TargetPlatform == PlatformGrok {
+		now := time.Now()
+		accounts = filterGrokTeamModelRateLimitedAccounts(accounts, model, now)
+		accounts = filterGrokModelQuotaBlockedAccounts(accounts, model, now)
+	}
+	var lookupErr error
 	for index := range accounts {
 		account := &accounts[index]
-		if _, skip := excluded[account.ID]; skip {
+		if scheduler.loadCandidateFailureReason(targetCtx, account, req, nil) != "" {
 			continue
 		}
 		if !compositeTargetAllowsAccount(target, account) {
@@ -226,12 +264,34 @@ func (s *OpenAIGatewayService) compositeTargetHasCandidate(ctx context.Context, 
 			continue
 		}
 		parent, err := loadCatalogCredentialAccount(targetCtx, s.accountRepo, account)
-		if err != nil || !AccountSupportsResolvedModel(targetCtx, account, requestedModel, AccountModelBindingOptions{Endpoint: openAICompatiblePlanCatalogEndpoint(targetCtx, account), CredentialAccount: parent}) {
+		if err != nil {
+			lookupErr = ErrCompositeTargetLookup
 			continue
 		}
-		return true
+		if !AccountSupportsResolvedModel(targetCtx, account, requestedModel, AccountModelBindingOptions{Endpoint: openAICompatiblePlanCatalogEndpoint(targetCtx, account), CredentialAccount: parent}) {
+			continue
+		}
+		return true, nil
 	}
-	return false
+	return false, lookupErr
+}
+
+// RemainingCompositeTargets returns the later, action-compatible targets after
+// authoritative selection exhausts the current one, before any upstream send.
+func RemainingCompositeTargets(ctx context.Context) (context.Context, bool) {
+	selected, ok := compositeSelectedTargetFromContext(ctx)
+	if !ok {
+		return ctx, false
+	}
+	targets, _, err := compositeGatedTargetsForAttempt(ctx)
+	if err == nil {
+		for i, target := range targets {
+			if target == selected && i+1 < len(targets) {
+				return WithCompositeRouteTargets(ctx, targets[i+1:]), true
+			}
+		}
+	}
+	return ctx, false
 }
 
 // CompositeTargetForwardModel applies an explicit target before channel mapping.

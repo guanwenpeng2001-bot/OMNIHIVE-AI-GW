@@ -27,7 +27,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/antigravity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/claude"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/cursor"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/geminicli"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/openai"
@@ -275,13 +277,9 @@ func (s *AccountTestService) validateUpstreamBaseURL(raw string) (string, error)
 	if s.cfg == nil {
 		return "", errors.New("config is not available")
 	}
-	normalized, err := urlvalidator.ValidateHTTPURL(raw, s.cfg.Security.URLAllowlist.AllowInsecureHTTP, urlvalidator.ValidationOptions{
-		AllowedHosts:     s.cfg.Security.URLAllowlist.UpstreamHosts,
-		RequireAllowlist: s.cfg.Security.URLAllowlist.Enabled,
-		AllowPrivate:     s.cfg.Security.URLAllowlist.AllowPrivateHosts,
-	})
+	normalized, err := urlvalidator.ValidateHTTPURL(raw, s.cfg.Security.URLAllowlist.AllowInsecureHTTP, s.cfg.Security.URLAllowlist.UpstreamValidationOptions())
 	if err != nil {
-		return "", err
+		return "", &connectionProbeURLError{err: err}
 	}
 	return normalized, nil
 }
@@ -449,6 +447,9 @@ func (s *AccountTestService) testOpenCodeGoAccountConnection(c *accountProbeCont
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
 		testModelID = DefaultOpenCodeGoTestModel
+		if account.IsOpenCodeZenFree() {
+			testModelID = "big-pickle"
+		}
 	}
 	testModelID = account.GetMappedModel(testModelID)
 	proto := account.GetAPIProtocol()
@@ -485,11 +486,17 @@ func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *accountP
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
 		testModelID = openai.DefaultTestModel
+		if account.Platform == PlatformKilo {
+			testModelID = "kilo-auto/free"
+		}
+		if account.Platform == PlatformWorkBuddy {
+			testModelID = workBuddyModels(workBuddySiteFor(account).ID)[0].ID
+		}
 	}
 	testModelID = account.GetMappedModel(testModelID)
 
 	authToken := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
-	if authToken == "" {
+	if authToken == "" && !account.IsKiloFree() {
 		return s.sendErrorAndEnd(c, "No API key available")
 	}
 
@@ -956,7 +963,7 @@ func (s *AccountTestService) probeTestOpenAIAccountConnection(c *accountProbeCon
 			s.reconcileOpenAI429State(ctx, account, resp.Header, body)
 		}
 		// 401 Unauthorized: 标记账号为永久错误
-		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
+		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil && !publicModelLane(account) {
 			errMsg := fmt.Sprintf("Authentication failed (401): %s", string(body))
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
@@ -2115,12 +2122,18 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 ) error {
 	ctx := c.ctx
 	apiURL := buildOpenAIChatCompletionsURL(normalizedBaseURL)
+	if account.Platform == PlatformKilo {
+		apiURL = strings.TrimRight(normalizedBaseURL, "/") + "/chat/completions"
+	}
 	if IsCompatibleProvider(account.Platform) {
 		apiURL = account.buildOpenAIEndpointURL(normalizedBaseURL, "/v1/chat/completions")
 	}
 
 	payload := createOpenAIChatCompletionsTestPayload(testModelID, prompt)
 	payloadBytes, _ := json.Marshal(payload)
+	if account.Platform == PlatformWorkBuddy {
+		payloadBytes, _ = prepareWorkBuddyChat(payloadBytes)
+	}
 
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
 	s.sendEvent(c, TestEvent{Type: "status", Text: "正在通过 /v1/chat/completions 测试连接"})
@@ -2138,6 +2151,9 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	applyOpenCodeUpstreamUserAgent(account, apiURL, req.Header)
 	account.ApplyHeaderOverrides(req.Header)
 	applyOpenCodeSessionHeader(nil, account, apiURL, req.Header, payloadBytes)
+	if account.Platform == PlatformWorkBuddy {
+		applyWorkBuddyChatHeaders(req.Header, account, payloadBytes)
+	}
 
 	proxyURL, egressErr := account.EgressProxyURL(ctx)
 	if egressErr != nil {
@@ -2147,7 +2163,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	if err := applyCompatibleRequestAuth(account, req); err != nil {
 		return s.sendErrorAndEnd(c, err.Error())
 	}
-	if IsCompatibleProvider(account.Platform) {
+	if IsCompatibleProvider(account.Platform) || account.Platform == PlatformWorkBuddy {
 		req = req.WithContext(WithHTTPUpstreamRedirectsDisabled(req.Context()))
 	}
 	resp, err := accountHTTPUpstream(s.httpUpstream, account).DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
@@ -2161,7 +2177,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 		if resp.StatusCode == http.StatusTooManyRequests {
 			s.reconcileOpenAI429State(ctx, account, resp.Header, body)
 		}
-		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
+		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil && !publicModelLane(account) {
 			errMsg := fmt.Sprintf("Chat Completions authentication failed (401): %s", string(body))
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
@@ -2317,7 +2333,7 @@ func (s *AccountTestService) testOpenAICompactConnection(c *accountProbeContext,
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
+		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil && !publicModelLane(account) {
 			errMsg := fmt.Sprintf("Authentication failed (401): %s", string(body))
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
@@ -3268,62 +3284,74 @@ func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID in
 }
 
 type ConnectionProbe struct {
-	Network, Authorization, Discovery string
-	Models                            []string
+	Network, Authorization, Discovery                   string
+	Models                                              []string
+	NetworkReason, AuthorizationReason, DiscoveryReason string
+	Detail                                              string
 }
 
 // ProbeConnection builds the gateway's native catalog request with the proposed
 // credentials. The unauthenticated control distinguishes public catalogs from
 // endpoints that actually verified the credential.
 func (s *AccountTestService) ProbeConnection(ctx context.Context, account *Account, proxy string) ConnectionProbe {
-	result := ConnectionProbe{Network: "unknown", Authorization: "unknown", Discovery: "unsupported", Models: []string{}}
-	if s == nil || s.cfg == nil {
-		return result
+	if s == nil || s.cfg == nil || account == nil {
+		return connectionProbeBuildFailure(errors.New("probe configuration unavailable"))
+	}
+	policy := s.cfg.Security.URLAllowlist
+	if base := account.GetCredential("base_url"); base != "" {
+		if _, err := policy.ValidateProbeURL(base); err != nil {
+			return FailedConnectionProbe("URL_NOT_ALLOWED")
+		}
+	}
+
+	if account.Type == AccountTypeOAuth && (account.Platform == PlatformCursor || account.Platform == PlatformAntigravity) {
+		return s.probeNativeOAuth(ctx, account, proxy)
 	}
 	req, err := s.buildUpstreamModelsRequest(context.WithValue(ctx, catalogDiscoveryKey{}, true), account)
 	if err != nil {
-		return result
+		return connectionProbeBuildFailure(err)
 	}
-	policy := s.cfg.Security.URLAllowlist
-	private := policy.AllowPrivateHosts
 	if _, err = policy.ValidateProbeURL(req.URL.Scheme + "://" + req.URL.Host); err != nil {
-		result.Network = "failed"
-		return result
+		return FailedConnectionProbe("URL_NOT_ALLOWED")
 	}
-	client, err := httpclient.GetClient(httpclient.Options{Timeout: 12 * time.Second, ProxyURL: proxy, ValidateResolvedIP: true, AllowPrivateHosts: private, PrivateHosts: policy.UpstreamHosts})
+	client, err := httpclient.GetClient(httpclient.Options{Timeout: 12 * time.Second, ProxyURL: proxy, ValidateResolvedIP: true, AllowPrivateHosts: policy.AllowPrivateHosts, PrivateHosts: policy.UpstreamHosts})
 	if err != nil {
-		result.Network = "failed"
-		return result
+		return ConnectionProbeTransportFailure(err)
 	}
 	return verifyConnectionRequest(req, client, account)
 }
+
 func verifyConnectionRequest(req *http.Request, shared *http.Client, account *Account) ConnectionProbe {
-	result := ConnectionProbe{Network: "failed", Authorization: "unknown", Discovery: "unknown", Models: []string{}}
 	client := *shared
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := client.Do(req)
 	if err != nil {
-		return result
+		return ConnectionProbeTransportFailure(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
-		return result
-	}
-	result.Network = "passed"
-	if resp.StatusCode == 401 || resp.StatusCode == 403 {
-		result.Authorization = "failed"
-		return result
-	}
+	result := ConnectionProbeHTTPStatus(resp.StatusCode)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return result
 	}
+
 	body, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
 	if err != nil || len(body) > 1<<20 {
+		result.DiscoveryReason = "PROBE_FAILED"
+		result.Detail = "Could not read the upstream model catalog within the response size limit."
 		return result
 	}
-	models, _, err := extractUpstreamModelCatalog(body, account.IsGrok(), account.Platform)
+	body = workBuddyConfigFallback(body, account)
+	models, _, err := extractAccountModelCatalog(body, account)
 	if err != nil {
+		if account.Platform == PlatformWorkBuddy {
+			return connectionProbeCatalogFailure(err)
+		}
+		result.DiscoveryReason = "PROBE_FAILED"
+		result.Detail = "Upstream returned an invalid model catalog."
 		return result
+	}
+	if ConnectionCatalogIncomplete(body, len(models)) {
+		return IncompleteConnectionCatalog()
 	}
 	for _, model := range models {
 		if len(model) > 256 || strings.ContainsAny(model, "\r\n\t?#") || len(result.Models) >= 1024 {
@@ -3334,6 +3362,11 @@ func verifyConnectionRequest(req *http.Request, shared *http.Client, account *Ac
 		}
 	}
 	result.Discovery = "passed"
+	// Public lanes require no private-key evidence; paid lanes use the control.
+	if publicModelLane(account) {
+		result.Authorization = "passed"
+		return result
+	}
 	anon := req.Clone(req.Context())
 	removed := false
 	for name, values := range anon.Header {
@@ -3370,13 +3403,7 @@ func verifyConnectionRequest(req *http.Request, shared *http.Client, account *Ac
 		return result
 	}
 	check, err := client.Do(anon)
-	if err == nil {
-		check.Body.Close()
-		if check.StatusCode == 401 || check.StatusCode == 403 {
-			result.Authorization = "passed"
-		}
-	}
-	return result
+	return ApplyConnectionAuthorizationControl(result, check, err)
 }
 
 func containsConnectionSecret(text string, fields map[string]any) bool {
@@ -3386,4 +3413,158 @@ func containsConnectionSecret(text string, fields map[string]any) bool {
 		}
 	}
 	return false
+}
+
+// ConnectionCatalogIncomplete prevents a partial observation from authorizing a
+// connection or replacing the active model set. Full sync follows bounded pages;
+// the lightweight verification endpoint explicitly reports truncation.
+func ConnectionCatalogIncomplete(body []byte, count int) bool {
+	if count > 1024 {
+		return true
+	}
+	var page struct {
+		HasMore       bool   `json:"has_more"`
+		NextPageToken string `json:"nextPageToken"`
+		NextCursor    string `json:"next_cursor"`
+		Next          string `json:"next"`
+		Links         struct {
+			Next string `json:"next"`
+		} `json:"links"`
+	}
+	if json.Unmarshal(body, &page) != nil {
+		return bytes.HasPrefix(bytes.TrimSpace(body), []byte("{"))
+	}
+	return page.HasMore || page.NextPageToken != "" || page.NextCursor != "" || page.Next != "" || page.Links.Next != ""
+}
+func IncompleteConnectionCatalog() ConnectionProbe {
+	return ConnectionProbe{Network: "passed", Authorization: "unknown", Discovery: "failed", Models: []string{}, DiscoveryReason: "PROBE_FAILED", Detail: "Model catalog is incomplete (pagination or model limit). Complete paginated discovery is required before activation or rotation."}
+}
+
+// Preserve control failures on the authorization check, independently of the
+// primary request's successful network/discovery observations.
+func ApplyConnectionAuthorizationControl(result ConnectionProbe, resp *http.Response, err error) ConnectionProbe {
+	if resp != nil && resp.Body != nil {
+		defer resp.Body.Close()
+	}
+	if err != nil {
+		failure := ConnectionProbeTransportFailure(err)
+		result.AuthorizationReason, result.Detail = failure.NetworkReason, failure.Detail
+		return result
+	}
+	if resp == nil {
+		result.AuthorizationReason = "PROBE_FAILED"
+		result.Detail = "Authorization control returned no response."
+		return result
+	}
+	switch resp.StatusCode {
+	case http.StatusUnauthorized, http.StatusForbidden:
+		result.Authorization = "passed"
+	case http.StatusTooManyRequests:
+		result.AuthorizationReason = "UPSTREAM_RATE_LIMITED"
+		result.Detail = "Upstream rate-limited the authorization control (HTTP 429). Wait and retry."
+	default:
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			result.AuthorizationReason = "PROBE_FAILED"
+			result.Detail = "Authorization control failed (redirect or unsuccessful upstream response). Check upstream availability and retry."
+		}
+	}
+	return result
+}
+
+func connectionProbeCatalogFailure(err error) ConnectionProbe {
+	var failure *UpstreamModelSyncError
+	if errors.As(err, &failure) && failure.StatusCode != 0 {
+		return ConnectionProbeHTTPStatus(failure.StatusCode)
+	}
+	result := connectionProbeBuildFailure(err)
+	result.Network = "passed"
+	return result
+}
+
+func (s *AccountTestService) probeNativeOAuth(ctx context.Context, a *Account, proxy string) ConnectionProbe {
+	if strings.TrimSpace(a.GetCredential("access_token")) == "" {
+		return connectionProbeBuildFailure(newUpstreamModelSyncCredentialError("Missing access token", nil))
+	}
+	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+	var ids []string
+	if a.Platform == PlatformCursor {
+		if _, err := s.cfg.Security.URLAllowlist.ValidateProbeURL(cursor.APIBaseURL); err != nil {
+			return FailedConnectionProbe("URL_NOT_ALLOWED")
+		}
+		if s.cursorGatewayService == nil || s.cursorGatewayService.native == nil {
+			return connectionProbeBuildFailure(errors.New("cursor service unavailable"))
+		}
+		ctx = cursor.WithAccountProxy(ctx, proxy, false)
+		models, err := s.cursorGatewayService.native.AvailableModels(ctx, s.cursorGatewayService.credentials(ctx, a, a.GetCredential("access_token")))
+		if err != nil {
+			if cursorAuthFailure(err) {
+				return ConnectionProbeHTTPStatus(http.StatusUnauthorized)
+			}
+			return ConnectionProbeTransportFailure(err)
+		}
+		for _, model := range models {
+			ids = append(ids, model.ID)
+		}
+	} else {
+		policy := s.cfg.Security.URLAllowlist
+		shared, err := httpclient.GetClient(httpclient.Options{Timeout: 12 * time.Second, ProxyURL: proxy, ValidateResolvedIP: true, AllowPrivateHosts: policy.AllowPrivateHosts, PrivateHosts: policy.UpstreamHosts})
+		if err != nil {
+			return ConnectionProbeTransportFailure(err)
+		}
+		client := *shared
+		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		// Native discovery uses the proposed token directly, never a refreshing or
+		// durable-account helper. Only known native hosts participate in fallback.
+		for i, base := range antigravity.BaseURLs {
+			if _, err := policy.ValidateProbeURL(base); err != nil {
+				return FailedConnectionProbe("URL_NOT_ALLOWED")
+			}
+			body, _ := json.Marshal(map[string]string{"project": a.GetCredential("project_id")})
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(base, "/")+"/v1internal:fetchAvailableModels", bytes.NewReader(body))
+			if err != nil {
+				return connectionProbeBuildFailure(err)
+			}
+			req.Header.Set("Authorization", "Bearer "+a.GetCredential("access_token"))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("User-Agent", antigravity.GetUserAgentForContext(ctx))
+			resp, err := client.Do(req)
+			if err != nil {
+				return ConnectionProbeTransportFailure(err)
+			}
+			raw, readErr := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
+			resp.Body.Close()
+			if resp.StatusCode >= 500 && i+1 < len(antigravity.BaseURLs) {
+				continue
+			}
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				return ConnectionProbeHTTPStatus(resp.StatusCode)
+			}
+			if readErr != nil || len(raw) > 1<<20 {
+				return connectionProbeBuildFailure(errors.New("native catalog read failed"))
+			}
+			var catalog antigravity.FetchAvailableModelsResponse
+			if json.Unmarshal(raw, &catalog) != nil || catalog.Models == nil {
+				return connectionProbeBuildFailure(errors.New("invalid native catalog"))
+			}
+			var rawCatalog map[string]any
+			_ = json.Unmarshal(raw, &rawCatalog)
+			ids, _, err = normalizeAntigravityUpstreamModels(catalog.Models, rawCatalog)
+			if err != nil {
+				return connectionProbeBuildFailure(err)
+			}
+			break
+		}
+	}
+	if len(ids) > 1024 {
+		return IncompleteConnectionCatalog()
+	}
+	result := ConnectionProbe{Network: "passed", Authorization: "passed", Discovery: "passed", Models: []string{}}
+	for _, id := range dedupeAndSortModelIDs(ids) {
+		if id == "" || len(id) > 256 || strings.ContainsAny(id, "\r\n\t?#") || containsConnectionSecret(id, a.Credentials) {
+			return connectionProbeBuildFailure(errors.New("invalid native model identity"))
+		}
+		result.Models = append(result.Models, id)
+	}
+	return result
 }

@@ -864,3 +864,16 @@ func newPaymentOrderLifecycleTestClient(t *testing.T) *dbent.Client {
 	t.Cleanup(func() { _ = client.Close() })
 	return client
 }
+
+func TestPaymentOrderQueryEvidenceUsesExactProviderMinorUnits(t *testing.T) {
+	response := &payment.QueryOrderResponse{
+		TradeNo: "rail-transaction", InstanceID: "3", Currency: "CNY", Minor: 9999, Amount: 100,
+	}
+	first := queriedPaymentNotification("merchant-order", response)
+	require.EqualValues(t, 9999, first.Minor)
+	require.Equal(t, "3", first.InstanceID)
+	require.Equal(t, "CNY", first.Currency)
+	require.Equal(t, first.EventID, queriedPaymentNotification("merchant-order", response).EventID)
+	response.TradeNo = "merchant-order"
+	require.Empty(t, queriedPaymentNotification("merchant-order", response).TradeNo)
+}

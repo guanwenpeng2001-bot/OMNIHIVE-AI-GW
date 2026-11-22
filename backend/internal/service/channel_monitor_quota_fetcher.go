@@ -333,6 +333,9 @@ func (f *ChannelMonitorQuotaFetcher) fetchUsage(ctx context.Context, account *Ac
 		Tiers:     usageQuotaTiers(usage),
 		FetchedAt: now,
 	}
+	if usage.WorkBuddy != nil {
+		snapshot.PlanLevel = usage.WorkBuddy.Plan
+	}
 	if snapshot.PlanLevel == "" {
 		snapshot.PlanLevel = usage.SubscriptionTierRaw
 	}
@@ -345,6 +348,13 @@ func usageQuotaTiers(usage *UsageInfo) []domain.MonitorQuotaTier {
 		return nil
 	}
 	tiers := make([]domain.MonitorQuotaTier, 0, 8)
+	if wb := usage.WorkBuddy; wb != nil {
+		total := wb.BaseTotal + wb.ExtraTotal
+		if total > 0 {
+			tiers = append(tiers, domain.MonitorQuotaTier{Window: "total", Label: "credits", Used: wb.BaseUsed + wb.ExtraUsed, Limit: total, UsedPercent: (wb.BaseUsed + wb.ExtraUsed) / total * 100, ResetAt: wb.BaseResetAt})
+		}
+	}
+
 	appendProgressTier(&tiers, "5h", "", usage.FiveHour)
 	appendProgressTier(&tiers, "7d", "", usage.SevenDay)
 	appendProgressTier(&tiers, "7d-sonnet", "", usage.SevenDaySonnet)

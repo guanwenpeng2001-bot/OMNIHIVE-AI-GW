@@ -3,6 +3,7 @@ import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { sanitizeInternalRedirect } from '@/router/redirect'
 import {
   type PendingOAuthCreateAccountPayload
 } from '@/components/auth/PendingOAuthCreateAccountForm.vue'
@@ -138,13 +139,7 @@ export function useOAuthCallback(options: CallbackOptions) {
 
 
   function sanitizeRedirectPath(path: string | null | undefined): string {
-    if (!path) return '/dashboard'
-    if (!path.startsWith('/')) return '/dashboard'
-    if (path.includes('\\')) return '/dashboard'
-    if (path.startsWith('//')) return '/dashboard'
-    if (path.includes('://')) return '/dashboard'
-    if (path.includes('\n') || path.includes('\r')) return '/dashboard'
-    return path
+    return sanitizeInternalRedirect(path, '/dashboard')
   }
 
   function currentAdoptionDecision(): OAuthAdoptionDecision {

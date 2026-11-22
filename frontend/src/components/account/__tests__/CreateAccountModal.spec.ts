@@ -1389,13 +1389,13 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     const orderedTargets = [...wrapper.get('form#create-account-form').element.querySelectorAll('[data-tour="account-form-type"], [data-testid="account-protocol-choices"], [data-testid="cursor-api-key"]')]
     expect(orderedTargets.map(element => element.getAttribute('data-tour') ?? element.getAttribute('data-testid')))
       .toEqual(['account-form-type', 'account-protocol-choices', 'cursor-api-key'])
-    // 四个双模式平台：模式卡就是唯一一组一级选择，没有重复的模式入口或只读摘要卡
-    for (const platform of ['kimi', 'zhipu', 'minimax', 'opencode_go']) {
+    // 多模式平台：模式卡就是唯一一组一级选择，没有重复的模式入口或只读摘要卡
+    for (const [platform, expectedModes] of [['kimi', 2], ['zhipu', 2], ['minimax', 2], ['opencode_go', 3], ['kilo', 2]] as const) {
       await wrapper.get(`[data-testid="${platform}-platform"]`).trigger('click')
       await flushPromises()
       const entries = wrapper.findAll('[data-tour="account-form-type"]')
       expect(entries).toHaveLength(1)
-      expect(entries[0]!.findAll('button[role="radio"]')).toHaveLength(2)
+      expect(entries[0]!.findAll('button[role="radio"]')).toHaveLength(expectedModes)
       expect(wrapper.find('[data-tour="account-form-mode"]').exists()).toBe(false)
       expect(wrapper.find('[data-testid="account-type-summary"]').exists()).toBe(false)
     }

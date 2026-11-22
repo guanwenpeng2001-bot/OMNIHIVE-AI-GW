@@ -2013,3 +2013,42 @@ func generateLargeUnwrapJSON(minSize int) []byte {
 	b, _ := json.Marshal(outer)
 	return b
 }
+
+func TestAntigravityUpstreamReceiptWithoutDataSpace(t *testing.T) {
+	const start = `data:{"type":"message_start","message":{"usage":{"input_tokens":10,"cache_creation_input_tokens":9,"cache_creation":{"ephemeral_5m_input_tokens":3,"ephemeral_1h_input_tokens":6}}}}` + "\n\n"
+	const delta = `data:{"type":"message_delta","usage":{"output_tokens":4}}` + "\n\n"
+	const stop = `data:{"type":"message_stop"}` + "\n\n"
+	for _, tc := range []struct {
+		wire    string
+		partial bool
+	}{{start + delta + stop, false}, {start + delta, true}, {start + stop, true}} {
+		svc := newAntigravityTestService(&config.Config{})
+		svc.httpUpstream = &httpUpstreamStub{resp: &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(tc.wire))}}
+		a := &Account{ID: 1, Platform: PlatformAntigravity, Credentials: map[string]any{"base_url": "https://upstream.example", "api_key": "fixture"}}
+		c, _ := newAntigravityImageContext(t, "/v1/messages", nil)
+		r, err := svc.ForwardUpstream(t.Context(), c, a, []byte(`{"model":"claude","stream":true}`))
+		require.NoError(t, err)
+		require.Equal(t, tc.partial, r.UsageIncomplete)
+		require.Equal(t, 10, r.Usage.InputTokens)
+		require.Equal(t, 3, r.Usage.CacheCreation5mTokens)
+		require.Equal(t, 6, r.Usage.CacheCreation1hTokens)
+	}
+}
+
+func TestAntigravityCountTokensEstimate(t *testing.T) {
+	svc := &AntigravityGatewayService{}
+	for _, body := range []string{`{"contents":[{"parts":[{"text":"count these words"}]}]}`, `{"generateContentRequest":{"systemInstruction":{"parts":[{"text":"指令"}]}}}`} {
+		c, w := newAntigravityImageContext(t, "/v1beta/models/gemini:countTokens", []byte(body))
+		_, err := svc.ForwardGemini(t.Context(), c, &Account{}, "gemini", "countTokens", false, []byte(body), false)
+		require.NoError(t, err)
+		require.Equal(t, "true", w.Header().Get("X-Token-Count-Estimated"))
+		var payload struct{ TotalTokens int }
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
+		require.Positive(t, payload.TotalTokens)
+	}
+	body := []byte(`{"contents":[{"parts":[{"text":"caption"},{"inlineData":{"mimeType":"image/png","data":"YQ=="}}]}]}`)
+	c, w := newAntigravityImageContext(t, "/v1beta/models/gemini:countTokens", body)
+	_, err := svc.ForwardGemini(t.Context(), c, &Account{}, "gemini", "countTokens", false, body, false)
+	require.Error(t, err)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}

@@ -229,14 +229,14 @@ func AdvanceAccountModelCatalogRevisions(current, incoming *Account) {
 func AdvanceAccountModelCatalogRevisionsForUpdate(current, incoming *Account, configurationOnly bool) {
 	state := current.ModelCatalogState()
 	identityChanged := current.Platform != incoming.Platform || current.Type != incoming.Type || !reflect.DeepEqual(current.ParentAccountID, incoming.ParentAccountID)
-	for _, key := range AccountCatalogIdentityCredentialFields() {
+	for _, key := range AccountCatalogIdentityCredentialFields(current.Platform) {
 		identityChanged = identityChanged || !reflect.DeepEqual(current.Credentials[key], incoming.Credentials[key])
 	}
 	versionChanged := CredentialVersion(current.Credentials) != CredentialVersion(incoming.Credentials)
 	identityChanged = identityChanged || (versionChanged && incoming.Type != AccountTypeOAuth)
 	legacyPolicyChanged := identityChanged || !reflect.DeepEqual(current.ProxyID, incoming.ProxyID)
 	stableSubject := false
-	for _, key := range []string{"chatgpt_account_id", "chatgpt_user_id", "sub", "account_id", "user_id"} {
+	for _, key := range AccountCatalogSubjectFields(current.Platform) {
 		stableSubject = stableSubject || (current.GetCredential(key) != "" && current.GetCredential(key) == incoming.GetCredential(key))
 	}
 	if (configurationOnly || !stableSubject) && (versionChanged || !reflect.DeepEqual(current.Credentials["access_token"], incoming.Credentials["access_token"])) {
@@ -1061,7 +1061,7 @@ func (s *AccountTestService) fetchAntigravityCatalog(ctx context.Context, accoun
 	accessToken := account.GetCredential("access_token")
 	accessToken = strings.TrimSpace(accessToken)
 	if accessToken == "" {
-		return nil, nil, newUpstreamModelSyncConfigError("No Antigravity access token is available", nil)
+		return nil, nil, newUpstreamModelSyncCredentialError("No Antigravity access token is available", nil)
 	}
 
 	accountProxyURL, egressErr := account.EgressProxyURL(ctx)

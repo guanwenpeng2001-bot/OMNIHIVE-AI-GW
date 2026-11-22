@@ -82,7 +82,7 @@ func TestCredentialBatchRecoveryPostgresUsage(t *testing.T) {
 			require.Nil(t, strict, "general reads must still fail closed")
 			upstream := &recoveryUsageUpstream{accountID: active.ID, token: secret}
 			gateway := service.NewOpenAIGatewayService(f.accounts, nil, nil, nil, nil, nil, nil, &config.Config{}, nil, nil, nil, nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil)
-			usageService := service.ProvideAccountUsageService(nil, f.accounts, &recoveryUsageLogRepo{}, nil, nil, nil, nil, nil, nil, service.NewUsageCache(), nil, nil, gateway)
+			usageService := service.ProvideAccountUsageService(nil, nil, f.accounts, &recoveryUsageLogRepo{}, nil, nil, nil, nil, nil, nil, service.NewUsageCache(), nil, nil, gateway)
 			usage, failures, err := usageService.GetUsageBatch(f.ctx, []int64{passive.ID, bad.ID, active.ID, bad.ID, foreign.ID, 999999999}, true)
 			require.NoError(t, err)
 			require.Len(t, usage, 2)

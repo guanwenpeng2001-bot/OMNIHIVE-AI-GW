@@ -13,13 +13,13 @@ import (
 // used by catalog CAS. Stable OAuth subjects survive ordinary token refreshes.
 func ModelCapabilityIdentityFingerprint(account *Account) string {
 	identity := map[string]any{"platform": account.Platform, "type": account.Type, "parent_account_id": account.ParentAccountID}
-	for _, key := range AccountCatalogIdentityCredentialFields() {
+	for _, key := range AccountCatalogIdentityCredentialFields(account.Platform) {
 		if value, exists := account.Credentials[key]; exists {
 			identity[key] = value
 		}
 	}
 	stableSubject := false
-	for _, key := range []string{"chatgpt_account_id", "chatgpt_user_id", "sub", "account_id", "user_id"} {
+	for _, key := range AccountCatalogSubjectFields(account.Platform) {
 		stableSubject = stableSubject || account.GetCredential(key) != ""
 	}
 	if !stableSubject && account.Credentials["access_token"] != nil {

@@ -68,6 +68,20 @@ func (_c *WorkspaceMemberCreate) SetRole(v workspacemember.Role) *WorkspaceMembe
 	return _c
 }
 
+// SetInheritsGlobalRole sets the "inherits_global_role" field.
+func (_c *WorkspaceMemberCreate) SetInheritsGlobalRole(v bool) *WorkspaceMemberCreate {
+	_c.mutation.SetInheritsGlobalRole(v)
+	return _c
+}
+
+// SetNillableInheritsGlobalRole sets the "inherits_global_role" field if the given value is not nil.
+func (_c *WorkspaceMemberCreate) SetNillableInheritsGlobalRole(v *bool) *WorkspaceMemberCreate {
+	if v != nil {
+		_c.SetInheritsGlobalRole(*v)
+	}
+	return _c
+}
+
 // Mutation returns the WorkspaceMemberMutation object of the builder.
 func (_c *WorkspaceMemberCreate) Mutation() *WorkspaceMemberMutation {
 	return _c.mutation
@@ -111,6 +125,10 @@ func (_c *WorkspaceMemberCreate) defaults() {
 		v := workspacemember.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.InheritsGlobalRole(); !ok {
+		v := workspacemember.DefaultInheritsGlobalRole
+		_c.mutation.SetInheritsGlobalRole(v)
+	}
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -134,6 +152,9 @@ func (_c *WorkspaceMemberCreate) check() error {
 		if err := workspacemember.RoleValidator(v); err != nil {
 			return &ValidationError{Name: "role", err: fmt.Errorf(`ent: validator failed for field "WorkspaceMember.role": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.InheritsGlobalRole(); !ok {
+		return &ValidationError{Name: "inherits_global_role", err: errors.New(`ent: missing required field "WorkspaceMember.inherits_global_role"`)}
 	}
 	return nil
 }
@@ -181,6 +202,10 @@ func (_c *WorkspaceMemberCreate) createSpec() (*WorkspaceMember, *sqlgraph.Creat
 	if value, ok := _c.mutation.Role(); ok {
 		_spec.SetField(workspacemember.FieldRole, field.TypeEnum, value)
 		_node.Role = value
+	}
+	if value, ok := _c.mutation.InheritsGlobalRole(); ok {
+		_spec.SetField(workspacemember.FieldInheritsGlobalRole, field.TypeBool, value)
+		_node.InheritsGlobalRole = value
 	}
 	return _node, _spec
 }
@@ -291,6 +316,18 @@ func (u *WorkspaceMemberUpsert) SetRole(v workspacemember.Role) *WorkspaceMember
 // UpdateRole sets the "role" field to the value that was provided on create.
 func (u *WorkspaceMemberUpsert) UpdateRole() *WorkspaceMemberUpsert {
 	u.SetExcluded(workspacemember.FieldRole)
+	return u
+}
+
+// SetInheritsGlobalRole sets the "inherits_global_role" field.
+func (u *WorkspaceMemberUpsert) SetInheritsGlobalRole(v bool) *WorkspaceMemberUpsert {
+	u.Set(workspacemember.FieldInheritsGlobalRole, v)
+	return u
+}
+
+// UpdateInheritsGlobalRole sets the "inherits_global_role" field to the value that was provided on create.
+func (u *WorkspaceMemberUpsert) UpdateInheritsGlobalRole() *WorkspaceMemberUpsert {
+	u.SetExcluded(workspacemember.FieldInheritsGlobalRole)
 	return u
 }
 
@@ -406,6 +443,20 @@ func (u *WorkspaceMemberUpsertOne) SetRole(v workspacemember.Role) *WorkspaceMem
 func (u *WorkspaceMemberUpsertOne) UpdateRole() *WorkspaceMemberUpsertOne {
 	return u.Update(func(s *WorkspaceMemberUpsert) {
 		s.UpdateRole()
+	})
+}
+
+// SetInheritsGlobalRole sets the "inherits_global_role" field.
+func (u *WorkspaceMemberUpsertOne) SetInheritsGlobalRole(v bool) *WorkspaceMemberUpsertOne {
+	return u.Update(func(s *WorkspaceMemberUpsert) {
+		s.SetInheritsGlobalRole(v)
+	})
+}
+
+// UpdateInheritsGlobalRole sets the "inherits_global_role" field to the value that was provided on create.
+func (u *WorkspaceMemberUpsertOne) UpdateInheritsGlobalRole() *WorkspaceMemberUpsertOne {
+	return u.Update(func(s *WorkspaceMemberUpsert) {
+		s.UpdateInheritsGlobalRole()
 	})
 }
 
@@ -687,6 +738,20 @@ func (u *WorkspaceMemberUpsertBulk) SetRole(v workspacemember.Role) *WorkspaceMe
 func (u *WorkspaceMemberUpsertBulk) UpdateRole() *WorkspaceMemberUpsertBulk {
 	return u.Update(func(s *WorkspaceMemberUpsert) {
 		s.UpdateRole()
+	})
+}
+
+// SetInheritsGlobalRole sets the "inherits_global_role" field.
+func (u *WorkspaceMemberUpsertBulk) SetInheritsGlobalRole(v bool) *WorkspaceMemberUpsertBulk {
+	return u.Update(func(s *WorkspaceMemberUpsert) {
+		s.SetInheritsGlobalRole(v)
+	})
+}
+
+// UpdateInheritsGlobalRole sets the "inherits_global_role" field to the value that was provided on create.
+func (u *WorkspaceMemberUpsertBulk) UpdateInheritsGlobalRole() *WorkspaceMemberUpsertBulk {
+	return u.Update(func(s *WorkspaceMemberUpsert) {
+		s.UpdateInheritsGlobalRole()
 	})
 }
 

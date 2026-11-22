@@ -714,6 +714,8 @@ components:
           type:
           - string
           - 'null'
+        detail:
+          type: string
       additionalProperties: false
     ConnectionVerification:
       type: object
@@ -777,6 +779,49 @@ components:
       maxProperties: 64
       additionalProperties:
         type: string
+    ConnectionAccountMode:
+      type: string
+      enum:
+      - free
+      - apikey
+      - go
+      - zen
+      - zen_free
+      description: |
+        Provider-selected authorization lane. `kilo` accepts `free` (keyless
+        public lane) or `apikey` (private key). `opencode_go` accepts `go`,
+        `zen` or `zen_free`. Other providers ignore the field. Switching between
+        a public and paid lane requires clearing the existing credential version.
+    ConnectionWorkBuddyCredentialMetadata:
+      type: object
+      description: |
+        Non-sensitive WorkBuddy credential metadata accepted by the credential
+        write path. Secret token material must stay in `secret` / `refresh_token`
+        and is never accepted through `metadata`. API-key connections accept
+        only `site`; OAuth connections accept every field below.
+      properties:
+        site:
+          type: string
+          enum:
+          - cn
+          - global
+          description: Normalized site; OAuth input also accepts desktop import aliases.
+        uid:
+          type: string
+          maxLength: 2048
+        domain:
+          type: string
+          maxLength: 2048
+        enterprise_id:
+          type: string
+          maxLength: 2048
+        expires_at:
+          type: string
+          description: RFC3339 timestamp or a numeric timestamp accepted by the normalizer.
+        refresh_expires_at:
+          type: string
+          description: RFC3339 timestamp or a numeric timestamp accepted by the normalizer.
+      additionalProperties: false
     ConnectionCreate:
       type: object
       required:
@@ -791,6 +836,8 @@ components:
           const: '1'
         auth_type:
           type: string
+        account_mode:
+          $ref: '#/components/schemas/ConnectionAccountMode'
         name:
           type: string
         endpoint:
@@ -803,6 +850,8 @@ components:
     ConnectionPatch:
       type: object
       properties:
+        account_mode:
+          $ref: '#/components/schemas/ConnectionAccountMode'
         name:
           type: string
         endpoint:
@@ -872,6 +921,8 @@ components:
           const: '1'
         auth_type:
           type: string
+        account_mode:
+          $ref: '#/components/schemas/ConnectionAccountMode'
         name:
           type: string
         endpoint:
@@ -917,6 +968,11 @@ components:
           type: array
           items:
             type: string
+        metadata:
+          $ref: '#/components/schemas/ConnectionWorkBuddyCredentialMetadata'
+          description: |
+            Non-sensitive WorkBuddy metadata echoed for callers with credential
+            metadata permission. Secret token material is never included.
       additionalProperties: false
     ConnectionRedacted:
       type: object
@@ -962,6 +1018,8 @@ components:
             type: string
             format: password
             writeOnly: true
+          metadata:
+            $ref: '#/components/schemas/ConnectionWorkBuddyCredentialMetadata'
         additionalProperties: false
     ConnectionCredentialResult:
       type: object
@@ -1020,6 +1078,9 @@ components:
           format: uuid
         reason:
           type: string
+        message:
+          type: string
+          description: Actionable detail for the current item state, when available.
         version:
           type: string
           pattern: ^[1-9][0-9]*$

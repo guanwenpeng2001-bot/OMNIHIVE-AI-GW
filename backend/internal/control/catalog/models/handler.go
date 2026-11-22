@@ -28,9 +28,15 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
+type plazaSettings interface {
+	GetModelPlazaRuntime(context.Context) service.ModelPlazaRuntime
+}
+
 type Handler struct {
+	settings  plazaSettings
 	reader    catalog.CatalogReader
 	access    identity.AccessEvaluator
 	cursorKey [32]byte
@@ -46,6 +52,7 @@ func New(reader catalog.CatalogReader, access identity.AccessEvaluator, cfg *con
 func NewWithPricing(reader catalog.CatalogReader, access identity.AccessEvaluator, cfg *config.Config, db *sql.DB) *Handler {
 	h := New(reader, access, cfg)
 	if db != nil {
+		h.settings = plazaDBSettings{db}
 		published := pricing.VersionStore{DB: db}
 		h.quotes = quotes.Service{
 			Catalog:   reader,
@@ -54,6 +61,58 @@ func NewWithPricing(reader catalog.CatalogReader, access identity.AccessEvaluato
 		}
 	}
 	return h
+}
+
+// The production constructor already receives the settings database. Preserve
+// New's nil-settings behavior for embedded callers and existing tests.
+type plazaDBSettings struct{ db *sql.DB }
+
+func (s plazaDBSettings) GetModelPlazaRuntime(ctx context.Context) service.ModelPlazaRuntime {
+	runtime := service.ModelPlazaRuntime{Enabled: true}
+	rows, err := s.db.QueryContext(ctx, `SELECT key,value FROM settings WHERE key IN ('model_plaza_enabled','model_plaza_require_auth')`)
+	if err != nil {
+		return service.ModelPlazaRuntime{}
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key, value string
+		if rows.Scan(&key, &value) != nil {
+			return service.ModelPlazaRuntime{}
+		}
+		if key == "model_plaza_enabled" {
+			runtime.Enabled = value == "true"
+		}
+		if key == "model_plaza_require_auth" {
+			runtime.RequireAuth = value == "true"
+		}
+	}
+	if rows.Err() != nil {
+		return service.ModelPlazaRuntime{}
+	}
+	return runtime
+}
+func (h *Handler) publicGuard(session []gin.HandlerFunc) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if h.settings == nil {
+			return
+		}
+		runtime := h.settings.GetModelPlazaRuntime(c.Request.Context())
+		if !runtime.Enabled {
+			writeFault(c, fault.NotFound)
+			return
+		}
+		if !runtime.RequireAuth {
+			return
+		}
+		parts := strings.Fields(c.GetHeader("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || len(session) == 0 {
+			writeFault(c, fault.Unauthenticated)
+			return
+		}
+		// Reuse the strict session middleware supplied by the router: signature,
+		// expiry, user status, token version, revocation and session binding.
+		session[0](c)
+	}
 }
 
 type scopedKeyPriceResolver struct {
@@ -134,6 +193,7 @@ var ProviderSet = wire.NewSet(
 
 func Register(parent *gin.RouterGroup, h *Handler, public, session []gin.HandlerFunc) {
 	anonymous := parent.Group("/public/models", append([]gin.HandlerFunc{identityhttp.TenantHeaders}, public...)...)
+	anonymous.Use(h.publicGuard(session))
 	scoped := parent.Group("/workspaces/:workspace_id/projects/:project_id/models", append([]gin.HandlerFunc{identityhttp.TenantHeaders}, session...)...)
 	project := parent.Group("/workspaces/:workspace_id/projects/:project_id", append([]gin.HandlerFunc{identityhttp.TenantHeaders}, session...)...)
 	for _, g := range []*gin.RouterGroup{anonymous, scoped} {
@@ -151,6 +211,9 @@ type endpoint func(context.Context, catalog.Perspective, *gin.Context) (any, err
 func (h *Handler) serve(fn endpoint) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
+		if subject, ok := middleware.GetAuthSubjectFromContext(c); ok && subject.UserID > 0 {
+			ctx = catalog.WithPublicViewerAuthenticated(ctx)
+		}
 		p, err := h.perspective(ctx, c)
 		if err == nil {
 			var data any

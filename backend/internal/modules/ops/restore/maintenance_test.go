@@ -28,7 +28,7 @@ func TestMaintenanceDistinguishesJournalOutageFromRestore(t *testing.T) {
 			require.NoError(t, err)
 			defer func() { _ = journal.Close() }()
 			mock.MatchExpectationsInOrder(false)
-			mock.ExpectBegin()
+			mock.ExpectExec("BEGIN").WillReturnResult(sqlmock.NewResult(0, 0))
 			mock.ExpectQuery("pg_try_advisory_xact_lock_shared").WillReturnRows(sqlmock.NewRows([]string{"got"}).AddRow(true))
 			query := mock.ExpectQuery("SELECT EXISTS")
 			if tt.queryError != nil {
@@ -36,7 +36,7 @@ func TestMaintenanceDistinguishesJournalOutageFromRestore(t *testing.T) {
 			} else {
 				query.WillReturnRows(sqlmock.NewRows([]string{"blocked"}).AddRow(tt.blocked))
 			}
-			mock.ExpectRollback()
+			mock.ExpectExec("ROLLBACK").WillReturnResult(sqlmock.NewResult(0, 0))
 			handler := (&Service{Journal: journal}).Maintenance(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 				t.Fatal("request reached handler")
 			}))

@@ -156,6 +156,7 @@ func runSetupServer() {
 		Addr:              addr,
 		Handler:           r,
 		ReadHeaderTimeout: 30 * time.Second,
+		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		Protocols:         protocols,
 	}

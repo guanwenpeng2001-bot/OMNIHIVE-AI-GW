@@ -64,6 +64,10 @@ func applyOpenCodeSessionHeader(c *gin.Context, account *Account, targetURL stri
 	if !shouldSendOpenCodeSessionHeader(account, targetURL) {
 		return
 	}
+	if account.IsOpenCodeZenFree() {
+		applyZenFreeHeaders(c, headers, strings.HasSuffix(strings.TrimRight(targetURL, "/"), "/messages"), append(openCodeInboundBodies(c), bodies...)...)
+		return
+	}
 	applyOpenCodeParentSessionHeader(c, account, targetURL, headers)
 
 	payloads := append(openCodeInboundBodies(c), bodies...)
@@ -96,14 +100,14 @@ func applyOpenCodeParentSessionHeader(c *gin.Context, account *Account, targetUR
 }
 
 func shouldSendOpenCodeSessionHeader(account *Account, targetURL string) bool {
-	if account != nil && account.IsOpenCodeGoPlan() {
+	if account != nil && (account.IsOpenCodeGoPlan() || account.IsOpenCodeZenFree()) {
 		return true
 	}
 	return isOfficialOpenCodeHost(targetURL)
 }
 
 func shouldGenerateOpenCodeSession(account *Account, targetURL string) bool {
-	if account != nil && account.IsOpenCodeGoPlan() {
+	if account != nil && (account.IsOpenCodeGoPlan() || account.IsOpenCodeZenFree()) {
 		return true
 	}
 	parsed, err := url.Parse(targetURL)
@@ -145,6 +149,8 @@ func applyOpenCodeUpstreamUserAgent(account *Account, targetURL string, headers 
 	switch {
 	case isOfficialCommandCodeHost(targetURL):
 		userAgent = CodexCanonicalUserAgent()
+	case account != nil && account.IsOpenCodeZenFree():
+		userAgent = zenFreeUserAgent
 	case account != nil && account.IsOpenCodeGo(), isOfficialOpenCodeHost(targetURL):
 		userAgent = openCodeUpstreamUserAgent
 	default:

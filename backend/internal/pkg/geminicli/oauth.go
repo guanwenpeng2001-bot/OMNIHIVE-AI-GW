@@ -42,6 +42,7 @@ type SessionStore struct {
 	mu       sync.RWMutex
 	sessions map[string]*OAuthSession
 	stopCh   chan struct{}
+	stopOnce sync.Once
 }
 
 func NewSessionStore() *SessionStore {
@@ -79,12 +80,7 @@ func (s *SessionStore) Delete(sessionID string) {
 }
 
 func (s *SessionStore) Stop() {
-	select {
-	case <-s.stopCh:
-		return
-	default:
-		close(s.stopCh)
-	}
+	s.stopOnce.Do(func() { close(s.stopCh) })
 }
 
 func (s *SessionStore) cleanup() {

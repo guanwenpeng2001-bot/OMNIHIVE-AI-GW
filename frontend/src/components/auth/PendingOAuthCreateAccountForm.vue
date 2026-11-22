@@ -1,5 +1,19 @@
 <template>
   <form class="space-y-3" @submit.prevent="handleSubmit">
+    <div
+      v-if="settingsError"
+      role="alert"
+      class="space-y-2 rounded-lg border border-red-200 bg-red-50/80 p-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200"
+    >
+      <p>{{ t('publicPortal.legal.settingsLoadFailedHint') }}</p>
+      <button
+        type="button"
+        class="btn btn-outline btn-sm"
+        @click="loadPublicSettings"
+      >
+        {{ t('publicPortal.legal.retry') }}
+      </button>
+    </div>
     <input
       v-model="email"
       :data-testid="`${testIdPrefix}-create-account-email`"
@@ -49,7 +63,7 @@
         :data-testid="`${testIdPrefix}-create-account-send-code`"
         type="button"
         class="btn btn-secondary btn-outline shrink-0"
-        :disabled="isSubmitting || isSendingCode || countdown > 0 || !email.trim() || (turnstileEnabled && !turnstileToken)"
+        :disabled="isSubmitting || isSendingCode || !settingsLoaded || settingsError || countdown > 0 || !email.trim() || (turnstileActive && !turnstileToken)"
         @click="handleSendCode"
       >
         {{
@@ -93,7 +107,7 @@
       :data-testid="`${testIdPrefix}-create-account-submit`"
       type="button"
       class="btn btn-primary w-full"
-      :disabled="isSubmitting || !email.trim() || password.length < 6 || (invitationCodeEnabled && !invitationCode.trim()) || (turnstileEnabled && !turnstileToken) || (loginAgreementEnabled && !agreementAccepted)"
+      :disabled="isSubmitting || !settingsLoaded || settingsError || !email.trim() || password.length < 6 || (invitationCodeEnabled && !invitationCode.trim()) || (turnstileActive && !turnstileToken) || (loginAgreementEnabled && !agreementAccepted)"
       @click="handleSubmit"
     >
       {{ isSubmitting ? t('common.processing') : t('auth.createAccount') }}
@@ -116,6 +130,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import TurnstileWidget from '@/components/CaptchaChallenge.vue'
 import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
+import { resolveActiveCaptchaProvider } from '@/components/auth/captchaProvider'
 import { getPublicSettings, sendPendingOAuthVerifyCode } from '@/api/auth'
 import { useAppStore } from '@/stores'
 import { buildSignupAgreementPayload, resolveAgreementState } from '@/features/public/legal'
@@ -156,6 +171,8 @@ const isSendingCode = ref(false)
 const sendCodeError = ref('')
 const sendCodeSuccess = ref(false)
 const countdown = ref(0)
+const settingsLoaded = ref(false)
+const settingsError = ref(false)
 const invitationCodeEnabled = ref(false)
 const emailVerifyEnabled = ref(true)
 const turnstileEnabled = ref(false)
@@ -177,22 +194,23 @@ const loginAgreementDocuments = ref<LoginAgreementDocument[]>([])
 const agreementAccepted = ref(false)
 const showAgreementModal = ref(false)
 const turnstileRef = ref<InstanceType<typeof TurnstileWidget> | null>(null)
-const aliyunCaptchaReady = computed(
-  () =>
-    aliyunCaptchaEnabled.value &&
-    Boolean(aliyunCaptchaSceneId.value) &&
-    Boolean(aliyunCaptchaPrefix.value)
+const activeCaptchaProvider = computed(() =>
+  resolveActiveCaptchaProvider({
+    turnstileEnabled: turnstileEnabled.value,
+    turnstileSiteKey: turnstileSiteKey.value,
+    tencentEnabled: tencentCaptchaEnabled.value,
+    tencentAppId: tencentCaptchaAppId.value,
+    aliyunEnabled: aliyunCaptchaEnabled.value,
+    aliyunSceneId: aliyunCaptchaSceneId.value,
+    aliyunPrefix: aliyunCaptchaPrefix.value
+  })
 )
+const turnstileActive = computed(() => activeCaptchaProvider.value === 'turnstile')
+const tencentActive = computed(() => activeCaptchaProvider.value === 'tencent')
+const aliyunActive = computed(() => activeCaptchaProvider.value === 'aliyun')
 // 动作触发式验证码（腾讯/阿里云）：发送验证码、提交时弹窗验证
-const actionCaptchaEnabled = computed(
-  () =>
-    (tencentCaptchaEnabled.value && Boolean(tencentCaptchaAppId.value)) ||
-    aliyunCaptchaReady.value
-)
-const captchaEnabled = computed(
-  () =>
-    (turnstileEnabled.value && Boolean(turnstileSiteKey.value)) || actionCaptchaEnabled.value
-)
+const actionCaptchaEnabled = computed(() => tencentActive.value || aliyunActive.value)
+const captchaEnabled = computed(() => activeCaptchaProvider.value !== 'none')
 
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 
@@ -289,12 +307,15 @@ async function acquireActionProof(): Promise<boolean> {
 }
 
 async function handleSendCode() {
+  if (!settingsLoaded.value || settingsError.value) {
+    return
+  }
   const trimmedEmail = email.value.trim()
   if (!trimmedEmail) {
     return
   }
 
-  if (turnstileEnabled.value && !turnstileToken.value) {
+  if (turnstileActive.value && !turnstileToken.value) {
     sendCodeError.value = t('auth.completeVerification')
     return
   }
@@ -311,9 +332,9 @@ async function handleSendCode() {
     const response = await sendPendingOAuthVerifyCode({
       email: trimmedEmail,
       turnstile_token:
-        turnstileEnabled.value || aliyunCaptchaEnabled.value ? turnstileToken.value : undefined,
-      tencent_captcha_ticket: tencentCaptchaEnabled.value ? turnstileToken.value : undefined,
-      tencent_captcha_randstr: tencentCaptchaEnabled.value ? tencentCaptchaRandstr.value : undefined
+        turnstileActive.value || aliyunActive.value ? turnstileToken.value : undefined,
+      tencent_captcha_ticket: tencentActive.value ? turnstileToken.value : undefined,
+      tencent_captcha_randstr: tencentActive.value ? tencentCaptchaRandstr.value : undefined
     })
     sendCodeSuccess.value = true
     startCountdown(response.countdown)
@@ -328,6 +349,9 @@ async function handleSendCode() {
 }
 
 async function handleSubmit() {
+  if (!settingsLoaded.value || settingsError.value) {
+    return
+  }
   const trimmedEmail = email.value.trim()
   if (!trimmedEmail || password.value.length < 6) {
     return
@@ -336,7 +360,7 @@ async function handleSubmit() {
   // Turnstile 票据一次性：发送验证码已消耗上一枚，reset 后要等新票据回调。
   // 缺票时不能提交——create-account 端点会校验验证码，空 token 直接被判失败。
   // 表单的隐式提交（输入框回车）绕得过按钮的 disabled，所以这里必须再挡一次。
-  if (turnstileEnabled.value && !turnstileToken.value) {
+  if (turnstileActive.value && !turnstileToken.value) {
     sendCodeError.value = t('auth.completeVerification')
     return
   }
@@ -362,10 +386,10 @@ async function handleSubmit() {
     email: trimmedEmail,
     password: password.value,
     verifyCode: emailVerifyEnabled.value ? verifyCode.value.trim() : '',
-    ...((turnstileEnabled.value || aliyunCaptchaEnabled.value) && turnstileToken.value
+    ...((turnstileActive.value || aliyunActive.value) && turnstileToken.value
       ? { turnstileToken: turnstileToken.value }
       : {}),
-    ...(tencentCaptchaEnabled.value && turnstileToken.value
+    ...(tencentActive.value && turnstileToken.value
       ? {
           tencentCaptchaTicket: turnstileToken.value,
           tencentCaptchaRandstr: tencentCaptchaRandstr.value
@@ -399,7 +423,9 @@ function rejectAgreement() {
   showAgreementModal.value = false
 }
 
-onMounted(async () => {
+async function loadPublicSettings(): Promise<void> {
+  settingsLoaded.value = false
+  settingsError.value = false
   try {
     const settings = await getPublicSettings()
     invitationCodeEnabled.value = settings.invitation_code_enabled === true
@@ -422,6 +448,7 @@ onMounted(async () => {
     agreementAccepted.value = !agreement.enabled
     showAgreementModal.value = agreement.enabled && agreement.mode !== 'checkbox'
   } catch {
+    settingsError.value = true
     invitationCodeEnabled.value = false
     emailVerifyEnabled.value = true
     turnstileEnabled.value = false
@@ -433,7 +460,15 @@ onMounted(async () => {
     aliyunCaptchaSceneId.value = ''
     aliyunCaptchaPrefix.value = ''
     aliyunCaptchaRegion.value = 'cn'
+    loginAgreementEnabled.value = false
+    agreementAccepted.value = false
+  } finally {
+    settingsLoaded.value = true
   }
+}
+
+onMounted(async () => {
+  await loadPublicSettings()
 })
 
 onUnmounted(() => {

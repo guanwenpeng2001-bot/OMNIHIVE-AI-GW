@@ -88,12 +88,15 @@ func isGrokOAuthAccount(account *Account) bool {
 }
 
 func isOpenAIAccount(account *Account) bool {
-	return account != nil && (account.Platform == PlatformOpenAI || account.Platform == PlatformGrok)
+	return account != nil && (account.Platform == PlatformOpenAI || account.Platform == PlatformGrok || account.Platform == PlatformWorkBuddy || account.Platform == PlatformKilo)
 }
 
 // handleOpenAIAccountUpstreamError expects canonicalModel to be the model used
 // for scheduling after applying account mapping exactly once.
 func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, canonicalModel ...string) bool {
+	if publicModelLane(account) && statusCode == http.StatusUnauthorized {
+		return false
+	}
 	if account != nil && account.Platform == PlatformOpenRouter {
 		return s.handleOpenRouterError(ctx, account, statusCode, headers, responseBody)
 	}
@@ -588,19 +591,15 @@ func (s *OpenAIGatewayService) clearOpenAIAccountRuntimeBlockIfUnchanged(account
 	s.openaiAccountRuntimeBlockGeneration.Store(key, s.openaiAccountRuntimeBlockSequence.Add(1))
 }
 
-// isOpenAIAccountRequestRuntimeBlocked treats persisted cooldown fields on the
-// scheduling Account as source of truth. When TempUnschedulableUntil,
-// RateLimitResetAt, and OverloadUntil are all inactive, a stale local account
-// block is dropped with generation+deadline CAS. Model-scoped transient blocks
-// are left alone. This is fail-open if a DB write failed or the snapshot has
-// not caught up yet: empty cooldown fields drop the local account-level block.
+// WorkBuddy relies on its local cooldown until expiry or an explicit clear, even
+// when persistence fails. Other platforms reconcile against the account snapshot.
 func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlocked(account *Account, requestedModel string) bool {
 	if s == nil {
 		return false
 	}
 	snapshot := s.peekOpenAIAccountRuntimeBlock(account)
 	if snapshot.blocked {
-		if accountPersistedSchedulingCooldownActive(account) {
+		if account.Platform == PlatformWorkBuddy || accountPersistedSchedulingCooldownActive(account) {
 			return true
 		}
 		s.clearOpenAIAccountRuntimeBlockIfUnchanged(account.ID, snapshot)

@@ -329,9 +329,6 @@ func (h *OpenAIGatewayHandler) handleVideoSubmit(c *gin.Context, action, platfor
 		if c.IsAborted() {
 			return
 		}
-		if !reserveGatewayRequestBudget(c, apiKey, requestModel, body) {
-			return
-		}
 	}
 	setOpsRequestContext(c, requestModel, false)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeSync))
@@ -409,12 +406,23 @@ func (h *OpenAIGatewayHandler) handleVideoSubmit(c *gin.Context, action, platfor
 		upstreamBody = rewritten
 	}
 
-	// Preserve the existing selection and tariff checks, then give the child
-	// submission its TPM repository and scope before it can contact upstream.
-	if platform != service.PlatformOpenRouter && platform != service.PlatformKaggle {
+	if platform == service.PlatformOpenAI {
 		defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, requestModel, "media", h.maxAccountSwitches)()
 		if c.IsAborted() {
 			return
+		}
+	}
+	billing.KeyPeriodBudget = apiKey.HasPeriodBudget()
+	if platform == service.PlatformOpenAI {
+		billing.AdmissionSeconds = billableSeconds
+		if action == "video.generate" {
+			if seconds := gjson.GetBytes(body, "seconds").Int(); seconds > 0 && seconds <= 120 {
+				billing.AdmissionSeconds = int(seconds)
+			}
+		}
+		if billing.AdmissionSeconds == 0 {
+			// The terminal adapter accepts at most 120 seconds, including edits.
+			billing.AdmissionSeconds = 120
 		}
 	}
 	template := &service.UpstreamJob{
@@ -444,6 +452,14 @@ func (h *OpenAIGatewayHandler) handleVideoSubmit(c *gin.Context, action, platfor
 	}, account)
 	if err != nil {
 		reqLog.Warn("openai_video.submit_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+		if errors.Is(err, service.ErrUpstreamJobTariff) {
+			abortGatewayRequestBudget(c, service.ErrModelPricingUnavailable)
+			return
+		}
+		if errors.Is(err, service.ErrAPIKeyBudgetInsufficientBalance) || errors.Is(err, service.ErrAPIKeyBudgetExceeded) {
+			abortGatewayRequestBudget(c, err)
+			return
+		}
 		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Unable to admit the video job")
 		return
 	}
@@ -496,7 +512,8 @@ func (h *OpenAIGatewayHandler) handleVideoRead(c *gin.Context, content bool, pla
 		c.JSON(http.StatusOK, openAIVideoJobObject(job))
 		return
 	}
-	if job.Status != "succeeded" || job.ResultRef == "" {
+	if job.Status != "succeeded" || job.ResultRef == "" ||
+		((platform == service.PlatformOpenRouter || platform == service.PlatformKaggle) && job.ChargedUsageLogID == nil) {
 		h.errorResponse(c, http.StatusConflict, "resource_not_ready", "Video content is not ready")
 		return
 	}

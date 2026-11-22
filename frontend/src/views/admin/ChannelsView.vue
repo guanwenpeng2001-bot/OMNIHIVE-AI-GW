@@ -675,6 +675,17 @@
       @confirm="confirmDelete"
       @cancel="showDeleteDialog = false"
     />
+
+    <!-- Sync Latest Models Confirmation -->
+    <ConfirmDialog
+      :show="pendingModelSync !== null"
+      :title="t('admin.channels.form.syncLatestModels')"
+      :message="syncModelsConfirmMessage"
+      :confirm-text="t('common.confirm', 'Confirm')"
+      :cancel-text="t('common.cancel', 'Cancel')"
+      @confirm="confirmSyncLatestModels"
+      @cancel="pendingModelSync = null"
+    />
   </AppLayout>
 </template>
 
@@ -710,7 +721,7 @@ import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useKeyedDebouncedSearch } from '@/composables/useKeyedDebouncedSearch'
 import { useThemeDirection } from '@/composables/useThemeDirection'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const appStore = useAppStore()
 const { openDrawer } = useThemeDirection()
 
@@ -975,16 +986,36 @@ function addPricingEntry(sectionIdx: number) {
 }
 
 const syncingPlatform = ref<string | null>(null)
+const pendingModelSync = ref<{ platform: string; models: string[] } | null>(null)
+
+const syncModelsConfirmMessage = computed(() => {
+  const pending = pendingModelSync.value
+  if (!pending) return ''
+  const platformLabel = getPlatformLabel(pending.platform, t)
+  const preview = pending.models.slice(0, 8).join(', ')
+  const suffix = pending.models.length > 8 ? ` (+${pending.models.length - 8})` : ''
+  const isZhLocale = String(locale?.value || 'zh').toLowerCase().startsWith('zh')
+  return isZhLocale
+    ? `将为 ${platformLabel} 新增 ${pending.models.length} 个模型的空白 Token 计费价卡（保存前需补全价格）：${preview}${suffix}。确认添加吗？`
+    : `Add a blank token-billed pricing card for ${pending.models.length} new models under ${platformLabel} (fill prices before saving): ${preview}${suffix}. Continue?`
+})
+
+function findPlatformSectionByName(platform: string) {
+  return form.platforms.find((section) => section.platform === platform)
+}
 
 async function syncLatestModels(sectionIdx: number) {
-  const platform = form.platforms[sectionIdx].platform
-  if (syncingPlatform.value || !platformSupportsPricingSync(platform)) return
+  const initialSection = form.platforms[sectionIdx]
+  const platform = initialSection?.platform
+  if (!platform || syncingPlatform.value || !platformSupportsPricingSync(platform)) return
   syncingPlatform.value = platform
   try {
     const result = await adminAPI.channels.syncPricingModels(platform)
+    const targetSection = findPlatformSectionByName(platform)
+    if (!targetSection) return
     // Collect all model names already present in this platform's pricing entries
     const existingModels = new Set<string>()
-    for (const entry of form.platforms[sectionIdx].model_pricing) {
+    for (const entry of targetSection.model_pricing) {
       for (const m of entry.models) existingModels.add(m)
     }
     const newModels = result.models.filter(m => !existingModels.has(m))
@@ -992,30 +1023,47 @@ async function syncLatestModels(sectionIdx: number) {
       appStore.showSuccess(t('admin.channels.form.syncModelsAlreadyUpToDate'))
       return
     }
-    // Add new models as a single new pricing entry (user fills in prices)
-    form.platforms[sectionIdx].model_pricing.push({
-      models: newModels,
-      billing_mode: 'token',
-      input_price: null,
-      output_price: null,
-      cache_write_price: null,
-      cache_write_1h_price: null,
-      cache_read_price: null,
-      fast_multiplier: null,
-      flex_multiplier: null,
-      max_reasoning_effort_multiplier: null,
-      image_input_price: null,
-      image_output_price: null,
-      per_request_price: null,
-      intervals: [],
-      time_pricing: createDefaultTimePricingForm()
-    })
-    appStore.showSuccess(t('admin.channels.form.syncModelsSuccess', { count: newModels.length }))
+    pendingModelSync.value = { platform, models: newModels }
   } catch (error) {
     appStore.showError(extractApiErrorMessage(error, t('admin.channels.form.syncModelsError')))
   } finally {
     syncingPlatform.value = null
   }
+}
+
+function confirmSyncLatestModels() {
+  const pending = pendingModelSync.value
+  pendingModelSync.value = null
+  if (!pending) return
+  const targetSection = findPlatformSectionByName(pending.platform)
+  if (!targetSection) return
+  const existingModels = new Set<string>()
+  for (const entry of targetSection.model_pricing) {
+    for (const m of entry.models) existingModels.add(m)
+  }
+  const newModels = pending.models.filter(m => !existingModels.has(m))
+  if (newModels.length === 0) {
+    appStore.showSuccess(t('admin.channels.form.syncModelsAlreadyUpToDate'))
+    return
+  }
+  targetSection.model_pricing.push({
+    models: newModels,
+    billing_mode: 'token',
+    input_price: null,
+    output_price: null,
+    cache_write_price: null,
+    cache_write_1h_price: null,
+    cache_read_price: null,
+    fast_multiplier: null,
+    flex_multiplier: null,
+    max_reasoning_effort_multiplier: null,
+    image_input_price: null,
+    image_output_price: null,
+    per_request_price: null,
+    intervals: [],
+    time_pricing: createDefaultTimePricingForm()
+  })
+  appStore.showSuccess(t('admin.channels.form.syncModelsSuccess', { count: newModels.length }))
 }
 
 function updatePricingEntry(sectionIdx: number, idx: number, updated: PricingFormEntry) {
@@ -1456,6 +1504,7 @@ function resetForm() {
   ruleAccountSearchRunner.clearAll()
   clearAllRuleAccountSearchState()
   ruleAccountNameCache.value = {}
+  pendingModelSync.value = null
 }
 
 async function openCreateDialog() {
@@ -1467,6 +1516,7 @@ async function openCreateDialog() {
 
 async function openEditDialog(channel: Channel) {
   editingChannel.value = channel
+  pendingModelSync.value = null
   form.name = channel.name
   form.description = channel.description || ''
   form.status = channel.status

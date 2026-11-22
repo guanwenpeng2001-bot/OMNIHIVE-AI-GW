@@ -149,6 +149,9 @@ CREATE TABLE IF NOT EXISTS user_provider_default_grants (
 	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(drv)))
 	t.Cleanup(func() { _ = client.Close() })
 
+	_, err = client.Workspace.Create().SetName("Default").SetIsDefault(true).Save(t.Context())
+	require.NoError(t, err)
+
 	repo := repository.NewUserRepository(client, db)
 	cfg := &config.Config{
 		JWT: config.JWTConfig{

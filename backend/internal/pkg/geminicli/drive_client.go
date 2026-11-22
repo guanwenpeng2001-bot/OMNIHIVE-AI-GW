@@ -50,66 +50,9 @@ func (c *driveClient) GetStorageQuota(ctx context.Context, accessToken, proxyURL
 		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
 	}
 
-	sleepWithContext := func(d time.Duration) error {
-		timer := time.NewTimer(d)
-		defer timer.Stop()
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-timer.C:
-			return nil
-		}
-	}
-
-	// Retry logic with exponential backoff (+ jitter) for rate limits and transient failures
-	var resp *http.Response
-	maxRetries := 3
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		if ctx.Err() != nil {
-			return nil, fmt.Errorf("request cancelled: %w", ctx.Err())
-		}
-
-		resp, err = client.Do(req)
-		if err != nil {
-			// Network error retry
-			if attempt < maxRetries-1 {
-				backoff := time.Duration(1<<uint(attempt)) * time.Second
-				jitter := time.Duration(rng.Intn(1000)) * time.Millisecond
-				if err := sleepWithContext(backoff + jitter); err != nil {
-					return nil, fmt.Errorf("request cancelled: %w", err)
-				}
-				continue
-			}
-			return nil, fmt.Errorf("network error after %d attempts: %w", maxRetries, err)
-		}
-
-		// Success
-		if resp.StatusCode == http.StatusOK {
-			break
-		}
-
-		// Retry 429, 500, 502, 503 with exponential backoff + jitter
-		if (resp.StatusCode == http.StatusTooManyRequests ||
-			resp.StatusCode == http.StatusInternalServerError ||
-			resp.StatusCode == http.StatusBadGateway ||
-			resp.StatusCode == http.StatusServiceUnavailable) && attempt < maxRetries-1 {
-			if err := func() error {
-				defer func() { _ = resp.Body.Close() }()
-				backoff := time.Duration(1<<uint(attempt)) * time.Second
-				jitter := time.Duration(rng.Intn(1000)) * time.Millisecond
-				return sleepWithContext(backoff + jitter)
-			}(); err != nil {
-				return nil, fmt.Errorf("request cancelled: %w", err)
-			}
-			continue
-		}
-
-		break
-	}
-
-	if resp == nil {
-		return nil, fmt.Errorf("request failed: no response received")
+	resp, err := doDriveRequest(client, req)
+	if err != nil {
+		return nil, err
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -154,4 +97,47 @@ func (c *driveClient) GetStorageQuota(ctx context.Context, accessToken, proxyURL
 		Limit: limit,
 		Usage: usage,
 	}, nil
+}
+
+func doDriveRequest(client *http.Client, req *http.Request) (*http.Response, error) {
+	ctx := req.Context()
+	sleepWithContext := func(d time.Duration) error {
+		timer := time.NewTimer(d)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			return nil
+		}
+	}
+
+	const maxAttempts = 3
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for attempt := 1; ; attempt++ {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("request cancelled: %w", ctx.Err())
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			if attempt == maxAttempts {
+				return nil, fmt.Errorf("network error after %d attempts: %w", maxAttempts, err)
+			}
+		} else {
+			switch resp.StatusCode {
+			case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable:
+				if attempt == maxAttempts {
+					return resp, nil
+				}
+				_ = resp.Body.Close()
+			default:
+				return resp, nil
+			}
+		}
+		backoff := time.Duration(1<<uint(attempt-1)) * time.Second
+		jitter := time.Duration(rng.Intn(1000)) * time.Millisecond
+		if err := sleepWithContext(backoff + jitter); err != nil {
+			return nil, fmt.Errorf("request cancelled: %w", err)
+		}
+	}
 }

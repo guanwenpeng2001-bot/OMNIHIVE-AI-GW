@@ -63,6 +63,7 @@ type Application struct {
 	Audit      *audithttp.Handler
 
 	Status          *statushttp.Handler
+	AsyncImages     *handler.AsyncImageHandler
 	ImageTaskCenter *taskhttp.Handler
 	Restores        *legacyrestore.Runtime
 	OpsMetrics      *service.OpsMetricsCollector
@@ -122,7 +123,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 		process.NewAdmission,
 
 		// Application struct
-		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup", "UpstreamJobs", "OpsMetrics", "Restores", "ImageTaskCenter", "Status", "Audit", "Supervisor", "Admission"),
+		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup", "UpstreamJobs", "OpsMetrics", "Restores", "ImageTaskCenter", "AsyncImages", "Status", "Audit", "Supervisor", "Admission"),
 	)
 	return nil, nil
 }
@@ -693,6 +694,7 @@ var runtimeServiceProviders = wire.NewSet(
 	wire.Bind(new(service.AccountRuntimeBlocker), new(*service.OpenAIGatewayService)),
 	service.ProvideOAuthServiceWithEgress,
 	service.ProvideOpenAIOAuthService,
+	service.NewWorkBuddyOAuthService,
 	service.ProvideGrokOAuthService,
 	wire.Bind(new(service.GrokOAuthTokenService), new(*service.GrokOAuthService)),
 	service.ProvideGeminiOAuthServiceWithEgress,

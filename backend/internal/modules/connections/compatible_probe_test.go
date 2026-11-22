@@ -72,3 +72,20 @@ func TestCompatibleEndpointProbe(t *testing.T) {
 	require.Equal(t, "unknown", got.Network)
 	require.Equal(t, "unsupported", got.Discovery)
 }
+
+func TestW05CompatibleProbeReportsIncompleteCatalog(t *testing.T) {
+	for _, body := range []string{
+		`{"data":[{"id":"one"}],"has_more":true,"last_id":"one"}`,
+		`{"data":[{"id":"one"}],"nextPageToken":"second"}`,
+		`{"data":[{"id":"one"}],"next_cursor":"second"}`,
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, body) }))
+		req, _ := http.NewRequest("GET", server.URL, nil)
+		result, tryNext := probeCompatibleModels(server.Client(), req, "bearer", "secret")
+		require.False(t, tryNext)
+		require.Equal(t, "failed", result.Discovery)
+		require.Empty(t, result.Models)
+		require.Contains(t, result.Detail, "incomplete")
+		server.Close()
+	}
+}

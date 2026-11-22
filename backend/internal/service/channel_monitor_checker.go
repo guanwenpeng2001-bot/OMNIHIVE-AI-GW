@@ -170,6 +170,8 @@ type providerAdapter struct {
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
 var providerAdapters = map[string]providerAdapter{
 	MonitorProviderOpenAI: providerOpenAIChatAdapter,
+	PlatformKilo:          newOpenAICompatibleChatAdapter("/chat/completions"),
+	PlatformWorkBuddy:     newOpenAICompatibleChatAdapter("/v2/chat/completions"),
 	MonitorProviderGrok:   providerGrokChatAdapter,
 	// 国产 3 家（配额模式引入）：均为 OpenAI 兼容 Chat Completions，
 	// 仅智谱路径前缀不同（/api/paas/v4/chat/completions）。
@@ -308,9 +310,55 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 	}
 	headers := mergeHeaders(adapter.buildHeaders(apiKey), opts)
 	full := joinURL(endpoint, adapter.buildPath(model))
-	respBytes, status, err := postRawJSON(ctx, full, body, headers)
+	if provider == PlatformKilo {
+		mode := KiloAccountModeFree
+		if strings.TrimSpace(apiKey) != "" && strings.TrimSpace(apiKey) != "public" {
+			mode = KiloAccountModeAPIKey
+		}
+		a := &Account{Platform: PlatformKilo, Type: AccountTypeAPIKey, Credentials: map[string]any{"account_mode": mode, "api_key": apiKey, "base_url": endpoint}}
+		body, _, err = prepareKiloChat(a, body)
+		if err != nil {
+			return "", "", 0, err
+		}
+		full = kiloBaseURL(a) + "/chat/completions"
+		h := http.Header{}
+		for k, v := range headers {
+			h.Set(k, v)
+		}
+		applyKiloHeaders(h, a)
+		headers = map[string]string{}
+		for k, v := range h {
+			headers[k] = v[0]
+		}
+	}
+
+	if provider == PlatformWorkBuddy {
+		a := &Account{Platform: PlatformWorkBuddy, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": endpoint, "api_key": apiKey}}
+		body, err = prepareWorkBuddyChat(body)
+		if err != nil {
+			return "", "", 0, err
+		}
+		h := http.Header{}
+		for k, v := range headers {
+			h.Set(k, v)
+		}
+		applyWorkBuddyChatHeaders(h, a, body)
+		for k, v := range h {
+			headers[k] = v[0]
+		}
+		full = workBuddyEndpoint(a) + "/v2/chat/completions"
+	}
+
+	respBytes, status, err := postRawJSON(ctx, full, body, headers, provider)
 	if err != nil {
 		return "", "", status, err
+	}
+	if provider == PlatformWorkBuddy && status >= 200 && status < 300 {
+		aggregated, aggregateErr := aggregateWorkBuddyChat(bytes.NewReader(respBytes))
+		if aggregateErr != nil {
+			return "", string(respBytes), status, aggregateErr
+		}
+		respBytes = aggregated
 	}
 	if provider == MonitorProviderOpenAI && apiMode == MonitorAPIModeResponses {
 		return extractOpenAIResponsesText(respBytes), string(respBytes), status, nil
@@ -463,6 +511,8 @@ func buildRequestBody(adapter providerAdapter, provider, apiMode, model, prompt 
 //
 //nolint:gochecknoglobals // 静态查表，初始化后不变。
 var bodyMergeKeyDenyList = map[string]map[string]bool{
+	PlatformWorkBuddy: {"model": true, "messages": true, "stream": true},
+	PlatformKilo:      {"model": true, "messages": true, "stream": true},
 	MonitorProviderOpenAI + ":" + MonitorAPIModeChatCompletions: {"model": true, "messages": true, "stream": true},
 	MonitorProviderOpenAI + ":" + MonitorAPIModeResponses:       {"model": true, "instructions": true, "input": true, "stream": true},
 	MonitorProviderGrok:      {"model": true, "messages": true, "stream": true},
@@ -496,7 +546,7 @@ func bodyMergeDenyKey(provider, apiMode string) string {
 // Completions 同构（replace 模式的 body 校验按 messages 必填处理）。
 func isOpenAICompatibleChatProvider(provider string) bool {
 	switch provider {
-	case MonitorProviderOpenAI, MonitorProviderGrok,
+	case MonitorProviderOpenAI, MonitorProviderGrok, PlatformWorkBuddy, PlatformKilo,
 		MonitorProviderKimi, MonitorProviderZhipu, MonitorProviderDeepseek, MonitorProviderMiniMax, MonitorProviderOpenCodeGo, MonitorProviderQianwen, MonitorProviderCommandCode:
 		return true
 	default:
@@ -545,7 +595,7 @@ func hasNonEmptyBodyValue(v any) bool {
 
 // postRawJSON 发送 POST + 已序列化好的 JSON 字节，限制响应体大小，返回响应字节、HTTP status、错误。
 // adapter 自行 marshal 是为了精确控制字段顺序与类型，所以这里直接收 []byte 而不是 any。
-func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers map[string]string) ([]byte, int, error) {
+func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers map[string]string, provider string) ([]byte, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(payload))
 	if err != nil {
 		return nil, 0, fmt.Errorf("build request: %w", err)
@@ -556,7 +606,13 @@ func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers ma
 		req.Header.Set(k, v)
 	}
 
-	resp, err := monitorHTTPClient.Do(req)
+	client := monitorHTTPClient
+	if provider == PlatformWorkBuddy {
+		local := *client
+		local.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		client = &local
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, 0, fmt.Errorf("do request: %w", err)
 	}

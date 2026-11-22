@@ -610,6 +610,8 @@ export default {
         qianfan: '百度千帆',
         volcengine: '火山引擎',
         cursor: 'Cursor',
+        workbuddy: 'WorkBuddy',
+        kilo: 'Kilo',
         composite: 'Composite',
         claude: 'Claude',
       },
@@ -749,6 +751,10 @@ export default {
         accountMode: {
           zen: 'Zen',
           zenDesc: '按量付费网关，消耗账户余额，按 Token 计费。',
+          zenFree: 'Zen 免费池（免 Key）',
+          zenFreeDesc: 'OpenCode Zen 免密公开免费模型池，无需付费 API Key，自动补齐客户端指纹头与工具兼容层。',
+          zenFreeBadge: 'Zen 免费池',
+          zenFreeApiKeyHint: '免密公开池：留空（或填写 public）即可直接接入 OpenCode Zen 免费模型。',
           go: 'GO',
           goDesc: 'OpenCode Go 订阅制网关，按 5 小时 / 周 / 月滚动用量窗口限流；请使用对应 Go 订阅的凭据。',
         },
@@ -762,6 +768,20 @@ export default {
           fallback: '未命中以上规则 → Chat Completions（/v1/chat/completions）',
         },
       },
+      kilo: {
+        accountMode: {
+          label: 'Kilo 接入模式',
+          free: '免费池（免 Key）',
+          freeDesc: 'Kilo 免鉴权公开免费池（含 kilo-auto/free、Nemotron、ERNIE 等免费模型），无需填写 API Key。',
+          freeBadge: 'Kilo 免费池',
+          freeApiKeyHint: '免密公开池：留空即可接入 Kilo 免费池，出站请求不会携带 Authorization 头。',
+          apikey: 'API Key（完整网关）',
+          apikeyDesc: '使用自有 Kilo API Key 接入 Kilo 完整模型网关。',
+          apikeyBadge: 'Kilo API Key',
+          baseUrlHint: '默认为 https://api.kilo.ai/api/gateway（无需追加 /v1）。'
+        },
+      },
+      apiKeyOptional: 'API Key（可选）',
       types: {
         oauth: 'OAuth',
         chatgptOauth: 'ChatGPT OAuth',
@@ -770,6 +790,8 @@ export default {
         codeAssist: 'Code Assist',
         antigravityOauth: 'Antigravity OAuth',
         grokOauth: 'Grok OAuth',
+        workbuddyOauth: 'WorkBuddy OAuth（浏览器扫码/登录或手动导入令牌）',
+        workbuddyApikey: 'API Key（支持国内站 / 国际站切换）',
         antigravityApikey: '通过 Base URL + API Key 连接',
         upstream: '对接上游',
         upstreamDesc: '通过 Base URL + API Key 连接上游'
@@ -778,6 +800,64 @@ export default {
       antigravityProjectIdPlaceholder: 'your-gcp-project-id',
       antigravityProjectIdHint:
         'standard-tier 且未自动返回 project_id 的 Antigravity 账号需要填写用户自带 GCP project。',
+      workbuddy: {
+        siteLabel: 'WorkBuddy 站点',
+        siteHint: '选择国内站（copilot.tencent.com）或国际站（www.workbuddy.ai）。',
+        sites: {
+          cn: {
+            label: '国内站 · WorkBuddy',
+            subtitle: 'copilot.tencent.com',
+            domain: 'www.workbuddy.cn'
+          },
+          global: {
+            label: '国际站 · WorkBuddy AI',
+            subtitle: 'www.workbuddy.ai',
+            domain: 'www.workbuddy.ai'
+          }
+        },
+        siteShort: {
+          cn: '国内站',
+          global: '国际站'
+        },
+        oauth: {
+          title: 'WorkBuddy 浏览器 OAuth 登录',
+          hint: '点击发起当前站点的浏览器登录，打开授权链接完成登录后将自动回填凭据与建议账号名称。',
+          startLogin: '发起 WorkBuddy 登录',
+          openLoginLink: '打开登录链接',
+          copyUrl: '复制授权链接',
+          copied: '已复制',
+          manualSectionTitle: '手动导入 OAuth 凭据',
+          manualHint: '浏览器登录完成后会自动回填以下字段，也可直接手动粘贴导入。',
+          accessTokenRequired: '请先完成 WorkBuddy 浏览器登录或填写 access_token。',
+          keepTokenPlaceholder: '留空则保留现有令牌',
+          fields: {
+            accessToken: '访问令牌 (access_token)',
+            refreshToken: '刷新令牌 (refresh_token)',
+            uid: '用户 ID (uid)',
+            domain: '站点域名 (domain)',
+            expiresAt: '过期时间 (expires_at，可选)'
+          },
+          status: {
+            starting: '正在创建 WorkBuddy 登录会话...',
+            waiting: '正在等待 WorkBuddy 浏览器登录完成...',
+            completed: 'WorkBuddy 登录成功，已自动回填凭据。',
+            failed: 'WorkBuddy 登录失败，请重试。',
+            timeout: 'WorkBuddy 登录超时，请重新发起登录。',
+            cancelled: '已取消 WorkBuddy 登录。'
+          }
+        },
+        apikey: {
+          apiKeyPlaceholder: '输入 WorkBuddy API Key',
+          baseUrlLabel: 'Base URL（可选）',
+          baseUrlHint: '可选覆写地址；留空则使用所选站点的默认服务端点。'
+        },
+        usage: {
+          baseCredits: '基础额度',
+          extraCredits: '加量包',
+          totalRemaining: '总剩余',
+          plan: '套餐'
+        }
+      },
       accountSchedulingThresholdOverride: '账号自动停调阈值覆盖',
       accountSchedulingThresholdOverrideHint:
         '仅对当前账号覆盖平台级自动停调阈值；关闭后使用平台设置。',

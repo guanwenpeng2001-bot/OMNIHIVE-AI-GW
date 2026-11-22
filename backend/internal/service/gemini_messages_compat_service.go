@@ -477,11 +477,11 @@ func (s *GeminiMessagesCompatService) listSchedulableAccountsOnce(ctx context.Co
 }
 
 func (s *GeminiMessagesCompatService) validateUpstreamBaseURL(raw string) (string, error) {
-	normalized, err := urlvalidator.ValidateHTTPURL(raw, s.cfg != nil && s.cfg.Security.URLAllowlist.AllowInsecureHTTP, urlvalidator.ValidationOptions{
-		AllowedHosts:     s.cfg.Security.URLAllowlist.UpstreamHosts,
-		RequireAllowlist: s.cfg != nil && s.cfg.Security.URLAllowlist.Enabled,
-		AllowPrivate:     s.cfg.Security.URLAllowlist.AllowPrivateHosts,
-	})
+	policy := config.URLAllowlistConfig{}
+	if s.cfg != nil {
+		policy = s.cfg.Security.URLAllowlist
+	}
+	normalized, err := urlvalidator.ValidateHTTPURL(raw, policy.AllowInsecureHTTP, policy.UpstreamValidationOptions())
 	if err != nil {
 		return "", fmt.Errorf("invalid base_url: %w", err)
 	}
@@ -2135,32 +2135,26 @@ func collectGeminiSSEObserved(cfg *config.Config, body io.Reader, isOAuth bool, 
 
 	var last map[string]any
 	var lastWithParts map[string]any
-	var collectedTextParts []string // Collect all text parts for aggregation
-	var collectedToolParts []map[string]any
+	var collectedParts []any
+	var plainText strings.Builder
+	flushText := func() {
+		if plainText.Len() > 0 {
+			collectedParts = append(collectedParts, map[string]any{"text": plainText.String()})
+			plainText.Reset()
+		}
+	}
 	seenToolIDs := map[string]bool{}
 	usage := &ClaudeUsage{}
 	stats := geminiSSECollectStats{fallback: &geminiSSEFallbackBody{}}
 	finish := func() map[string]any {
 		result := pickGeminiCollectResult(last, lastWithParts)
-		if len(collectedToolParts) > 0 {
-			parts := make([]any, 0)
-			for _, part := range extractGeminiParts(result) {
-				if _, isCall := part["functionCall"]; !isCall {
-					parts = append(parts, part)
-				}
-			}
-			for _, part := range collectedToolParts {
-				parts = append(parts, part)
-			}
-			if candidates, ok := result["candidates"].([]any); ok && len(candidates) > 0 {
-				if candidate, ok := candidates[0].(map[string]any); ok {
-					if content, ok := candidate["content"].(map[string]any); ok {
-						content["parts"] = parts
-					}
-				}
-			}
+		flushText()
+		if len(collectedParts) > 0 {
+			merged, _, setParts := getOrCreateGeminiParts(result)
+			setParts(collectedParts)
+			return merged
 		}
-		return mergeCollectedTextParts(result, collectedTextParts)
+		return result
 	}
 
 	for {
@@ -2206,7 +2200,6 @@ func collectGeminiSSEObserved(cfg *config.Config, body io.Reader, isOAuth bool, 
 						}
 						if parts := extractGeminiParts(parsed); len(parts) > 0 {
 							lastWithParts = parsed
-							// Collect text from each part for aggregation
 							for _, part := range parts {
 								if call, ok := part["functionCall"].(map[string]any); ok {
 									// This collector accepts complete tool parts only. A
@@ -2214,11 +2207,15 @@ func collectGeminiSSEObserved(cfg *config.Config, body io.Reader, isOAuth bool, 
 									if err := validateGeminiStreamToolCall(call, "", "", seenToolIDs); err != nil {
 										return nil, usage, stats, err
 									}
-									collectedToolParts = append(collectedToolParts, part)
 								}
-								if text, ok := part["text"].(string); ok && text != "" {
-									collectedTextParts = append(collectedTextParts, text)
+								// Only plain text fragments can be joined. A thought, a tool, or
+								// a signed part keeps its original wire position and metadata.
+								if text, ok := part["text"].(string); ok && len(part) == 1 {
+									plainText.WriteString(text)
+									continue
 								}
+								flushText()
+								collectedParts = append(collectedParts, part)
 							}
 						}
 					}
@@ -2245,83 +2242,6 @@ func pickGeminiCollectResult(last map[string]any, lastWithParts map[string]any) 
 		return last
 	}
 	return map[string]any{}
-}
-
-// mergeCollectedTextParts merges all collected text chunks into the final response.
-// This fixes the issue where non-streaming responses only returned the last chunk
-// instead of the complete aggregated text.
-func mergeCollectedTextParts(response map[string]any, textParts []string) map[string]any {
-	if len(textParts) == 0 {
-		return response
-	}
-
-	// Join all text parts
-	mergedText := strings.Join(textParts, "")
-
-	// Deep copy response
-	result := make(map[string]any)
-	for k, v := range response {
-		result[k] = v
-	}
-
-	// Get or create candidates
-	candidates, ok := result["candidates"].([]any)
-	if !ok || len(candidates) == 0 {
-		candidates = []any{map[string]any{}}
-	}
-
-	// Get first candidate
-	candidate, ok := candidates[0].(map[string]any)
-	if !ok {
-		candidate = make(map[string]any)
-		candidates[0] = candidate
-	}
-
-	// Get or create content
-	content, ok := candidate["content"].(map[string]any)
-	if !ok {
-		content = map[string]any{"role": "model"}
-		candidate["content"] = content
-	}
-
-	// Get existing parts
-	existingParts, ok := content["parts"].([]any)
-	if !ok {
-		existingParts = []any{}
-	}
-
-	// Find and update first text part, or create new one
-	newParts := make([]any, 0, len(existingParts)+1)
-	textUpdated := false
-
-	for _, p := range existingParts {
-		pm, ok := p.(map[string]any)
-		if !ok {
-			newParts = append(newParts, p)
-			continue
-		}
-		if _, hasText := pm["text"]; hasText && !textUpdated {
-			// Replace with merged text
-			newPart := make(map[string]any)
-			for k, v := range pm {
-				newPart[k] = v
-			}
-			newPart["text"] = mergedText
-			newParts = append(newParts, newPart)
-			textUpdated = true
-		} else {
-			newParts = append(newParts, pm)
-		}
-	}
-
-	if !textUpdated {
-		newParts = append([]any{map[string]any{"text": mergedText}}, newParts...)
-	}
-
-	content["parts"] = newParts
-	result["candidates"] = candidates
-
-	return result
 }
 
 type geminiNativeStreamResult struct {

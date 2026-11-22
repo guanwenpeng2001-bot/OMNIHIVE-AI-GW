@@ -402,8 +402,12 @@ func (w *Wxpay) QueryOrder(ctx context.Context, tradeNo string) (*payment.QueryO
 		return nil, fmt.Errorf("wxpay query order: %w", err)
 	}
 	var amt float64
+	var currency string
+	var minor int64
 	if tx.Amount != nil && tx.Amount.Total != nil {
-		amt = payment.FenToYuan(*tx.Amount.Total)
+		minor = *tx.Amount.Total
+		currency = wxSV(tx.Amount.Currency)
+		amt = payment.FenToYuan(minor)
 	}
 	id := tradeNo
 	if tx.TransactionId != nil {
@@ -414,6 +418,7 @@ func (w *Wxpay) QueryOrder(ctx context.Context, tradeNo string) (*payment.QueryO
 		pa = *tx.SuccessTime
 	}
 	return &payment.QueryOrderResponse{
+		InstanceID: w.instanceID, Currency: currency, Minor: minor,
 		TradeNo:  id,
 		Status:   mapWxState(wxSV(tx.TradeState)),
 		Amount:   amt,

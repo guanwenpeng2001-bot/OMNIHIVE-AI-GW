@@ -3,6 +3,15 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { adminAPI } from '@/api/admin'
+import {
+  defaultWorkBuddyBaseUrl,
+  defaultWorkBuddyDomain,
+  WORKBUDDY_SITES,
+  type WorkBuddyOAuthCredentials,
+  type WorkBuddySite
+} from '@/api/admin/workbuddy'
+import WorkBuddyAuthFields from '@/components/account/WorkBuddyAuthFields.vue'
+import type { KiloAccountMode, OpenCodeAccountMode } from '@/components/account/credentialsBuilder'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import {
   Badge,
@@ -24,6 +33,7 @@ import {
   filterSupportedAuthTypes,
   formatVerificationCheckReason,
   getAuthModeLabel,
+  getPrimaryVerificationDiagnostic,
   getProviderDisplayMeta,
   hasUnavailableVerificationEvidence,
   isConnectionResource,
@@ -33,6 +43,7 @@ import {
   mapApiErrorToAsyncContext,
   normalizeConnectionEndpointInput,
   type ProviderCategory,
+  sanitizeDiagnosticDetail,
   validateConnectionEndpoint
 } from '@/features/connections/rules'
 import type {
@@ -46,6 +57,7 @@ import type {
 import {
   buildCredentialInputPayload,
   buildMinimalConnectionPatch,
+  buildWorkBuddyMetadataSnapshot,
   canProceedFromStep,
   createInitialWizardState,
   createPersistedSnapshotFromState,
@@ -55,6 +67,10 @@ import {
   hydrateWizardFromResource,
   invalidatePreview,
   invalidateVerification,
+  isCrossingPublicPaidModeBoundary,
+  isSwitchingFromPublicToPaidMode,
+  requiresCredentialClearBeforeModePatch,
+  resolveWizardAccountMode,
   validateConnectionName,
   WIZARD_STEP_ORDER,
   type WizardStepId
@@ -66,6 +82,7 @@ const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const i18n = useI18n()
+const { t } = i18n
 const isZh = computed(() => String(i18n.locale?.value || '').toLowerCase().startsWith('zh'))
 
 const connectionIdParam = computed(() => {
@@ -333,6 +350,19 @@ const proxyOptions = computed(() => {
 })
 
 const supportsOAuth = computed(() => isOAuthWorkflowSupported(selectedSchema.value, state.authType))
+const isWorkBuddy = computed(() => state.provider.trim().toLowerCase() === 'workbuddy')
+const isWorkBuddyOAuth = computed(() => isWorkBuddy.value && state.authType.trim().toLowerCase() === 'oauth')
+const isKilo = computed(() => state.provider.trim().toLowerCase() === 'kilo')
+const isOpenCode = computed(() => state.provider.trim().toLowerCase() === 'opencode_go')
+const isKeylessPublicLane = computed(
+  () =>
+    (isKilo.value && state.kiloMode === 'free') ||
+    (isOpenCode.value && state.openCodeMode === 'zen_free')
+)
+const workbuddyNumericProxyId = computed<number | null>(() => {
+  const parsed = Number(state.networkPolicyId.trim())
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+})
 const supportsHeaderOverrides = computed(() =>
   isHeaderOverrideSupported(state.provider, state.authType)
 )
@@ -368,6 +398,10 @@ const hasUnavailableEvidence = computed(
     state.asyncError?.reason === 'EVIDENCE_UNAVAILABLE'
 )
 
+const primaryVerificationDiagnostic = computed(() =>
+  getPrimaryVerificationDiagnostic(state.verification, isZh.value)
+)
+
 const hasVerificationBlockedPreview = computed(() =>
   Boolean(
     state.preview?.blocked.some(
@@ -384,8 +418,7 @@ const shouldShowTopAsyncBanner = computed(
     Boolean(pageAsyncState.value) &&
     !(
       state.currentStep === 'verify' &&
-      hasUnavailableEvidence.value &&
-      state.asyncError?.reason === 'EVIDENCE_UNAVAILABLE'
+      (hasUnavailableEvidence.value || hasFailedVerificationCheck.value)
     )
 )
 
@@ -473,6 +506,28 @@ function selectProviderSchema(schema: ConnectionSchema) {
   if (!state.endpoint || (prevMetaEn && state.endpoint === prevDefaultEndpoint)) {
     state.endpoint = nextMeta.defaultEndpoint
   }
+  if (schema.provider === 'workbuddy') {
+    state.workbuddySite = 'cn'
+    state.workbuddyOAuth = {
+      access_token: '',
+      refresh_token: '',
+      uid: '',
+      domain: defaultWorkBuddyDomain('cn'),
+      expires_at: ''
+    }
+    if (!state.endpoint.trim()) {
+      state.endpoint = defaultWorkBuddyBaseUrl('cn')
+    }
+  }
+  if (schema.provider === 'kilo') {
+    state.kiloMode = 'free'
+    if (!state.endpoint.trim()) {
+      state.endpoint = 'https://api.kilo.ai/api/gateway'
+    }
+  }
+  if (schema.provider === 'opencode_go') {
+    state.openCodeMode = 'zen'
+  }
   if (!state.name || prevAutoNames.has(state.name)) {
     const candidateName = `${nextMeta.label} (${getAuthModeLabel(state.authType, isZh.value)})`
     state.name =
@@ -502,6 +557,123 @@ function handleEndpointChange(value: string | number) {
   endpointNormalizationHint.value = ''
   Object.assign(state, invalidateVerification(state))
 }
+
+function handleWorkBuddySiteChange(nextSite: WorkBuddySite) {
+  const prevSite = state.workbuddySite
+  if (prevSite === nextSite) return
+  state.workbuddySite = nextSite
+  const prevUrl = defaultWorkBuddyBaseUrl(prevSite)
+  const nextUrl = defaultWorkBuddyBaseUrl(nextSite)
+  const currentEndpoint = state.endpoint.trim().replace(/\/+$/, '')
+  if (!currentEndpoint || currentEndpoint === prevUrl) {
+    state.endpoint = nextUrl
+    endpointNormalizationHint.value = ''
+    Object.assign(state, invalidateVerification(state))
+  }
+  const prevDomain = defaultWorkBuddyDomain(prevSite)
+  if (!state.workbuddyOAuth.domain.trim() || state.workbuddyOAuth.domain.trim() === prevDomain) {
+    state.workbuddyOAuth = {
+      ...state.workbuddyOAuth,
+      domain: defaultWorkBuddyDomain(nextSite)
+    }
+  }
+}
+
+function handleWorkBuddySuggestedName(suggestedName: string) {
+  const trimmed = suggestedName.trim()
+  if (!trimmed) return
+  const autoEn = `${getProviderDisplayMeta('workbuddy', false).label} (${getAuthModeLabel(state.authType, false)})`
+  const autoZh = `${getProviderDisplayMeta('workbuddy', true).label} (${getAuthModeLabel(state.authType, true)})`
+  if (!state.name.trim() || state.name === autoEn || state.name === autoZh) {
+    state.name = trimmed.slice(0, 100)
+  }
+}
+
+const OPENCODE_ZEN_ENDPOINT = 'https://opencode.ai/zen/v1'
+const OPENCODE_GO_ENDPOINT = 'https://opencode.ai/zen/go/v1'
+
+function handleKiloModeChange(nextMode: KiloAccountMode) {
+  state.kiloMode = nextMode
+  if (nextMode === 'free') {
+    state.credentialSecret = ''
+    if (isCrossingPublicPaidModeBoundary(state)) {
+      state.credentialMode = 'set'
+    }
+  } else if (isSwitchingFromPublicToPaidMode(state)) {
+    state.credentialMode = 'set'
+    if (state.credentialSecret.trim().toLowerCase() === 'public') {
+      state.credentialSecret = ''
+    }
+  }
+  Object.assign(state, invalidateVerification(state))
+}
+
+function handleOpenCodeModeChange(nextMode: OpenCodeAccountMode) {
+  state.openCodeMode = nextMode
+  const normalizedEndpoint = state.endpoint.trim().replace(/\/+$/, '')
+  if (nextMode === 'zen_free') {
+    state.credentialSecret = ''
+    if (!normalizedEndpoint || normalizedEndpoint === OPENCODE_GO_ENDPOINT) {
+      state.endpoint = OPENCODE_ZEN_ENDPOINT
+    }
+    if (isCrossingPublicPaidModeBoundary(state)) {
+      state.credentialMode = 'set'
+    }
+  } else if (nextMode === 'zen') {
+    if (!normalizedEndpoint || normalizedEndpoint === OPENCODE_GO_ENDPOINT) {
+      state.endpoint = OPENCODE_ZEN_ENDPOINT
+    }
+    if (isSwitchingFromPublicToPaidMode(state)) {
+      state.credentialMode = 'set'
+      if (state.credentialSecret.trim().toLowerCase() === 'public') {
+        state.credentialSecret = ''
+      }
+    }
+  } else if (nextMode === 'go') {
+    if (!normalizedEndpoint || normalizedEndpoint === OPENCODE_ZEN_ENDPOINT) {
+      state.endpoint = OPENCODE_GO_ENDPOINT
+    }
+    if (isSwitchingFromPublicToPaidMode(state)) {
+      state.credentialMode = 'set'
+      if (state.credentialSecret.trim().toLowerCase() === 'public') {
+        state.credentialSecret = ''
+      }
+    }
+  }
+  Object.assign(state, invalidateVerification(state))
+}
+
+function handleWorkBuddyOAuthCompleted(payload: {
+  site: WorkBuddySite
+  accountName?: string
+  credentials: WorkBuddyOAuthCredentials
+}) {
+  handleWorkBuddySiteChange(payload.site)
+  state.workbuddyOAuth = {
+    access_token: payload.credentials.access_token || '',
+    refresh_token: payload.credentials.refresh_token || '',
+    uid: payload.credentials.uid || '',
+    domain: payload.credentials.domain || defaultWorkBuddyDomain(payload.site),
+    expires_at: payload.credentials.expires_at || '',
+    refresh_expires_at: payload.credentials.refresh_expires_at,
+    enterprise_id: payload.credentials.enterprise_id
+  }
+  state.credentialSecret = payload.credentials.access_token || ''
+  state.credentialRefreshToken = payload.credentials.refresh_token || ''
+}
+
+watch(
+  () => [state.workbuddyOAuth.access_token, state.workbuddyOAuth.refresh_token] as const,
+  ([accessToken, refreshToken]) => {
+    if (!isWorkBuddyOAuth.value) return
+    if (state.credentialSecret !== accessToken) {
+      state.credentialSecret = accessToken
+    }
+    if (state.credentialRefreshToken !== refreshToken) {
+      state.credentialRefreshToken = refreshToken
+    }
+  }
+)
 
 function normalizeStepOneInputs() {
   state.name = state.name.trim()
@@ -576,6 +748,16 @@ async function applyCredentialMutation(
   state.credentialLastFour = credResult.credential?.last_four ?? null
   state.credentialSecret = ''
   state.credentialRefreshToken = ''
+  if (isWorkBuddy.value) {
+    state.workbuddyOAuth = {
+      ...state.workbuddyOAuth,
+      access_token: '',
+      refresh_token: ''
+    }
+    if (state.persistedSnapshot) {
+      state.persistedSnapshot.workbuddyMetadata = buildWorkBuddyMetadataSnapshot(state)
+    }
+  }
   state.credentialMode = payload.operation === 'clear' ? 'set' : 'keep'
   state.mode = 'edit'
 }
@@ -611,11 +793,38 @@ async function ensureConnectionPersisted(
 
   const headerMap = buildHeaderOverridesMap(state.headerOverrides)
   const hasHeaderOverrides = Object.keys(headerMap).length > 0
+  const accountMode = resolveWizardAccountMode(state)
   const shouldMutateCredential = hasPendingCredentialMutation(state)
   const pendingCredentialPayload = buildCredentialInputPayload(state)
+  if (isSwitchingFromPublicToPaidMode(state)) {
+    const nextSecret =
+      pendingCredentialPayload.operation === 'set' && typeof pendingCredentialPayload.secret === 'string'
+        ? pendingCredentialPayload.secret.trim()
+        : ''
+    if (
+      pendingCredentialPayload.operation !== 'set' ||
+      !nextSecret ||
+      nextSecret.toLowerCase() === 'public'
+    ) {
+      stepAttempted.value = true
+      state.asyncError = {
+        state: 'partial_failure',
+        status: 422,
+        message: isZh.value
+          ? '从免费模式切换至付费模式必须填写有效的付费 API Key（不能使用 public 占位密钥）。'
+          : 'Switching from a free lane to a paid lane requires a valid API key (cannot use the "public" placeholder).'
+      }
+      pageAsyncState.value = 'partial_failure'
+      return false
+    }
+  }
   const draftSecret = state.credentialSecret
   const draftRefreshToken = state.credentialRefreshToken
   const draftCredentialMode = state.credentialMode
+  const draftWorkbuddySite = state.workbuddySite
+  const draftWorkbuddyOAuth = { ...state.workbuddyOAuth }
+  const draftKiloMode = state.kiloMode
+  const draftOpenCodeMode = state.openCodeMode
 
   if (!state.connectionId) {
     const created = await connectionsApi.createConnection({
@@ -625,10 +834,18 @@ async function ensureConnectionPersisted(
       name: state.name.trim(),
       endpoint: state.endpoint.trim(),
       network_policy_id: state.networkPolicyId.trim(),
+      ...(accountMode ? { account_mode: accountMode } : {}),
       ...(hasHeaderOverrides ? { header_overrides: headerMap } : {})
     })
     if (isConnectionResource(created)) {
       Object.assign(state, hydrateWizardFromResource(state, created))
+      if (accountMode) {
+        state.kiloMode = draftKiloMode
+        state.openCodeMode = draftOpenCodeMode
+        if (state.persistedSnapshot && !state.persistedSnapshot.accountMode) {
+          state.persistedSnapshot.accountMode = accountMode
+        }
+      }
     } else {
       state.version = created.version
       state.persistedSnapshot = createPersistedSnapshotFromState(state)
@@ -638,7 +855,15 @@ async function ensureConnectionPersisted(
       state.credentialRefreshToken = draftRefreshToken
       state.credentialMode = draftCredentialMode
     }
-    if (state.connectionId && shouldMutateCredential && pendingCredentialPayload.operation !== 'keep') {
+    if (isWorkBuddy.value) {
+      state.workbuddySite = draftWorkbuddySite
+      state.workbuddyOAuth = draftWorkbuddyOAuth
+    }
+    if (
+      state.connectionId &&
+      shouldMutateCredential &&
+      (pendingCredentialPayload.operation !== 'keep' || Boolean(pendingCredentialPayload.metadata))
+    ) {
       await applyCredentialMutation(state.connectionId, pendingCredentialPayload)
     }
     if (state.connectionId) {
@@ -647,9 +872,15 @@ async function ensureConnectionPersisted(
     return true
   }
 
-  // Clear existing secret BEFORE patching endpoint/egress policy to prevent 409 CLEAR_CREDENTIAL_BEFORE_EGRESS_CHANGE
-  if (shouldMutateCredential && pendingCredentialPayload.operation === 'clear') {
-    await applyCredentialMutation(state.connectionId, pendingCredentialPayload)
+  // Clear existing secret BEFORE patching endpoint/egress policy or crossing free<->paid lane boundary
+  // to prevent 409 CLEAR_CREDENTIAL_BEFORE_EGRESS_CHANGE / CLEAR_CREDENTIAL_BEFORE_MODE_CHANGE
+  const clearBeforeModePatch =
+    pendingCredentialPayload.operation !== 'clear' && requiresCredentialClearBeforeModePatch(state)
+  if ((shouldMutateCredential && pendingCredentialPayload.operation === 'clear') || clearBeforeModePatch) {
+    await applyCredentialMutation(
+      state.connectionId,
+      pendingCredentialPayload.operation === 'clear' ? pendingCredentialPayload : { operation: 'clear' }
+    )
   }
 
   const patchPayload = buildMinimalConnectionPatch(state, {
@@ -671,18 +902,29 @@ async function ensureConnectionPersisted(
       name: state.name.trim(),
       endpoint: state.endpoint.trim().replace(/\/+$/, ''),
       networkPolicyId: state.networkPolicyId.trim(),
+      accountMode: resolveWizardAccountMode(state) ?? prevBaseline.accountMode,
       headerOverrides: supportsHeaderOverrides.value ? headerMap : prevBaseline.headerOverrides,
       modelIds: includeAssignments ? [...state.modelIds] : prevBaseline.modelIds,
       poolIds: includeAssignments ? [...state.poolIds] : prevBaseline.poolIds,
-      concurrency: includeAssignments ? state.concurrency : prevBaseline.concurrency
+      concurrency: includeAssignments ? state.concurrency : prevBaseline.concurrency,
+      ...(prevBaseline.workbuddyMetadata ? { workbuddyMetadata: prevBaseline.workbuddyMetadata } : {})
     }
   }
 
-  if (shouldMutateCredential && pendingCredentialPayload.operation === 'set') {
+  const shouldApplyPostPatchCredential =
+    shouldMutateCredential &&
+    (pendingCredentialPayload.operation === 'set' ||
+      (pendingCredentialPayload.operation === 'keep' && Boolean(pendingCredentialPayload.metadata)))
+  if (shouldApplyPostPatchCredential) {
     await applyCredentialMutation(state.connectionId, pendingCredentialPayload)
   }
 
-  if (patchPayload !== null || (shouldMutateCredential && pendingCredentialPayload.operation !== 'keep')) {
+  if (
+    patchPayload !== null ||
+    clearBeforeModePatch ||
+    (shouldMutateCredential &&
+      (pendingCredentialPayload.operation !== 'keep' || Boolean(pendingCredentialPayload.metadata)))
+  ) {
     void loadConnectionEvents(state.connectionId)
   }
   return true
@@ -824,18 +1066,24 @@ async function handleRunVerification() {
     void loadConnectionEvents(state.connectionId)
 
     if (hasUnavailableVerificationEvidence(state.verification)) {
+      const diagnostic = getPrimaryVerificationDiagnostic(state.verification, isZh.value)
+      const reasonCode = diagnostic?.reason || 'EVIDENCE_UNAVAILABLE'
       state.asyncError = {
         state: 'partial_failure',
         status: 409,
-        reason: 'EVIDENCE_UNAVAILABLE',
-        message: isZh.value
-          ? '验证探测未能获取完整的上游连通或模型证据（EVIDENCE_UNAVAILABLE）：可能由于上游端点不可达、鉴权被拒或当前协议暂无内置主动探针。请检查配置后重试探测，或先保存为草稿并退出。'
-          : 'Verification probe could not obtain valid upstream evidence (EVIDENCE_UNAVAILABLE): upstream endpoint may be unreachable, authorization rejected, or active probe unsupported. Retry verification probe or save as draft and exit.',
+        reason: reasonCode,
+        message:
+          diagnostic && reasonCode !== 'EVIDENCE_UNAVAILABLE'
+            ? diagnostic.message
+            : isZh.value
+              ? '验证探测未能获取完整的上游连通或模型证据（EVIDENCE_UNAVAILABLE）：可能由于上游端点不可达、鉴权被拒或当前协议暂无内置主动探针。请检查配置后重试探测，或先保存为草稿并退出。'
+              : 'Verification probe could not obtain valid upstream evidence (EVIDENCE_UNAVAILABLE): upstream endpoint may be unreachable, authorization rejected, or active probe unsupported. Retry verification probe or save as draft and exit.',
         requestId: finalOp.operation_id
       }
       pageAsyncState.value = 'partial_failure'
     } else if (finalOp.state === 'failed' || hasFailedVerificationCheck.value) {
       const opError = finalOp.error as Record<string, unknown> | null | undefined
+      const diagnostic = getPrimaryVerificationDiagnostic(state.verification, isZh.value)
       const rawOpMessage =
         typeof opError?.message === 'string'
           ? opError.message.trim()
@@ -843,12 +1091,14 @@ async function handleRunVerification() {
             ? opError.reason.trim()
             : ''
       const localizedFailureMessage =
-        isZh.value && (!rawOpMessage || !/[\u4e00-\u9fff]/.test(rawOpMessage))
+        diagnostic?.message ||
+        (isZh.value && (!rawOpMessage || !/[\u4e00-\u9fff]/.test(rawOpMessage))
           ? '上游连通性或凭据鉴权探测未通过，请查看下方检查项详情并核对配置。'
-          : rawOpMessage || 'Verification probe did not pass. Review the check details below.'
+          : rawOpMessage || 'Verification probe did not pass. Review the check details below.')
       state.asyncError = {
         state: 'partial_failure',
         status: 0,
+        reason: diagnostic?.reason,
         message: localizedFailureMessage,
         requestId: finalOp.operation_id
       }
@@ -1423,6 +1673,44 @@ function formatEventType(type: string): string {
                 />
               </div>
 
+              <div v-if="isWorkBuddy" class="space-y-2 rounded-oh-md border border-oh-default bg-oh-subtle/30 p-3.5">
+                <label class="block text-xs font-semibold text-oh-fg">
+                  {{ t('admin.accounts.workbuddy.siteLabel') }}
+                </label>
+                <p class="text-[11px] text-oh-muted">
+                  {{ t('admin.accounts.workbuddy.siteHint') }}
+                </p>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.workbuddy.siteLabel')">
+                  <button
+                    v-for="siteKey in (['cn', 'global'] as const)"
+                    :key="siteKey"
+                    type="button"
+                    role="radio"
+                    :aria-checked="state.workbuddySite === siteKey"
+                    :data-testid="`wizard-workbuddy-site-${siteKey}`"
+                    class="flex items-center justify-between gap-2 rounded-oh-md border px-3 py-2 text-left transition-colors"
+                    :class="
+                      state.workbuddySite === siteKey
+                        ? 'border-emerald-500 bg-emerald-500/10 text-oh-fg ring-1 ring-emerald-500/40'
+                        : 'border-oh-default bg-oh-surface hover:border-oh-strong text-oh-muted'
+                    "
+                    @click="handleWorkBuddySiteChange(siteKey)"
+                  >
+                    <div class="min-w-0">
+                      <div class="text-xs font-semibold text-oh-fg">
+                        {{ t(`admin.accounts.workbuddy.sites.${siteKey}.label`) }}
+                      </div>
+                      <div class="truncate font-mono text-[11px] text-oh-muted">
+                        {{ WORKBUDDY_SITES[siteKey].hostLabel }}
+                      </div>
+                    </div>
+                    <Badge :tone="state.workbuddySite === siteKey ? 'success' : 'neutral'" variant="subtle">
+                      {{ t(`admin.accounts.workbuddy.siteShort.${siteKey}`) }}
+                    </Badge>
+                  </button>
+                </div>
+              </div>
+
               <div class="rounded-oh-md border border-oh-default bg-oh-subtle/30 px-3.5 py-2.5 space-y-2.5">
                 <div class="flex flex-wrap items-center justify-between gap-2">
                   <button
@@ -1557,18 +1845,181 @@ function formatEventType(type: string): string {
                 {{ stepValidation.reason }}
               </div>
 
-              <div v-if="state.credentialMode === 'set'" class="space-y-3">
+              <div v-if="isWorkBuddy && state.credentialMode === 'set'" class="space-y-4">
+                <WorkBuddyAuthFields
+                  :mode="isWorkBuddyOAuth ? 'oauth' : 'apikey'"
+                  :editing="state.mode === 'edit'"
+                  :proxy-id="workbuddyNumericProxyId"
+                  :hide-api-key-fields="!isWorkBuddyOAuth"
+                  :site="state.workbuddySite"
+                  v-model:oauth-credentials="state.workbuddyOAuth"
+                  @update:site="handleWorkBuddySiteChange"
+                  @suggested-name="handleWorkBuddySuggestedName"
+                  @oauth-completed="handleWorkBuddyOAuthCompleted"
+                />
+              </div>
+
+              <div
+                v-else-if="isWorkBuddy && state.credentialMode === 'keep'"
+                data-testid="wizard-workbuddy-keep-metadata"
+                class="space-y-3 rounded-oh-md border border-oh-default bg-oh-subtle/30 p-3.5"
+              >
+                <div class="space-y-1.5">
+                  <div class="text-xs font-semibold text-oh-fg">
+                    {{ t('admin.accounts.workbuddy.siteLabel') }}
+                  </div>
+                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.workbuddy.siteLabel')">
+                    <button
+                      v-for="siteKey in (['cn', 'global'] as const)"
+                      :key="siteKey"
+                      type="button"
+                      role="radio"
+                      :aria-checked="state.workbuddySite === siteKey"
+                      :data-testid="`wizard-workbuddy-site-${siteKey}`"
+                      class="rounded-oh-md border px-3 py-2 text-left transition-colors"
+                      :class="state.workbuddySite === siteKey ? 'border-oh-accent bg-oh-accent/10 text-oh-fg' : 'border-oh-default bg-oh-surface hover:border-oh-strong text-oh-muted'"
+                      @click="handleWorkBuddySiteChange(siteKey)"
+                    >
+                      <div class="text-xs font-semibold text-oh-fg">
+                        {{ t(`admin.accounts.workbuddy.sites.${siteKey}.label`) }}
+                      </div>
+                      <div class="font-mono text-[11px] text-oh-muted">
+                        {{ WORKBUDDY_SITES[siteKey].domain }}
+                      </div>
+                    </button>
+                  </div>
+                </div>
+                <div v-if="isWorkBuddyOAuth" class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Input
+                    v-model="state.workbuddyOAuth.uid"
+                    :label="t('admin.accounts.workbuddy.oauth.fields.uid')"
+                    data-testid="wizard-workbuddy-keep-uid"
+                    placeholder="uid"
+                  />
+                  <Input
+                    v-model="state.workbuddyOAuth.domain"
+                    :label="t('admin.accounts.workbuddy.oauth.fields.domain')"
+                    data-testid="wizard-workbuddy-keep-domain"
+                    :placeholder="defaultWorkBuddyDomain(state.workbuddySite)"
+                  />
+                  <Input
+                    v-model="state.workbuddyOAuth.expires_at"
+                    :label="t('admin.accounts.workbuddy.oauth.fields.expiresAt')"
+                    data-testid="wizard-workbuddy-keep-expires-at"
+                    placeholder="2026-12-31T23:59:59Z"
+                  />
+                  <Input
+                    :model-value="state.workbuddyOAuth.enterprise_id ?? ''"
+                    :label="isZh ? '企业 ID (enterprise_id)' : 'Enterprise ID'"
+                    data-testid="wizard-workbuddy-keep-enterprise-id"
+                    placeholder="enterprise_id"
+                    @update:model-value="state.workbuddyOAuth.enterprise_id = String($event) || undefined"
+                  />
+                </div>
+              </div>
+
+              <div v-if="isKilo" class="space-y-2">
+                <div class="text-xs font-semibold text-oh-fg">
+                  {{ t('admin.accounts.kilo.accountMode.label') }}
+                </div>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.kilo.accountMode.label')">
+                  <button
+                    type="button"
+                    role="radio"
+                    :aria-checked="state.kiloMode === 'free'"
+                    data-testid="wizard-kilo-mode-free"
+                    class="rounded-oh-md border px-3 py-2.5 text-left transition-colors"
+                    :class="state.kiloMode === 'free' ? 'border-oh-accent bg-oh-accent/10 text-oh-fg' : 'border-oh-default bg-oh-surface hover:border-oh-strong text-oh-muted'"
+                    @click="handleKiloModeChange('free')"
+                  >
+                    <div class="text-xs font-semibold text-oh-fg">{{ t('admin.accounts.kilo.accountMode.free') }}</div>
+                    <div class="text-[11px] text-oh-muted">{{ t('admin.accounts.kilo.accountMode.freeDesc') }}</div>
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    :aria-checked="state.kiloMode === 'apikey'"
+                    data-testid="wizard-kilo-mode-apikey"
+                    class="rounded-oh-md border px-3 py-2.5 text-left transition-colors"
+                    :class="state.kiloMode === 'apikey' ? 'border-oh-accent bg-oh-accent/10 text-oh-fg' : 'border-oh-default bg-oh-surface hover:border-oh-strong text-oh-muted'"
+                    @click="handleKiloModeChange('apikey')"
+                  >
+                    <div class="text-xs font-semibold text-oh-fg">{{ t('admin.accounts.kilo.accountMode.apikey') }}</div>
+                    <div class="text-[11px] text-oh-muted">{{ t('admin.accounts.kilo.accountMode.apikeyDesc') }}</div>
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="isOpenCode" class="space-y-2">
+                <div class="text-xs font-semibold text-oh-fg">
+                  {{ t('admin.accounts.supplier.planType') }}
+                </div>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-3" role="radiogroup" :aria-label="t('admin.accounts.supplier.planType')">
+                  <button
+                    type="button"
+                    role="radio"
+                    :aria-checked="state.openCodeMode === 'zen'"
+                    data-testid="wizard-opencode-mode-zen"
+                    class="rounded-oh-md border px-3 py-2.5 text-left transition-colors"
+                    :class="state.openCodeMode === 'zen' ? 'border-oh-accent bg-oh-accent/10 text-oh-fg' : 'border-oh-default bg-oh-surface hover:border-oh-strong text-oh-muted'"
+                    @click="handleOpenCodeModeChange('zen')"
+                  >
+                    <div class="text-xs font-semibold text-oh-fg">{{ t('admin.accounts.opencodeGo.accountMode.zen') }}</div>
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    :aria-checked="state.openCodeMode === 'zen_free'"
+                    data-testid="wizard-opencode-mode-zen-free"
+                    class="rounded-oh-md border px-3 py-2.5 text-left transition-colors"
+                    :class="state.openCodeMode === 'zen_free' ? 'border-oh-accent bg-oh-accent/10 text-oh-fg' : 'border-oh-default bg-oh-surface hover:border-oh-strong text-oh-muted'"
+                    @click="handleOpenCodeModeChange('zen_free')"
+                  >
+                    <div class="text-xs font-semibold text-oh-fg">{{ t('admin.accounts.opencodeGo.accountMode.zenFree') }}</div>
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    :aria-checked="state.openCodeMode === 'go'"
+                    data-testid="wizard-opencode-mode-go"
+                    class="rounded-oh-md border px-3 py-2.5 text-left transition-colors"
+                    :class="state.openCodeMode === 'go' ? 'border-oh-accent bg-oh-accent/10 text-oh-fg' : 'border-oh-default bg-oh-surface hover:border-oh-strong text-oh-muted'"
+                    @click="handleOpenCodeModeChange('go')"
+                  >
+                    <div class="text-xs font-semibold text-oh-fg">{{ t('admin.accounts.opencodeGo.accountMode.go') }}</div>
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="state.credentialMode === 'set' && !isWorkBuddyOAuth" class="space-y-3">
                 <Input
                   v-model="state.credentialSecret"
                   type="password"
+                  :disabled="isKeylessPublicLane"
                   :label="
-                    isZh
-                      ? `${getAuthModeLabel(state.authType, true)} 密钥`
-                      : `${getAuthModeLabel(state.authType, false)} Secret`
+                    isKeylessPublicLane
+                      ? t('admin.accounts.apiKeyOptional')
+                      : isZh
+                        ? `${getAuthModeLabel(state.authType, true)} 密钥`
+                        : `${getAuthModeLabel(state.authType, false)} Secret`
                   "
-                  :placeholder="isZh ? '粘贴上游 API Key 或访问令牌' : 'Paste upstream API key or token'"
+                  :placeholder="
+                    isKilo && state.kiloMode === 'free'
+                      ? t('admin.accounts.apiKeyOptional')
+                      : isKeylessPublicLane
+                        ? 'public'
+                        : isZh
+                          ? '粘贴上游 API Key 或访问令牌'
+                          : 'Paste upstream API key or token'
+                  "
                   autocomplete="new-password"
                 />
+                <p v-if="isKilo && state.kiloMode === 'free'" class="text-xs text-oh-muted">
+                  {{ t('admin.accounts.kilo.accountMode.freeApiKeyHint') }}
+                </p>
+                <p v-else-if="isOpenCode && state.openCodeMode === 'zen_free'" class="text-xs text-oh-muted">
+                  {{ t('admin.accounts.opencodeGo.accountMode.zenFreeApiKeyHint') }}
+                </p>
                 <Input
                   v-if="supportsOAuth"
                   v-model="state.credentialRefreshToken"
@@ -1580,7 +2031,7 @@ function formatEventType(type: string): string {
               </div>
 
               <div
-                v-if="supportsOAuth"
+                v-if="supportsOAuth && !isWorkBuddyOAuth"
                 class="rounded-oh-md border border-oh-default bg-oh-subtle/40 p-4 space-y-3"
               >
                 <div class="flex items-center justify-between">
@@ -1664,27 +2115,47 @@ function formatEventType(type: string): string {
               </div>
 
               <div
-                v-if="hasUnavailableEvidence"
+                v-if="hasUnavailableEvidence || hasFailedVerificationCheck"
                 role="alert"
-                data-testid="verify-evidence-unavailable-banner"
-                class="rounded-oh-md border border-oh-warning bg-oh-surface p-4 space-y-3 text-xs"
+                :data-testid="
+                  hasUnavailableEvidence
+                    ? 'verify-evidence-unavailable-banner'
+                    : 'verify-failed-diagnostic-banner'
+                "
+                class="rounded-oh-md border bg-oh-surface p-4 space-y-3 text-xs"
+                :class="hasFailedVerificationCheck ? 'border-oh-danger' : 'border-oh-warning'"
               >
                 <div class="flex flex-wrap items-center justify-between gap-2">
                   <span class="font-semibold text-oh-fg">
                     {{
-                      isZh
-                        ? '未能获取有效的上游验证证据，暂无法进入启用预览'
-                        : 'Verification evidence unavailable — preview and activation are gated'
+                      primaryVerificationDiagnostic &&
+                      primaryVerificationDiagnostic.reason !== 'EVIDENCE_UNAVAILABLE'
+                        ? isZh
+                          ? '上游连通性或策略校验未通过，暂无法进入启用预览'
+                          : 'Verification diagnostic failed — preview and activation are gated'
+                        : isZh
+                          ? '未能获取有效的上游验证证据，暂无法进入启用预览'
+                          : 'Verification evidence unavailable — preview and activation are gated'
                     }}
                   </span>
-                  <Badge tone="warning" variant="subtle">EVIDENCE_UNAVAILABLE</Badge>
+                  <Badge :tone="hasFailedVerificationCheck ? 'danger' : 'warning'" variant="subtle">
+                    {{ primaryVerificationDiagnostic?.reason || 'EVIDENCE_UNAVAILABLE' }}
+                  </Badge>
                 </div>
                 <p class="text-oh-secondary">
                   {{
-                    isZh
+                    primaryVerificationDiagnostic?.message ||
+                    (isZh
                       ? '诊断说明：上游探测请求不可达、鉴权被拒绝，或当前兼容协议不支持内置主动探测端点。系统要求具备有效实时验证凭证后才允许生成分配预览与正式启用；您可检查服务地址及网络策略后重试探针，或先将当前连接保存为草稿并退出。'
-                      : 'Diagnostic: The upstream probe was unreachable, authorization was rejected, or this protocol does not expose an active verification probe. Live verification is required before previewing pool assignments or activating. Check your endpoint/egress settings and retry the probe, or save as draft and exit.'
+                      : 'Diagnostic: The upstream probe was unreachable, authorization was rejected, or this protocol does not expose an active verification probe. Live verification is required before previewing pool assignments or activating. Check your endpoint/egress settings and retry the probe, or save as draft and exit.')
                   }}
+                </p>
+                <p
+                  v-if="primaryVerificationDiagnostic?.detail"
+                  data-testid="verify-banner-detail"
+                  class="rounded-oh-xs border border-oh-subtle bg-oh-subtle/50 px-2.5 py-1.5 font-mono text-[11px] break-all text-oh-primary"
+                >
+                  {{ primaryVerificationDiagnostic.detail }}
                 </p>
                 <div class="flex flex-wrap items-center gap-2 pt-1">
                   <Button
@@ -1724,6 +2195,13 @@ function formatEventType(type: string): string {
                       {{ formatVerificationCheckReason(check.name, check.reason, isZh) }}
                       <span class="ml-1 font-mono text-[11px] opacity-75">({{ check.reason }})</span>
                     </div>
+                    <p
+                      v-if="sanitizeDiagnosticDetail(check.detail)"
+                      data-testid="verification-check-detail"
+                      class="mt-1 rounded-oh-xs border border-oh-subtle bg-oh-subtle/50 px-2 py-1 font-mono text-[11px] break-all text-oh-secondary"
+                    >
+                      {{ sanitizeDiagnosticDetail(check.detail) }}
+                    </p>
                   </div>
                   <div class="flex items-center gap-3">
                     <Badge

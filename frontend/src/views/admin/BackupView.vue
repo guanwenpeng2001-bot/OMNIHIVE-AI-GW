@@ -556,8 +556,10 @@ const downloadParts = ref<BackupDownloadPart[]>([])
 const downloadPartsModalOpen = ref(false)
 
 // Polling
-const pollingTimer = ref<ReturnType<typeof setInterval> | null>(null)
+const pollingTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const MAX_POLL_COUNT = 900
+let isUnmounted = false
+let pollGeneration = 0
 
 function updateRecordInList(updated: BackupRecord) {
   const idx = backups.value.findIndex(r => r.id === updated.id)
@@ -567,9 +569,21 @@ function updateRecordInList(updated: BackupRecord) {
 }
 
 function startPolling(backupId: string) {
+  if (isUnmounted) return
   stopPolling()
+  const currentGen = pollGeneration
   let count = 0
-  pollingTimer.value = setInterval(async () => {
+
+  const scheduleNext = () => {
+    if (isUnmounted || currentGen !== pollGeneration || document.hidden) return
+    pollingTimer.value = setTimeout(() => {
+      void pollOnce()
+    }, 2000)
+  }
+
+  const pollOnce = async () => {
+    pollingTimer.value = null
+    if (isUnmounted || currentGen !== pollGeneration) return
     if (count++ >= MAX_POLL_COUNT) {
       stopPolling()
       creatingBackup.value = false
@@ -578,6 +592,7 @@ function startPolling(backupId: string) {
     }
     try {
       const record = await adminAPI.backup.getBackup(backupId)
+      if (isUnmounted || currentGen !== pollGeneration) return
       updateRecordInList(record)
       if (record.status === 'completed' || record.status === 'failed') {
         stopPolling()
@@ -588,26 +603,33 @@ function startPolling(backupId: string) {
           appStore.showError(record.error_message || t('admin.backup.operations.backupFailed'))
         }
         await loadBackups()
+        return
       }
     } catch {
       // 轮询失败时不中断
     }
-  }, 2000)
+    scheduleNext()
+  }
+
+  scheduleNext()
 }
 
 function stopPolling() {
+  pollGeneration++
   if (pollingTimer.value) {
-    clearInterval(pollingTimer.value)
+    clearTimeout(pollingTimer.value)
     pollingTimer.value = null
   }
 }
 
 function handleVisibilityChange() {
+  if (isUnmounted) return
   if (document.hidden) {
     stopPolling()
   } else {
     // 标签页恢复时刷新列表，检查是否仍有活跃操作
     loadBackups().then(() => {
+      if (isUnmounted || document.hidden) return
       const running = backups.value.find(r => r.status === 'running')
       if (running) {
         creatingBackup.value = true
@@ -880,6 +902,7 @@ function formatDate(value?: string): string {
 onMounted(async () => {
   document.addEventListener('visibilitychange', handleVisibilityChange)
   await Promise.all([loadS3Config(), loadImageStorageConfig(), loadSchedule(), loadBackups()])
+  if (isUnmounted) return
 
   // 如果有正在 running 的备份，恢复轮询
   const runningBackup = backups.value.find(r => r.status === 'running')
@@ -890,6 +913,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  isUnmounted = true
   stopPolling()
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })

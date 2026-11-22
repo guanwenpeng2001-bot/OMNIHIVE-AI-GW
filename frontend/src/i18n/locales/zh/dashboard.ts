@@ -670,7 +670,9 @@ export default {
       commandcode: 'Command Code',
       minimax: 'MiniMax',
       cursor: 'Cursor',
-      opencode_go: 'OpenCode'
+      opencode_go: 'OpenCode',
+      workbuddy: 'WorkBuddy',
+      kilo: 'Kilo'
     },
     // 检查模式（监控条目的工作方式）
     checkMode: {
@@ -1241,7 +1243,9 @@ export default {
     serverError: '服务器错误',
     networkError: '网络错误',
     timeout: '请求超时',
-    tryAgain: '请重试'
+    tryAgain: '请重试',
+    restoreMaintenance: '系统正在执行生产数据恢复维护，请待恢复完成后重试。',
+    restoreStatusUnavailable: '恢复状态暂时不可用，请稍后重试。'
   },
 
   // Dates

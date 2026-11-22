@@ -7,6 +7,8 @@ import PublicCompareView from '../PublicCompareView.vue'
 import PublicModelsView from '../PublicModelsView.vue'
 import PublicModelDetailView from '../PublicModelDetailView.vue'
 import PublicPricingView from '../PublicPricingView.vue'
+import PublicHomeView from '../PublicHomeView.vue'
+import { matchesModalityFilter, modalityLabel } from '@/features/public/format'
 
 const { apiGetMock, apiPostMock } = vi.hoisted(() => ({
   apiGetMock: vi.fn(),
@@ -381,5 +383,406 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
     const estimatorSection = wrapper.get('[data-testid="pricing-estimator"]')
     expect(estimatorSection.text()).not.toContain('$0.00')
     expect(estimatorSection.text()).toContain('—')
+  })
+
+  it('filters multimodal models via Modality pills and distinguishes live vs catalog_only models', async () => {
+    const multimodalCatalog = [
+      {
+        id: 'm_11111111111111111111111111111111',
+        provider: 'openai',
+        model: 'gpt-4o',
+        display_name: 'GPT-4o',
+        context_tokens: '128000',
+        modalities: ['text'],
+        actions: ['text.chat'],
+        protocols: ['openai_chat'],
+        route_state: 'eligible',
+        price_state: 'priced',
+        availability_state: 'live',
+        input_rate: { currency: 'USD', amount: '2.5', per: '1000000', unit: 'input_token' },
+        output_rate: { currency: 'USD', amount: '10', per: '1000000', unit: 'output_token' }
+      },
+      {
+        id: 'm_22222222222222222222222222222222',
+        provider: 'openai',
+        model: 'gpt-image-1',
+        display_name: 'GPT Image 1',
+        context_tokens: null,
+        modalities: ['image'],
+        actions: ['image.generate'],
+        protocols: ['openai_images'],
+        route_state: 'ineligible',
+        price_state: 'unpriced',
+        availability_state: 'catalog_only',
+        reference_price: {
+          source: 'pi-ai',
+          input_rate: { currency: 'USD', amount: '5', per: '1000000', unit: 'input_token' },
+          output_rate: { currency: 'USD', amount: '40', per: '1000000', unit: 'output_token' }
+        }
+      },
+      {
+        id: 'm_33333333333333333333333333333333',
+        provider: 'google',
+        model: 'veo-2.0',
+        display_name: 'Veo 2.0',
+        modalities: ['video'],
+        actions: ['video.generate'],
+        route_state: 'ineligible',
+        price_state: 'unpriced',
+        availability_state: 'catalog_only'
+      },
+      {
+        id: 'm_44444444444444444444444444444444',
+        provider: 'openai',
+        model: 'text-embedding-3-large',
+        display_name: 'Text Embedding 3 Large',
+        modalities: ['text'],
+        actions: ['text.embeddings'],
+        route_state: 'eligible',
+        price_state: 'priced',
+        input_rate: { currency: 'USD', amount: '0.13', per: '1000000', unit: 'input_token' }
+      }
+    ]
+
+    apiGetMock.mockImplementation(async (_url: string, config?: { params?: Record<string, unknown> }) => {
+      const params = config?.params ?? {}
+      let filtered = [...multimodalCatalog]
+      if (params.availability_state) {
+        filtered = filtered.filter((item) => {
+          const state = item.availability_state ?? (item.route_state === 'eligible' ? 'live' : 'catalog_only')
+          return state === params.availability_state
+        })
+      }
+      if (Array.isArray(params.modality) && params.modality.length > 0) {
+        filtered = filtered.filter((item) =>
+          (params.modality as string[]).some((mod) => matchesModalityFilter(item, mod as any))
+        )
+      }
+      return { data: { items: filtered, next_cursor: 'cursor_page_2' } }
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/model-plaza', component: PublicModelsView },
+        { path: '/model-plaza/:id', component: PublicModelDetailView }
+      ]
+    })
+    await router.push('/model-plaza')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {}, zh: {} } })
+    const wrapper = mount(PublicModelsView, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { SiteICPFooter: true, LocaleSwitcher: true }
+      }
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+
+    expect(apiGetMock).toHaveBeenCalledWith(
+      '/api/v2/public/models',
+      expect.objectContaining({
+        params: expect.objectContaining({ sort: 'availability', limit: 100 })
+      })
+    )
+    expect(wrapper.text()).toContain('Live & Routable')
+    expect(wrapper.text()).toContain('Platform Catalog · On Demand')
+    expect(wrapper.text()).toContain('Ref $5.00')
+    expect(wrapper.text()).toContain('On demand')
+    expect(wrapper.find('[data-testid="modality-badge-image"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="modality-badge-video"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="modality-badge-embedding"]').exists()).toBe(true)
+    expect(modalityLabel('3d')).toBe('3D')
+    // When next_cursor is present, pill numeric counts must NOT show misleading unloaded counts
+    expect(wrapper.get('[data-testid="modality-pill-audio"]').text()).toBe('Audio & Speech')
+
+    await wrapper.get('[data-testid="availability-pill-live"]').trigger('click')
+    await flushPromises()
+    expect(apiGetMock).toHaveBeenLastCalledWith(
+      '/api/v2/public/models',
+      expect.objectContaining({
+        params: expect.objectContaining({ availability_state: 'live', sort: 'availability' })
+      })
+    )
+    expect(wrapper.text()).toContain('GPT-4o')
+    expect(wrapper.text()).not.toContain('GPT Image 1')
+
+    await wrapper.get('[data-testid="availability-pill-all"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="modality-pill-image"]').trigger('click')
+    await flushPromises()
+    expect(apiGetMock).toHaveBeenLastCalledWith(
+      '/api/v2/public/models',
+      expect.objectContaining({
+        params: expect.objectContaining({ modality: ['image'] })
+      })
+    )
+    expect(wrapper.text()).toContain('GPT Image 1')
+    expect(wrapper.text()).not.toContain('Veo 2.0')
+    expect(wrapper.text()).not.toContain('GPT-4o')
+
+    await wrapper.get('[data-testid="modality-pill-video"]').trigger('click')
+    await flushPromises()
+    expect(apiGetMock).toHaveBeenLastCalledWith(
+      '/api/v2/public/models',
+      expect.objectContaining({
+        params: expect.objectContaining({ modality: ['video'] })
+      })
+    )
+    expect(wrapper.text()).toContain('Veo 2.0')
+    expect(wrapper.text()).not.toContain('GPT Image 1')
+
+    await wrapper.get('[data-testid="modality-pill-embedding"]').trigger('click')
+    await flushPromises()
+    expect(apiGetMock).toHaveBeenLastCalledWith(
+      '/api/v2/public/models',
+      expect.objectContaining({
+        params: expect.objectContaining({ modality: ['embedding'] })
+      })
+    )
+    expect(wrapper.text()).toContain('Text Embedding 3 Large')
+    expect(wrapper.text()).not.toContain('Veo 2.0')
+
+    await wrapper.get('[data-testid="modality-pill-all"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('GPT-4o')
+    expect(wrapper.text()).toContain('Veo 2.0')
+
+    // Also verify PublicModelDetailView renders catalog_only badge & modality badges
+    apiGetMock.mockReset()
+    apiGetMock.mockResolvedValueOnce({
+      data: {
+        model: multimodalCatalog[1],
+        reference_price: multimodalCatalog[1].reference_price
+      }
+    })
+    await router.push('/model-plaza/m_22222222222222222222222222222222')
+    const detailWrapper = mount(PublicModelDetailView, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { SiteICPFooter: true, LocaleSwitcher: true }
+      }
+    })
+    wrappers.push(detailWrapper)
+    await flushPromises()
+
+    expect(detailWrapper.get('[data-testid="detail-availability-badge-catalog_only"]').text()).toContain(
+      'Platform Catalog · On Demand'
+    )
+    expect(detailWrapper.get('[data-testid="detail-modality-badge-image"]').text()).toContain('Image')
+    expect(detailWrapper.text()).toContain('Ref $5.00')
+  })
+
+  it('renders availability badges, reference_price hints, and availability toggle in PublicPricingView (FE-05)', async () => {
+    const pricingItems = [
+      {
+        ...sampleCatalogItems[0],
+        availability_state: 'live'
+      },
+      {
+        id: 'm_catalog_ref_1',
+        provider: 'openai',
+        model: 'gpt-image-1',
+        display_name: 'GPT Image 1',
+        context_tokens: '32000',
+        modalities: ['image'],
+        route_state: 'ineligible',
+        price_state: 'unpriced',
+        availability_state: 'catalog_only',
+        reference_price: {
+          source: 'pi-ai',
+          input_rate: { currency: 'USD', amount: '5', per: '1000000', unit: 'input_token' },
+          output_rate: { currency: 'USD', amount: '40', per: '1000000', unit: 'output_token' }
+        }
+      }
+    ]
+    apiGetMock.mockImplementation(async (_url: string, config?: { params?: Record<string, unknown> }) => {
+      const avail = config?.params?.availability_state
+      const items = avail
+        ? pricingItems.filter((item) => item.availability_state === avail)
+        : pricingItems
+      return { data: { items, next_cursor: null } }
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/pricing', component: PublicPricingView },
+        { path: '/model-plaza/:id', component: PublicModelDetailView }
+      ]
+    })
+    await router.push('/pricing')
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const wrapper = mount(PublicPricingView, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { SiteICPFooter: true, LocaleSwitcher: true }
+      }
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="pricing-availability-badge-live"]').text()).toContain('Live & Routable')
+    expect(wrapper.get('[data-testid="pricing-availability-badge-catalog_only"]').text()).toContain(
+      'Platform Catalog · On Demand'
+    )
+    expect(wrapper.get('[data-testid="pricing-reference-rate-input"]').text()).toContain('Ref $5.00')
+    expect(wrapper.get('[data-testid="pricing-reference-rate-output"]').text()).toContain('Ref $40.00')
+
+    await wrapper.get('[data-testid="pricing-availability-pill-live"]').trigger('click')
+    await flushPromises()
+    expect(apiGetMock).toHaveBeenLastCalledWith(
+      '/api/v2/public/models',
+      expect.objectContaining({
+        params: expect.objectContaining({ availability_state: 'live' })
+      })
+    )
+    expect(wrapper.text()).toContain('Gemini 3.8 Flash')
+    expect(wrapper.text()).not.toContain('GPT Image 1')
+  })
+
+  it('prefers live chat-capable model for hero snippet in PublicHomeView (FE-04)', async () => {
+    apiGetMock.mockImplementation(async (url: string, config?: { params?: Record<string, unknown> }) => {
+      if (url === '/api/v2/public/status') {
+        return { data: { overall: 'operational', components: [] } }
+      }
+      if (config?.params?.availability_state === 'live') {
+        return {
+          data: {
+            items: [
+              {
+                id: 'm_live_img',
+                provider: 'openai',
+                model: 'openai/dall-e-3',
+                modalities: ['image'],
+                actions: ['image.generate'],
+                availability_state: 'live',
+                route_state: 'eligible',
+                price_state: 'priced'
+              },
+              {
+                id: 'm_live_chat',
+                provider: 'anthropic',
+                model: 'anthropic/claude-sonnet-4-5',
+                modalities: ['text'],
+                actions: ['text.chat'],
+                availability_state: 'live',
+                route_state: 'eligible',
+                price_state: 'priced'
+              }
+            ],
+            next_cursor: null
+          }
+        }
+      }
+      return {
+        data: {
+          items: [
+            {
+              id: 'm_catalog_first',
+              provider: 'amazon',
+              model: 'amazon/nova-2-lite-v1',
+              modalities: ['text'],
+              actions: ['text.chat'],
+              availability_state: 'catalog_only',
+              route_state: 'ineligible',
+              price_state: 'unpriced'
+            },
+            {
+              id: 'm_live_chat',
+              provider: 'anthropic',
+              model: 'anthropic/claude-sonnet-4-5',
+              modalities: ['text'],
+              actions: ['text.chat'],
+              availability_state: 'live',
+              route_state: 'eligible',
+              price_state: 'priced'
+            }
+          ],
+          next_cursor: null
+        }
+      }
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: PublicHomeView },
+        { path: '/model-plaza', component: PublicModelsView },
+        { path: '/status', component: PublicModelsView },
+        { path: '/login', component: PublicModelsView },
+        { path: '/dashboard', component: PublicModelsView }
+      ]
+    })
+    await router.push('/')
+    await router.isReady()
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const wrapper = mount(PublicHomeView, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { SiteICPFooter: true, LocaleSwitcher: true }
+      }
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+
+    expect(apiGetMock).toHaveBeenCalledWith(
+      '/api/v2/public/models',
+      expect.objectContaining({
+        params: expect.objectContaining({ availability_state: 'live', limit: 10, sort: 'name' })
+      })
+    )
+    expect(wrapper.text()).toContain('anthropic/claude-sonnet-4-5')
+    expect(wrapper.text()).not.toContain('amazon/nova-2-lite-v1')
+    expect(wrapper.text()).not.toContain('openai/dall-e-3')
+  })
+
+  it('formats 3d modality as 3D and hides partial pill counts when next_cursor is non-null (FE-03, FE-10)', async () => {
+    expect(modalityLabel('3d', false)).toBe('3D')
+    expect(modalityLabel('3d', true)).toBe('3D')
+
+    apiGetMock.mockResolvedValueOnce({
+      data: {
+        items: [
+          {
+            id: 'm_page1',
+            provider: 'openai',
+            model: 'gpt-4o',
+            display_name: 'GPT-4o',
+            modalities: ['text'],
+            actions: ['text.chat'],
+            availability_state: 'live',
+            route_state: 'eligible',
+            price_state: 'priced'
+          }
+        ],
+        next_cursor: 'cursor_page_2'
+      }
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/model-plaza', component: PublicModelsView },
+        { path: '/model-plaza/:id', component: PublicModelDetailView },
+        { path: '/model-plaza/compare', component: PublicCompareView }
+      ]
+    })
+    await router.push('/model-plaza')
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {}, zh: {} } })
+    const wrapper = mount(PublicModelsView, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { SiteICPFooter: true, LocaleSwitcher: true }
+      }
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="modality-pill-video"]').text()).toBe('Video Generation')
+    expect(wrapper.get('[data-testid="modality-pill-video"]').text()).not.toContain('0')
   })
 })

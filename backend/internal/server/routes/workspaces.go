@@ -48,6 +48,7 @@ func RegisterWorkspaceRoutes(parent *gin.RouterGroup, handlers *handler.Handlers
 	registerGeminiOAuthRoutes(resources, handlers)
 	registerAntigravityOAuthRoutes(resources, handlers)
 	registerGrokOAuthRoutes(resources, handlers)
+	registerWorkBuddyOAuthRoutes(resources, handlers)
 	registerCNProviderRoutes(resources, handlers)
 	keys := workspaces.Group("/:workspace_id/keys", middleware.WorkspaceScope(handlers.Workspace.Service, false), middleware.BackendModeUserGuard(settings), middleware.WorkspaceResources(handlers.Workspace.Service))
 	keys.GET("", handlers.APIKey.List)

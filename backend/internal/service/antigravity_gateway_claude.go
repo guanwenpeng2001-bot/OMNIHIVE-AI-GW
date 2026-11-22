@@ -472,43 +472,30 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 		c.Header("x-request-id", requestID)
 	}
 
-	var usage *ClaudeUsage
-	var firstTokenMs *int
-	var clientDisconnect bool
+	var streamRes *antigravityStreamResult
 	if claudeReq.Stream {
-		// 客户端要求流式，直接透传转换
-		streamRes, err := s.handleClaudeStreamingResponse(c, resp, startTime, originalModel)
-		if err != nil {
-			logger.LegacyPrintf("service.antigravity_gateway", "%s status=stream_error error=%v", prefix, err)
-			return nil, err
-		}
-		usage = streamRes.usage
-		firstTokenMs = streamRes.firstTokenMs
-		clientDisconnect = streamRes.clientDisconnect
+		streamRes, err = s.handleClaudeStreamingResponse(c, resp, startTime, originalModel)
 	} else {
-		// 客户端要求非流式，收集流式响应后转换返回
-		streamRes, err := s.handleClaudeStreamToNonStreaming(c, resp, startTime, originalModel)
-		if err != nil {
-			logger.LegacyPrintf("service.antigravity_gateway", "%s status=stream_collect_error error=%v", prefix, err)
-			return nil, err
-		}
-		usage = streamRes.usage
-		firstTokenMs = streamRes.firstTokenMs
+		streamRes, err = s.handleClaudeStreamToNonStreaming(c, resp, startTime, originalModel)
+	}
+	if streamRes == nil {
+		return nil, err
 	}
 
 	return &ForwardResult{
 		RequestID:                     requestID,
 		UpstreamHeaders:               resp.Header,
-		Usage:                         *usage,
+		Usage:                         *streamRes.usage,
 		Model:                         originalModel,
 		UpstreamModel:                 billingModel,
 		UpstreamResponseModel:         observedUpstreamResponseModel(c),
 		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 		Stream:                        claudeReq.Stream,
 		Duration:                      time.Since(startTime),
-		FirstTokenMs:                  firstTokenMs,
-		ClientDisconnect:              clientDisconnect,
-	}, nil
+		FirstTokenMs:                  streamRes.firstTokenMs,
+		ClientDisconnect:              streamRes.clientDisconnect,
+		UsageIncomplete:               streamRes.usageIncomplete || err != nil,
+	}, err
 }
 
 func isSignatureRelatedError(respBody []byte) bool {

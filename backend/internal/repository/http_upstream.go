@@ -684,6 +684,9 @@ func (s *httpUpstreamService) redirectChecker(req *http.Request, via []*http.Req
 	if len(via) >= 10 {
 		return errors.New("stopped after 10 redirects")
 	}
+	if len(via) == 0 || !strings.EqualFold(req.URL.Scheme, via[0].URL.Scheme) || !strings.EqualFold(req.URL.Host, via[0].URL.Host) || req.URL.User != nil {
+		return errors.New("cross-origin upstream redirect is not allowed")
+	}
 	return s.validateRequestHost(req)
 }
 

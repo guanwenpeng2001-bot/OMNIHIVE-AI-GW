@@ -312,6 +312,9 @@ func duplicateChannelMonitorOperationID(sourceID int64, actorScope, operationKey
 }
 
 func (s *ChannelMonitorService) decryptAPIKeyForDuplicate(source *ChannelMonitor) (string, error) {
+	if source != nil && source.Provider == PlatformKilo && source.APIKey == "" {
+		return "", source.validateProbeKey("")
+	}
 	if source == nil || strings.TrimSpace(source.APIKey) == "" {
 		return "", ErrChannelMonitorAPIKeyDecryptFailed
 	}
@@ -325,14 +328,14 @@ func (s *ChannelMonitorService) decryptAPIKeyForDuplicate(source *ChannelMonitor
 	// 重加密空串即可。若在此报错，克隆出的配额监控会被 runner 当作
 	// 解密失败而 Unschedule，静默停摆。
 	if strings.TrimSpace(plain) == "" {
-		if monitorCheckModeUsesQuota(defaultCheckMode(source.CheckMode)) {
+		if source.validateProbeKey(plain) == nil {
 			return "", nil
 		}
 		slog.Warn("channel_monitor: decrypted api key for duplicate is empty",
 			"monitor_id", source.ID)
 		return "", ErrChannelMonitorAPIKeyDecryptFailed
 	}
-	return plain, nil
+	return plain, source.validateProbeKey(plain)
 }
 
 func duplicateChannelMonitorName(sourceName string) string {
@@ -379,6 +382,41 @@ func cloneChannelMonitorJSONMap(source map[string]any) (map[string]any, error) {
 	return cloned, nil
 }
 
+// Kilo monitors without a private key use the same free pool as the transport.
+func validateMonitorProbeKey(provider, key, primary string, extras []string, bodyMode string, body map[string]any) error {
+	key = strings.TrimSpace(key)
+	if provider != PlatformKilo {
+		if key == "" {
+			return ErrChannelMonitorMissingAPIKey
+		}
+		return nil
+	}
+	if key != "" && key != "public" {
+		return nil
+	}
+	account := &Account{Platform: PlatformKilo}
+	for _, model := range append([]string{primary}, normalizeModels(extras)...) {
+		model = strings.TrimSpace(model)
+		if !safeFreeModelID(model) || !kiloFreeModelAllowed(account, model) {
+			return ErrChannelMonitorMissingAPIKey
+		}
+	}
+	if bodyMode == MonitorBodyOverrideModeReplace {
+		model := stringFromAny(body["model"])
+		if !safeFreeModelID(model) || !kiloFreeModelAllowed(account, model) {
+			return ErrChannelMonitorMissingAPIKey
+		}
+	}
+	return nil
+}
+
+func (m *ChannelMonitor) validateProbeKey(key string) error {
+	if defaultCheckMode(m.CheckMode) == MonitorCheckModeQuota {
+		return nil
+	}
+	return validateMonitorProbeKey(m.Provider, key, m.PrimaryModel, m.ExtraModels, m.BodyOverrideMode, m.BodyOverride)
+}
+
 // validateCreateParams 把 Create 入参的所有校验聚拢为一个函数，避免 Create 主体超过 30 行。
 // 按 check_mode 分支：probe 沿用 endpoint+api_key 必填；quota 只需关联账号；
 // quota_probe 两者皆需。
@@ -406,8 +444,8 @@ func validateCreateParams(p ChannelMonitorCreateParams) error {
 		if err := validateEndpoint(p.Endpoint); err != nil {
 			return err
 		}
-		if strings.TrimSpace(p.APIKey) == "" {
-			return ErrChannelMonitorMissingAPIKey
+		if err := validateMonitorProbeKey(p.Provider, p.APIKey, p.PrimaryModel, p.ExtraModels, p.BodyOverrideMode, p.BodyOverride); err != nil {
+			return err
 		}
 	}
 	if usesQuota && (p.AccountID == nil || *p.AccountID <= 0) {
@@ -509,19 +547,16 @@ func (s *ChannelMonitorService) validateProbeAPIKey(m *ChannelMonitor, newPlainK
 		return nil
 	}
 	if strings.TrimSpace(newPlainKey) != "" {
-		return nil
+		return m.validateProbeKey(newPlainKey)
 	}
 	if strings.TrimSpace(m.APIKey) == "" {
-		return ErrChannelMonitorMissingAPIKey
+		return m.validateProbeKey("")
 	}
 	plain, err := s.encryptor.Decrypt(m.APIKey)
 	if err != nil {
 		return nil
 	}
-	if strings.TrimSpace(plain) == "" {
-		return ErrChannelMonitorMissingAPIKey
-	}
-	return nil
+	return m.validateProbeKey(plain)
 }
 
 // revalidateLinkedAccount 在 provider/check_mode/account_id 任一变化后复核关联账号：
@@ -644,6 +679,11 @@ func (s *ChannelMonitorService) RunCheck(ctx context.Context, id int64) ([]*Chec
 		return nil, ErrChannelMonitorAPIKeyDecryptFailed
 	}
 
+	if m.Provider == PlatformKilo {
+		if err := m.validateProbeKey(m.APIKey); err != nil {
+			return nil, err
+		}
+	}
 	var results []*CheckResult
 	switch checkMode {
 	case MonitorCheckModeQuota:

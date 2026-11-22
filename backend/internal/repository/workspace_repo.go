@@ -73,7 +73,7 @@ func (r *workspaceRepository) Members(ctx context.Context, workspaceID int64) ([
 func (r *workspaceRepository) SetMember(ctx context.Context, workspaceID, userID int64, role string) error {
 	result, err := r.database.ExecContext(ctx, `INSERT INTO workspace_members(workspace_id,user_id,role)
 		SELECT $1,id,$3 FROM users WHERE id=$2 AND deleted_at IS NULL
-		ON CONFLICT(workspace_id,user_id) DO UPDATE SET role=EXCLUDED.role,updated_at=NOW()`, workspaceID, userID, role)
+		ON CONFLICT(workspace_id,user_id) DO UPDATE SET role=EXCLUDED.role,inherits_global_role=false,updated_at=NOW()`, workspaceID, userID, role)
 	if err != nil {
 		return err
 	}
@@ -110,14 +110,25 @@ func (r *workspaceRepository) ContainsResources(ctx context.Context, workspaceID
 	default:
 		return false, service.ErrWorkspaceNotFound
 	}
-	unique := map[int64]struct{}{}
+	const maxResourceIDs = 1000
+	if len(identifiers) > maxResourceIDs {
+		return false, nil
+	}
+	if len(identifiers) == 0 {
+		return true, nil
+	}
+	seen := make(map[int64]struct{}, len(identifiers))
+	unique := make([]int64, 0, len(identifiers))
 	for _, identifier := range identifiers {
 		if identifier <= 0 {
 			return false, nil
 		}
-		unique[identifier] = struct{}{}
+		if _, exists := seen[identifier]; !exists {
+			seen[identifier] = struct{}{}
+			unique = append(unique, identifier)
+		}
 	}
 	var count int
-	err := r.database.QueryRowContext(ctx, query, workspaceID, pq.Array(identifiers)).Scan(&count)
+	err := r.database.QueryRowContext(ctx, query, workspaceID, pq.Array(unique)).Scan(&count)
 	return count == len(unique), err
 }

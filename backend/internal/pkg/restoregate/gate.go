@@ -3,9 +3,11 @@ package restoregate
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/lib/pq"
@@ -13,6 +15,12 @@ import (
 )
 
 var ErrMaintenance = errors.New("restore maintenance")
+var errFenceLost = unavailableError{errors.New("restore fence lost")}
+
+const (
+	admissionTimeout = 5 * time.Second
+	healthInterval   = time.Second
+)
 
 type unavailableError struct{ err error }
 
@@ -23,18 +31,25 @@ func IsUnavailable(err error) bool {
 	return errors.As(err, &target)
 }
 
-// Share a journal lock across concurrent users of a pool. A long stream must not consume a
-// journal connection per request. The worker drains every holder before snapshot.
+// A long stream holds one reference on a fence shared across the journal pool.
 type Gate struct {
-	mu          sync.Mutex
-	journal     *sql.DB
-	held        *sql.Tx
-	users       int
-	bootstrap   bool
-	clearUntil  time.Time
+	mu        sync.Mutex
+	journal   *sql.DB
+	held      *fence
+	opening   chan struct{}
+	bootstrap bool
+	now       func() time.Time
+}
+
+type fence struct {
+	conn        *sql.Conn
+	lost        atomic.Bool
+	ctx         context.Context
+	invalidate  context.CancelFunc
+	users       int       // protected by Gate.mu
+	clearUntil  time.Time // protected by Gate.mu
 	statusGroup singleflight.Group
-	now         func() time.Time
-	beforeHold  func()
+	healthGroup singleflight.Group
 }
 
 func (g *Gate) clock() time.Time {
@@ -44,77 +59,131 @@ func (g *Gate) clock() time.Time {
 	return time.Now()
 }
 
-// hold takes exactly one reference on the shared fence. It reports whether
-// this call opened the fencing transaction and whether the last journal check
-// is still fresh. Callers that receive an error hold no reference.
-func (g *Gate) hold(ctx context.Context) (created, fresh bool, err error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.held != nil {
-		g.users++
-		return false, g.clock().Before(g.clearUntil), nil
+func (g *Gate) hold(ctx context.Context) (*fence, error) {
+	for {
+		g.mu.Lock()
+		if held := g.held; held != nil {
+			if held.ctx.Err() != nil {
+				g.mu.Unlock()
+				return nil, errFenceLost
+			}
+			held.users++
+			g.mu.Unlock()
+			return held, nil
+		}
+		if opening := g.opening; opening != nil {
+			g.mu.Unlock()
+			select {
+			case <-opening:
+				continue
+			case <-ctx.Done():
+				return nil, unavailableError{ctx.Err()}
+			}
+		}
+		g.opening = make(chan struct{})
+		g.mu.Unlock()
+
+		held, err := g.openFence(ctx)
+
+		g.mu.Lock()
+		if err == nil {
+			g.held = held
+		}
+		close(g.opening)
+		g.opening = nil
+		g.mu.Unlock()
+		if err == nil {
+			go held.monitor()
+		}
+		return held, err
 	}
-	tx, err := g.journal.BeginTx(context.Background(), nil)
+}
+
+func (g *Gate) openFence(ctx context.Context) (*fence, error) {
+	// Use a dedicated connection so BEGIN has an admission deadline
+	// independent of the lifetime of the shared transaction.
+	conn, err := g.journal.Conn(ctx)
 	if err != nil {
-		return false, false, unavailableError{err}
+		return nil, unavailableError{err}
+	}
+	if _, err := conn.ExecContext(ctx, "BEGIN"); err != nil {
+		discardConn(conn)
+		return nil, unavailableError{err}
 	}
 	var got bool
-	if err = tx.QueryRowContext(ctx, "SELECT pg_try_advisory_xact_lock_shared(298,3)").Scan(&got); err != nil {
-		_ = tx.Rollback()
-		return false, false, unavailableError{err}
-	}
-	if !got {
-		_ = tx.Rollback()
-		return false, false, ErrMaintenance
-	}
-	g.held = tx
-	g.users++
-	return true, false, nil
-}
-
-func (g *Gate) Enter(ctx context.Context) bool { return g.enter(ctx) == nil }
-
-// enter holds one fence reference on success and none on failure. Concurrent
-// callers share one journal lookup, but every caller takes its own reference.
-func (g *Gate) enter(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancel()
-	if g.beforeHold != nil {
-		g.beforeHold()
-	}
-	created, fresh, err := g.hold(ctx)
-	if err != nil {
-		return err
-	}
-	if fresh && !created {
-		return nil
-	}
-	_, err, _ = g.statusGroup.Do("status", func() (any, error) {
-		g.mu.Lock()
-		fresh := g.held != nil && g.clock().Before(g.clearUntil)
-		g.mu.Unlock()
-		if fresh {
-			return nil, nil
+	err = conn.QueryRowContext(ctx, "SELECT pg_try_advisory_xact_lock_shared(298,3)").Scan(&got)
+	if err != nil || !got {
+		rollbackFence(ctx, conn)
+		if err != nil {
+			return nil, unavailableError{err}
 		}
-		return nil, g.check(ctx)
-	})
-	if err != nil {
-		g.Leave()
-		return err
+		return nil, ErrMaintenance
 	}
-	return nil
+	lifetime, invalidate := context.WithCancel(context.Background())
+	return &fence{conn: conn, ctx: lifetime, invalidate: invalidate, users: 1}, nil
 }
 
-// check reads the journal while the caller holds a fence reference. The read
-// uses a pooled connection: a cancelled or failed statement must not abort the
-// transaction fencing the other admitted handlers.
-func (g *Gate) check(ctx context.Context) error {
+func discardConn(conn *sql.Conn) {
+	_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+	_ = conn.Close()
+}
+
+func rollbackFence(ctx context.Context, conn *sql.Conn) {
+	ctx, cancel := context.WithTimeout(ctx, admissionTimeout)
+	defer cancel()
+	if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil {
+		discardConn(conn)
+		return
+	}
+	_ = conn.Close()
+}
+
+func (g *Gate) enter(ctx context.Context) (*fence, error) {
+	ctx, cancel := context.WithTimeout(ctx, admissionTimeout)
+	defer cancel()
+	held, err := g.hold(ctx)
+	if err != nil {
+		return nil, err
+	}
+	g.mu.Lock()
+	fresh := g.clock().Before(held.clearUntil)
+	g.mu.Unlock()
+	if !fresh {
+		result := held.statusGroup.DoChan("journal", func() (any, error) {
+			g.mu.Lock()
+			fresh := g.clock().Before(held.clearUntil)
+			g.mu.Unlock()
+			if fresh {
+				return nil, nil
+			}
+			checkCtx, cancel := context.WithTimeout(held.ctx, admissionTimeout)
+			defer cancel()
+			return nil, g.check(checkCtx, held)
+		})
+		select {
+		case state := <-result:
+			err = state.Err
+		case <-ctx.Done():
+			err = unavailableError{ctx.Err()}
+		}
+	}
+	if err == nil && held.ctx.Err() != nil {
+		err = errFenceLost
+	}
+	if err != nil {
+		g.leave(ctx, held)
+		return nil, err
+	}
+	return held, nil
+}
+
+// Query state on a different connection so a failed journal query cannot abort
+// the fencing transaction shared by admitted requests.
+func (g *Gate) check(ctx context.Context, held *fence) error {
 	var blocked bool
 	err := g.journal.QueryRowContext(ctx, `SELECT EXISTS(SELECT FROM restore_journal.operations WHERE target='production' AND
  ((state='running' AND stage IN ('snapshot','applying','verify_counts','tx_apply','tx_verify','committing')) OR stage='manual_recovery' OR state='unknown'))`).Scan(&blocked)
 	var pgErr *pq.Error
-	// On first boot the business DB migrates before the journal schema exists.
-	// No restore can be claimed yet.
 	bootstrap := g.bootstrap && errors.As(err, &pgErr) && pgErr.Code == "42P01"
 	if err != nil && !bootstrap {
 		return unavailableError{err}
@@ -123,21 +192,72 @@ func (g *Gate) check(ctx context.Context) error {
 		return ErrMaintenance
 	}
 	g.mu.Lock()
-	if g.held != nil {
-		g.clearUntil = g.clock().Add(time.Second)
-	}
+	held.clearUntil = g.clock().Add(time.Second)
 	g.mu.Unlock()
 	return nil
 }
 
-func (g *Gate) Leave() {
+func (held *fence) checkHealth(ctx context.Context) error {
+	if held.ctx.Err() != nil {
+		return errFenceLost
+	}
+	if err := ctx.Err(); err != nil {
+		return unavailableError{err}
+	}
+	result := held.healthGroup.DoChan("lock", func() (any, error) {
+		probe, cancel := context.WithTimeout(held.ctx, healthInterval)
+		defer cancel()
+		var locked bool
+		err := held.conn.QueryRowContext(probe, `
+			SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks
+			 WHERE pid=pg_backend_pid() AND locktype='advisory' AND classid=298 AND objid=3
+			   AND objsubid=2 AND mode='ShareLock' AND granted)`).Scan(&locked)
+		if held.ctx.Err() != nil {
+			return nil, errFenceLost
+		}
+		if err != nil || !locked {
+			held.lost.Store(true)
+			held.invalidate()
+			return nil, errFenceLost
+		}
+		return nil, nil
+	})
+	select {
+	case state := <-result:
+		return state.Err
+	case <-held.ctx.Done():
+		return errFenceLost
+	case <-ctx.Done():
+		return unavailableError{ctx.Err()}
+	}
+}
+
+func (held *fence) monitor() {
+	tick := time.NewTicker(healthInterval)
+	defer tick.Stop()
+	for {
+		select {
+		case <-held.ctx.Done():
+			return
+		case <-tick.C:
+			if held.checkHealth(held.ctx) != nil {
+				return
+			}
+		}
+	}
+}
+
+func (g *Gate) leave(ctx context.Context, held *fence) {
 	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.users--
-	if g.users == 0 {
-		_ = g.held.Rollback()
+	held.users--
+	last := held.users == 0
+	if last {
 		g.held = nil
-		g.clearUntil = time.Time{}
+	}
+	g.mu.Unlock()
+	if last {
+		held.invalidate()
+		rollbackFence(ctx, held.conn)
 	}
 }
 
@@ -146,56 +266,58 @@ func New(journal *sql.DB) *Gate { return &Gate{journal: journal} }
 // NewBusinessPool also admits first-boot migrations before the journal exists.
 func NewBusinessPool(journal *sql.DB) *Gate { return &Gate{journal: journal, bootstrap: true} }
 
-// AdmitRequest lets statements started by an admitted handler finish during
-// drain. A detached task using the context after the handler returns must enter
-// again. Each statement already running keeps its own reference to the fence.
+// Each statement started by an admitted handler joins its fence generation.
+// Detached tasks using a finished handler's context enter afresh.
 type requestLease struct {
 	gate   *Gate
+	fence  *fence
 	active bool // protected by gate.mu
 }
 type leaseKey struct{}
 
-func newRequestLease(g *Gate, ctx context.Context) (context.Context, func()) {
-	lease := &requestLease{g, true}
-	return context.WithValue(ctx, leaseKey{}, lease), func() {
+func (g *Gate) Admit(ctx context.Context) (context.Context, func(), error) {
+	held, err := g.enter(ctx)
+	if err != nil {
+		return ctx, nil, err
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(held.ctx, cancel)
+	lease := &requestLease{g, held, true}
+	return context.WithValue(ctx, leaseKey{}, lease), sync.OnceFunc(func() {
+		stop()
+		cancel()
 		g.mu.Lock()
 		lease.active = false
 		g.mu.Unlock()
-		g.Leave()
-	}
-}
-
-func (g *Gate) AdmitRequest(ctx context.Context) (context.Context, func(), bool) {
-	ctx, leave, err := g.Admit(ctx)
-	return ctx, leave, err == nil
-}
-
-func (g *Gate) Admit(ctx context.Context) (context.Context, func(), error) {
-	if err := g.enter(ctx); err != nil {
-		return ctx, nil, err
-	}
-	ctx, leave := newRequestLease(g, ctx)
-	return ctx, leave, nil
-}
-
-func (g *Gate) AdmitStatement(ctx context.Context) (func(), bool) {
-	leave, err := g.Statement(ctx)
-	return leave, err == nil
+		g.leave(context.Background(), held)
+	}), nil
 }
 
 func (g *Gate) Statement(ctx context.Context) (func(), error) {
 	if lease, ok := ctx.Value(leaseKey{}).(*requestLease); ok {
-		owner := lease.gate
+		owner, held := lease.gate, lease.fence
 		owner.mu.Lock()
 		if lease.active {
-			owner.users++
+			held.users++
 			owner.mu.Unlock()
-			return owner.Leave, nil
+			if err := held.checkHealth(ctx); err != nil {
+				owner.leave(ctx, held)
+				return nil, err
+			}
+			return func() { owner.leave(context.Background(), held) }, nil
 		}
 		owner.mu.Unlock()
+		if held.lost.Load() {
+			return nil, errFenceLost
+		}
 	}
-	if err := g.enter(ctx); err != nil {
+	held, err := g.enter(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return g.Leave, nil
+	if err := held.checkHealth(ctx); err != nil {
+		g.leave(ctx, held)
+		return nil, err
+	}
+	return func() { g.leave(context.Background(), held) }, nil
 }

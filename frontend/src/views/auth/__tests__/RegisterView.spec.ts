@@ -661,4 +661,30 @@ describe('RegisterView E1-1 login agreement', () => {
       login_agreement_revision: 'rev-draft-1'
     })
   })
+
+  it('hides OAuth registration entries when registration_enabled is false or backend_mode_enabled is true (P1-3)', async () => {
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      registration_enabled: false,
+      github_oauth_enabled: true,
+      google_oauth_enabled: true,
+      oidc_oauth_enabled: true
+    })
+    const disabledWrapper = mountRegisterWithAgreementStub()
+    await flushPromises()
+    expect(disabledWrapper.find('.auth-divider').exists()).toBe(false)
+    disabledWrapper.unmount()
+
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      registration_enabled: true,
+      backend_mode_enabled: true,
+      github_oauth_enabled: true,
+      google_oauth_enabled: true
+    })
+    const backendModeWrapper = mountRegisterWithAgreementStub()
+    await flushPromises()
+    expect(backendModeWrapper.find('.auth-divider').exists()).toBe(false)
+    backendModeWrapper.unmount()
+  })
 })

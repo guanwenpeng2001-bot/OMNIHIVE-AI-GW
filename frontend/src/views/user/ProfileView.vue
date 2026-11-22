@@ -71,7 +71,7 @@
             <div>
               <div class="text-[11px] text-[var(--muted-foreground)]">当前可用余额</div>
               <div class="font-mono text-lg font-bold tabular-nums text-[var(--foreground)]">
-                {{ typeof user.balance === 'number' && Number.isFinite(user.balance) ? `$${user.balance.toFixed(2)}` : '—' }}
+                {{ typeof user.balance === 'number' && Number.isFinite(user.balance) ? `$${formatBalanceAmount(user.balance)}` : '—' }}
               </div>
             </div>
             <div class="h-7 w-px bg-[var(--border)]" aria-hidden="true" />
@@ -209,6 +209,7 @@ import ProfilePasskeyCard from '@/components/user/profile/ProfilePasskeyCard.vue
 import { isWeChatWebOAuthEnabled } from '@/api/auth'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
+import { formatBalanceAmount } from '@/utils/money'
 
 const { t } = useI18n()
 const appStore = useAppStore()

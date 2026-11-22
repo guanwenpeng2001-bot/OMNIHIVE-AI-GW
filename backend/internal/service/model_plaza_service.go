@@ -12,7 +12,9 @@ import (
 type PlazaModel struct {
 	Name     string
 	Platform string
-	Pricing  *ChannelModelPricing
+	// CatalogOnly is inventory, never an inference or billing authorization.
+	CatalogOnly bool `json:"-"`
+	Pricing     *ChannelModelPricing
 	// LongContextBasis 多档时的计价基准（整单 / 仅超出部分），单档为空。
 	LongContextBasis ContextPricingBasis
 	// TimePricing 计费会生效的分时倍率时段；无分时为 nil。
@@ -21,6 +23,8 @@ type PlazaModel struct {
 	// 内部字段，只给 handler 做公开白名单投影；不参与可见集合判断，也不对外序列化。
 	Capabilities    []UpstreamModelMetadata
 	CatalogBindings []PlazaCatalogBinding `json:"-"`
+	// Observations describe scoped discoveries without an executable binding.
+	CatalogObservations []PlazaCatalogBinding `json:"-"`
 }
 
 // PlazaGroup 模型广场中以分组为顶层的条目。
@@ -95,13 +99,13 @@ func NewModelPlazaService(
 //
 // 可见性过滤（专属分组）不在此层做，由 handler 按登录态裁剪。
 func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error) {
-	return s.listGroups(ctx, nil, nil)
+	return s.listGroups(ctx, nil, nil, false)
 }
 
 // ListVisibleGroups applies the freshly read user's group visibility before
 // loading accounts or computing prices. nil allowedGroups denotes anonymous.
 func (service *ModelPlazaService) ListVisibleGroups(ctx context.Context, allowedGroups map[int64]struct{}, restrictPublicGroups bool) ([]PlazaGroup, error) {
-	return service.listGroups(ctx, plazaGroupVisibility(allowedGroups, restrictPublicGroups), nil)
+	return service.listGroups(ctx, plazaGroupVisibility(allowedGroups, restrictPublicGroups), nil, false)
 }
 
 func plazaGroupVisibility(allowedGroups map[int64]struct{}, restrictPublicGroups bool) func(Group) bool {
@@ -127,10 +131,10 @@ type PlazaCatalogBinding struct {
 
 func (s *ModelPlazaService) ListProjectCatalogGroups(ctx context.Context, allowed map[int64]struct{}, restrict bool, selection PlazaCatalogSelection) ([]PlazaGroup, error) {
 	visible := plazaGroupVisibility(allowed, restrict)
-	return s.listGroups(ctx, func(g Group) bool { return selection.Groups[g.ID] && visible(g) }, &selection)
+	return s.listGroups(ctx, func(g Group) bool { return selection.Groups[g.ID] && visible(g) }, &selection, true)
 }
 
-func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group) bool, selection *PlazaCatalogSelection) ([]PlazaGroup, error) {
+func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group) bool, selection *PlazaCatalogSelection, fullCatalog bool) ([]PlazaGroup, error) {
 	var visibility *VisibleModelResolver
 	if s.resolver != nil && s.resolver.channelService != nil {
 		visibility = s.resolver.channelService.visibleModels
@@ -229,18 +233,34 @@ func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group
 					if !isConcreteRequestPlatform(m.Platform) {
 						continue
 					}
-				} else if !domain.MatchesPlatformIdentity(m.Platform, domain.HostedAccountType(m.Platform), groupEnt[gid].Platform, groupEnt[gid].RequiredAccountType()) {
-					continue
+				} else {
+					group := groupEnt[gid]
+					if domain.CanonicalPlatform(m.Platform) != domain.CanonicalPlatform(group.Platform) {
+						continue
+					}
+					// Product-only channel entries need a real account binding to
+					// prove a hosted subtype. Without account visibility, retain
+					// the restriction encoded by the channel's platform identity.
+					if visibility == nil && !domain.MatchesPlatformIdentity(m.Platform, domain.HostedAccountType(m.Platform), group.Platform, group.RequiredAccountType()) {
+						continue
+					}
 				}
 				var catalogBindings []PlazaCatalogBinding
-				if selection != nil {
+				if visibility != nil {
 					for _, binding := range bindings[gid][m.Name] {
-						if domain.MatchesPlatformIdentity(binding.Identity.Platform, binding.Identity.HostedAccountType, m.Platform, domain.HostedAccountType(m.Platform)) {
+						if domain.MatchesPlatformIdentity(binding.Identity.Platform, binding.Identity.HostedAccountType, m.Platform, domain.HostedAccountType(m.Platform)) && (pg.Platform == PlatformComposite || domain.MatchesPlatformIdentity(binding.Identity.Platform, binding.Identity.HostedAccountType, groupEnt[gid].Platform, groupEnt[gid].RequiredAccountType())) {
 							catalogBindings = append(catalogBindings, binding)
 						}
 					}
 					if len(catalogBindings) == 0 {
 						continue
+					}
+				}
+				capabilities := observations[gid][m.Name]
+				if visibility != nil {
+					capabilities = nil
+					for _, binding := range catalogBindings {
+						capabilities = append(capabilities, binding.Metadata)
 					}
 				}
 				key := modelKey{platform: m.Platform, name: m.Name}
@@ -256,10 +276,16 @@ func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group
 					Name:            m.Name,
 					Platform:        m.Platform,
 					Pricing:         m.Pricing,
-					Capabilities:    observations[gid][m.Name],
+					Capabilities:    capabilities,
 					CatalogBindings: catalogBindings,
 				})
 			}
+		}
+	}
+
+	if fullCatalog {
+		if err := s.expandConfiguredCatalog(ctx, groups, channels, byGroup, selection, visibility); err != nil {
+			return nil, err
 		}
 	}
 
@@ -277,7 +303,9 @@ func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group
 		})
 		g := groupEnt[gid]
 		for j := range pg.Models {
-			s.fillDisplayPricing(ctx, &pg.Models[j], g)
+			if !pg.Models[j].CatalogOnly {
+				s.fillDisplayPricing(ctx, &pg.Models[j], g)
+			}
 		}
 		out = append(out, *pg)
 	}
@@ -324,17 +352,36 @@ func plazaVisibleModelsForGroups(ctx context.Context, resolver *VisibleModelReso
 		}
 		visible[group.ID] = members
 		observations[group.ID] = metadata
-		if selection == nil {
-			continue
+		identities := map[int64]domain.ActionIdentity{}
+		if batch, ok := frozen.Value(catalogGroupSnapshotKey{}).(*catalogGroupSnapshot); ok {
+			for _, account := range batch.accounts[group.ID] {
+				identities[account.ID] = domain.ActionIdentity{Platform: account.Platform, HostedAccountType: account.Type}
+			}
 		}
 		groupBindings := make(map[string][]PlazaCatalogBinding)
 		for model, resolved := range view.Bindings {
 			for i, binding := range resolved {
-				identity, allowed := selection.Accounts[binding.AccountID]
+				identity, allowed := identities[binding.AccountID]
+				if !allowed && selection == nil {
+					if reader, ok := resolver.gateway.accountRepo.(ModelCatalogAccountRepository); ok {
+						account, readErr := reader.GetModelCatalogAccount(frozen, binding.AccountID)
+						if readErr != nil {
+							return ctx, nil, nil, nil, readErr
+						}
+						if account != nil {
+							identity = domain.ActionIdentity{Platform: account.Platform, HostedAccountType: account.Type}
+							allowed = true
+							identities[binding.AccountID] = identity
+						}
+					}
+				}
+				if selection != nil {
+					identity, allowed = selection.Accounts[binding.AccountID]
+				}
 				if !allowed {
 					continue
 				}
-				if binding.CredentialAccountID != 0 && binding.CredentialAccountID != binding.AccountID {
+				if selection != nil && binding.CredentialAccountID != 0 && binding.CredentialAccountID != binding.AccountID {
 					if _, allowed := selection.Accounts[binding.CredentialAccountID]; !allowed {
 						continue
 					}

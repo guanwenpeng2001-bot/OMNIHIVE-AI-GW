@@ -404,6 +404,8 @@ export default {
         qianfan: 'Baidu Qianfan',
         volcengine: 'Volcengine Ark',
         cursor: 'Cursor',
+        workbuddy: 'WorkBuddy',
+        kilo: 'Kilo',
         composite: 'Composite',
         claude: 'Claude',
       },
@@ -543,6 +545,10 @@ export default {
         accountMode: {
           zen: 'Zen',
           zenDesc: 'Pay-as-you-go gateway. Consumes account credits, billed per token.',
+          zenFree: 'Zen Free (No Key)',
+          zenFreeDesc: 'OpenCode Zen public free model pool. No paid API key required; automatically attaches client headers and tool compatibility.',
+          zenFreeBadge: 'Zen Free Pool',
+          zenFreeApiKeyHint: 'Keyless public pool: leave blank (or enter public) to use OpenCode Zen Free.',
           go: 'GO',
           goDesc: 'OpenCode Go subscription gateway, rate-limited by 5-hour / weekly / monthly usage windows; use the credentials from the matching Go subscription.',
         },
@@ -556,6 +562,20 @@ export default {
           fallback: 'Unmatched models → Chat Completions (/v1/chat/completions)',
         },
       },
+      kilo: {
+        accountMode: {
+          label: 'Kilo Access Mode',
+          free: 'Free Pool (No Key)',
+          freeDesc: 'Kilo public anonymous free pool (kilo-auto/free, Nemotron, ERNIE, etc.). No API key required.',
+          freeBadge: 'Kilo Free Pool',
+          freeApiKeyHint: 'Keyless public pool: leave blank to access Kilo free models without an Authorization header.',
+          apikey: 'API Key (Full Gateway)',
+          apikeyDesc: 'Connect with your Kilo API key to unlock the full Kilo model gateway.',
+          apikeyBadge: 'Kilo API Key',
+          baseUrlHint: 'Defaults to https://api.kilo.ai/api/gateway (no /v1 suffix).'
+        },
+      },
+      apiKeyOptional: 'API Key (optional)',
       types: {
         oauth: 'OAuth',
         chatgptOauth: 'ChatGPT OAuth',
@@ -564,6 +584,8 @@ export default {
         codeAssist: 'Code Assist',
         antigravityOauth: 'Antigravity OAuth',
         grokOauth: 'Grok OAuth',
+        workbuddyOauth: 'WorkBuddy OAuth (Browser login or token import)',
+        workbuddyApikey: 'API Key with CN / Global site selection',
         antigravityApikey: 'Connect via Base URL + API Key',
         upstream: 'Upstream',
         upstreamDesc: 'Connect via Base URL + API Key'
@@ -572,6 +594,64 @@ export default {
       antigravityProjectIdPlaceholder: 'your-gcp-project-id',
       antigravityProjectIdHint:
         'Antigravity standard-tier accounts that do not receive an automatic project_id need a user-owned GCP project.',
+      workbuddy: {
+        siteLabel: 'WorkBuddy Site',
+        siteHint: 'Select China (copilot.tencent.com) or International (www.workbuddy.ai).',
+        sites: {
+          cn: {
+            label: 'China · WorkBuddy',
+            subtitle: 'copilot.tencent.com',
+            domain: 'www.workbuddy.cn'
+          },
+          global: {
+            label: 'International · WorkBuddy AI',
+            subtitle: 'www.workbuddy.ai',
+            domain: 'www.workbuddy.ai'
+          }
+        },
+        siteShort: {
+          cn: 'CN',
+          global: 'Global'
+        },
+        oauth: {
+          title: 'WorkBuddy Browser OAuth',
+          hint: 'Start browser sign-in for the selected site, open the authorization link to sign in, and credentials will populate automatically.',
+          startLogin: 'Start WorkBuddy Login',
+          openLoginLink: 'Open sign-in link',
+          copyUrl: 'Copy authorization URL',
+          copied: 'Copied',
+          manualSectionTitle: 'Manual OAuth Token Import',
+          manualHint: 'Populated automatically after browser sign-in, or paste credentials manually.',
+          accessTokenRequired: 'Please complete WorkBuddy browser login or enter an access_token.',
+          keepTokenPlaceholder: 'Leave blank to keep the current token',
+          fields: {
+            accessToken: 'Access Token (access_token)',
+            refreshToken: 'Refresh Token (refresh_token)',
+            uid: 'User ID (uid)',
+            domain: 'Site Domain (domain)',
+            expiresAt: 'Expires At (expires_at, optional)'
+          },
+          status: {
+            starting: 'Creating WorkBuddy authorization session...',
+            waiting: 'Waiting for WorkBuddy sign-in completion...',
+            completed: 'WorkBuddy authorization completed; credentials populated.',
+            failed: 'WorkBuddy authorization failed. Please retry.',
+            timeout: 'WorkBuddy authorization timed out. Please start again.',
+            cancelled: 'WorkBuddy authorization cancelled.'
+          }
+        },
+        apikey: {
+          apiKeyPlaceholder: 'Enter WorkBuddy API Key',
+          baseUrlLabel: 'Base URL (optional)',
+          baseUrlHint: 'Optional override; leave blank to use the default endpoint for the selected site.'
+        },
+        usage: {
+          baseCredits: 'Base',
+          extraCredits: 'Extra',
+          totalRemaining: 'Remaining',
+          plan: 'Plan'
+        }
+      },
       accountSchedulingThresholdOverride: 'Account Auto-Pause Threshold Override',
       accountSchedulingThresholdOverrideHint:
         'Override the platform auto-pause threshold for this account only. Disable to use platform settings.',

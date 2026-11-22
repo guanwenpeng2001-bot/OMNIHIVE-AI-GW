@@ -44,7 +44,11 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if IsCompatibleProvider(account.Platform) && account.GetAPIProtocol() == APIProtocolResponses {
 		beginUpstreamResponseModelObservation(c)
 		SetActualOpenAIUpstreamEndpoint(c, openAIResponsesUpstreamEndpoint)
-		return s.forwardOpenAIPassthrough(ctx, c, account, body, body, gjson.GetBytes(body, "model").String(), false, nil, gjson.GetBytes(body, "stream").Bool(), time.Now())
+		requestModel := gjson.GetBytes(body, "model").String()
+		stream := gjson.GetBytes(body, "stream").Bool()
+		started := time.Now()
+		account.compatibleBinding.bufferResponses = !stream
+		return s.forwardOpenAIPassthrough(ctx, c, account, body, body, requestModel, false, nil, stream, started)
 	}
 	if account.Platform == PlatformOpenRouter {
 		return s.forwardOpenRouterNative(ctx, c, account, body, APIProtocolResponses, "")
@@ -1342,6 +1346,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 
 		// Handle normal response
 		var usage *OpenAIUsage
+		var observation *TokenUsageObservation
+		var aggregateErr error
 		var firstTokenMs *int
 		responseID := ""
 		imageCount := 0
@@ -1427,8 +1433,12 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 						continue
 					}
 				}
-				return nil, err
+				if nonStreamResult == nil {
+					return nil, err
+				}
+				aggregateErr = err
 			}
+			observation = nonStreamResult.observation
 			usage = nonStreamResult.usage
 			responseID = strings.TrimSpace(nonStreamResult.responseID)
 			imageCount = nonStreamResult.imageCount
@@ -1456,6 +1466,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			UpstreamHeaders:               resp.Header,
 			ResponseID:                    responseID,
 			Usage:                         *usage,
+			TokenUsageObservation:         observation,
+			UsageIncomplete:               aggregateErr != nil || !observation.known(),
 			Model:                         originalModel,
 			BillingModel:                  billingModel,
 			UpstreamModel:                 upstreamModel,
@@ -1483,11 +1495,14 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			forwardResult.SearchCount = searchCount
 		}
 		stampOpenAIResponsesUpstreamEndpoint(c, forwardResult)
-		return forwardResult, nil
+		return forwardResult, aggregateErr
 	}
 }
 
 func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
+	if account != nil && account.Platform == PlatformWorkBuddy {
+		return account.Type == AccountTypeAPIKey || account.Type == AccountTypeOAuth
+	}
 	if account == nil || account.Type != AccountTypeAPIKey {
 		return false
 	}
@@ -1497,7 +1512,7 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 	if account.Platform == PlatformOpenRouter {
 		return false
 	}
-	if account.Platform == PlatformMistral {
+	if account.Platform == PlatformMistral || account.Platform == PlatformKilo {
 		// Public Responses/Messages are converted; Mistral has no Responses URL.
 		return true
 	}

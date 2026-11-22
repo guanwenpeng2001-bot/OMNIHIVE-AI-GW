@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { formatLedgerAmount, formatBalanceAmount, formatMoney, accountBilledAmount } from '../money'
+import { formatLedgerAmount, formatBalanceAmount, formatMoney, formatExactMoney, accountBilledAmount } from '../money'
 import { formatCurrency, formatDateTimeWithZone, formatDateTime, formatRelativeTime, formatRelativeWithDateTime, resolveReportTimeZone, formatReportDateInput, formatAccountStatsCurrency } from '../format'
 import { formatScaled } from '../pricing'
 import { formatTokenPricePerMillion } from '../usagePricing'
@@ -30,6 +30,17 @@ describe('amount and unit contract', () => {
     expect(formatMoney(0, 'CNY')).toBe('CNY 0.00')
     expect(formatMoney(0, 'USD')).toBe('USD 0.00')
     expect(formatTokenPricePerMillion(1e-8, 1e6)).toBe('$0.00000001')
+  })
+  it('preserves micro-dollar (< 1e-8) and multi-currency precision without trailing-dot truncation', () => {
+    expect(formatExactMoney(1e-9, 'USD')).toBe('$0.000000001')
+    expect(formatExactMoney('0.000000004', 'USD')).toBe('$0.000000004')
+    expect(formatExactMoney('-0.0000000012', 'USD')).toBe('-$0.0000000012')
+    expect(formatExactMoney('0.0000000000001', 'CNY')).toBe('CNY 0.0000000000001')
+    expect(formatExactMoney('-0.00000000', 'USD')).toBe('$0.00')
+    expect(formatExactMoney('123.45000000', 'EUR')).toBe('€123.45')
+    expect(formatExactMoney('0.004', 'USD', '-', 4)).toBe('$0.0040')
+    expect(formatExactMoney(100, 'JPY', '-', 0)).toBe('JPY 100')
+    expect(formatBalanceAmount(1e-10)).toBe('0.0000000001')
   })
   it('does not corrupt scientific exponents or non-finite price cards', () => {
     expect(formatScaled(1e-10, 1)).toBe('$1e-10')

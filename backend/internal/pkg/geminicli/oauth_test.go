@@ -764,3 +764,24 @@ func TestEffectiveOAuthConfig_CustomClient_NoScopeFiltering(t *testing.T) {
 		t.Errorf("自定义客户端不应过滤 drive.readonly，实际: %q", cfg.Scopes)
 	}
 }
+
+func TestSessionStoreConcurrentStop(t *testing.T) {
+	store := NewSessionStore()
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			store.Stop()
+		}()
+	}
+	close(start)
+	wg.Wait()
+	select {
+	case <-store.stopCh:
+	default:
+		t.Fatal("cleanup channel still open")
+	}
+}

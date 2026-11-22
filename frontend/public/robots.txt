@@ -21,4 +21,5 @@ Disallow: /profile
 Disallow: /workspaces
 Disallow: /auth/
 
-Sitemap: /sitemap.xml
+# RFC 9309 requires an absolute URL for Sitemap; replace https://example.com with your deployed origin.
+Sitemap: https://example.com/sitemap.xml

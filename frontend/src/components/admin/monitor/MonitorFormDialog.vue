@@ -281,6 +281,8 @@ import {
   PROVIDER_COMMANDCODE,
   PROVIDER_MINIMAX,
   PROVIDER_OPENCODE_GO,
+  PROVIDER_WORKBUDDY,
+  PROVIDER_KILO,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_RESPONSES,
   CHECK_MODE_PROBE,
@@ -295,6 +297,7 @@ import {
   DEFAULT_DEEPSEEK_ENDPOINT,
   DEFAULT_MINIMAX_ENDPOINT,
   DEFAULT_OPENCODE_GO_ENDPOINT,
+  DEFAULT_KILO_ENDPOINT,
   DEFAULT_INTERVAL_SECONDS,
 } from '@/constants/channelMonitor'
 
@@ -493,6 +496,8 @@ const providerOptions = computed<ProviderOption[]>(() => [
   { value: PROVIDER_COMMANDCODE, label: t('monitorCommon.providers.commandcode') },
   { value: PROVIDER_MINIMAX, label: t('monitorCommon.providers.minimax') },
   { value: PROVIDER_OPENCODE_GO, label: t('monitorCommon.providers.opencode_go') },
+  { value: PROVIDER_WORKBUDDY, label: t('monitorCommon.providers.workbuddy') },
+  { value: PROVIDER_KILO, label: t('monitorCommon.providers.kilo') },
 ])
 
 // 国产 provider 预填的官方 endpoint（仅探活侧；配额模式 endpoint 可留空）。
@@ -504,6 +509,7 @@ const PROVIDER_DEFAULT_ENDPOINTS: Partial<Record<Provider, string>> = {
   [PROVIDER_COMMANDCODE]: DEFAULT_COMMANDCODE_ENDPOINT,
   [PROVIDER_MINIMAX]: DEFAULT_MINIMAX_ENDPOINT,
   [PROVIDER_OPENCODE_GO]: DEFAULT_OPENCODE_GO_ENDPOINT,
+  [PROVIDER_KILO]: DEFAULT_KILO_ENDPOINT,
 }
 
 interface CheckModeOption {

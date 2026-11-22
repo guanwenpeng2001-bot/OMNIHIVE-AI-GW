@@ -72,7 +72,7 @@ func TestStagedInactiveCursorUsageHandlerMakesNoOutboundOrSessionWrites(t *testi
 			t.Cleanup(func() { http.DefaultTransport = original })
 			cache := &stagedUsageSessions{}
 			repo := &stagedUsageRepo{account: &service.Account{ID: 42, Platform: service.PlatformCursor, Type: service.AccountTypeAPIKey, Status: "inactive", Credentials: map[string]any{"api_key": "synthetic-usage-key"}, Extra: map[string]any{service.StagedProxyDependencyExtraKey: dependency}}}
-			usage := service.ProvideAccountUsageService(service.NewCursorSessionProvider(cache), repo, nil, nil, nil, nil, nil, nil, nil, service.NewUsageCache(), nil, nil, nil)
+			usage := service.ProvideAccountUsageService(nil, service.NewCursorSessionProvider(cache), repo, nil, nil, nil, nil, nil, nil, nil, service.NewUsageCache(), nil, nil, nil)
 			handler := &AccountHandler{accountUsageService: usage}
 			router := gin.New()
 			router.GET("/api/v1/admin/accounts/:id/usage", handler.GetUsage)

@@ -4,8 +4,13 @@ export type ConnectionField = components['schemas']['ConnectionField']
 export type ConnectionSchema = components['schemas']['ConnectionSchema']
 export type ConnectionLimits = components['schemas']['ConnectionLimits']
 export type ConnectionMetadata = components['schemas']['ConnectionMetadata']
-export type ConnectionCheck = components['schemas']['ConnectionCheck']
-export type ConnectionVerification = components['schemas']['ConnectionVerification']
+export type ConnectionAccountMode = components['schemas']['ConnectionAccountMode']
+export type ConnectionCheck = components['schemas']['ConnectionCheck'] & {
+  detail?: string | null
+}
+export type ConnectionVerification = Omit<components['schemas']['ConnectionVerification'], 'checks'> & {
+  checks: ConnectionCheck[]
+}
 export type ConnectionQuota = components['schemas']['ConnectionQuota']
 export type ConnectionCreate = components['schemas']['ConnectionCreate'] & {
   header_overrides?: Record<string, string>
@@ -14,11 +19,24 @@ export type ConnectionPatch = components['schemas']['ConnectionPatch'] & {
   header_overrides?: Record<string, string>
 }
 export type ConnectionAssignments = components['schemas']['ConnectionAssignments']
-export type ConnectionResource = components['schemas']['ConnectionResource'] & {
+export interface ConnectionResourceMetadata {
+  site?: string
+  uid?: string
+  domain?: string
+  enterprise_id?: string
+  expires_at?: string | number
+  refresh_expires_at?: string | number
+}
+export type ConnectionResource = Omit<components['schemas']['ConnectionResource'], 'last_verification'> & {
   header_overrides?: Record<string, string>
+  account_mode?: string
+  metadata?: ConnectionResourceMetadata
+  last_verification: ConnectionVerification | null
 }
 export type ConnectionRedacted = components['schemas']['ConnectionRedacted']
-export type ConnectionCredentialInput = components['schemas']['ConnectionCredentialInput']
+export type ConnectionCredentialInput = components['schemas']['ConnectionCredentialInput'] & {
+  metadata?: Record<string, string | number | undefined>
+}
 export type ConnectionCredentialResult = components['schemas']['ConnectionCredentialResult']
 export type ConnectionVerify = components['schemas']['ConnectionVerify']
 export type ConnectionItem = components['schemas']['ConnectionItem']

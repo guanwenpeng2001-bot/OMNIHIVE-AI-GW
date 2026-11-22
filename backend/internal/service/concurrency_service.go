@@ -229,7 +229,10 @@ const (
 
 // ConcurrencyService 管理账号和用户的并发限制。
 type ConcurrencyService struct {
-	cache ConcurrencyCache
+	cache         ConcurrencyCache
+	cleanupMu     sync.Mutex
+	cleanupCancel context.CancelFunc
+	cleanupDone   chan struct{}
 
 	accountLoadCacheTTL atomic.Int64
 	accountLoadCacheMu  sync.RWMutex
@@ -752,8 +755,17 @@ func (s *ConcurrencyService) StartSlotCleanupWorker(_ AccountRepository, interva
 		return
 	}
 
+	s.cleanupMu.Lock()
+	defer s.cleanupMu.Unlock()
+	if s.cleanupDone != nil {
+		return
+	}
+	ctx, stop := context.WithCancel(context.Background())
+	s.cleanupCancel = stop
+	done := make(chan struct{})
+	s.cleanupDone = done
 	runCleanup := func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		cleanupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		err := s.cache.CleanupExpiredAccountSlotKeys(cleanupCtx)
 		cancel()
 		if err != nil {
@@ -766,11 +778,27 @@ func (s *ConcurrencyService) StartSlotCleanupWorker(_ AccountRepository, interva
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
-		runCleanup()
-		for range ticker.C {
+		defer close(done)
+		for ctx.Err() == nil {
 			runCleanup()
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
 		}
 	}()
+}
+
+func (s *ConcurrencyService) StopSlotCleanupWorker() {
+	s.cleanupMu.Lock()
+	defer s.cleanupMu.Unlock()
+	if s.cleanupDone == nil {
+		return
+	}
+	s.cleanupCancel()
+	<-s.cleanupDone
+	s.cleanupDone, s.cleanupCancel = nil, nil
 }
 
 // GetAccountConcurrencyBatch gets current concurrency counts for multiple accounts.

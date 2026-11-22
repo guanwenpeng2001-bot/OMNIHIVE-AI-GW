@@ -124,19 +124,21 @@ func canonicalModel(name string, entries []RegistryModel) string {
 func projectModel(p Perspective, m Candidate, entries []RegistryModel, w Window, metrics Metrics) Detail {
 	summary := Summary{
 		ID: StableID(m.Provider, m.Model), Model: m.Model, DisplayName: m.Model, Provider: m.Provider,
-		Maturity: "unknown", CatalogState: "listed", AccessState: "requires_scope", RouteState: "requires_scope",
+		Maturity: "unknown", CatalogState: "listed", AvailabilityState: "catalog_only", AccessState: "requires_scope", RouteState: "requires_scope",
 		Modalities: []string{}, Protocols: []string{}, Actions: []string{}, Regions: []string{},
 		EvidenceState: "unknown",
 	}
 	d := Detail{Model: summary, Aliases: []string{}, Facts: []ModelFacts{}, Capabilities: []Capability{},
 		Endpoints: []Endpoint{}, AdditionalRates: []RateBand{}, TimeBands: []TimeBand{}, Benchmarks: []Benchmark{}, Redactions: []string{}}
 	var contexts []ModelFacts
+	displayName, conflictingName := "", false
 	for _, entry := range entries {
 		if entry.Facts.Source != "approved_registry" {
 			continue
 		}
-		if len(entries) == 1 && entry.DisplayName != "" {
-			d.Model.DisplayName = entry.DisplayName
+		if entry.DisplayName != "" {
+			conflictingName = conflictingName || (displayName != "" && displayName != entry.DisplayName)
+			displayName = entry.DisplayName
 		}
 		if d.Model.Maturity == "unknown" || entry.Facts.Maturity == "deprecated" {
 			d.Model.Maturity = entry.Facts.Maturity
@@ -144,6 +146,15 @@ func projectModel(p Perspective, m Candidate, entries []RegistryModel, w Window,
 		contexts = append(contexts, entry.Facts)
 		d.Facts = append(d.Facts, entry.Facts)
 		d.Capabilities = append(d.Capabilities, entry.Capabilities...)
+		d.Model.Actions = append(d.Model.Actions, entry.Actions...)
+	}
+	if displayName != "" && !conflictingName {
+		d.Model.DisplayName = displayName
+	}
+	for _, offer := range m.Offers {
+		if offer.Eligible && !offer.CatalogOnly {
+			d.Model.AvailabilityState = "live"
+		}
 	}
 	if p.Public() {
 		d.Redactions = []string{"endpoints", "scoped_evidence", "scoped_metrics", "scoped_prices"}
@@ -153,17 +164,18 @@ func projectModel(p Perspective, m Candidate, entries []RegistryModel, w Window,
 		d.Model.AccessState, d.Model.RouteState = "denied", "unknown"
 		var scopedFacts []ModelFacts
 		for _, offer := range m.Offers {
-			if offer.Access && offer.Eligible && offer.GroupID > 0 && !slices.Contains(d.EligibleGroups, offer.GroupID) {
+			if offer.Access && offer.Eligible && !offer.CatalogOnly && offer.GroupID > 0 && !slices.Contains(d.EligibleGroups, offer.GroupID) {
 				d.EligibleGroups = append(d.EligibleGroups, offer.GroupID)
 			}
 			if offer.Access {
 				d.Model.AccessState = "allowed"
 			}
-			if offer.Eligible {
+			if offer.Eligible && !offer.CatalogOnly {
 				d.Model.RouteState = "eligible"
 			}
 			scopedFacts = append(scopedFacts, offer.Facts...)
 			d.Capabilities = append(d.Capabilities, offer.Capabilities...)
+			d.Model.Actions = append(d.Model.Actions, offer.Actions...)
 			if p.EndpointMetadata {
 				d.Endpoints = append(d.Endpoints, offer.Endpoints...)
 				for _, endpoint := range offer.Endpoints {
@@ -254,6 +266,9 @@ func commonPrice(offers []Offer, public bool) Price {
 	var signature string
 	for i := range offers {
 		offer := &offers[i]
+		if offer.CatalogOnly {
+			continue
+		}
 		if (!public && !offer.Access) || (public && offer.Price.Source != "public_plaza_reference" && offer.Price.State != "error") {
 			continue
 		}

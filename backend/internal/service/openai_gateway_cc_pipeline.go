@@ -16,6 +16,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/apicompat"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/responseheaders"
+	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
@@ -88,6 +89,12 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 	upstreamMsg string,
 	upstreamModel string,
 ) *UpstreamFailoverError {
+	if publicModelLane(account) && resp.StatusCode == http.StatusUnauthorized {
+		failure := s.newOpenAIAccountFailoverError(account, http.StatusTooManyRequests, resp.Header, respBody, upstreamMsg, false, true)
+		failure.RequestScopedTransient = true
+		failure.Scope = GatewayFailureScopeRequest
+		return failure
+	}
 	if account != nil && account.Platform == PlatformOpenRouter {
 		return s.openRouterFailover(ctx, account, resp, respBody, upstreamMsg)
 	}
@@ -165,6 +172,16 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 
 // openAIChatCompletionsTargetURL 解析账号的（非 Grok）Chat Completions 上游端点。
 func (s *OpenAIGatewayService) openAIChatCompletionsTargetURL(account *Account) (string, error) {
+	if account.Platform == PlatformKilo {
+		return kiloEndpoint(account, "/chat/completions", s.validateUpstreamBaseURL)
+	}
+	if account.Platform == PlatformWorkBuddy {
+		base, err := s.validateUpstreamBaseURL(workBuddyEndpoint(account))
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimRight(base, "/") + "/v2/chat/completions", nil
+	}
 	baseURL := account.GetOpenAIBaseURL()
 	if isNativeProfilePlatform(account.Platform) {
 		baseURL = account.GetCNProtocolBaseURL(APIProtocolChatCompletions)
@@ -216,6 +233,13 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	userAgent string,
 	grokCacheIdentity string,
 ) (*http.Response, error) {
+	if account.Platform == PlatformWorkBuddy {
+		prepared, err := prepareWorkBuddyChat(body)
+		if err != nil {
+			return nil, err
+		}
+		body = prepared
+	}
 	if account.Platform == PlatformMistral {
 		// Messages and Responses conversions share the same native Chat schema
 		// as direct Chat callers, including the absence of stream_options.
@@ -276,6 +300,9 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	// 账号级请求头覆写：放在所有内置默认头（含 Grok CLI 身份头）之后应用，
 	// 使配置值获得除共享传输层强制头之外的最高优先级。
 	account.ApplyHeaderOverrides(upstreamReq.Header)
+	if account.Platform == PlatformWorkBuddy {
+		applyWorkBuddyChatHeaders(upstreamReq.Header, account, body)
+	}
 	applyOpenCodeSessionHeader(c, account, targetURL, upstreamReq.Header, body)
 
 	proxyURL, egressErr := account.EgressProxyURL(ctx)
@@ -300,6 +327,9 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 		}
 		return nil, reported
 	}
+	if account.Platform == PlatformWorkBuddy {
+		return s.normalizeWorkBuddyResponse(ctx, account, resp, stream)
+	}
 	return resp, nil
 }
 
@@ -319,7 +349,7 @@ type ccStreamScanState struct {
 	Err error
 }
 
-// scanCCStream 驱动两条 CC 回退路径共享的 SSE 读循环：提取 data 行、在 [DONE]
+// scanCCStream 读取两条 CC 回退路径共享的完整 SSE 事件，在 [DONE]
 // 哨兵处停止、保留最新 usage、记录首 token 时延，并把每个解析成功的 chunk 交给
 // emit 回调做各自的协议转换与写出。读错误按既有约定过滤 context 取消类噪声后
 // 记入 Warn 日志。
@@ -334,17 +364,19 @@ func (s *OpenAIGatewayService) scanCCStream(
 ) ccStreamScanState {
 	var st ccStreamScanState
 
-	scanner := s.newUpstreamSSEScanner(resp.Body)
+	maxSize, idle := defaultMaxLineSize, 300*time.Second
+	if s.cfg != nil {
+		if s.cfg.Gateway.MaxLineSize > 0 {
+			maxSize = s.cfg.Gateway.MaxLineSize
+		}
+		if s.cfg.Gateway.StreamDataIntervalTimeout > 0 {
+			idle = time.Duration(s.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
+		}
+	}
+	scanner := newUpstreamFrameReader(resp.Body, maxSize, c.Request.Context(), idle)
+	defer scanner.Close()
 	for scanner.Scan() {
-		line := scanner.Text()
-		payload, ok := extractOpenAISSEDataLine(line)
-		if !ok {
-			continue
-		}
-		payload = strings.TrimSpace(payload)
-		if payload == "" {
-			continue
-		}
+		payload := strings.TrimSpace(scanner.frame.Data)
 		if payload == "[DONE]" {
 			st.SawDone = true
 			break
@@ -375,8 +407,13 @@ func (s *OpenAIGatewayService) scanCCStream(
 			}
 		}
 
-		if account.Platform == PlatformOpenRouter && openRouterStreamError(payload) {
-			st.Err = fmt.Errorf("OpenRouter stream failed")
+		if account.Platform == PlatformWorkBuddy && (gjson.Get(payload, "error").Exists() || gjson.Get(payload, "code").Int() != 0) {
+			_ = s.workBuddyFailover(c.Request.Context(), account, resp, []byte(payload))
+			st.Err = fmt.Errorf("WorkBuddy stream failed")
+			break
+		}
+		if (account.Platform == PlatformOpenRouter || account.Platform == PlatformKilo) && openRouterStreamError(payload) {
+			st.Err = fmt.Errorf("%s stream failed", account.Platform)
 			break
 		}
 		if err := captureOpenRouterGoogleDetails(c, []byte(payload), true); err != nil {
@@ -384,14 +421,12 @@ func (s *OpenAIGatewayService) scanCCStream(
 			break
 		}
 		var chunk apicompat.ChatCompletionsChunk
-		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-			logger.L().Warn(logPrefix+": failed to parse chat stream chunk",
-				zap.Error(err),
-				zap.String("request_id", requestID),
-			)
-			continue
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil || !gjson.Parse(payload).IsObject() || gjson.Get(payload, "error").Exists() || (!gjson.Get(payload, "choices").IsArray() && !gjson.Get(payload, "usage").IsObject()) {
+			st.Err = fmt.Errorf("invalid upstream Chat Completions event")
+			break
 		}
 		if st.FirstTokenMs == nil && !isOpenAIChatUsageOnlyStreamChunk(payload) && chatChunkStartsResponsesOutput(&chunk) {
+			scanner.Semantic()
 			ms := int(time.Since(startTime).Milliseconds())
 			st.FirstTokenMs = &ms
 		}
@@ -434,7 +469,7 @@ func (s *OpenAIGatewayService) readCCUpstreamJSONResponse(
 		return nil, OpenAIUsage{}, fmt.Errorf("read upstream body: %w", err)
 	}
 
-	if (account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter) && !mistralChatUsageKnown(respBody) {
+	if (account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter || (account.Platform == PlatformWorkBuddy || account.Platform == PlatformKilo)) && !mistralChatUsageKnown(respBody) {
 		writeError(c, http.StatusBadGateway, "upstream_error", "Upstream chat usage is unknown")
 		return nil, OpenAIUsage{}, fmt.Errorf("upstream chat usage is unknown")
 	}

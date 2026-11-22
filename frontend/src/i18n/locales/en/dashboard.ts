@@ -665,7 +665,9 @@ export default {
       commandcode: 'Command Code',
       minimax: 'MiniMax',
       cursor: 'Cursor',
-      opencode_go: 'OpenCode'
+      opencode_go: 'OpenCode',
+      workbuddy: 'WorkBuddy',
+      kilo: 'Kilo'
     },
     // Check modes (how a monitor performs its checks)
     checkMode: {
@@ -1237,7 +1239,9 @@ export default {
     serverError: 'Server error',
     networkError: 'Network error',
     timeout: 'Request timeout',
-    tryAgain: 'Please try again'
+    tryAgain: 'Please try again',
+    restoreMaintenance: 'System is undergoing production restore maintenance. Please retry after recovery completes.',
+    restoreStatusUnavailable: 'Restore status is temporarily unavailable. Please retry shortly.'
   },
 
   // Dates

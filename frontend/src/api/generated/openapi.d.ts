@@ -4,6 +4,51 @@
  */
 
 export interface paths {
+    "/api/v1/admin/workbuddy/oauth/poll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Poll a WorkBuddy device authorization
+         * @description Polls the login session created by the start route. Returns `pending`
+         *     while the browser authorization is incomplete and `completed` once the
+         *     account identity and tokens are available. The explicit exchange is the
+         *     only response that carries tokens; responses are never cached.
+         */
+        post: operations["workBuddyAdminOAuthPoll"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/workbuddy/oauth/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a WorkBuddy device authorization
+         * @description Creates a short-lived WorkBuddy login session for the administrator
+         *     deployment scope. The response carries the browser authorization URL and
+         *     the opaque `session_id` used by the poll route. Responses are never cached.
+         */
+        post: operations["workBuddyAdminOAuthStart"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{workspace_id}/connections/{id}/authorization": {
         parameters: {
             query?: never;
@@ -18,6 +63,54 @@ export interface paths {
         /** Consume a workspace and browser-bound authorization draft */
         put: operations["connectionAttachAuthorization"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/workbuddy/oauth/poll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Poll a workspace-scoped WorkBuddy device authorization
+         * @description Requires workspace administrator membership in the addressed workspace.
+         *     A login session created in another workspace, or by another administrator
+         *     session, is reported as expired.
+         */
+        post: operations["workBuddyWorkspaceOAuthPoll"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/workbuddy/oauth/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a workspace-scoped WorkBuddy device authorization
+         * @description Requires workspace administrator membership in the addressed workspace.
+         *     The login session remains bound to the initiating workspace and cannot be
+         *     polled from another workspace.
+         */
+        post: operations["workBuddyWorkspaceOAuthStart"];
         delete?: never;
         options?: never;
         head?: never;
@@ -278,6 +371,13 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /**
+                 * @description Stable opaque catalog ID (`m_` followed by 32 lowercase hex characters)
+                 *     or a `provider/model` slug resolved against the same catalog snapshot.
+                 *     The detail handler also accepts a bare model suffix as an unambiguous
+                 *     compatibility fallback; clients should prefer the stable ID or slug and
+                 *     must not assume every accepted value matches the opaque ID pattern.
+                 */
                 id: components["parameters"]["CatalogModelID"];
             };
             cookie?: never;
@@ -1739,6 +1839,13 @@ export interface paths {
             path: {
                 workspace_id: components["parameters"]["IdentityWorkspaceID"];
                 project_id: components["parameters"]["IdentityProjectID"];
+                /**
+                 * @description Stable opaque catalog ID (`m_` followed by 32 lowercase hex characters)
+                 *     or a `provider/model` slug resolved against the same catalog snapshot.
+                 *     The detail handler also accepts a bare model suffix as an unambiguous
+                 *     compatibility fallback; clients should prefer the stable ID or slug and
+                 *     must not assume every accepted value matches the opaque ID pattern.
+                 */
                 id: components["parameters"]["CatalogModelID"];
             };
             cookie?: never;
@@ -2658,6 +2765,15 @@ export interface components {
             max_tokens: string | null;
             label?: string;
         };
+        CatalogReferencePrice: {
+            state: string;
+            source: string;
+            input_rate: components["schemas"]["CatalogRate"] | null;
+            output_rate: components["schemas"]["CatalogRate"] | null;
+            additional_rates: components["schemas"]["CatalogRateBand"][] | null;
+            context_basis?: string;
+            time_bands: components["schemas"]["CatalogTimeBand"][] | null;
+        };
         CatalogScope: {
             workspace_id: components["schemas"]["IdentityID"];
             project_id: components["schemas"]["IdentityID"];
@@ -2742,6 +2858,14 @@ export interface components {
             protocol: string;
             interval_seconds?: components["schemas"]["CatalogVerificationInterval"];
         };
+        /**
+         * @description Provider-selected authorization lane. `kilo` accepts `free` (keyless
+         *     public lane) or `apikey` (private key). `opencode_go` accepts `go`,
+         *     `zen` or `zen_free`. Other providers ignore the field. Switching between
+         *     a public and paid lane requires clearing the existing credential version.
+         * @enum {string}
+         */
+        ConnectionAccountMode: "free" | "apikey" | "go" | "zen" | "zen_free";
         ConnectionActivate: {
             /** Format: uuid */
             preview_id: string;
@@ -2773,12 +2897,14 @@ export interface components {
             /** @enum {string} */
             state: "passed" | "failed" | "unknown" | "unsupported";
             reason: string | null;
+            detail?: string;
         };
         ConnectionCreate: {
             provider: string;
             /** @constant */
             schema_version: "1";
             auth_type: string;
+            account_mode?: components["schemas"]["ConnectionAccountMode"];
             name: string;
             endpoint?: string;
             network_policy_id?: string;
@@ -2795,6 +2921,7 @@ export interface components {
             secret: string;
             /** Format: password */
             refresh_token?: string;
+            metadata?: components["schemas"]["ConnectionWorkBuddyCredentialMetadata"];
         };
         ConnectionCredentialResult: {
             connection_id?: string;
@@ -2833,6 +2960,8 @@ export interface components {
             /** Format: uuid */
             verification_id?: string;
             reason?: string;
+            /** @description Actionable detail for the current item state, when available. */
+            message?: string;
             version?: string;
         };
         ConnectionLimits: {
@@ -2867,6 +2996,7 @@ export interface components {
             } | null;
         };
         ConnectionPatch: {
+            account_mode?: components["schemas"]["ConnectionAccountMode"];
             name?: string;
             endpoint?: string;
             network_policy_id?: string;
@@ -2920,6 +3050,7 @@ export interface components {
             /** @constant */
             schema_version: "1";
             auth_type: string;
+            account_mode?: components["schemas"]["ConnectionAccountMode"];
             name: string;
             endpoint: string;
             network_policy_id: string;
@@ -2936,6 +3067,11 @@ export interface components {
             quota: components["schemas"]["ConnectionQuota"];
             allowed_actions: string[];
             redactions: string[];
+            /**
+             * @description Non-sensitive WorkBuddy metadata echoed for callers with credential
+             *     metadata permission. Secret token material is never included.
+             */
+            metadata?: components["schemas"]["ConnectionWorkBuddyCredentialMetadata"];
         };
         ConnectionResourcePage: {
             items: components["schemas"]["ConnectionResource"][];
@@ -2980,6 +3116,26 @@ export interface components {
         ConnectionVerify: {
             checks: ("network" | "authorization" | "discover_models")[];
             credential_version: string;
+        };
+        /**
+         * @description Non-sensitive WorkBuddy credential metadata accepted by the credential
+         *     write path. Secret token material must stay in `secret` / `refresh_token`
+         *     and is never accepted through `metadata`. API-key connections accept
+         *     only `site`; OAuth connections accept every field below.
+         */
+        ConnectionWorkBuddyCredentialMetadata: {
+            /**
+             * @description Normalized site; OAuth input also accepts desktop import aliases.
+             * @enum {string}
+             */
+            site?: "cn" | "global";
+            uid?: string;
+            domain?: string;
+            enterprise_id?: string;
+            /** @description RFC3339 timestamp or a numeric timestamp accepted by the normalizer. */
+            expires_at?: string;
+            /** @description RFC3339 timestamp or a numeric timestamp accepted by the normalizer. */
+            refresh_expires_at?: string;
         };
         ConnectionWriteResult: components["schemas"]["ConnectionResource"] | components["schemas"]["ConnectionRedacted"];
         CostActivity: {
@@ -3510,6 +3666,7 @@ export interface components {
         };
         ModelDetail: {
             model: components["schemas"]["ModelSummary"];
+            reference_price?: components["schemas"]["CatalogReferencePrice"] | null;
             aliases: string[];
             model_facts: components["schemas"]["CatalogModelFacts"][];
             capabilities: components["schemas"]["CatalogCapability"][];
@@ -3540,6 +3697,8 @@ export interface components {
             maturity: "unknown" | "stable" | "experimental" | "deprecated";
             /** @enum {string} */
             catalog_state: "listed";
+            /** @enum {string} */
+            availability_state?: "live" | "catalog_only";
             /** @enum {string} */
             access_state: "allowed" | "denied" | "unknown" | "requires_scope";
             /** @enum {string} */
@@ -4332,6 +4491,58 @@ export interface components {
                 duration_seconds: 5;
             };
         };
+        WorkBuddyOAuthCredentials: {
+            site: components["schemas"]["WorkBuddySite"];
+            /** @description WorkBuddy access token. Returned only by this explicit exchange. */
+            access_token: string;
+            /** @description WorkBuddy refresh token when the upstream grants one. Returned only by this explicit exchange. */
+            refresh_token?: string;
+            token_type?: string;
+            /** Format: date-time */
+            expires_at?: string;
+            /** Format: date-time */
+            refresh_expires_at?: string;
+            uid: string;
+            domain: string;
+            enterprise_id?: string;
+        };
+        WorkBuddyOAuthPoll: {
+            /** @enum {string} */
+            status: "pending" | "completed" | "failed";
+            site: components["schemas"]["WorkBuddySite"];
+            account_name?: string;
+            credentials?: components["schemas"]["WorkBuddyOAuthCredentials"];
+            error?: string;
+        };
+        WorkBuddyOAuthPollRequest: {
+            session_id: string;
+        };
+        WorkBuddyOAuthStart: {
+            /** @description Opaque server-side login session identifier for the poll route. */
+            session_id: string;
+            /**
+             * Format: uri
+             * @description HTTPS browser URL that completes the device authorization.
+             */
+            auth_url: string;
+            /** @description WorkBuddy authorization state bound to the login session. */
+            state: string;
+            site: components["schemas"]["WorkBuddySite"];
+            /** @description Login session lifetime in seconds. */
+            expires_in: number;
+        };
+        WorkBuddyOAuthStartRequest: {
+            site: components["schemas"]["WorkBuddySite"];
+            /** @description Existing proxy node used for the outbound login exchange. */
+            proxy_id?: number;
+        };
+        /**
+         * @description Normalized WorkBuddy site. OAuth input also accepts the desktop import
+         *     aliases `china`/`workbuddy` for `cn` and
+         *     `intl`/`international`/`workbuddy-ai`/`workbuddy_ai` for `global`.
+         * @enum {string}
+         */
+        WorkBuddySite: "cn" | "global";
     };
     responses: {
         /** @description Changed */
@@ -4676,6 +4887,13 @@ export interface components {
         };
     };
     parameters: {
+        /**
+         * @description Stable opaque catalog ID (`m_` followed by 32 lowercase hex characters)
+         *     or a `provider/model` slug resolved against the same catalog snapshot.
+         *     The detail handler also accepts a bare model suffix as an unambiguous
+         *     compatibility fallback; clients should prefer the stable ID or slug and
+         *     must not assume every accepted value matches the opaque ID pattern.
+         */
         CatalogModelID: string;
         CatalogVerificationIdempotency: string;
         CatalogVerificationIfMatch: string;
@@ -4739,6 +4957,84 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    workBuddyAdminOAuthPoll: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkBuddyOAuthPollRequest"];
+            };
+        };
+        responses: {
+            /** @description Login state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["WorkBuddyOAuthPoll"];
+                    };
+                };
+            };
+            /** @description Login error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    workBuddyAdminOAuthStart: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkBuddyOAuthStartRequest"];
+            };
+        };
+        responses: {
+            /** @description Login session created */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["WorkBuddyOAuthStart"];
+                    };
+                };
+            };
+            /** @description Login error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
     connectionAttachAuthorization: {
         parameters: {
             query?: never;
@@ -4774,6 +5070,88 @@ export interface operations {
                 };
             };
             /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    workBuddyWorkspaceOAuthPoll: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkBuddyOAuthPollRequest"];
+            };
+        };
+        responses: {
+            /** @description Login state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["WorkBuddyOAuthPoll"];
+                    };
+                };
+            };
+            /** @description Login error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    workBuddyWorkspaceOAuthStart: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkBuddyOAuthStartRequest"];
+            };
+        };
+        responses: {
+            /** @description Login session created */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["WorkBuddyOAuthStart"];
+                    };
+                };
+            };
+            /** @description Login error */
             default: {
                 headers: {
                     [name: string]: unknown;
@@ -5222,7 +5600,8 @@ export interface operations {
                 region?: string[];
                 retention?: string[];
                 stability?: string[];
-                sort?: "name" | "price_input" | "context" | "ttft";
+                availability_state?: "live" | "catalog_only";
+                sort?: "name" | "price_input" | "context" | "ttft" | "availability";
                 limit?: components["parameters"]["IdentityLimit"];
                 cursor?: components["parameters"]["IdentityCursor"];
             };
@@ -5265,6 +5644,13 @@ export interface operations {
             };
             header?: never;
             path: {
+                /**
+                 * @description Stable opaque catalog ID (`m_` followed by 32 lowercase hex characters)
+                 *     or a `provider/model` slug resolved against the same catalog snapshot.
+                 *     The detail handler also accepts a bare model suffix as an unambiguous
+                 *     compatibility fallback; clients should prefer the stable ID or slug and
+                 *     must not assume every accepted value matches the opaque ID pattern.
+                 */
                 id: components["parameters"]["CatalogModelID"];
             };
             cookie?: never;
@@ -8126,7 +8512,8 @@ export interface operations {
                 region?: string[];
                 retention?: string[];
                 stability?: string[];
-                sort?: "name" | "price_input" | "context" | "ttft";
+                availability_state?: "live" | "catalog_only";
+                sort?: "name" | "price_input" | "context" | "ttft" | "availability";
                 limit?: components["parameters"]["IdentityLimit"];
                 cursor?: components["parameters"]["IdentityCursor"];
                 accessible?: boolean;
@@ -8176,6 +8563,13 @@ export interface operations {
             path: {
                 workspace_id: components["parameters"]["IdentityWorkspaceID"];
                 project_id: components["parameters"]["IdentityProjectID"];
+                /**
+                 * @description Stable opaque catalog ID (`m_` followed by 32 lowercase hex characters)
+                 *     or a `provider/model` slug resolved against the same catalog snapshot.
+                 *     The detail handler also accepts a bare model suffix as an unambiguous
+                 *     compatibility fallback; clients should prefer the stable ID or slug and
+                 *     must not assume every accepted value matches the opaque ID pattern.
+                 */
                 id: components["parameters"]["CatalogModelID"];
             };
             cookie?: never;

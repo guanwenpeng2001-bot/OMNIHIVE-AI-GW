@@ -24,11 +24,13 @@ import (
 )
 
 type AsyncImageHandler struct {
-	poolOnce sync.Once
-	pool     pond.Pool
-	tasks    *service.ImageTaskService
-	openAI   *OpenAIGatewayHandler
-	execute  func(platform string, c *gin.Context)
+	poolMu  sync.Mutex
+	drained chan struct{}
+	pending map[string]context.CancelCauseFunc
+	pool    pond.Pool
+	tasks   *service.ImageTaskService
+	openAI  *OpenAIGatewayHandler
+	execute func(platform string, c *gin.Context)
 }
 
 func NewAsyncImageHandler(tasks *service.ImageTaskService, openAI *OpenAIGatewayHandler) *AsyncImageHandler {
@@ -140,21 +142,20 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 	} else if admission.RequestID != "" {
 		c.Header("X-Execution-ID", admission.RequestID)
 	}
+	executionCtx, stop := context.WithCancelCause(executionCtx)
 	taskCtx, recorder := newAsyncImageContext(c, body, executionCtx)
-
-	h.poolOnce.Do(func() {
-		if h.pool == nil {
-			h.pool = pond.NewPool(8, pond.WithQueueSize(32))
-		}
-	})
-	if _, accepted := h.pool.TrySubmit(func() {
+	if !h.submitTask(task.ID, stop, func() {
+		defer cancel()
+		defer stop(nil)
 		if taskCtx.Request.Context().Err() != nil {
-			cancel()
-			h.failTask(task.ID, http.StatusGatewayTimeout, imageTaskErrorPayload("timeout_error", "image task expired before execution"))
+			if context.Cause(executionCtx) != errImageTaskShutdown {
+				h.failTask(task.ID, http.StatusGatewayTimeout, imageTaskErrorPayload("timeout_error", "image task expired before execution"))
+			}
 			return
 		}
-		h.run(task.ID, platform, taskCtx, recorder, cancel)
-	}); !accepted {
+		h.run(task.ID, platform, taskCtx, recorder)
+	}) {
+		stop(nil)
 		cancel()
 		h.failTask(task.ID, http.StatusServiceUnavailable, imageTaskErrorPayload("queue_full", "image task queue is full"))
 		imageTaskError(c, service.ErrImageTaskUnavailable)
@@ -259,6 +260,70 @@ func (h *AsyncImageHandler) validateRequest(c *gin.Context, platform string, bod
 	return parsed.Model, nil
 }
 
+var errImageTaskShutdown = errors.New("image worker shutdown")
+
+func (h *AsyncImageHandler) submitTask(id string, cancel context.CancelCauseFunc, run func()) bool {
+	h.poolMu.Lock()
+	defer h.poolMu.Unlock()
+	if h.drained != nil {
+		return false
+	}
+	if h.pool == nil {
+		h.pool = pond.NewPool(8, pond.WithQueueSize(32))
+	}
+	if h.pending == nil {
+		h.pending = make(map[string]context.CancelCauseFunc)
+	}
+	_, accepted := h.pool.TrySubmit(func() {
+		defer func() {
+			h.poolMu.Lock()
+			delete(h.pending, id)
+			h.poolMu.Unlock()
+		}()
+		run()
+	})
+	if accepted {
+		h.pending[id] = cancel
+	}
+	return accepted
+}
+
+// BeginDrain closes submissions and waits for all accepted jobs and receipts.
+func (h *AsyncImageHandler) BeginDrain() <-chan struct{} {
+	h.poolMu.Lock()
+	defer h.poolMu.Unlock()
+	if h.drained == nil {
+		h.drained = make(chan struct{})
+		if h.pool == nil {
+			close(h.drained)
+		} else {
+			go func() {
+				h.pool.StopAndWait()
+				close(h.drained)
+			}()
+		}
+	}
+	return h.drained
+}
+
+// ExpireDrain cancels outstanding work and records an unknown outcome before
+// the service closes Redis. The store accepts only the first terminal write.
+func (h *AsyncImageHandler) ExpireDrain(ctx context.Context) {
+	h.poolMu.Lock()
+	ids := make([]string, 0, len(h.pending))
+	for id, cancel := range h.pending {
+		ids = append(ids, id)
+		cancel(errImageTaskShutdown)
+	}
+	h.poolMu.Unlock()
+	for _, id := range ids {
+		err := h.tasks.Fail(ctx, id, http.StatusGatewayTimeout, imageTaskErrorPayload("execution_outcome_unknown", "image worker stopped before the upstream outcome could be recorded"))
+		if err != nil {
+			logger.L().Error("image_task.shutdown_store_failed", zap.String("task_id", id), zap.Error(err))
+		}
+	}
+}
+
 func (h *AsyncImageHandler) executeWithGateway(platform string, c *gin.Context) {
 	if h.openAI == nil {
 		imageTaskJSONError(c, http.StatusServiceUnavailable, "api_error", "image gateway is unavailable")
@@ -271,8 +336,7 @@ func (h *AsyncImageHandler) executeWithGateway(platform string, c *gin.Context) 
 	h.openAI.Images(c)
 }
 
-func (h *AsyncImageHandler) run(taskID, platform string, taskCtx *gin.Context, recorder *httptest.ResponseRecorder, cancel context.CancelFunc) {
-	defer cancel()
+func (h *AsyncImageHandler) run(taskID, platform string, taskCtx *gin.Context, recorder *httptest.ResponseRecorder) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			logger.L().Error("image_task.execution_panicked", zap.String("task_id", taskID), zap.Any("panic", recovered))
@@ -281,6 +345,9 @@ func (h *AsyncImageHandler) run(taskID, platform string, taskCtx *gin.Context, r
 	}()
 
 	h.execute(platform, taskCtx)
+	if context.Cause(taskCtx.Request.Context()) == errImageTaskShutdown {
+		return
+	}
 	body := bytes.TrimSpace(recorder.Body.Bytes())
 	if err := taskCtx.Request.Context().Err(); err != nil && len(body) == 0 {
 		h.failTask(taskID, http.StatusGatewayTimeout, imageTaskErrorPayload("timeout_error", "image generation task timed out"))
@@ -301,6 +368,12 @@ func (h *AsyncImageHandler) run(taskID, platform string, taskCtx *gin.Context, r
 		}
 		persistCtx, persistCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer persistCancel()
+		stop := context.AfterFunc(taskCtx.Request.Context(), func() {
+			if context.Cause(taskCtx.Request.Context()) == errImageTaskShutdown {
+				persistCancel()
+			}
+		})
+		defer stop()
 		if err := h.tasks.Complete(persistCtx, taskID, statusCode, json.RawMessage(body), accountID); err != nil {
 			logger.L().Error("image_task.complete_store_failed", zap.String("task_id", taskID), zap.Error(err))
 		}
