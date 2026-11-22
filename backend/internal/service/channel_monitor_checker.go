@@ -312,7 +312,7 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 	full := joinURL(endpoint, adapter.buildPath(model))
 	if provider == PlatformKilo {
 		mode := KiloAccountModeFree
-		if strings.TrimSpace(apiKey) != "" && apiKey != "public" {
+		if strings.TrimSpace(apiKey) != "" && strings.TrimSpace(apiKey) != "public" {
 			mode = KiloAccountModeAPIKey
 		}
 		a := &Account{Platform: PlatformKilo, Type: AccountTypeAPIKey, Credentials: map[string]any{"account_mode": mode, "api_key": apiKey, "base_url": endpoint}}
@@ -349,7 +349,7 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 		full = workBuddyEndpoint(a) + "/v2/chat/completions"
 	}
 
-	respBytes, status, err := postRawJSON(ctx, full, body, headers)
+	respBytes, status, err := postRawJSON(ctx, full, body, headers, provider)
 	if err != nil {
 		return "", "", status, err
 	}
@@ -511,6 +511,8 @@ func buildRequestBody(adapter providerAdapter, provider, apiMode, model, prompt 
 //
 //nolint:gochecknoglobals // 静态查表，初始化后不变。
 var bodyMergeKeyDenyList = map[string]map[string]bool{
+	PlatformWorkBuddy: {"model": true, "messages": true, "stream": true},
+	PlatformKilo:      {"model": true, "messages": true, "stream": true},
 	MonitorProviderOpenAI + ":" + MonitorAPIModeChatCompletions: {"model": true, "messages": true, "stream": true},
 	MonitorProviderOpenAI + ":" + MonitorAPIModeResponses:       {"model": true, "instructions": true, "input": true, "stream": true},
 	MonitorProviderGrok:      {"model": true, "messages": true, "stream": true},
@@ -544,7 +546,7 @@ func bodyMergeDenyKey(provider, apiMode string) string {
 // Completions 同构（replace 模式的 body 校验按 messages 必填处理）。
 func isOpenAICompatibleChatProvider(provider string) bool {
 	switch provider {
-	case MonitorProviderOpenAI, MonitorProviderGrok,
+	case MonitorProviderOpenAI, MonitorProviderGrok, PlatformWorkBuddy, PlatformKilo,
 		MonitorProviderKimi, MonitorProviderZhipu, MonitorProviderDeepseek, MonitorProviderMiniMax, MonitorProviderOpenCodeGo, MonitorProviderQianwen, MonitorProviderCommandCode:
 		return true
 	default:
@@ -593,7 +595,7 @@ func hasNonEmptyBodyValue(v any) bool {
 
 // postRawJSON 发送 POST + 已序列化好的 JSON 字节，限制响应体大小，返回响应字节、HTTP status、错误。
 // adapter 自行 marshal 是为了精确控制字段顺序与类型，所以这里直接收 []byte 而不是 any。
-func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers map[string]string) ([]byte, int, error) {
+func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers map[string]string, provider string) ([]byte, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(payload))
 	if err != nil {
 		return nil, 0, fmt.Errorf("build request: %w", err)
@@ -604,7 +606,13 @@ func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers ma
 		req.Header.Set(k, v)
 	}
 
-	resp, err := monitorHTTPClient.Do(req)
+	client := monitorHTTPClient
+	if provider == PlatformWorkBuddy {
+		local := *client
+		local.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		client = &local
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, 0, fmt.Errorf("do request: %w", err)
 	}

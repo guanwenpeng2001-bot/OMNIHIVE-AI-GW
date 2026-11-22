@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -20,10 +21,13 @@ func TestWorkBuddyOAuthHandlerValidation(t *testing.T) {
 	router.POST("/poll", h.Poll)
 	for _, fixture := range []struct{ path, body string }{{"/start", "{"}, {"/poll", "{}"}, {"/start", `{"site":"global"}`}, {"/poll", `{"session_id":"unknown"}`}} {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("POST", fixture.path, strings.NewReader(fixture.body))
+		req := httptest.NewRequest(http.MethodPost, fixture.path, strings.NewReader(fixture.body))
 		req.Header.Set("Content-Type", "application/json")
 		router.ServeHTTP(rec, req)
 		require.GreaterOrEqual(t, rec.Code, 400)
 		require.NotContains(t, rec.Body.String(), "access_token")
+		if fixture.path == "/poll" && strings.Contains(fixture.body, "unknown") {
+			require.Contains(t, rec.Body.String(), "PENDING_AUTH_BROWSER_MISMATCH")
+		}
 	}
 }

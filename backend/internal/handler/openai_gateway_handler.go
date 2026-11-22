@@ -391,14 +391,16 @@ func allowOpenAICompatibleMessagesDispatch(c *gin.Context, apiKey *service.APIKe
 }
 
 func openAICompatibleTextTargetAllowed(c *gin.Context, apiKey *service.APIKey, model string) bool {
-	platforms := []string{}
-	for _, provider := range domain.CompatibleProviders() {
-		platforms = append(platforms, provider.ID)
+	if c == nil || c.Request == nil || apiKey == nil || apiKey.Group == nil || apiKey.Group.Platform != service.PlatformComposite {
+		return true
 	}
-	return compositeTargetPlatformAllowed(c, apiKey, model, append(platforms,
-		service.PlatformOpenAI, service.PlatformGrok,
-		service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek,
-		service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformQianwen, service.PlatformCommandCode, service.PlatformVolcengine, service.PlatformMistral, service.PlatformOpenRouter, service.PlatformHunyuan, service.PlatformQianfan)...)
+	ensureCompositeTargetPlatform(c, apiKey, model)
+	platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context())
+	if !ok {
+		return false
+	}
+	cell := domain.PlatformAction(domain.ActionIdentity{Platform: platform, HostedAccountType: service.AccountTypeAPIKey}, "chat")
+	return cell.Adapter == "openai.chat"
 }
 
 // isResponsesWebSocketCompositePlatform 限定 composite 分组在 Responses WebSocket

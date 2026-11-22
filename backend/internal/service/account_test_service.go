@@ -2161,7 +2161,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	if err := applyCompatibleRequestAuth(account, req); err != nil {
 		return s.sendErrorAndEnd(c, err.Error())
 	}
-	if IsCompatibleProvider(account.Platform) {
+	if IsCompatibleProvider(account.Platform) || account.Platform == PlatformWorkBuddy {
 		req = req.WithContext(WithHTTPUpstreamRedirectsDisabled(req.Context()))
 	}
 	resp, err := accountHTTPUpstream(s.httpUpstream, account).DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))

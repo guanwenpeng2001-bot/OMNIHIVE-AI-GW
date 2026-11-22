@@ -155,7 +155,7 @@ func TestZenFreeGuardAllProtocols(t *testing.T) {
 			if protocol == APIProtocolChatCompletions {
 				tool = `{"type":"function","function":{"name":"pwsh"}}`
 			}
-			body, p, err := prepareZenFreeRequest([]byte(`{"model":"big-pickle","tools":[`+tool+`]}`), protocol)
+			body, p, err := prepareZenFreeRequest(nil, []byte(`{"model":"big-pickle","tools":[`+tool+`]}`), protocol)
 			require.NoError(t, err)
 			require.Len(t, gjson.GetBytes(body, "tools").Array(), 5)
 			require.Equal(t, "pwsh", p.renamed["bash"])
@@ -179,7 +179,7 @@ func TestZenFreeGuardAllProtocols(t *testing.T) {
 		{APIProtocolChatCompletions, `{"choices":[{"index":0,"message":{"tool_calls":[{"function":{"name":"bash"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":2}}`, "choices.0.finish_reason", "stop"},
 		{APIProtocolAnthropic, `{"content":[{"type":"tool_use","name":"read"}],"stop_reason":"tool_use","usage":{"input_tokens":10,"output_tokens":2}}`, "stop_reason", "end_turn"},
 	} {
-		_, p, err := prepareZenFreeRequest([]byte(`{}`), tt.protocol)
+		_, p, err := prepareZenFreeRequest(nil, []byte(`{}`), tt.protocol)
 		require.NoError(t, err)
 		out, err := p.guard([]byte(tt.reply))
 		require.NoError(t, err)
@@ -198,7 +198,7 @@ func guardedSSE(t *testing.T, p *zenFreeToolPolicy, sse string) string {
 	return string(body)
 }
 func TestZenFreeFragmentedChatToolsAndSSEUsage(t *testing.T) {
-	_, p, err := prepareZenFreeRequest([]byte(`{"tools":[{"function":{"name":"Bash"}}]}`), APIProtocolChatCompletions)
+	_, p, err := prepareZenFreeRequest(nil, []byte(`{"tools":[{"function":{"name":"Bash"}}]}`), APIProtocolChatCompletions)
 	require.NoError(t, err)
 	sse := `: keepalive
 
@@ -221,12 +221,12 @@ data: [DONE]
 	require.Contains(t, out, ": keepalive")
 }
 func TestZenFreeStreamingDecoyEvents(t *testing.T) {
-	_, p, _ := prepareZenFreeRequest([]byte(`{}`), APIProtocolAnthropic)
+	_, p, _ := prepareZenFreeRequest(nil, []byte(`{}`), APIProtocolAnthropic)
 	out := guardedSSE(t, p, "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"name\":\"read\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"partial_json\":\"{}\"}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":3}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
 	require.NotContains(t, out, "content_block_")
 	require.Contains(t, out, `"stop_reason":"end_turn"`)
 	require.Contains(t, out, `"output_tokens":3`)
-	_, p, _ = prepareZenFreeRequest([]byte(`{}`), APIProtocolResponses)
+	_, p, _ = prepareZenFreeRequest(nil, []byte(`{}`), APIProtocolResponses)
 	out = guardedSSE(t, p, "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"decoy\",\"type\":\"function_call\",\"name\":\"bash\"}}\n\ndata: {\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"decoy\",\"delta\":\"{}\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"output\":[{\"type\":\"function_call\",\"name\":\"bash\"}],\"usage\":{\"input_tokens\":12,\"output_tokens\":2}}}\n\n")
 	require.NotContains(t, out, "function_call")
 	require.Contains(t, out, "response.completed")
@@ -403,7 +403,7 @@ func TestFreeModelAdminPublicTransitions(t *testing.T) {
 }
 
 func TestZenFreeLegacyAndRetainedIndexes(t *testing.T) {
-	body, p, err := prepareZenFreeRequest([]byte(`{"functions":[{"name":"Bash","parameters":{"type":"object"}}]}`), APIProtocolChatCompletions)
+	body, p, err := prepareZenFreeRequest(nil, []byte(`{"functions":[{"name":"Bash","parameters":{"type":"object"}}]}`), APIProtocolChatCompletions)
 	require.NoError(t, err)
 	require.Len(t, gjson.GetBytes(body, "tools").Array(), 5)
 	require.False(t, p.injected["bash"])
@@ -412,7 +412,7 @@ func TestZenFreeLegacyAndRetainedIndexes(t *testing.T) {
 	require.Equal(t, "Bash", gjson.GetBytes(out, "choices.0.message.function_call.name").String())
 	require.Equal(t, "function_call", gjson.GetBytes(out, "choices.0.finish_reason").String())
 	for _, protocol := range []string{APIProtocolAnthropic, APIProtocolResponses} {
-		_, p, err = prepareZenFreeRequest([]byte(`{}`), protocol)
+		_, p, err = prepareZenFreeRequest(nil, []byte(`{}`), protocol)
 		require.NoError(t, err)
 		if protocol == APIProtocolAnthropic {
 			out, err = p.guard([]byte(`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","name":"bash"}}`))

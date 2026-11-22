@@ -355,11 +355,6 @@ func TestGatewayProtocolMatrixDocumentation(test *testing.T) {
 	slices.Sort(documented)
 	require.Equal(test, registered, documented, "documentation must not advertise unregistered routes")
 	for _, platform := range domain.ConcretePlatforms() {
-		// These adapter additions are covered by the executable matrix above;
-		// the release documentation is maintained outside this backend change.
-		if platform == domain.PlatformKilo || platform == domain.PlatformWorkBuddy {
-			continue
-		}
 		if _, compatible := domain.LookupCompatibleProvider(platform); compatible {
 			continue // Compatible rows have a separate, linked mode/protocol reference.
 		}

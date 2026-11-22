@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/logredact"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -110,7 +111,7 @@ func prepareKiloChat(a *Account, body []byte) ([]byte, string, error) {
 // Clamp only the documented router defect. Cost decimals, output and reasoning
 // counters remain byte-for-byte untouched; every bridge meters the same corrected
 // input count. Do not invent a successful usage report when counters are absent.
-func normalizeKiloPayload(body []byte, model string) []byte {
+func normalizeKiloPayload(body []byte, model string, accounts ...*Account) []byte {
 	if !gjson.ValidBytes(body) {
 		return body
 	}
@@ -126,24 +127,95 @@ func normalizeKiloPayload(body []byte, model string) []byte {
 			}
 		}
 	}
-	if detail := kiloErrorDetail(body); detail != "" {
+	if !gjson.GetBytes(body, "error").Exists() && gjson.GetBytes(body, "type").String() != "error" && !gjson.GetBytes(body, "metadata.raw").Exists() {
+		return body
+	}
+	if detail := kiloErrorDetail(body, accounts...); detail != "" {
 		body, _ = sjson.SetBytes(body, "error.message", detail)
-		// Do not expose an unsanitized embedded provider response in passthrough.
-		body, _ = sjson.DeleteBytes(body, "error.metadata.raw")
-		body, _ = sjson.DeleteBytes(body, "metadata.raw")
+	}
+	// Raw diagnostics are never safe for passthrough, even without a message.
+	body, _ = sjson.DeleteBytes(body, "error.metadata.raw")
+	body, _ = sjson.DeleteBytes(body, "metadata.raw")
+	if gjson.GetBytes(body, "error").Exists() || gjson.GetBytes(body, "type").String() == "error" {
+		var value any
+		decoder := json.NewDecoder(strings.NewReader(string(body)))
+		decoder.UseNumber()
+		if decoder.Decode(&value) == nil {
+			if encoded, err := json.Marshal(kiloRedactValue(value, accounts, 0)); err == nil {
+				body = encoded
+			}
+		}
 	}
 	return body
 }
 
-var kiloSecretPattern = regexp.MustCompile(`(?i)(bearer\s+|(?:api[_-]?key|token|authorization)\s*[:=]\s*["']?)[^\s"',;]+`)
+var kiloSecretPattern = regexp.MustCompile(`(?i)(bearer\s+|(?:api[_-]?key|(?:access[_-]?|refresh[_-]?)?token|authorization|cookie)["']?\s*[:=]\s*["']?)[^\s"',;}]+`)
+var kiloCookiePattern = regexp.MustCompile(`(?i)(cookie["']?\s*[:=]\s*)[^\r\n]+`)
 
-func kiloErrorDetail(body []byte) string {
+func kiloSecretKey(key string) bool {
+	if IsSensitiveCredentialKey(key) {
+		return true
+	}
+	key = strings.ToLower(strings.NewReplacer("-", "", "_", "", " ", "").Replace(key))
+	return slices.Contains([]string{"apikey", "token", "accesstoken", "refreshtoken", "bearer", "authorization", "cookie", "setcookie"}, key)
+}
+
+func kiloRedactValue(value any, accounts []*Account, depth int) any {
+	if depth > 32 {
+		return "[redacted]"
+	}
+	switch v := value.(type) {
+	case map[string]any:
+		for key, child := range v {
+			if kiloSecretKey(key) {
+				v[key] = "[redacted]"
+			} else if key == "raw" {
+				delete(v, key)
+			} else {
+				v[key] = kiloRedactValue(child, accounts, depth+1)
+			}
+		}
+	case []any:
+		for i, child := range v {
+			v[i] = kiloRedactValue(child, accounts, depth+1)
+		}
+	case string:
+		return kiloRedactText(v, accounts)
+	}
+	return value
+}
+
+func kiloRedactText(message string, accounts []*Account) string {
+	// Error summaries are text. A provider can append an entire escaped or
+	// malformed JSON object, which cannot safely be treated as prose.
+	if start := strings.IndexAny(message, "{["); start >= 0 {
+		message = message[:start] + "[redacted]"
+	}
+	message = kiloCookiePattern.ReplaceAllString(message, "${1}[redacted]")
+	message = logredact.RedactText(message)
+	message = kiloSecretPattern.ReplaceAllString(message, "${1}[redacted]")
+	for _, account := range accounts {
+		if account == nil {
+			continue
+		}
+		_, secrets := SplitCredentialSecrets(account.Credentials)
+		for _, value := range secrets {
+			if secret, ok := value.(string); ok && secret != "" {
+				message = strings.ReplaceAll(message, secret, "[redacted]")
+			}
+		}
+	}
+	return sanitizeUpstreamErrorMessage(message)
+}
+
+func kiloErrorDetail(body []byte, accounts ...*Account) string {
 	raw := gjson.GetBytes(body, "error.metadata.raw").String()
 	if raw == "" {
 		raw = gjson.GetBytes(body, "metadata.raw").String()
 	}
-	if strings.TrimSpace(raw) == "" {
-		return ""
+	// Redact before selecting a nested message and before copying to the envelope.
+	if gjson.Valid(raw) {
+		raw = logredact.RedactJSON([]byte(raw), SensitiveCredentialKeys...)
 	}
 	detail := raw
 	if gjson.Valid(raw) {
@@ -163,8 +235,7 @@ func kiloErrorDetail(body []byte) string {
 		}
 		message += detail
 	}
-	message = sanitizeUpstreamErrorMessage(message)
-	message = kiloSecretPattern.ReplaceAllString(message, "${1}[redacted]")
+	message = logredact.RedactDiagnostic(kiloRedactText(message, accounts))
 	message = strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {
 			return ' '

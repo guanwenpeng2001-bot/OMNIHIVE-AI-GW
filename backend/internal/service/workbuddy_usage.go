@@ -15,34 +15,40 @@ import (
 const WorkBuddyUsageSnapshotExtraKey = "workbuddy_usage_snapshot"
 
 type WorkBuddyUsageSnapshot struct {
-	Site           string  `json:"site"`
-	Plan           string  `json:"plan"`
-	BaseUsed       float64 `json:"base_used"`
-	BaseTotal      float64 `json:"base_total"`
-	BaseRemaining  float64 `json:"base_remaining"`
-	BaseResetAt    string  `json:"base_reset_at,omitempty"`
-	ExtraUsed      float64 `json:"extra_used"`
-	ExtraTotal     float64 `json:"extra_total"`
-	ExtraRemaining float64 `json:"extra_remaining"`
-	TotalRemaining float64 `json:"total_remaining"`
-	UpdatedAt      string  `json:"updated_at"`
+	Site            string  `json:"site"`
+	RuntimeIdentity string  `json:"runtime_identity"`
+	Plan            string  `json:"plan"`
+	BaseUsed        float64 `json:"base_used"`
+	BaseTotal       float64 `json:"base_total"`
+	BaseRemaining   float64 `json:"base_remaining"`
+	BaseResetAt     string  `json:"base_reset_at,omitempty"`
+	ExtraUsed       float64 `json:"extra_used"`
+	ExtraTotal      float64 `json:"extra_total"`
+	ExtraRemaining  float64 `json:"extra_remaining"`
+	TotalRemaining  float64 `json:"total_remaining"`
+	UpdatedAt       string  `json:"updated_at"`
 }
 
-func workBuddyCapacity(v any) float64 {
+func workBuddyCapacity(v any) (float64, bool) {
 	var n float64
+	var err error
 	switch v := v.(type) {
 	case float64:
 		n = v
+	case int:
+		n = float64(v)
+	case int64:
+		n = float64(v)
 	case string:
-		n, _ = strconv.ParseFloat(v, 64)
+		n, err = strconv.ParseFloat(v, 64)
 	case json.Number:
-		n, _ = v.Float64()
+		n, err = v.Float64()
+	default:
+		return 0, false
 	}
-	if math.IsInf(n, 0) || math.IsNaN(n) || n < 0 {
-		return 0
-	}
-	return n
+	return n, err == nil && !math.IsInf(n, 0) && !math.IsNaN(n) && n >= 0
 }
+
 func workBuddyDate(v any) *time.Time {
 	if s, ok := v.(string); ok {
 		if t, err := time.Parse("2006-01-02 15:04:05 -0700", strings.TrimSpace(s)+" +0800"); err == nil {
@@ -89,13 +95,18 @@ func parseWorkBuddyUsage(sum map[string]any, details []map[string]any, site stri
 			snap.ExtraRemaining += left
 		}
 	}
+	known := false
 	countedGroups := false
 	for _, g := range groups {
 		if g["CycleTotalCapacity"] == nil || g["CycleTotalCapacity"] == "" {
 			continue
 		}
-		total := workBuddyCapacity(g["CycleTotalCapacity"])
-		used := workBuddyCapacity(g["CycleUsedCapacity"])
+		total, totalOK := workBuddyCapacity(g["CycleTotalCapacity"])
+		used, usedOK := workBuddyCapacity(g["CycleUsedCapacity"])
+		if !totalOK || !usedOK {
+			return nil
+		}
+		known = true
 		add(g["Kind"] == "plan_base", total, used, math.Max(0, total-used))
 		countedGroups = true
 	}
@@ -106,12 +117,21 @@ func parseWorkBuddyUsage(sum map[string]any, details []map[string]any, site stri
 		base := workBuddyPlanCode(code, sub, site)
 		if p["CycleTotalCapacity"] == nil || p["CycleTotalCapacity"] == "" {
 			if p["CycleRemainCapacity"] != nil {
-				add(base, 0, 0, workBuddyCapacity(p["CycleRemainCapacity"]))
+				remaining, ok := workBuddyCapacity(p["CycleRemainCapacity"])
+				if !ok {
+					return nil
+				}
+				add(base, 0, 0, remaining)
+				known = true
 			}
 		} else if !countedGroups {
-			total := workBuddyCapacity(p["CycleTotalCapacity"])
-			used := workBuddyCapacity(p["CycleUsedCapacity"])
+			total, totalOK := workBuddyCapacity(p["CycleTotalCapacity"])
+			used, usedOK := workBuddyCapacity(p["CycleUsedCapacity"])
+			if !totalOK || !usedOK {
+				return nil
+			}
 			add(base, total, used, math.Max(0, total-used))
+			known = true
 		}
 	}
 	hasSummaryExtra := snap.ExtraTotal > 0
@@ -127,7 +147,8 @@ func parseWorkBuddyUsage(sum map[string]any, details []map[string]any, site stri
 		if end != nil && time.Now().After(*end) {
 			continue
 		}
-		if (sub != "" && code == sub) || (sub == "" && workBuddyCapacity(p["CapacityType"]) == 4) {
+		capacityType, _ := workBuddyCapacity(p["CapacityType"])
+		if (sub != "" && code == sub) || (sub == "" && capacityType == 4) {
 			if reset := workBuddyDate(p["CycleEndTime"]); reset != nil && reset.After(time.Now()) {
 				if snap.BaseResetAt == "" || reset.UTC().Format(time.RFC3339) < snap.BaseResetAt {
 					snap.BaseResetAt = reset.UTC().Format(time.RFC3339)
@@ -143,18 +164,28 @@ func parseWorkBuddyUsage(sum map[string]any, details []map[string]any, site stri
 		if !extra {
 			continue
 		}
-		total := workBuddyCapacity(p["CycleCapacitySizePrecise"])
-		left := workBuddyCapacity(p["CycleCapacityRemainPrecise"])
-		if workBuddyCapacity(p["CapacityType"]) == 4 {
+		total, totalOK := workBuddyCapacity(p["CycleCapacitySizePrecise"])
+		left, leftOK := workBuddyCapacity(p["CycleCapacityRemainPrecise"])
+		if capacityType == 4 {
 			if slices := workBuddyMaps(p["SlicePeriodUsageDetails"]); len(slices) > 0 {
-				total = workBuddyCapacity(slices[0]["SlicePeriodCapacitySizePrecise"])
-				left = workBuddyCapacity(slices[0]["SlicePeriodCapacityRemainPrecise"])
+				total, totalOK = workBuddyCapacity(slices[0]["SlicePeriodCapacitySizePrecise"])
+				left, leftOK = workBuddyCapacity(slices[0]["SlicePeriodCapacityRemainPrecise"])
 			}
 		}
+		if !totalOK || !leftOK {
+			continue
+		}
+		known = true
 		left = math.Min(left, total)
 		add(false, total, total-left, left)
 	}
+	if !known {
+		return nil
+	}
 	snap.TotalRemaining = snap.BaseRemaining + snap.ExtraRemaining
+	if math.IsInf(snap.TotalRemaining, 0) || math.IsInf(snap.BaseTotal+snap.ExtraTotal, 0) || math.IsInf(snap.BaseUsed+snap.ExtraUsed, 0) {
+		return nil
+	}
 	return snap
 }
 func (s *WorkBuddyOAuthService) FetchWorkBuddyUsage(ctx context.Context, a *Account) (*WorkBuddyUsageSnapshot, error) {
@@ -174,7 +205,7 @@ func (s *WorkBuddyOAuthService) FetchWorkBuddyUsage(ctx context.Context, a *Acco
 		return nil, err
 	}
 	snap := parseWorkBuddyUsage(sum, nil, workBuddySiteFor(a).ID)
-	if a.GetCredential("enterprise_id") != "" && snap.BaseTotal == 0 && snap.ExtraTotal == 0 && snap.TotalRemaining == 0 {
+	if a.GetCredential("enterprise_id") != "" && (snap == nil || (snap.BaseTotal == 0 && snap.ExtraTotal == 0 && snap.TotalRemaining == 0)) {
 		raw, e := s.call(ctx, a, proxy, http.MethodPost, "/billing/meter/get-enterprise-user-usage", map[string]any{}, nil)
 		if e != nil {
 			return nil, e
@@ -183,8 +214,15 @@ func (s *WorkBuddyOAuthService) FetchWorkBuddyUsage(ctx context.Context, a *Acco
 		if e = json.Unmarshal(raw, &ent); e != nil {
 			return nil, e
 		}
-		snap.BaseTotal = workBuddyCapacity(ent["limitNum"])
-		snap.BaseUsed = workBuddyCapacity(ent["credit"])
+		total, totalOK := workBuddyCapacity(ent["limitNum"])
+		used, usedOK := workBuddyCapacity(ent["credit"])
+		if !totalOK || !usedOK {
+			return nil, errors.New("WorkBuddy enterprise credit allowance is unavailable")
+		}
+		if snap == nil {
+			snap = &WorkBuddyUsageSnapshot{Site: workBuddySiteFor(a).ID, UpdatedAt: time.Now().UTC().Format(time.RFC3339)}
+		}
+		snap.BaseTotal, snap.BaseUsed = total, used
 		snap.BaseRemaining = math.Max(0, snap.BaseTotal-snap.BaseUsed)
 		snap.TotalRemaining = snap.BaseRemaining + snap.ExtraRemaining
 		if reset := workBuddyDate(ent["cycleResetTime"]); reset != nil {
@@ -219,14 +257,15 @@ func (s *WorkBuddyOAuthService) FetchWorkBuddyUsage(ctx context.Context, a *Acco
 			}
 			entries := workBuddyMaps(list["Accounts"])
 			details = append(details, entries...)
-			if len(entries) < 200 || page*200 >= int(workBuddyCapacity(list["TotalCount"])) {
+			totalCount, countOK := workBuddyCapacity(list["TotalCount"])
+			if len(entries) < 200 || (countOK && float64(page*200) >= totalCount) {
 				break
 			}
 		}
 	}
 	snap = parseWorkBuddyUsage(sum, details, workBuddySiteFor(a).ID)
 
-	if len(workBuddyMaps(sum["Packages"])) == 0 && len(workBuddyMaps(sum["CreditGroups"])) == 0 && snap.BaseTotal == 0 && snap.ExtraTotal == 0 {
+	if snap == nil {
 		return nil, errors.New("WorkBuddy credit allowance is unavailable")
 	}
 	return snap, nil
@@ -236,8 +275,8 @@ func (s *AccountUsageService) getWorkBuddyUsage(ctx context.Context, a *Account,
 		if raw, ok := a.Extra[WorkBuddyUsageSnapshotExtraKey]; ok {
 			body, _ := json.Marshal(raw)
 			var snapshot WorkBuddyUsageSnapshot
-			if json.Unmarshal(body, &snapshot) == nil {
-				if t := workBuddyTime(snapshot.UpdatedAt); t != nil && time.Since(*t) < time.Minute {
+			if json.Unmarshal(body, &snapshot) == nil && snapshot.matchesIdentity(a) {
+				if t := workBuddyTime(snapshot.UpdatedAt); t != nil && !t.After(time.Now()) && time.Since(*t) < time.Minute {
 					return &UsageInfo{WorkBuddy: &snapshot, UpdatedAt: t, Source: "active"}, nil
 				}
 			}
@@ -246,16 +285,26 @@ func (s *AccountUsageService) getWorkBuddyUsage(ctx context.Context, a *Account,
 	if s.workBuddyOAuth == nil {
 		return nil, errors.New("WorkBuddy usage service is not configured")
 	}
-	snapshot, err := s.workBuddyOAuth.FetchWorkBuddyUsage(ctx, a)
+	expected := snapshotOAuthRefreshAccount(a)
+	snapshot, err := s.workBuddyOAuth.FetchWorkBuddyUsage(ctx, expected)
 	if err != nil {
 		return nil, err
 	}
+	snapshot.bindIdentity(expected)
 	if s.accountRepo != nil {
-		if err = s.accountRepo.UpdateExtra(ctx, a.ID, map[string]any{WorkBuddyUsageSnapshotExtraKey: snapshot}); err != nil {
+		if err = s.persistRuntimeSnapshot(ctx, expected, map[string]any{WorkBuddyUsageSnapshotExtraKey: snapshot}, nil); err != nil {
 			return nil, err
 		}
 	}
 	return &UsageInfo{WorkBuddy: snapshot, UpdatedAt: workBuddyTime(snapshot.UpdatedAt), Source: "active"}, nil
+}
+
+func (snapshot *WorkBuddyUsageSnapshot) bindIdentity(account *Account) {
+	snapshot.RuntimeIdentity = AccountRuntimeIdentityKey(account)
+}
+
+func (snapshot *WorkBuddyUsageSnapshot) matchesIdentity(account *Account) bool {
+	return snapshot.RuntimeIdentity != "" && snapshot.RuntimeIdentity == AccountRuntimeIdentityKey(account)
 }
 
 var workBuddyPaidCodes = []string{"TCACA_code_002_AkiJS3ZHF5", "TCACA_code_005_maRGyrHhw1", "TCACA_code_003_FAnt7lcmRT", "TCACA_code_023_4xbGhMrE6q", "TCACA_code_026_BaESVICNoi", "TCACA_code_027_0FCGVA6vSa", "TCACA_code_043_6oIkxT7Z0S", "TCACA_code_009_0XmEQc2xOf", "TCACA_code_038_OhvqZtiPKr", "TCACA_code_036_lupO5WgNdG"}

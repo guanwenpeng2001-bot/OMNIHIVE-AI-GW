@@ -81,7 +81,7 @@ func appendConfiguredCompactSelectionModels(account, credentialAccount *Account,
 func appendConfiguredModels(account *Account, snapshot *AccountModelCatalogSnapshot, mapping map[string]string, compact bool) *AccountModelCatalogSnapshot {
 	targets := []string{}
 	for _, target := range mapping {
-		if exactConfiguredModel(target) {
+		if exactConfiguredModel(target) && zenFreeModelAllowed(account, target) {
 			targets = append(targets, target)
 		}
 	}

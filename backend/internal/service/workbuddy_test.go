@@ -309,6 +309,9 @@ func (r *wbRepo) UpdateExtra(_ context.Context, _ int64, extra map[string]any) e
 	r.extras = extra
 	return nil
 }
+func (r *wbRepo) UpdateAccountRuntimeSnapshot(ctx context.Context, expected *Account, updates map[string]any, _ *time.Time) error {
+	return r.UpdateExtra(ctx, expected.ID, updates)
+}
 func (r *wbRepo) SetTempUnschedulable(_ context.Context, id int64, until time.Time, _ string) error {
 	r.blocked = id
 	r.until = until

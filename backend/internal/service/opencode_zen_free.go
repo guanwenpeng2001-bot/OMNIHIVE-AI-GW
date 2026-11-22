@@ -146,6 +146,54 @@ func applyZenFreeHeaders(c *gin.Context, h http.Header, anthropic bool, bodies .
 	}
 }
 
+// Discovery is authoritative for this identity. Configuration and availability
+// may select a model, but cannot expand the free lane's discovered membership.
+func zenFreeModelAllowed(account *Account, model string) bool {
+	if !account.IsOpenCodeZenFree() {
+		return true
+	}
+	if !safeFreeModelID(model) || zenDecisionName.MatchString(normalizeOpenCodeGoModelID(model)) {
+		return false
+	}
+	metadata, hasMetadata := account.GetUpstreamModelMetadata(model)
+	if hasMetadata {
+		if metadata.Free != nil && !*metadata.Free {
+			return false
+		}
+		for _, method := range metadata.SupportedMethods {
+			if strings.EqualFold(method, "systemone") {
+				return false
+			}
+		}
+		if len(metadata.Pricing) > 0 {
+			raw, err := json.Marshal(metadata.Pricing)
+			if err != nil {
+				return false
+			}
+			var pricing any
+			decoder := json.NewDecoder(bytes.NewReader(raw))
+			decoder.UseNumber()
+			if decoder.Decode(&pricing) != nil {
+				return false
+			}
+			if _, zero := zenCostVerdict(pricing, 0); !zero {
+				return false
+			}
+		}
+	}
+	if catalog := account.GetUpstreamModelCatalog(); catalog != nil && catalog.SourceKind != modelEvidenceLegacyMappingUpgrade && catalog.SourceKind != ModelEvidenceConfiguredSelection && catalog.SourceKind != ModelEvidenceConfiguredCompactSelection {
+		return modelCatalogIdentityMatches(account, nil, catalog) && slices.Contains(catalog.DiscoveredModels, model) && metadata.Free != nil && *metadata.Free
+	}
+	for _, preset := range openCodeZenFreeModelPresets() {
+		for _, candidate := range preset.Models {
+			if candidate.ID == model {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 type zenFreeToolPolicy struct {
 	protocol      string
 	renamed       map[string]string
@@ -172,10 +220,13 @@ func zenToolDefinition(tool any) map[string]any {
 	}
 	return t
 }
-func prepareZenFreeRequest(body []byte, protocol string) ([]byte, *zenFreeToolPolicy, error) {
+func prepareZenFreeRequest(account *Account, body []byte, protocol string) ([]byte, *zenFreeToolPolicy, error) {
 	b, err := decodeFreeModelObject(body)
 	if err != nil {
 		return nil, nil, err
+	}
+	if !zenFreeModelAllowed(account, freeString(b["model"])) {
+		return nil, nil, fmt.Errorf("%w: model is not in Zen's free pool", ErrAccountModelUnsupported)
 	}
 	p := newZenFreeToolPolicy(protocol)
 	if v, ok := b["tools"]; ok && v != nil {

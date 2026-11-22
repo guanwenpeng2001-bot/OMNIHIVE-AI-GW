@@ -2588,7 +2588,7 @@ func (r *accountRepository) queryCatalogAccounts(ctx context.Context, id int64, 
 	rows, err := r.sql.QueryContext(ctx, `SELECT a.id, a.platform, a.type, a.status, a.schedulable,
  a.parent_account_id, a.expires_at, a.auto_pause_on_expired, a.temp_unschedulable_until, a.workspace_id, a.proxy_id, a.proxy_group_id,
  COALESCE((SELECT jsonb_object_agg(key,value) FROM jsonb_each(CASE WHEN jsonb_typeof(a.credentials) = 'object' THEN a.credentials ELSE '{}'::jsonb END)
- WHERE key IN ('model_mapping','compact_model_mapping','api_protocol','account_mode','base_url','aws_region','aws_force_global','protocol_rules','api_base_urls','openai_capabilities')), '{}'::jsonb),
+ WHERE key IN ('model_mapping','compact_model_mapping','api_protocol','account_mode','base_url','aws_region','aws_force_global','protocol_rules','api_base_urls','openai_capabilities') OR (a.platform = 'workbuddy' AND key IN ('site','domain'))), '{}'::jsonb),
  COALESCE((SELECT jsonb_object_agg(key,value) FROM jsonb_each(CASE WHEN jsonb_typeof(a.extra) = 'object' THEN a.extra ELSE '{}'::jsonb END)
  WHERE key IN ('upstream_model_catalog','upstream_model_catalog_state','upstream_model_allowlist','upstream_model_metadata','model_availability',
  'hosted_bedrock_runtime','mixed_scheduling','anthropic_passthrough','openai_passthrough','openai_oauth_passthrough','openai_responses_supported','openai_responses_mode')), '{}'::jsonb)`+groupProjection+`
@@ -4807,7 +4807,7 @@ func clearChangedAccountRuntimeObservationsSQL(incomingCredentials, incomingExtr
 	}
 	fields := []string{
 		"volcengine_daily_used_percent", "volcengine_daily_reset_at", "hunyuan_token_plan", "hunyuan_usage_updated_at",
-		"cursor_usage_snapshot", "cursor_usage_updated_at", "session_window_utilization",
+		"cursor_usage_snapshot", "cursor_usage_updated_at", "session_window_utilization", service.WorkBuddyUsageSnapshotExtraKey,
 		"passive_usage_sampled_at", "passive_usage_7d_utilization", "passive_usage_7d_reset",
 		"passive_usage_7d_oi_utilization", "passive_usage_7d_oi_reset",
 		"grok_billing_snapshot", "grok_observed_models", "grok_usage_snapshot",
@@ -4830,22 +4830,30 @@ func clearChangedAccountRuntimeObservationsSQL(incomingCredentials, incomingExtr
 }
 
 func accountCatalogRevisionPatchSQL(incoming, incomingExtra, proxyChanged string, manual bool) string {
-	fields := service.AccountCatalogIdentityCredentialFields()
+	fields := service.AccountCatalogIdentityCredentialFields("")
 	changes := make([]string, 0, len(fields)+1)
 	versionChanged := "(credentials->'credential_secret_version' IS DISTINCT FROM " + incoming + "->'credential_secret_version')"
 	changes = append(changes, "(type <> 'oauth' AND "+versionChanged+")")
 	for _, field := range fields {
 		changes = append(changes, "credentials->'"+field+"' IS DISTINCT FROM "+incoming+"->'"+field+"'")
 	}
+	for _, field := range service.WorkBuddyCatalogIdentityFields() {
+		changes = append(changes, "(platform = 'workbuddy' AND credentials->'"+field+"' IS DISTINCT FROM "+incoming+"->'"+field+"')")
+	}
 	legacyIdentity := "(" + strings.Join(changes, " OR ") + ")"
-	stable := []string{}
-	for _, field := range []string{"chatgpt_account_id", "chatgpt_user_id", "account_id", "user_id", "sub"} {
-		stable = append(stable, "(COALESCE(credentials->>'"+field+"','') <> '' AND credentials->'"+field+"' = "+incoming+"->'"+field+"')")
+	stable := "FALSE"
+	if !manual {
+		// Every subject field is already compared in legacyIdentity above.
+		hasSubject := func(platform string) string {
+			terms := []string{}
+			for _, field := range service.AccountCatalogSubjectFields(platform) {
+				terms = append(terms, "COALESCE(credentials->>'"+field+"','') <> ''")
+			}
+			return "(" + strings.Join(terms, " OR ") + ")"
+		}
+		stable = "CASE WHEN platform = 'workbuddy' THEN " + hasSubject(service.PlatformWorkBuddy) + " ELSE " + hasSubject("") + " END"
 	}
-	if manual {
-		stable = []string{"FALSE"}
-	}
-	changes = append(changes, "(("+versionChanged+" OR credentials->'access_token' IS DISTINCT FROM "+incoming+"->'access_token') AND NOT ("+strings.Join(stable, " OR ")+"))")
+	changes = append(changes, "(("+versionChanged+" OR credentials->'access_token' IS DISTINCT FROM "+incoming+"->'access_token') AND NOT ("+stable+"))")
 	identity := "(" + strings.Join(changes, " OR ") + ")"
 	ruleChanges := []string{identity}
 	for _, field := range service.AccountCatalogRuleCredentialFields() {

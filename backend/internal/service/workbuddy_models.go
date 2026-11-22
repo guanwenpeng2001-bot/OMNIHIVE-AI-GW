@@ -114,7 +114,7 @@ func extractWorkBuddyModelCatalog(body []byte, site string) ([]string, map[strin
 		}
 	}
 	for _, id := range ordered {
-		if !cli || strings.HasPrefix(id, "custom:") {
+		if cli && strings.HasPrefix(id, "custom:") {
 			add(id)
 		}
 	}

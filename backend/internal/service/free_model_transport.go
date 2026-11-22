@@ -56,7 +56,7 @@ func (u *freeModelUpstream) do(r *http.Request, send func(*http.Request) (*http.
 				protocol = APIProtocolAnthropic
 			}
 			applyZenFreeHeaders(nil, req.Header, protocol == APIProtocolAnthropic, body)
-			body, policy, err = prepareZenFreeRequest(body, protocol)
+			body, policy, err = prepareZenFreeRequest(&account, body, protocol)
 		} else {
 			body, model, err = prepareKiloChat(&account, body)
 		}
@@ -84,11 +84,11 @@ func (u *freeModelUpstream) do(r *http.Request, send func(*http.Request) (*http.
 				if gjson.GetBytes(data, "error").Exists() || openRouterStreamError(string(data)) {
 					resp.StatusCode = http.StatusBadGateway
 				}
-				return normalizeKiloPayload(data, model), nil
+				return normalizeKiloPayload(data, model, &account), nil
 			})
 			return rewritten, err
 		}
-		return rewriteFreeModelResponse(resp, func(data []byte) ([]byte, error) { return normalizeKiloPayload(data, model), nil })
+		return rewriteFreeModelResponse(resp, func(data []byte) ([]byte, error) { return normalizeKiloPayload(data, model, &account), nil })
 	}
 	if policy != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return rewriteFreeModelResponse(resp, policy.guard)
