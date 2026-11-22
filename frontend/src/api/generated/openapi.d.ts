@@ -2658,6 +2658,15 @@ export interface components {
             max_tokens: string | null;
             label?: string;
         };
+        CatalogReferencePrice: {
+            state: string;
+            source: string;
+            input_rate: components["schemas"]["CatalogRate"] | null;
+            output_rate: components["schemas"]["CatalogRate"] | null;
+            additional_rates: components["schemas"]["CatalogRateBand"][] | null;
+            context_basis?: string;
+            time_bands: components["schemas"]["CatalogTimeBand"][] | null;
+        };
         CatalogScope: {
             workspace_id: components["schemas"]["IdentityID"];
             project_id: components["schemas"]["IdentityID"];
@@ -2773,12 +2782,14 @@ export interface components {
             /** @enum {string} */
             state: "passed" | "failed" | "unknown" | "unsupported";
             reason: string | null;
+            detail?: string;
         };
         ConnectionCreate: {
             provider: string;
             /** @constant */
             schema_version: "1";
             auth_type: string;
+            account_mode?: string;
             name: string;
             endpoint?: string;
             network_policy_id?: string;
@@ -2795,6 +2806,9 @@ export interface components {
             secret: string;
             /** Format: password */
             refresh_token?: string;
+            metadata?: {
+                [key: string]: unknown;
+            };
         };
         ConnectionCredentialResult: {
             connection_id?: string;
@@ -2867,6 +2881,7 @@ export interface components {
             } | null;
         };
         ConnectionPatch: {
+            account_mode?: string;
             name?: string;
             endpoint?: string;
             network_policy_id?: string;
@@ -2920,6 +2935,7 @@ export interface components {
             /** @constant */
             schema_version: "1";
             auth_type: string;
+            account_mode?: string;
             name: string;
             endpoint: string;
             network_policy_id: string;
@@ -3510,6 +3526,7 @@ export interface components {
         };
         ModelDetail: {
             model: components["schemas"]["ModelSummary"];
+            reference_price?: components["schemas"]["CatalogReferencePrice"] | null;
             aliases: string[];
             model_facts: components["schemas"]["CatalogModelFacts"][];
             capabilities: components["schemas"]["CatalogCapability"][];
@@ -3540,6 +3557,8 @@ export interface components {
             maturity: "unknown" | "stable" | "experimental" | "deprecated";
             /** @enum {string} */
             catalog_state: "listed";
+            /** @enum {string} */
+            availability_state?: "live" | "catalog_only";
             /** @enum {string} */
             access_state: "allowed" | "denied" | "unknown" | "requires_scope";
             /** @enum {string} */
@@ -5222,7 +5241,8 @@ export interface operations {
                 region?: string[];
                 retention?: string[];
                 stability?: string[];
-                sort?: "name" | "price_input" | "context" | "ttft";
+                availability_state?: "live" | "catalog_only";
+                sort?: "name" | "price_input" | "context" | "ttft" | "availability";
                 limit?: components["parameters"]["IdentityLimit"];
                 cursor?: components["parameters"]["IdentityCursor"];
             };
@@ -8126,7 +8146,8 @@ export interface operations {
                 region?: string[];
                 retention?: string[];
                 stability?: string[];
-                sort?: "name" | "price_input" | "context" | "ttft";
+                availability_state?: "live" | "catalog_only";
+                sort?: "name" | "price_input" | "context" | "ttft" | "availability";
                 limit?: components["parameters"]["IdentityLimit"];
                 cursor?: components["parameters"]["IdentityCursor"];
                 accessible?: boolean;

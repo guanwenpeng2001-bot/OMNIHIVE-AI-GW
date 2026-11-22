@@ -714,6 +714,8 @@ components:
           type:
           - string
           - 'null'
+        detail:
+          type: string
       additionalProperties: false
     ConnectionVerification:
       type: object
@@ -791,6 +793,8 @@ components:
           const: '1'
         auth_type:
           type: string
+        account_mode:
+          type: string
         name:
           type: string
         endpoint:
@@ -803,6 +807,8 @@ components:
     ConnectionPatch:
       type: object
       properties:
+        account_mode:
+          type: string
         name:
           type: string
         endpoint:
@@ -871,6 +877,8 @@ components:
         schema_version:
           const: '1'
         auth_type:
+          type: string
+        account_mode:
           type: string
         name:
           type: string
@@ -962,6 +970,9 @@ components:
             type: string
             format: password
             writeOnly: true
+          metadata:
+            type: object
+            additionalProperties: true
         additionalProperties: false
     ConnectionCredentialResult:
       type: object

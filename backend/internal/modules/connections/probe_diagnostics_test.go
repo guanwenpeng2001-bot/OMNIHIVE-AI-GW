@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/credentials"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func TestCompatibleProbeDiagnostics(t *testing.T) {
@@ -90,4 +94,57 @@ func TestVerificationCheckDiagnostics(t *testing.T) {
 	require.Equal(t, "passed", check.State)
 	require.Nil(t, check.Reason)
 	require.Empty(t, check.Detail)
+}
+
+func TestConnectionsOpenAPIContractAlignment(t *testing.T) {
+	specBytes, err := os.ReadFile(filepath.Join("..", "..", "..", "api", "openapi", "openapi.yaml"))
+	require.NoError(t, err)
+	var spec struct {
+		Components struct {
+			Schemas map[string]struct {
+				Properties map[string]any `yaml:"properties"`
+				OneOf      []struct {
+					Properties map[string]any `yaml:"properties"`
+				} `yaml:"oneOf"`
+			} `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	require.NoError(t, yaml.Unmarshal(specBytes, &spec))
+
+	assertKeysIn := func(schemaName string, value any) {
+		t.Helper()
+		payload, marshalErr := json.Marshal(value)
+		require.NoError(t, marshalErr)
+		var rendered map[string]any
+		require.NoError(t, json.Unmarshal(payload, &rendered))
+		props := spec.Components.Schemas[schemaName].Properties
+		for key := range rendered {
+			require.Contains(t, props, key, "%s missing runtime key %q", schemaName, key)
+		}
+	}
+
+	reason := "URL_NOT_ALLOWED"
+	assertKeysIn("ConnectionCheck", Check{Name: "network", State: "failed", Reason: &reason, Detail: "Safe diagnostic."})
+
+	mode := "free"
+	assertKeysIn("ConnectionCreate", Create{Provider: "kilo", SchemaVersion: "1", AuthType: "api_key", AccountMode: mode, Name: "kilo-free"})
+	assertKeysIn("ConnectionPatch", Patch{AccountMode: &mode})
+	assertKeysIn("ConnectionResource", Connection{
+		ID: 1, Workspace: 1,
+		Create: Create{Provider: "kilo", SchemaVersion: "1", AuthType: "api_key", AccountMode: mode, Name: "kilo-free"},
+		State:  "active", Version: 1, Models: []string{}, Pools: []string{}, Allowed: []string{}, Redactions: []string{},
+	})
+
+	credPayload, err := json.Marshal(credentials.Change{
+		Operation: "set", Type: "oauth", Secret: "tok", RefreshToken: "ref",
+		Metadata: map[string]any{"site": "global", "uid": "u1"},
+	})
+	require.NoError(t, err)
+	var credMap map[string]any
+	require.NoError(t, json.Unmarshal(credPayload, &credMap))
+	require.Len(t, spec.Components.Schemas["ConnectionCredentialInput"].OneOf, 2)
+	setProps := spec.Components.Schemas["ConnectionCredentialInput"].OneOf[1].Properties
+	for key := range credMap {
+		require.Contains(t, setProps, key, "ConnectionCredentialInput[set] missing runtime key %q", key)
+	}
 }

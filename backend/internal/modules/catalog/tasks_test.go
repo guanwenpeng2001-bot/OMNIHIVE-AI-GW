@@ -1,11 +1,15 @@
 package catalog
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func TestCatalogOnlyPresentationKeepsRoutingAndPricesSeparate(t *testing.T) {
@@ -62,4 +66,42 @@ func TestCatalogTaskPresentation(t *testing.T) {
 	modalities, actions := TaskPresentation("unknown")
 	require.Empty(t, modalities)
 	require.Empty(t, actions)
+}
+
+func TestCatalogOpenAPIContractAlignment(t *testing.T) {
+	specBytes, err := os.ReadFile(filepath.Join("..", "..", "..", "api", "openapi", "openapi.yaml"))
+	require.NoError(t, err)
+	var spec struct {
+		Components struct {
+			Schemas map[string]struct {
+				Properties map[string]any `yaml:"properties"`
+			} `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	require.NoError(t, yaml.Unmarshal(specBytes, &spec))
+
+	input := Input{Models: []Candidate{{Provider: "gemini", Model: "gemini-1.5-flash", Offers: []Offer{{Access: true, CatalogOnly: true}}}}}
+	detail := Project(Perspective{}, input, Window{}, time.Now()).Details[0]
+	require.NotNil(t, detail.ReferencePrice)
+
+	rawDetail, err := json.Marshal(detail)
+	require.NoError(t, err)
+	var detailMap map[string]any
+	require.NoError(t, json.Unmarshal(rawDetail, &detailMap))
+	for key := range detailMap {
+		require.Contains(t, spec.Components.Schemas["ModelDetail"].Properties, key, "ModelDetail missing runtime key %q", key)
+	}
+
+	modelMap, ok := detailMap["model"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "catalog_only", modelMap["availability_state"])
+	for key := range modelMap {
+		require.Contains(t, spec.Components.Schemas["ModelSummary"].Properties, key, "ModelSummary missing runtime key %q", key)
+	}
+
+	refPriceMap, ok := detailMap["reference_price"].(map[string]any)
+	require.True(t, ok)
+	for key := range refPriceMap {
+		require.Contains(t, spec.Components.Schemas["CatalogReferencePrice"].Properties, key, "CatalogReferencePrice missing runtime key %q", key)
+	}
 }
