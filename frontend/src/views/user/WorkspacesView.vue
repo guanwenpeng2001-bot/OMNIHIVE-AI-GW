@@ -168,7 +168,7 @@
         {{ t('workspaces.empty') }}
       </p>
 
-      <section v-if="selected" class="card space-y-4 p-5">
+      <section v-if="selected && selected.role === 'admin'" class="card space-y-4 p-5">
         <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-3">
           <div class="flex items-center gap-2">
             <span class="inline-block h-1.5 w-1.5 rounded-full bg-[var(--oh-accent,#f59e0b)]" aria-hidden="true" />
@@ -177,17 +177,11 @@
             </h2>
           </div>
           <span class="chip font-mono text-xs tabular-nums">
-            {{ selected.role === 'admin' ? resources.length + 4 : 4 }}
+            {{ resources.length }}
           </span>
         </div>
         <div data-testid="workspace-quick-actions" class="flex flex-wrap gap-2.5">
-          <RouterLink :to="`/workspaces/${selected.id}/keys`" class="btn btn-secondary">{{ t('nav.apiKeys') }}</RouterLink>
-          <RouterLink to="/playground" class="btn btn-secondary">{{ isZh ? '模型调试台' : 'Playground' }}</RouterLink>
-          <RouterLink to="/usage" class="btn btn-secondary">{{ t('nav.usage') }}</RouterLink>
-          <RouterLink to="/tasks" class="btn btn-secondary">{{ isZh ? '任务中心' : 'Task Center' }}</RouterLink>
-          <template v-if="selected.role === 'admin'">
-            <RouterLink v-for="resource in resources" :key="resource.path" :to="`/workspaces/${selected.id}/${resource.path}`" class="btn btn-secondary">{{ t(resource.label) }}</RouterLink>
-          </template>
+          <RouterLink v-for="resource in resources" :key="resource.path" :to="`/workspaces/${selected.id}/${resource.path}`" class="btn btn-secondary">{{ t(resource.label) }}</RouterLink>
         </div>
       </section>
 

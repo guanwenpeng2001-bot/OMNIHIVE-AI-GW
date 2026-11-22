@@ -1298,6 +1298,7 @@ function generateRoutedCodexFiles(
     hunyuan: '',
     qianfan: '',
     cursor: 'default',
+    workbuddy: 'glm-5.3',
     kilo: 'kilo-auto/free',
     composite: 'gpt-5.5'
   }

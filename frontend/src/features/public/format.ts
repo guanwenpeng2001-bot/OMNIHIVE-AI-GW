@@ -410,6 +410,8 @@ export function modalityLabel(modality: string, isZh = false): string {
       return isZh ? '向量' : 'Embedding'
     case 'realtime':
       return isZh ? '实时' : 'Realtime'
+    case '3d':
+      return '3D'
     case 'pdf':
       return 'PDF'
     default:

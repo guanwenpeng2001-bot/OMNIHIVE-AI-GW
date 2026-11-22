@@ -103,7 +103,8 @@ const error = ref<unknown>(null)
 const paginationError = ref<unknown>(null)
 let request = 0
 const query = ref('')
-const sort = ref<NonNullable<ListParams['sort']>>('name')
+const sort = ref<NonNullable<ListParams['sort']>>('availability')
+const availabilityState = ref<'all' | 'live' | 'catalog_only'>('all')
 const viewMode = ref<ViewMode>('table')
 const providers = ref<string[]>([])
 const activeModalityPill = ref<ModalityFilterKey>('all')
@@ -240,14 +241,22 @@ const retentionChips = computed(() => [
 ])
 
 const sortOptions = computed(() => [
+  { value: 'availability', label: isZh.value ? '优先已接入可用' : 'Sort: Availability' },
   { value: 'name', label: isZh.value ? '按模型名称' : 'Sort: Name' },
   { value: 'price_input', label: isZh.value ? '按输入价格' : 'Sort: Input Price' },
   { value: 'context', label: isZh.value ? '按上下文长度' : 'Sort: Context Window' },
   { value: 'ttft', label: isZh.value ? '按首字延迟 (TTFT)' : 'Sort: TTFT' }
 ])
 
+const availabilityFilterOptions = computed(() => [
+  { key: 'all' as const, label: isZh.value ? '全部模型' : 'All' },
+  { key: 'live' as const, label: isZh.value ? '已接入可调用' : 'Live & Routable' },
+  { key: 'catalog_only' as const, label: isZh.value ? '平台目录' : 'Platform Catalog' }
+])
+
 const activeFilters = computed(
   () =>
+    availabilityState.value !== 'all' ||
     activeModalityPill.value !== 'all' ||
     providers.value.length > 0 ||
     selectedActions.value.length > 0 ||
@@ -272,21 +281,28 @@ async function load(reset = true): Promise<void> {
     loadingMore.value = true
   }
   try {
+    const mergedModalities = new Set<string>(selectedModalities.value)
+    if (activeModalityPill.value !== 'all') {
+      mergedModalities.add(activeModalityPill.value)
+    }
     const page = await listPublicModels({
       q: appliedQuery || undefined,
       provider: providers.value.length ? providers.value : undefined,
       action: selectedActions.value.length ? selectedActions.value : undefined,
-      modality: selectedModalities.value.length ? selectedModalities.value : undefined,
+      modality: mergedModalities.size ? [...mergedModalities] : undefined,
       protocol: selectedProtocols.value.length ? selectedProtocols.value : undefined,
       region: selectedRegions.value.length ? selectedRegions.value : undefined,
       retention: selectedRetentions.value.length ? selectedRetentions.value : undefined,
+      availability_state: availabilityState.value === 'all' ? undefined : availabilityState.value,
       sort: sort.value,
       cursor: reset ? undefined : nextCursor.value,
-      limit: 50
+      limit: 100
     })
     if (currentRequest !== request) return
     if (
       !appliedQuery &&
+      availabilityState.value === 'all' &&
+      activeModalityPill.value === 'all' &&
       !providers.value.length &&
       !selectedActions.value.length &&
       !selectedModalities.value.length &&
@@ -344,6 +360,7 @@ function toggleFilterByKey(
 
 function resetFilters(): void {
   query.value = ''
+  availabilityState.value = 'all'
   activeModalityPill.value = 'all'
   providers.value = []
   selectedActions.value = []
@@ -352,7 +369,17 @@ function resetFilters(): void {
   selectedRegions.value = []
   selectedRetentions.value = []
   onlyFavorites.value = false
-  sort.value = 'name'
+  sort.value = 'availability'
+  void load()
+}
+
+function selectAvailabilityState(next: 'all' | 'live' | 'catalog_only'): void {
+  availabilityState.value = next
+  void load()
+}
+
+function selectModalityPill(next: ModalityFilterKey): void {
+  activeModalityPill.value = next
   void load()
 }
 
@@ -511,6 +538,30 @@ onBeforeUnmount(() => {
 
       <div class="flex flex-wrap items-center gap-1.5" data-testid="modality-filter-pills-row">
         <span class="mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+          {{ isZh ? '接入状态' : 'Availability' }}
+        </span>
+        <div class="mr-3 inline-flex flex-wrap items-center gap-1.5" data-testid="availability-filter-bar">
+          <button
+            v-for="opt in availabilityFilterOptions"
+            :key="opt.key"
+            type="button"
+            :data-testid="`availability-pill-${opt.key}`"
+            class="oh-focus-ring inline-flex items-center rounded-full border px-3 py-1 text-xs transition-colors"
+            :class="
+              availabilityState === opt.key
+                ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
+                : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
+            "
+            :aria-pressed="availabilityState === opt.key"
+            @click="selectAvailabilityState(opt.key)"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-1.5" data-testid="modality-filter-pills-row">
+        <span class="mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
           {{ isZh ? '模态通道' : 'Modalities' }}
         </span>
         <div class="inline-flex flex-wrap items-center gap-1.5" data-testid="modality-filter-pills">
@@ -526,11 +577,11 @@ onBeforeUnmount(() => {
                 : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
             "
             :aria-pressed="activeModalityPill === pill.key"
-            @click="activeModalityPill = pill.key"
+            @click="selectModalityPill(pill.key)"
           >
             <span>{{ pill.label }}</span>
             <span
-              v-if="models.length > 0"
+              v-if="models.length > 0 && !nextCursor && activeModalityPill === 'all'"
               class="font-mono text-[10px] tabular-nums opacity-75"
             >
               {{ pill.count }}

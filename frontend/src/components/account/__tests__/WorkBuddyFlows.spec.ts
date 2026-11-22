@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createI18n } from 'vue-i18n'
 import ConnectionWizardView from '@/views/admin/connections/ConnectionWizardView.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
+import WorkBuddyAuthFields from '@/components/account/WorkBuddyAuthFields.vue'
 import type { ConnectionSchema } from '@/features/connections/types'
 import type { Account } from '@/types'
 import enAccounts from '@/i18n/locales/en/admin/accounts'
@@ -151,8 +152,40 @@ describe('WorkBuddy ConnectionWizardView & ReAuthAccountModal flows', () => {
         access_token: 'wiz-at',
         refresh_token: 'wiz-rt',
         expires_at: '2026-12-31T00:00:00Z',
+        refresh_expires_at: '2027-01-31T00:00:00Z',
         uid: 'wiz-uid',
-        domain: 'www.workbuddy.ai'
+        domain: 'www.workbuddy.ai',
+        enterprise_id: 'wiz-ent'
+      }
+    })
+    mockConnectionsApi.createConnection.mockResolvedValue({
+      id: 'conn_wb_oauth_1',
+      workspace_id: '10',
+      version: '1',
+      state: 'draft',
+      provider: 'workbuddy',
+      schema_version: '1',
+      auth_type: 'oauth',
+      name: 'Wizard Global User',
+      endpoint: 'https://www.workbuddy.ai',
+      network_policy_id: '',
+      credential: { version: '1', type: 'oauth', state: 'unset', last_four: null, updated_at: '' },
+      last_verification: null,
+      model_ids: [],
+      pool_ids: [],
+      limits: { concurrency: 4 },
+      quota: { state: 'unknown', remaining: null, last_success_at: null },
+      allowed_actions: ['connections.edit', 'connections.verify'],
+      redactions: []
+    })
+    mockConnectionsApi.changeCredential.mockResolvedValue({
+      version: '2',
+      credential: {
+        version: '2',
+        type: 'oauth',
+        state: 'unverified',
+        last_four: 'z-at',
+        updated_at: '2026-11-22T00:00:00Z'
       }
     })
 
@@ -186,6 +219,53 @@ describe('WorkBuddy ConnectionWizardView & ReAuthAccountModal flows', () => {
     await vi.advanceTimersByTimeAsync(2500)
     await flushPromises()
     expect((wrapper.get('[data-testid="workbuddy-access-token"]').element as HTMLInputElement).value).toBe('wiz-at')
+
+    // Persist Step 2 via Save Draft -> changeCredential must send full WorkBuddy OAuth metadata
+    const saveDraftBtn = wrapper.findAll('button').find((btn) => btn.text().trim() === 'Save Draft')!
+    await saveDraftBtn.trigger('click')
+    await flushPromises()
+    expect(mockConnectionsApi.changeCredential).toHaveBeenCalledWith('conn_wb_oauth_1', '1', {
+      operation: 'set',
+      type: 'oauth',
+      secret: 'wiz-at',
+      refresh_token: 'wiz-rt',
+      metadata: {
+        site: 'global',
+        uid: 'wiz-uid',
+        domain: 'www.workbuddy.ai',
+        enterprise_id: 'wiz-ent',
+        expires_at: '2026-12-31T00:00:00Z',
+        refresh_expires_at: '2027-01-31T00:00:00Z'
+      }
+    })
+    wrapper.unmount()
+  })
+
+  it('cancels active WorkBuddy OAuth polling when switching mode from oauth to apikey (FE-08)', async () => {
+    startOAuthMock.mockResolvedValue({
+      session_id: 'wb-cancel-1',
+      auth_url: 'https://copilot.tencent.com/oauth/cancel',
+      state: 'cancel-st',
+      site: 'cn',
+      expires_in: 120
+    })
+    pollOAuthMock.mockResolvedValue({ status: 'pending', site: 'cn' })
+
+    const wrapper = mount(WorkBuddyAuthFields, {
+      props: { mode: 'oauth', site: 'cn' },
+      global: { plugins: [makeI18n()] }
+    })
+    await wrapper.get('[data-testid="workbuddy-oauth-start"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('busy')?.some((args) => args[0] === true)).toBe(true)
+
+    await wrapper.setProps({ mode: 'apikey' })
+    await flushPromises()
+    const busyCalls = wrapper.emitted('busy') ?? []
+    expect(busyCalls[busyCalls.length - 1]).toEqual([false])
+    const callsBeforeWait = pollOAuthMock.mock.calls.length
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(pollOAuthMock.mock.calls.length).toBe(callsBeforeWait)
     wrapper.unmount()
   })
 

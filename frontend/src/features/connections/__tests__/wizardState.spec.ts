@@ -287,4 +287,101 @@ describe('connections/wizardState', () => {
     expect(rateLimitedCheck.reason).toContain('UPSTREAM_RATE_LIMITED')
     expect(rateLimitedCheck.reason).toContain('429')
   })
+
+  it('hydrates and patches account_mode for Kilo & OpenCode, and enforces keyless secret + WorkBuddy metadata payloads', () => {
+    const kiloResource: ConnectionResource = {
+      id: 'conn_kilo_1',
+      workspace_id: 'ws_1',
+      version: '3',
+      state: 'draft',
+      provider: 'kilo',
+      schema_version: '1',
+      auth_type: 'api_key',
+      account_mode: 'apikey',
+      name: 'Kilo Key',
+      endpoint: 'https://api.kilo.ai/api/gateway',
+      network_policy_id: '',
+      credential: { version: '1', type: 'api_key', state: 'unset', last_four: null, updated_at: '' },
+      last_verification: null,
+      model_ids: [],
+      pool_ids: [],
+      limits: { concurrency: 4 },
+      quota: { state: 'unknown', remaining: null, last_success_at: null },
+      allowed_actions: ['connections.edit'],
+      redactions: []
+    }
+    const kiloHydrated = hydrateWizardFromResource(createInitialWizardState('create'), kiloResource)
+    expect(kiloHydrated.kiloMode).toBe('apikey')
+    expect(buildMinimalConnectionPatch(kiloHydrated, { includeAssignments: false })).toBeNull()
+
+    kiloHydrated.kiloMode = 'free'
+    kiloHydrated.credentialSecret = 'stale-secret-must-be-ignored'
+    expect(buildMinimalConnectionPatch(kiloHydrated, { includeAssignments: false })).toEqual({
+      account_mode: 'free'
+    })
+    expect(buildCredentialInputPayload(kiloHydrated)).toEqual({
+      operation: 'set',
+      type: 'api_key',
+      secret: 'public'
+    })
+
+    const opencodeResource: ConnectionResource = {
+      ...kiloResource,
+      id: 'conn_oc_1',
+      provider: 'opencode_go',
+      account_mode: 'zen_free',
+      endpoint: 'https://opencode.ai/zen/v1'
+    }
+    const ocHydrated = hydrateWizardFromResource(createInitialWizardState('edit'), opencodeResource)
+    expect(ocHydrated.openCodeMode).toBe('zen_free')
+    ocHydrated.openCodeMode = 'go'
+    expect(buildMinimalConnectionPatch(ocHydrated, { includeAssignments: false })).toEqual({
+      account_mode: 'go'
+    })
+
+    const wbOAuth = createInitialWizardState('create')
+    wbOAuth.provider = 'workbuddy'
+    wbOAuth.authType = 'oauth'
+    wbOAuth.workbuddySite = 'global'
+    wbOAuth.credentialSecret = 'wb-at-1'
+    wbOAuth.credentialRefreshToken = 'wb-rt-1'
+    wbOAuth.workbuddyOAuth = {
+      access_token: 'wb-at-1',
+      refresh_token: 'wb-rt-1',
+      uid: 'uid-99',
+      domain: 'www.workbuddy.ai',
+      enterprise_id: 'ent-1',
+      expires_at: '2026-12-31T00:00:00Z',
+      refresh_expires_at: '2027-01-31T00:00:00Z'
+    }
+    expect(buildCredentialInputPayload(wbOAuth)).toEqual({
+      operation: 'set',
+      type: 'oauth',
+      secret: 'wb-at-1',
+      refresh_token: 'wb-rt-1',
+      metadata: {
+        site: 'global',
+        uid: 'uid-99',
+        domain: 'www.workbuddy.ai',
+        enterprise_id: 'ent-1',
+        expires_at: '2026-12-31T00:00:00Z',
+        refresh_expires_at: '2027-01-31T00:00:00Z'
+      }
+    })
+
+    wbOAuth.credentialMode = 'keep'
+    expect(buildCredentialInputPayload(wbOAuth)).toEqual({ operation: 'keep' })
+
+    const wbApiKey = createInitialWizardState('create')
+    wbApiKey.provider = 'workbuddy'
+    wbApiKey.authType = 'api_key'
+    wbApiKey.workbuddySite = 'cn'
+    wbApiKey.credentialSecret = 'wb-api-key-1'
+    expect(buildCredentialInputPayload(wbApiKey)).toEqual({
+      operation: 'set',
+      type: 'api_key',
+      secret: 'wb-api-key-1',
+      metadata: { site: 'cn' }
+    })
+  })
 })

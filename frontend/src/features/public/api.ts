@@ -291,7 +291,8 @@ export interface ListParams {
   region?: string[]
   retention?: string[]
   stability?: string[]
-  sort?: 'name' | 'price_input' | 'context' | 'ttft'
+  availability_state?: 'live' | 'catalog_only'
+  sort?: 'name' | 'price_input' | 'context' | 'ttft' | 'availability'
   cursor?: string | null
   limit?: number
 }
@@ -306,6 +307,7 @@ function arrayParams(params: ListParams): Record<string, unknown> {
     region: params.region?.length ? params.region : undefined,
     retention: params.retention?.length ? params.retention : undefined,
     stability: params.stability?.length ? params.stability : undefined,
+    availability_state: params.availability_state || undefined,
     sort: params.sort,
     cursor: params.cursor || undefined,
     limit: params.limit ?? 20

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { defineComponent } from 'vue'
+import { flushPromises, mount } from '@vue/test-utils'
 import {
   buildKiloCredentials,
   cnQuotaCellVisible,
@@ -30,10 +31,50 @@ import {
   isWizardKeylessPublicLane
 } from '@/features/connections/wizardState'
 import AccountUsageCell from '../AccountUsageCell.vue'
+import EditAccountModal from '../EditAccountModal.vue'
 import enAdminAccounts from '@/i18n/locales/en/admin/accounts'
 import zhAdminAccounts from '@/i18n/locales/zh/admin/accounts'
 import enDashboard from '@/i18n/locales/en/dashboard'
 import zhDashboard from '@/i18n/locales/zh/dashboard'
+
+const { showErrorMock, updateAccountMock } = vi.hoisted(() => ({
+  showErrorMock: vi.fn(),
+  updateAccountMock: vi.fn()
+}))
+
+vi.mock('@/stores/app', () => ({
+  useAppStore: () => ({
+    showError: showErrorMock,
+    showSuccess: vi.fn(),
+    showInfo: vi.fn()
+  })
+}))
+
+vi.mock('@/stores/auth', () => ({
+  useAuthStore: () => ({
+    isSimpleMode: true
+  })
+}))
+
+vi.mock('@/api/admin', () => ({
+  adminAPI: {
+    accounts: {
+      update: updateAccountMock,
+      checkMixedChannelRisk: vi.fn().mockResolvedValue({ has_risk: false })
+    },
+    settings: {
+      getWebSearchEmulationConfig: vi.fn().mockResolvedValue({ enabled: false, providers: [] }),
+      getSettings: vi.fn().mockResolvedValue({})
+    },
+    tlsFingerprintProfiles: {
+      list: vi.fn().mockResolvedValue([])
+    }
+  }
+}))
+
+vi.mock('@/api/admin/accounts', () => ({
+  getAntigravityDefaultModelMapping: vi.fn()
+}))
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -190,5 +231,79 @@ describe('Free Models (OpenCode Zen Free + Kilo) frontend support', () => {
       }
     })
     expect(kiloFreeWrapper.find('[data-testid="kilo-usage-badge"]').text()).toBe('Kilo Free Pool')
+  })
+
+  it('blocks EditAccountModal submit when switching OpenCode zen_free to paid go/zen without a real API key (FE-06)', async () => {
+    showErrorMock.mockReset()
+    updateAccountMock.mockReset()
+    updateAccountMock.mockResolvedValue({ id: 201 })
+
+    const BaseDialogStub = defineComponent({
+      props: { show: { type: Boolean, default: false } },
+      template: '<div v-if="show"><slot /><slot name="footer" /></div>'
+    })
+
+    const wrapper = mount(EditAccountModal, {
+      props: {
+        show: true,
+        account: {
+          id: 201,
+          name: 'OpenCode Free',
+          platform: 'opencode_go',
+          type: 'apikey',
+          status: 'active',
+          schedulable: true,
+          concurrency: 1,
+          priority: 1,
+          rate_multiplier: 1,
+          group_ids: [],
+          expires_at: null,
+          auto_pause_on_expired: false,
+          credentials: { account_mode: 'zen_free', base_url: 'https://opencode.ai/zen/v1' },
+          credentials_status: { has_api_key: true }
+        } as any,
+        proxies: [],
+        groups: []
+      },
+      global: {
+        stubs: {
+          BaseDialog: BaseDialogStub,
+          Select: true,
+          Icon: true,
+          ProxySelector: true,
+          GroupSelector: true,
+          ModelWhitelistSelector: true
+        }
+      }
+    })
+    await flushPromises()
+
+    // Switch mode from zen_free to go without entering a new API key
+    const goBtn = wrapper.findAll('[role="radio"]').find((el) => el.text().includes('Go'))!
+    await goBtn.trigger('click')
+    await flushPromises()
+
+    await wrapper.find('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(showErrorMock).toHaveBeenCalledWith(enAdminAccounts.accounts.apiKeyIsRequired)
+    expect(updateAccountMock).not.toHaveBeenCalled()
+
+    // Now provide a real API key -> submit succeeds
+    const apiKeyInput = wrapper.get('[data-account-field="editApiKey"]')
+    await apiKeyInput.setValue('sk-opencode-real-key')
+    await wrapper.find('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledWith(
+      201,
+      expect.objectContaining({
+        credentials: expect.objectContaining({
+          account_mode: 'go',
+          api_key: 'sk-opencode-real-key'
+        })
+      })
+    )
+    wrapper.unmount()
   })
 })

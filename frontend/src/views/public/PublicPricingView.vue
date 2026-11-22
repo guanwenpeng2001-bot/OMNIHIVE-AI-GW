@@ -15,10 +15,13 @@ import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import Tooltip from '@/components/ui/Tooltip.vue'
 import { useAuthStore } from '@/stores/auth'
 import {
+  availabilityStateLabel,
+  availabilityStateTone,
   formatContextTokens,
   formatPublicTimestamp,
   publicTokenPrice,
-  publicValue
+  publicValue,
+  resolveAvailabilityState
 } from '@/features/public/format'
 import {
   addRationals,
@@ -46,6 +49,7 @@ const loadingMore = ref(false)
 const error = ref<unknown>(null)
 const query = ref('')
 const sort = ref<NonNullable<ListParams['sort']>>('price_input')
+const availabilityState = ref<'all' | 'live' | 'catalog_only'>('all')
 const viewMode = ref<ViewMode>('table')
 const selectedProviders = ref<string[]>([])
 const selectedModalities = ref<string[]>([])
@@ -284,10 +288,17 @@ const modalityChips = computed(() => [
 
 const activeFilters = computed(
   () =>
+    availabilityState.value !== 'all' ||
     selectedProviders.value.length > 0 ||
     selectedModalities.value.length > 0 ||
     query.value.trim().length > 0
 )
+
+const availabilityFilterOptions = computed(() => [
+  { key: 'all' as const, label: isZh.value ? '全部模型' : 'All' },
+  { key: 'live' as const, label: isZh.value ? '已接入可调用' : 'Live & Routable' },
+  { key: 'catalog_only' as const, label: isZh.value ? '平台目录' : 'Platform Catalog' }
+])
 
 async function load(reset = true): Promise<void> {
   if (!reset && (loading.value || loadingMore.value || !nextCursor.value)) return
@@ -305,12 +316,18 @@ async function load(reset = true): Promise<void> {
       q: appliedQuery || undefined,
       provider: selectedProviders.value.length ? selectedProviders.value : undefined,
       modality: selectedModalities.value.length ? selectedModalities.value : undefined,
+      availability_state: availabilityState.value === 'all' ? undefined : availabilityState.value,
       sort: sort.value,
       cursor: reset ? undefined : nextCursor.value,
       limit: 100
     })
     if (current !== requestSeq) return
-    if (!appliedQuery && !selectedProviders.value.length && !selectedModalities.value.length) {
+    if (
+      !appliedQuery &&
+      availabilityState.value === 'all' &&
+      !selectedProviders.value.length &&
+      !selectedModalities.value.length
+    ) {
       const seen = new Set(providerOptions.value)
       for (const item of page.items ?? []) {
         const prov = item.provider?.trim()
@@ -341,9 +358,15 @@ function togglePricingFilter(kind: 'modality' | 'provider', item: string): void 
 
 function resetFilters(): void {
   query.value = ''
+  availabilityState.value = 'all'
   selectedProviders.value = []
   selectedModalities.value = []
   sort.value = 'price_input'
+  void load()
+}
+
+function selectAvailabilityState(next: 'all' | 'live' | 'catalog_only'): void {
+  availabilityState.value = next
   void load()
 }
 
@@ -351,6 +374,25 @@ function rateText(model: PublicModelSummary, kind: 'input' | 'output'): string {
   if (model.price_state === 'free') return isZh.value ? '免费' : 'Free'
   const rate = kind === 'input' ? model.input_rate : model.output_rate
   return publicTokenPrice(rate, 'adaptive', isZh.value)
+}
+
+function referenceRateHint(model: PublicModelSummary, kind: 'input' | 'output'): string | null {
+  const refRate =
+    kind === 'input' ? model.reference_price?.input_rate : model.reference_price?.output_rate
+  if (!refRate) return null
+  const formatted = publicTokenPrice(refRate, 'adaptive', isZh.value)
+  if (!formatted || formatted === '—') return null
+  return isZh.value ? `参考 ${formatted}` : `Ref ${formatted}`
+}
+
+function availabilityBadge(model: PublicModelSummary) {
+  const state = resolveAvailabilityState(model)
+  if (state === 'unknown') return null
+  return {
+    state,
+    label: availabilityStateLabel(state, isZh.value),
+    tone: availabilityStateTone(state)
+  }
 }
 
 function priceStateBadge(model: PublicModelSummary): { label: string; tone: 'success' | 'info' | 'unknown' | 'warning' } {
@@ -656,6 +698,7 @@ onBeforeUnmount(() => {
             @change="load()"
           >
             <option value="price_input">{{ isZh ? '输入单价从低到高' : 'Lowest Input Rate' }}</option>
+            <option value="availability">{{ isZh ? '优先已接入可用' : 'Availability' }}</option>
             <option value="name">{{ isZh ? '按模型名称' : 'Model Name' }}</option>
             <option value="context">{{ isZh ? '按上下文容量' : 'Context Window' }}</option>
           </select>
@@ -669,6 +712,28 @@ onBeforeUnmount(() => {
             @update:model-value="viewMode = $event as ViewMode"
           />
         </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-1.5" data-testid="pricing-availability-filter">
+        <span class="mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+          {{ isZh ? '接入状态' : 'Availability' }}
+        </span>
+        <button
+          v-for="opt in availabilityFilterOptions"
+          :key="opt.key"
+          type="button"
+          :data-testid="`pricing-availability-pill-${opt.key}`"
+          class="oh-focus-ring rounded-full border px-3 py-1 text-xs transition-colors"
+          :class="
+            availabilityState === opt.key
+              ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
+              : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
+          "
+          :aria-pressed="availabilityState === opt.key"
+          @click="selectAvailabilityState(opt.key)"
+        >
+          {{ opt.label }}
+        </button>
       </div>
 
       <div class="flex flex-wrap items-center gap-1.5">
@@ -793,15 +858,34 @@ onBeforeUnmount(() => {
                 </div>
               </td>
               <td class="px-4 py-3">
-                <Badge :tone="priceStateBadge(model).tone" size="xs" variant="subtle">
-                  {{ priceStateBadge(model).label }}
-                </Badge>
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <Badge :tone="priceStateBadge(model).tone" size="xs" variant="subtle">
+                    {{ priceStateBadge(model).label }}
+                  </Badge>
+                  <Badge
+                    v-if="availabilityBadge(model)"
+                    :data-testid="`pricing-availability-badge-${availabilityBadge(model)!.state}`"
+                    :tone="availabilityBadge(model)!.tone"
+                    size="xs"
+                    variant="subtle"
+                    dot
+                  >
+                    {{ availabilityBadge(model)!.label }}
+                  </Badge>
+                </div>
               </td>
               <td class="px-4 py-3 text-right font-mono tabular-nums text-oh-secondary">
                 {{ formatContextTokens(model.context_tokens) }}
               </td>
               <td class="px-4 py-3 text-right font-mono tabular-nums text-oh-primary">
                 <span v-if="rateText(model, 'input') !== '—'">{{ rateText(model, 'input') }}</span>
+                <span
+                  v-else-if="referenceRateHint(model, 'input')"
+                  data-testid="pricing-reference-rate-input"
+                  class="text-xs text-oh-secondary"
+                >
+                  {{ referenceRateHint(model, 'input') }}
+                </span>
                 <Tooltip
                   v-else
                   :content="isZh ? '该模型未按输入 Token 单列费率，点击查看详情中的分段或按次费率' : 'No per-token input rate declared; open model details for band or request pricing'"
@@ -812,6 +896,13 @@ onBeforeUnmount(() => {
               </td>
               <td class="px-4 py-3 text-right font-mono tabular-nums text-oh-primary">
                 <span v-if="rateText(model, 'output') !== '—'">{{ rateText(model, 'output') }}</span>
+                <span
+                  v-else-if="referenceRateHint(model, 'output')"
+                  data-testid="pricing-reference-rate-output"
+                  class="text-xs text-oh-secondary"
+                >
+                  {{ referenceRateHint(model, 'output') }}
+                </span>
                 <Tooltip
                   v-else
                   :content="isZh ? '该模型未按输出 Token 单列费率，点击查看详情中的分段或按次费率' : 'No per-token output rate declared; open model details for band or request pricing'"
@@ -841,18 +932,33 @@ onBeforeUnmount(() => {
                 {{ publicValue(model.provider, isZh ? '未声明' : 'Undeclared') }} · {{ formatContextTokens(model.context_tokens) }}
               </p>
             </div>
-            <Badge :tone="priceStateBadge(model).tone" size="xs" variant="subtle">
-              {{ priceStateBadge(model).label }}
-            </Badge>
+            <div class="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+              <Badge :tone="priceStateBadge(model).tone" size="xs" variant="subtle">
+                {{ priceStateBadge(model).label }}
+              </Badge>
+              <Badge
+                v-if="availabilityBadge(model)"
+                :tone="availabilityBadge(model)!.tone"
+                size="xs"
+                variant="subtle"
+                dot
+              >
+                {{ availabilityBadge(model)!.label }}
+              </Badge>
+            </div>
           </div>
           <dl class="mt-4 grid grid-cols-2 gap-3 border-t border-oh-subtle pt-3 font-mono text-xs tabular-nums">
             <div>
               <dt class="text-[10px] uppercase text-oh-muted">{{ isZh ? '输入 / 1M' : 'Input / 1M' }}</dt>
-              <dd class="mt-1 text-sm font-semibold text-oh-primary">{{ rateText(model, 'input') }}</dd>
+              <dd class="mt-1 text-sm font-semibold text-oh-primary">
+                {{ rateText(model, 'input') !== '—' ? rateText(model, 'input') : (referenceRateHint(model, 'input') ?? '—') }}
+              </dd>
             </div>
             <div>
               <dt class="text-[10px] uppercase text-oh-muted">{{ isZh ? '输出 / 1M' : 'Output / 1M' }}</dt>
-              <dd class="mt-1 text-sm font-semibold text-oh-primary">{{ rateText(model, 'output') }}</dd>
+              <dd class="mt-1 text-sm font-semibold text-oh-primary">
+                {{ rateText(model, 'output') !== '—' ? rateText(model, 'output') : (referenceRateHint(model, 'output') ?? '—') }}
+              </dd>
             </div>
           </dl>
         </RouterLink>

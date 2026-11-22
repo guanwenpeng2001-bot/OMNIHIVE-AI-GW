@@ -80,6 +80,15 @@ watch(
   { immediate: true }
 )
 
+watch(
+  () => props.mode,
+  (nextMode) => {
+    if (nextMode !== 'oauth') {
+      oauth.cancel()
+    }
+  }
+)
+
 watch(site, (nextSite, prevSite) => {
   const prevDefaultDomain = prevSite ? defaultWorkBuddyDomain(prevSite) : ''
   const resolvedSite: WorkBuddySite = nextSite ?? 'cn'

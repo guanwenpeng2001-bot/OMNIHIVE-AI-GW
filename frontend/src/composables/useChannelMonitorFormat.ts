@@ -201,6 +201,10 @@ export function useChannelMonitorFormat() {
         return active
           ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-400'
           : 'border-gray-200 bg-white text-gray-600 hover:border-emerald-300 hover:text-emerald-700 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-emerald-500/50'
+      case PROVIDER_KILO:
+        return active
+          ? 'border-slate-500 bg-slate-50 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300 dark:border-slate-400'
+          : 'border-gray-200 bg-white text-gray-600 hover:border-slate-300 hover:text-slate-700 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-slate-500/50'
       default:
         return active
           ? 'border-gray-400 bg-gray-50 text-gray-700 dark:border-dark-500 dark:bg-dark-700 dark:text-gray-200'

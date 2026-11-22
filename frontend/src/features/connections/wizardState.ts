@@ -1,9 +1,11 @@
 import type { UiStepItem, UiStepStatus } from '@/components/ui'
 import { defaultWorkBuddyDomain, type WorkBuddySite } from '@/api/admin/workbuddy'
-import type {
-  KiloAccountMode,
-  OpenCodeAccountMode,
-  WorkBuddyOAuthDraft
+import {
+  resolveKiloAccountMode,
+  resolveOpenCodeAccountMode,
+  type KiloAccountMode,
+  type OpenCodeAccountMode,
+  type WorkBuddyOAuthDraft
 } from '@/components/account/credentialsBuilder'
 import {
   buildHeaderOverridesMap,
@@ -44,6 +46,7 @@ export interface PersistedConnectionSnapshot {
   name: string
   endpoint: string
   networkPolicyId: string
+  accountMode: string
   headerOverrides: Record<string, string>
   modelIds: string[]
   poolIds: string[]
@@ -94,16 +97,30 @@ function normalizeSnapshotPolicyId(policyId: string): string {
   return trimmed.toLowerCase() === 'default' ? '' : trimmed
 }
 
+export function resolveWizardAccountMode(
+  state: Pick<ConnectionWizardState, 'provider' | 'authType' | 'kiloMode' | 'openCodeMode'>
+): string | undefined {
+  const provider = state.provider.trim().toLowerCase()
+  const authType = state.authType.trim().toLowerCase()
+  if (authType !== 'api_key' && authType !== 'apikey') {
+    return undefined
+  }
+  if (provider === 'kilo') return state.kiloMode
+  if (provider === 'opencode_go') return state.openCodeMode
+  return undefined
+}
+
 export function createPersistedSnapshotFromState(
   state: Pick<
     ConnectionWizardState,
-    'name' | 'endpoint' | 'networkPolicyId' | 'headerOverrides' | 'modelIds' | 'poolIds' | 'concurrency'
+    'provider' | 'authType' | 'kiloMode' | 'openCodeMode' | 'name' | 'endpoint' | 'networkPolicyId' | 'headerOverrides' | 'modelIds' | 'poolIds' | 'concurrency'
   >
 ): PersistedConnectionSnapshot {
   return {
     name: state.name.trim(),
     endpoint: normalizeSnapshotEndpoint(state.endpoint),
     networkPolicyId: normalizeSnapshotPolicyId(state.networkPolicyId),
+    accountMode: resolveWizardAccountMode(state) ?? '',
     headerOverrides: buildHeaderOverridesMap(state.headerOverrides),
     modelIds: [...state.modelIds],
     poolIds: [...state.poolIds],
@@ -141,6 +158,7 @@ export function buildMinimalConnectionPatch(
   const nextName = state.name.trim()
   const nextEndpoint = normalizeSnapshotEndpoint(state.endpoint)
   const nextPolicyId = normalizeSnapshotPolicyId(state.networkPolicyId)
+  const nextAccountMode = resolveWizardAccountMode(state) ?? ''
   const nextHeaders = buildHeaderOverridesMap(state.headerOverrides)
 
   if (!baseline) {
@@ -148,6 +166,7 @@ export function buildMinimalConnectionPatch(
       name: nextName,
       endpoint: nextEndpoint,
       network_policy_id: nextPolicyId,
+      ...(nextAccountMode ? { account_mode: nextAccountMode } : {}),
       ...(supportsHeaderOverrides ? { header_overrides: nextHeaders } : {})
     }
     if (includeAssignments) {
@@ -171,6 +190,10 @@ export function buildMinimalConnectionPatch(
   }
   if (nextPolicyId !== baseline.networkPolicyId) {
     patch.network_policy_id = nextPolicyId
+    hasChanges = true
+  }
+  if (nextAccountMode && nextAccountMode !== baseline.accountMode) {
+    patch.account_mode = nextAccountMode
     hasChanges = true
   }
   if (supportsHeaderOverrides && !stringMapsEqual(nextHeaders, baseline.headerOverrides)) {
@@ -259,6 +282,13 @@ export function hydrateWizardFromResource(
     resource.provider === 'workbuddy'
       ? inferWorkBuddySiteFromEndpoint(resource.endpoint || '')
       : 'cn'
+  const rawAccountMode = typeof resource.account_mode === 'string' ? resource.account_mode.trim() : ''
+  const hydratedKiloMode: KiloAccountMode =
+    resource.provider === 'kilo' && rawAccountMode ? resolveKiloAccountMode(rawAccountMode) : (state.kiloMode ?? 'free')
+  const hydratedOpenCodeMode: OpenCodeAccountMode =
+    resource.provider === 'opencode_go' && rawAccountMode
+      ? resolveOpenCodeAccountMode(rawAccountMode)
+      : (state.openCodeMode ?? 'zen')
   return {
     ...state,
     mode: preserveCreateDraftMode ? 'create' : 'edit',
@@ -286,8 +316,8 @@ export function hydrateWizardFromResource(
       domain: defaultWorkBuddyDomain(inferredSite),
       expires_at: ''
     },
-    kiloMode: state.kiloMode ?? 'free',
-    openCodeMode: state.openCodeMode ?? 'zen',
+    kiloMode: hydratedKiloMode,
+    openCodeMode: hydratedOpenCodeMode,
     verification: resource.last_verification ?? null,
     verificationStale: resource.last_verification ? !isVerificationFresh(resource.last_verification) : false,
     modelIds: [...resource.model_ids],
@@ -301,6 +331,7 @@ export function hydrateWizardFromResource(
       name: resource.name.trim(),
       endpoint: normalizeSnapshotEndpoint(resource.endpoint),
       networkPolicyId: normalizedPolicyId,
+      accountMode: rawAccountMode,
       headerOverrides: resource.header_overrides
         ? { ...resource.header_overrides }
         : buildHeaderOverridesMap(headerOverrides),
@@ -378,31 +409,61 @@ export function hasPendingCredentialMutation(state: ConnectionWizardState): bool
   return false
 }
 
+function buildWorkBuddyCredentialMetadata(
+  state: ConnectionWizardState
+): Record<string, string | number | undefined> | undefined {
+  const provider = state.provider.trim().toLowerCase()
+  if (provider !== 'workbuddy') return undefined
+  const authType = state.authType.trim().toLowerCase()
+  if (authType === 'api_key' || authType === 'apikey') {
+    return { site: state.workbuddySite }
+  }
+  if (authType === 'oauth') {
+    const metadata: Record<string, string | number | undefined> = {
+      site: state.workbuddySite
+    }
+    const uid = state.workbuddyOAuth.uid.trim()
+    if (uid) metadata.uid = uid
+    const domain = state.workbuddyOAuth.domain.trim() || defaultWorkBuddyDomain(state.workbuddySite)
+    if (domain) metadata.domain = domain
+    const enterpriseId = state.workbuddyOAuth.enterprise_id?.trim()
+    if (enterpriseId) metadata.enterprise_id = enterpriseId
+    const expiresAt = state.workbuddyOAuth.expires_at.trim()
+    if (expiresAt) metadata.expires_at = expiresAt
+    const refreshExpiresAt = state.workbuddyOAuth.refresh_expires_at?.trim()
+    if (refreshExpiresAt) metadata.refresh_expires_at = refreshExpiresAt
+    return metadata
+  }
+  return undefined
+}
+
 export function buildCredentialInputPayload(state: ConnectionWizardState): ConnectionCredentialInput {
   if (state.credentialMode === 'clear') {
     return { operation: 'clear' }
   }
-  const trimmedSecret = state.credentialSecret.trim()
   if (state.credentialMode === 'keep') {
     return { operation: 'keep' }
   }
-  if (trimmedSecret === '') {
-    if (isWizardKeylessPublicLane(state)) {
-      return {
-        operation: 'set',
-        type: state.authType,
-        secret: 'public'
-      }
+  if (isWizardKeylessPublicLane(state)) {
+    return {
+      operation: 'set',
+      type: state.authType,
+      secret: 'public'
     }
+  }
+  const trimmedSecret = state.credentialSecret.trim()
+  if (trimmedSecret === '') {
     return { operation: 'keep' }
   }
   const trimmedRefresh = state.credentialRefreshToken.trim()
   const normalizedAuth = state.authType.trim().toLowerCase()
+  const metadata = buildWorkBuddyCredentialMetadata(state)
   return {
     operation: 'set',
     type: state.authType,
     secret: trimmedSecret,
-    ...(trimmedRefresh && normalizedAuth === 'oauth' ? { refresh_token: trimmedRefresh } : {})
+    ...(trimmedRefresh && normalizedAuth === 'oauth' ? { refresh_token: trimmedRefresh } : {}),
+    ...(metadata ? { metadata } : {})
   }
 }
 

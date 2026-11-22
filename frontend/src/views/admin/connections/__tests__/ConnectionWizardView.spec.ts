@@ -440,4 +440,132 @@ describe('ConnectionWizardView state machine & truth invariants (FE-F09-01)', ()
       'upstream returned 429 Too Many Requests'
     )
   })
+
+  it('sends account_mode on Kilo apikey creation, patches account_mode before credential change, and locks keyless Step 2 input (FE-01, FE-07)', async () => {
+    const kiloAndOpenCodeSchemas: ConnectionSchema[] = [
+      {
+        provider: 'kilo',
+        schema_version: '1',
+        auth_types: ['api_key'],
+        fields: [{ path: 'endpoint', required: false }]
+      } as unknown as ConnectionSchema,
+      {
+        provider: 'opencode_go',
+        schema_version: '1',
+        auth_types: ['api_key'],
+        fields: [{ path: 'endpoint', required: false }]
+      } as unknown as ConnectionSchema
+    ]
+    mockConnectionsApi.listProviderSchemas.mockResolvedValue({ items: kiloAndOpenCodeSchemas })
+    const callOrder: string[] = []
+    mockConnectionsApi.createConnection.mockImplementation(async (payload: Record<string, unknown>) => {
+      callOrder.push(`create:${String(payload.account_mode)}`)
+      return buildActiveResource({
+        id: 'conn_kilo_new',
+        state: 'draft',
+        provider: 'kilo',
+        account_mode: String(payload.account_mode),
+        endpoint: 'https://api.kilo.ai/api/gateway',
+        credential: { version: '1', type: 'api_key', state: 'unset', last_four: null, updated_at: '' },
+        last_verification: null,
+        model_ids: [],
+        pool_ids: [],
+        redactions: []
+      })
+    })
+    mockConnectionsApi.patchConnection.mockImplementation(async (_id: string, version: string, patch: Record<string, unknown>) => {
+      callOrder.push(`patch@v${version}:${String(patch.account_mode)}`)
+      return { version: '6', redactions: [] }
+    })
+    mockConnectionsApi.changeCredential.mockImplementation(async (_id: string, version: string, payload: Record<string, unknown>) => {
+      callOrder.push(`cred@v${version}:${String(payload.secret)}`)
+      return {
+        version: '7',
+        credential: { version: '2', type: 'api_key', state: 'unverified', last_four: '1234', updated_at: '' }
+      }
+    })
+
+    const wrapper = mountWizard()
+    await flushPromises()
+
+    // Step 1 -> Step 2 (Kilo defaults to free)
+    const continueBtn = wrapper.findAll('button').find((btn) => btn.text().includes('Continue'))!
+    await continueBtn.trigger('click')
+    await flushPromises()
+
+    const secretInputFree = wrapper.findAll('input').find((el) => el.attributes('type') === 'password')!
+    expect(secretInputFree.attributes('disabled')).toBeDefined()
+
+    // Switch to apikey mode -> secret input enabled -> Save Draft sends account_mode: 'apikey'
+    await wrapper.get('[data-testid="wizard-kilo-mode-apikey"]').trigger('click')
+    await flushPromises()
+    const secretInputPaid = wrapper.findAll('input').find((el) => el.attributes('type') === 'password')!
+    expect(secretInputPaid.attributes('disabled')).toBeUndefined()
+    await secretInputPaid.setValue('sk-kilo-real-key-1234')
+
+    const saveDraftBtn = wrapper.findAll('button').find((btn) => btn.text().trim() === 'Save Draft')!
+    await saveDraftBtn.trigger('click')
+    await flushPromises()
+
+    expect(mockConnectionsApi.createConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'kilo', account_mode: 'apikey' })
+    )
+    expect(callOrder).toEqual(['create:apikey', 'cred@v5:sk-kilo-real-key-1234'])
+
+    // Switch existing connection back to free -> patches account_mode='free' BEFORE setting secret='public'
+    callOrder.length = 0
+    const setSegmentBtn = wrapper.findAll('button').find((btn) => btn.text().includes('Replace Secret') || btn.text().includes('Set'))
+    if (setSegmentBtn) {
+      await setSegmentBtn.trigger('click')
+      await flushPromises()
+    }
+    await wrapper.get('[data-testid="wizard-kilo-mode-free"]').trigger('click')
+    await flushPromises()
+    await saveDraftBtn.trigger('click')
+    await flushPromises()
+    expect(callOrder).toEqual(['patch@v7:free', 'cred@v6:public'])
+
+    // Also verify OpenCode Go <-> Zen Free endpoint auto-switching
+    mockRoute.params = { id: 'conn_oc_edit' }
+    mockConnectionsApi.getConnection.mockResolvedValue(
+      buildActiveResource({
+        id: 'conn_oc_edit',
+        state: 'draft',
+        provider: 'opencode_go',
+        account_mode: 'go',
+        endpoint: 'https://opencode.ai/zen/go/v1',
+        credential: { version: '1', type: 'api_key', state: 'unset', last_four: null, updated_at: '' },
+        last_verification: null
+      })
+    )
+    const ocWrapper = mountWizard()
+    await flushPromises()
+    const ocContinue = ocWrapper.findAll('button').find((btn) => btn.text().includes('Continue'))!
+    await ocContinue.trigger('click')
+    await flushPromises()
+
+    await ocWrapper.get('[data-testid="wizard-opencode-mode-zen-free"]').trigger('click')
+    await flushPromises()
+    const ocSecretInput = ocWrapper.findAll('input').find((el) => el.attributes('type') === 'password')!
+    expect(ocSecretInput.attributes('disabled')).toBeDefined()
+
+    // Go back to Step 1 and verify endpoint switched to zen/v1
+    const backBtn = ocWrapper.findAll('button').find((btn) => btn.text().trim() === 'Previous')!
+    await backBtn.trigger('click')
+    await flushPromises()
+    expect(
+      ocWrapper.findAll('input').some((el) => (el.element as HTMLInputElement).value === 'https://opencode.ai/zen/v1')
+    ).toBe(true)
+
+    // Switch to 'go' in Step 2 -> endpoint switches back to zen/go/v1
+    await ocWrapper.findAll('button').find((btn) => btn.text().includes('Continue'))!.trigger('click')
+    await flushPromises()
+    await ocWrapper.get('[data-testid="wizard-opencode-mode-go"]').trigger('click')
+    await flushPromises()
+    await ocWrapper.findAll('button').find((btn) => btn.text().trim() === 'Previous')!.trigger('click')
+    await flushPromises()
+    expect(
+      ocWrapper.findAll('input').some((el) => (el.element as HTMLInputElement).value === 'https://opencode.ai/zen/go/v1')
+    ).toBe(true)
+  })
 })

@@ -4899,6 +4899,14 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
         newCredentials.api_key = editApiKey.value.trim() || 'public'
       } else if (props.account.platform === 'kilo' && editKiloAccountMode.value === 'free') {
         delete newCredentials.api_key
+      } else if (
+        props.account.platform === 'opencode_go' &&
+        currentCredentials.account_mode === 'zen_free' &&
+        editOpenCodeAccountMode.value !== 'zen_free' &&
+        (!editApiKey.value.trim() || editApiKey.value.trim().toLowerCase() === 'public')
+      ) {
+        revealSection('account-connection-settings'); appStore.showError(t('admin.accounts.apiKeyIsRequired'))
+        return
       } else if (editApiKey.value.trim()) {
         newCredentials.api_key = editApiKey.value.trim()
       } else if (specialCompatibleKeyOptional(props.account.platform, compatibleDraft.value)) {

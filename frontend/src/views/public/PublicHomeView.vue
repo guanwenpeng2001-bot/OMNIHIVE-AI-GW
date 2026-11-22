@@ -7,7 +7,12 @@ import CopyButton from '@/components/ui/CopyButton.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
 import Badge from '@/components/ui/Badge.vue'
 import { useAuthStore } from '@/stores/auth'
-import { statusStateLabel, statusStateTone } from '@/features/public/format'
+import {
+  matchesModalityFilter,
+  resolveAvailabilityState,
+  statusStateLabel,
+  statusStateTone
+} from '@/features/public/format'
 import { listPublicModels, getPublicStatus, type PublicStatusResponse } from '@/features/public/api'
 
 const { locale } = useI18n()
@@ -87,13 +92,43 @@ const steps = computed(() =>
 )
 
 onMounted(() => {
-  void listPublicModels({ limit: 100, sort: 'name' }).then((page) => {
-    const items = page.items ?? []
-    if (items[0]?.model) sampleModelId.value = items[0].model
-    modelCountText.value = page.next_cursor ? `${items.length}+` : String(items.length)
-    const providers = new Set(items.map((item) => item.provider).filter((p) => p && p !== 'unknown'))
-    providerCountText.value = page.next_cursor && providers.size > 0 ? `${providers.size}+` : String(providers.size)
-  }).catch(() => {}).finally(() => { loadingCatalog.value = false })
+  void Promise.allSettled([
+    listPublicModels({ limit: 100, sort: 'name' }),
+    listPublicModels({ availability_state: 'live', limit: 10, sort: 'name' })
+  ])
+    .then(([catalogResult, liveResult]) => {
+      const catalogItems =
+        catalogResult.status === 'fulfilled' ? (catalogResult.value.items ?? []) : []
+      const liveItems =
+        liveResult.status === 'fulfilled' ? (liveResult.value.items ?? []) : []
+      const preferredLive =
+        liveItems.find(
+          (m) => resolveAvailabilityState(m) !== 'catalog_only' && matchesModalityFilter(m, 'text')
+        ) ??
+        liveItems.find((m) => resolveAvailabilityState(m) !== 'catalog_only') ??
+        liveItems[0] ??
+        catalogItems.find(
+          (m) => resolveAvailabilityState(m) === 'live' && matchesModalityFilter(m, 'text')
+        ) ??
+        catalogItems.find((m) => resolveAvailabilityState(m) === 'live') ??
+        catalogItems.find((m) => matchesModalityFilter(m, 'text')) ??
+        catalogItems[0]
+      if (preferredLive?.model) {
+        sampleModelId.value = preferredLive.model
+      }
+      if (catalogResult.status === 'fulfilled') {
+        const page = catalogResult.value
+        modelCountText.value = page.next_cursor ? `${catalogItems.length}+` : String(catalogItems.length)
+        const providers = new Set(
+          catalogItems.map((item) => item.provider).filter((p) => p && p !== 'unknown')
+        )
+        providerCountText.value =
+          page.next_cursor && providers.size > 0 ? `${providers.size}+` : String(providers.size)
+      }
+    })
+    .finally(() => {
+      loadingCatalog.value = false
+    })
 
   void getPublicStatus().then((response) => {
     status.value = response

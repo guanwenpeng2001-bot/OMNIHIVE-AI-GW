@@ -34,7 +34,7 @@ export const DEFAULT_DEEPSEEK_ENDPOINT = 'https://api.deepseek.com'
 export const DEFAULT_MINIMAX_ENDPOINT = 'https://api.minimaxi.com'
 export const DEFAULT_OPENCODE_GO_ENDPOINT = 'https://opencode.ai/zen/go/v1'
 
-export const PROBE_ONLY_PROVIDERS: readonly Provider[] = [PROVIDER_QIANWEN, PROVIDER_COMMANDCODE, PROVIDER_MINIMAX, PROVIDER_OPENCODE_GO, PROVIDER_KILO]
+export const PROBE_ONLY_PROVIDERS: readonly Provider[] = [PROVIDER_QIANWEN, PROVIDER_COMMANDCODE, PROVIDER_MINIMAX, PROVIDER_OPENCODE_GO, PROVIDER_WORKBUDDY, PROVIDER_KILO]
 export const DEFAULT_QIANWEN_ENDPOINT = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
 export const DEFAULT_COMMANDCODE_ENDPOINT = 'https://api.commandcode.ai/provider/v1'
 export const DEFAULT_KILO_ENDPOINT = 'https://api.kilo.ai/api/gateway'

@@ -13,17 +13,22 @@ export type ConnectionVerification = Omit<components['schemas']['ConnectionVerif
 export type ConnectionQuota = components['schemas']['ConnectionQuota']
 export type ConnectionCreate = components['schemas']['ConnectionCreate'] & {
   header_overrides?: Record<string, string>
+  account_mode?: string
 }
 export type ConnectionPatch = components['schemas']['ConnectionPatch'] & {
   header_overrides?: Record<string, string>
+  account_mode?: string
 }
 export type ConnectionAssignments = components['schemas']['ConnectionAssignments']
 export type ConnectionResource = Omit<components['schemas']['ConnectionResource'], 'last_verification'> & {
   header_overrides?: Record<string, string>
+  account_mode?: string
   last_verification: ConnectionVerification | null
 }
 export type ConnectionRedacted = components['schemas']['ConnectionRedacted']
-export type ConnectionCredentialInput = components['schemas']['ConnectionCredentialInput']
+export type ConnectionCredentialInput = components['schemas']['ConnectionCredentialInput'] & {
+  metadata?: Record<string, string | number | undefined>
+}
 export type ConnectionCredentialResult = components['schemas']['ConnectionCredentialResult']
 export type ConnectionVerify = components['schemas']['ConnectionVerify']
 export type ConnectionItem = components['schemas']['ConnectionItem']

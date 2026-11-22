@@ -11,6 +11,7 @@ import {
   type WorkBuddySite
 } from '@/api/admin/workbuddy'
 import WorkBuddyAuthFields from '@/components/account/WorkBuddyAuthFields.vue'
+import type { KiloAccountMode, OpenCodeAccountMode } from '@/components/account/credentialsBuilder'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import {
   Badge,
@@ -64,6 +65,7 @@ import {
   hydrateWizardFromResource,
   invalidatePreview,
   invalidateVerification,
+  resolveWizardAccountMode,
   validateConnectionName,
   WIZARD_STEP_ORDER,
   type WizardStepId
@@ -582,12 +584,52 @@ function handleWorkBuddySuggestedName(suggestedName: string) {
   }
 }
 
+const OPENCODE_ZEN_ENDPOINT = 'https://opencode.ai/zen/v1'
+const OPENCODE_GO_ENDPOINT = 'https://opencode.ai/zen/go/v1'
+
+function handleKiloModeChange(nextMode: KiloAccountMode) {
+  state.kiloMode = nextMode
+  if (nextMode === 'free') {
+    state.credentialSecret = ''
+  }
+  Object.assign(state, invalidateVerification(state))
+}
+
+function handleOpenCodeModeChange(nextMode: OpenCodeAccountMode) {
+  state.openCodeMode = nextMode
+  const normalizedEndpoint = state.endpoint.trim().replace(/\/+$/, '')
+  if (nextMode === 'zen_free') {
+    state.credentialSecret = ''
+    if (!normalizedEndpoint || normalizedEndpoint === OPENCODE_GO_ENDPOINT) {
+      state.endpoint = OPENCODE_ZEN_ENDPOINT
+    }
+  } else if (nextMode === 'zen') {
+    if (!normalizedEndpoint || normalizedEndpoint === OPENCODE_GO_ENDPOINT) {
+      state.endpoint = OPENCODE_ZEN_ENDPOINT
+    }
+  } else if (nextMode === 'go') {
+    if (!normalizedEndpoint || normalizedEndpoint === OPENCODE_ZEN_ENDPOINT) {
+      state.endpoint = OPENCODE_GO_ENDPOINT
+    }
+  }
+  Object.assign(state, invalidateVerification(state))
+}
+
 function handleWorkBuddyOAuthCompleted(payload: {
   site: WorkBuddySite
   accountName?: string
   credentials: WorkBuddyOAuthCredentials
 }) {
   handleWorkBuddySiteChange(payload.site)
+  state.workbuddyOAuth = {
+    access_token: payload.credentials.access_token || '',
+    refresh_token: payload.credentials.refresh_token || '',
+    uid: payload.credentials.uid || '',
+    domain: payload.credentials.domain || defaultWorkBuddyDomain(payload.site),
+    expires_at: payload.credentials.expires_at || '',
+    refresh_expires_at: payload.credentials.refresh_expires_at,
+    enterprise_id: payload.credentials.enterprise_id
+  }
   state.credentialSecret = payload.credentials.access_token || ''
   state.credentialRefreshToken = payload.credentials.refresh_token || ''
 }
@@ -678,6 +720,13 @@ async function applyCredentialMutation(
   state.credentialLastFour = credResult.credential?.last_four ?? null
   state.credentialSecret = ''
   state.credentialRefreshToken = ''
+  if (isWorkBuddy.value) {
+    state.workbuddyOAuth = {
+      ...state.workbuddyOAuth,
+      access_token: '',
+      refresh_token: ''
+    }
+  }
   state.credentialMode = payload.operation === 'clear' ? 'set' : 'keep'
   state.mode = 'edit'
 }
@@ -713,11 +762,16 @@ async function ensureConnectionPersisted(
 
   const headerMap = buildHeaderOverridesMap(state.headerOverrides)
   const hasHeaderOverrides = Object.keys(headerMap).length > 0
+  const accountMode = resolveWizardAccountMode(state)
   const shouldMutateCredential = hasPendingCredentialMutation(state)
   const pendingCredentialPayload = buildCredentialInputPayload(state)
   const draftSecret = state.credentialSecret
   const draftRefreshToken = state.credentialRefreshToken
   const draftCredentialMode = state.credentialMode
+  const draftWorkbuddySite = state.workbuddySite
+  const draftWorkbuddyOAuth = { ...state.workbuddyOAuth }
+  const draftKiloMode = state.kiloMode
+  const draftOpenCodeMode = state.openCodeMode
 
   if (!state.connectionId) {
     const created = await connectionsApi.createConnection({
@@ -727,10 +781,18 @@ async function ensureConnectionPersisted(
       name: state.name.trim(),
       endpoint: state.endpoint.trim(),
       network_policy_id: state.networkPolicyId.trim(),
+      ...(accountMode ? { account_mode: accountMode } : {}),
       ...(hasHeaderOverrides ? { header_overrides: headerMap } : {})
     })
     if (isConnectionResource(created)) {
       Object.assign(state, hydrateWizardFromResource(state, created))
+      if (accountMode) {
+        state.kiloMode = draftKiloMode
+        state.openCodeMode = draftOpenCodeMode
+        if (state.persistedSnapshot && !state.persistedSnapshot.accountMode) {
+          state.persistedSnapshot.accountMode = accountMode
+        }
+      }
     } else {
       state.version = created.version
       state.persistedSnapshot = createPersistedSnapshotFromState(state)
@@ -739,6 +801,8 @@ async function ensureConnectionPersisted(
       state.credentialSecret = draftSecret
       state.credentialRefreshToken = draftRefreshToken
       state.credentialMode = draftCredentialMode
+      state.workbuddySite = draftWorkbuddySite
+      state.workbuddyOAuth = draftWorkbuddyOAuth
     }
     if (state.connectionId && shouldMutateCredential && pendingCredentialPayload.operation !== 'keep') {
       await applyCredentialMutation(state.connectionId, pendingCredentialPayload)
@@ -773,6 +837,7 @@ async function ensureConnectionPersisted(
       name: state.name.trim(),
       endpoint: state.endpoint.trim().replace(/\/+$/, ''),
       networkPolicyId: state.networkPolicyId.trim(),
+      accountMode: resolveWizardAccountMode(state) ?? prevBaseline.accountMode,
       headerOverrides: supportsHeaderOverrides.value ? headerMap : prevBaseline.headerOverrides,
       modelIds: includeAssignments ? [...state.modelIds] : prevBaseline.modelIds,
       poolIds: includeAssignments ? [...state.poolIds] : prevBaseline.poolIds,
@@ -1730,7 +1795,7 @@ function formatEventType(type: string): string {
                     data-testid="wizard-kilo-mode-free"
                     class="rounded-oh-md border px-3 py-2.5 text-left transition-colors"
                     :class="state.kiloMode === 'free' ? 'border-oh-accent bg-oh-accent/10 text-oh-fg' : 'border-oh-default bg-oh-surface hover:border-oh-strong text-oh-muted'"
-                    @click="state.kiloMode = 'free'; state.credentialSecret = ''"
+                    @click="handleKiloModeChange('free')"
                   >
                     <div class="text-xs font-semibold text-oh-fg">{{ t('admin.accounts.kilo.accountMode.free') }}</div>
                     <div class="text-[11px] text-oh-muted">{{ t('admin.accounts.kilo.accountMode.freeDesc') }}</div>
@@ -1742,7 +1807,7 @@ function formatEventType(type: string): string {
                     data-testid="wizard-kilo-mode-apikey"
                     class="rounded-oh-md border px-3 py-2.5 text-left transition-colors"
                     :class="state.kiloMode === 'apikey' ? 'border-oh-accent bg-oh-accent/10 text-oh-fg' : 'border-oh-default bg-oh-surface hover:border-oh-strong text-oh-muted'"
-                    @click="state.kiloMode = 'apikey'"
+                    @click="handleKiloModeChange('apikey')"
                   >
                     <div class="text-xs font-semibold text-oh-fg">{{ t('admin.accounts.kilo.accountMode.apikey') }}</div>
                     <div class="text-[11px] text-oh-muted">{{ t('admin.accounts.kilo.accountMode.apikeyDesc') }}</div>
@@ -1762,7 +1827,7 @@ function formatEventType(type: string): string {
                     data-testid="wizard-opencode-mode-zen"
                     class="rounded-oh-md border px-3 py-2.5 text-left transition-colors"
                     :class="state.openCodeMode === 'zen' ? 'border-oh-accent bg-oh-accent/10 text-oh-fg' : 'border-oh-default bg-oh-surface hover:border-oh-strong text-oh-muted'"
-                    @click="state.openCodeMode = 'zen'"
+                    @click="handleOpenCodeModeChange('zen')"
                   >
                     <div class="text-xs font-semibold text-oh-fg">{{ t('admin.accounts.opencodeGo.accountMode.zen') }}</div>
                   </button>
@@ -1773,7 +1838,7 @@ function formatEventType(type: string): string {
                     data-testid="wizard-opencode-mode-zen-free"
                     class="rounded-oh-md border px-3 py-2.5 text-left transition-colors"
                     :class="state.openCodeMode === 'zen_free' ? 'border-oh-accent bg-oh-accent/10 text-oh-fg' : 'border-oh-default bg-oh-surface hover:border-oh-strong text-oh-muted'"
-                    @click="state.openCodeMode = 'zen_free'; state.credentialSecret = ''; if (!state.endpoint.trim()) state.endpoint = 'https://opencode.ai/zen/v1'"
+                    @click="handleOpenCodeModeChange('zen_free')"
                   >
                     <div class="text-xs font-semibold text-oh-fg">{{ t('admin.accounts.opencodeGo.accountMode.zenFree') }}</div>
                   </button>
@@ -1784,7 +1849,7 @@ function formatEventType(type: string): string {
                     data-testid="wizard-opencode-mode-go"
                     class="rounded-oh-md border px-3 py-2.5 text-left transition-colors"
                     :class="state.openCodeMode === 'go' ? 'border-oh-accent bg-oh-accent/10 text-oh-fg' : 'border-oh-default bg-oh-surface hover:border-oh-strong text-oh-muted'"
-                    @click="state.openCodeMode = 'go'"
+                    @click="handleOpenCodeModeChange('go')"
                   >
                     <div class="text-xs font-semibold text-oh-fg">{{ t('admin.accounts.opencodeGo.accountMode.go') }}</div>
                   </button>
@@ -1795,6 +1860,7 @@ function formatEventType(type: string): string {
                 <Input
                   v-model="state.credentialSecret"
                   type="password"
+                  :disabled="isKeylessPublicLane"
                   :label="
                     isKeylessPublicLane
                       ? t('admin.accounts.apiKeyOptional')
