@@ -32,7 +32,9 @@ NC='\033[0m' # No Color
 
 # Configuration
 GITHUB_REPO="guanwenpeng2001-bot/OMNIHIVE-AI-GW"
-MINIMUM_ROLLBACK_VERSION="0.2.5"
+# Generated projection of backend/internal/config/release_compatibility.json.
+# Keep this standalone curl installer in sync with scripts/release_compatibility.py.
+MINIMUM_ROLLBACK_VERSION="0.3.5"
 INSTALL_DIR="/opt/omnihive"
 SERVICE_NAME="omnihive"
 SERVICE_USER="omnihive"
@@ -677,8 +679,9 @@ verify_release_checksum() {
 }
 
 verify_release_manifest() {
-    python3 - "$1" "$LATEST_VERSION" "$MINIMUM_ROLLBACK_VERSION" <<'PYTHON'
+    python3 - "$1" "$LATEST_VERSION" "$MINIMUM_ROLLBACK_VERSION" "$INSTALL_DIR/omnihive-release-manifest.json" <<'PYTHON'
 import json
+import os
 import re
 import sys
 
@@ -707,7 +710,22 @@ try:
     target = release_version(sys.argv[2])
     if release_version(manifest.get("version")) != target:
         raise ValueError("Release manifest version does not match the requested release")
-    floor = max(release_version(sys.argv[3], stable=True), release_version(manifest.get("minimum_rollback_version"), stable=True))
+    floors = [release_version(sys.argv[3], stable=True), release_version(manifest.get("minimum_rollback_version"), stable=True)]
+    for key in ("schema_rollback_floor", "semantic_rollback_floor"):
+        if key in manifest:
+            floors.append(release_version(manifest[key], stable=True))
+    # The currently installed verified manifest is monotonic. A target release
+    # cannot lower the floor merely by advertising its own older minimum.
+    if os.path.exists(sys.argv[4]):
+        with open(sys.argv[4], "rb") as installed_file:
+            installed = json.loads(installed_file.read(65537))
+        if not isinstance(installed, dict) or installed.get("product") != "omnihive":
+            raise ValueError("Invalid installed release compatibility manifest")
+        floors.append(release_version(installed.get("minimum_rollback_version"), stable=True))
+        for key in ("schema_rollback_floor", "semantic_rollback_floor"):
+            if key in installed:
+                floors.append(release_version(installed[key], stable=True))
+    floor = max(floors)
     if target[:3] < floor[:3] or (target[:3] == floor[:3] and target[3]):
         floor_label = ".".join(map(str, floor[:3]))
         raise ValueError(f"Release {sys.argv[2]} is below the database rollback compatibility floor {floor_label}")
@@ -792,8 +810,16 @@ download_and_extract() {
         cp "$2" "$1" || return 1
         print_info "$(msg 'backup_created'): $1"
     fi
-    local staged_binary
+    local staged_binary staged_manifest
     staged_binary=$(mktemp "$INSTALL_DIR/.omnihive.XXXXXX") || return 1
+    staged_manifest=$(mktemp "$INSTALL_DIR/.release-manifest.XXXXXX") || return 1
+    # Persist the compatibility floor before replacing the binary. If the final
+    # rename is interrupted, retaining a stricter floor is the safe outcome.
+    if ! install -m 0644 "$TEMP_DIR/$manifest_name" "$staged_manifest" ||
+       ! mv -f "$staged_manifest" "$INSTALL_DIR/omnihive-release-manifest.json"; then
+        rm -f -- "$staged_binary" "$staged_manifest"
+        return 1
+    fi
     if ! install -m 0755 "$binary" "$staged_binary" || ! mv -f "$staged_binary" "$INSTALL_DIR/omnihive"; then
         rm -f -- "$staged_binary"
         return 1

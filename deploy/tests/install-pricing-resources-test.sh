@@ -7,7 +7,7 @@ trap 'rm -rf "$TEST_DIR"' EXIT
 
 # Load the real installer without running its entry point.
 source <(sed '$d' "$ROOT_DIR/deploy/install.sh")
-LATEST_VERSION=v0.2.5
+LATEST_VERSION=v0.3.5
 OS=linux
 ARCH=amd64
 if ! command -v sha256sum >/dev/null 2>&1; then
@@ -33,9 +33,9 @@ curl() {
     esac
 }
 
-printf '{"product":"omnihive","version":"%s","minimum_rollback_version":"0.2.5"}\n' "$LATEST_VERSION" > "$TEST_DIR/omnihive-release-manifest.json"
+printf '{"product":"omnihive","version":"%s","minimum_rollback_version":"0.3.5"}\n' "$LATEST_VERSION" > "$TEST_DIR/omnihive-release-manifest.json"
 
-archive_name_expected=omnihive_0.2.5_linux_amd64.tar.gz
+archive_name_expected=omnihive_0.3.5_linux_amd64.tar.gz
 mkdir -p "$TEST_DIR/archive/resources/model-pricing"
 printf '#!/bin/sh\nexit 0\n' > "$TEST_DIR/archive/omnihive"
 cp "$ROOT_DIR/backend/resources/model-pricing/"*.json "$TEST_DIR/archive/resources/model-pricing/"
@@ -64,7 +64,7 @@ test ! -e "$INSTALL_DIR/resources"
 rm -rf "$TEMP_DIR"
 
 # Legacy product archive names must be rejected fail-closed.
-archive_name_expected=sub2api_0.2.5_linux_amd64.tar.gz
+archive_name_expected=sub2api_0.3.5_linux_amd64.tar.gz
 if download_and_extract; then
     echo "FAIL: legacy product archive should be rejected" >&2
     exit 1

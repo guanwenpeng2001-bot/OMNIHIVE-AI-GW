@@ -528,6 +528,7 @@ stage_contracts() {
 }
 
 stage_generated_drift() {
+  python3 "${ROOT}/scripts/release_compatibility.py" --check
   cd "${ROOT}/backend"
   local paths=(
     "backend/cmd/server/wire_gen.go"

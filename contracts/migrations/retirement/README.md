@@ -11,9 +11,10 @@ The initial 87 catalog entries cover nine domains. The repository supplies no co
 | Initial disposition | Entries | Evidence |
 | --- | ---: | --- |
 | Hold, documented v1 read projections | 3 | `public-model-plaza`, `usage-detail`, `plugin-list` still have first-party API clients. No verified production census or elapsed publication window. |
-| Hold, owner migration required | 74 | Wrappers, old schemas, credentials, plugins and runtime identities require the specific gate recorded against the ID. |
+| Hold, owner migration required | 75 | Wrappers, old schemas, credentials, plugins and runtime identities require the specific gate recorded against the ID. |
 | Preserve | 9 | Native inference, user and plugin administration, historic key/request/receipt/payment identities, verifiers and relay compatibility. |
-| Previously unregistered by runtime | 1 | Earlier MCP, onboarding, in-memory preferences/audit and rankings route family. Record old deployments and client fallbacks without claiming a retirement removal. |
+
+The control runtime currently registers MCP grants, onboarding, user audit/preferences and rankings compatibility routes. The earlier `already_unregistered` disposition was incorrect; these routes remain on hold and are not removed by v0.3.5. Onboarding preferences still use their documented process-local storage.
 
 The v1 model plaza has optional authenticated pricing and visibility. Migrate both public and scoped readers to catalog. The v1 usage detail has a numeric usage ID. Requests can read that historical identity as `legacy-usage-{id}` under the authorized project. The plugins v2 extension inventory has a different list shape; preserve v1 package management operations and confirm all required list fields before closing the old projection. The legacy Playground forwards a user action using an operator credential. Its change of authentication and funding requires a separate playground cutover. [Runtime route inventory](../../../docs/operations/runtime-modes.md) · [catalog catalog](../catalog/INTEGRATION.md) · [requests historical lookup](../requests/INTEGRATION.md) · [plugins inventory](../../plugins/INTEGRATION.md) · [Identity source review](../../../contracts/identity/IDENTITY_ALLOWLIST.md)
 

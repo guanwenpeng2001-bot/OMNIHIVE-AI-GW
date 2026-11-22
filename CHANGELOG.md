@@ -4,6 +4,31 @@ This project follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/
 
 ## Unreleased
 
+## 0.3.5 - Unreleased
+
+### Fixed
+
+- Personal console scope remains personal across Dashboard, Keys and Playground. Stale workspace/project selections no longer fall through to the first project. Default workspace membership continues to grant no project actions.
+- Project Key creation, lifecycle filtering, model policies and action intersections use the selected project. Failed or unknown authorization does not reopen actions. Workspace administrators can edit action grants per project without creating an unintended project/action cross-product.
+- Playground and task execution keep project-scoped credentials and validate Key capabilities and current authorization. Playground requires a usable Key-specific quote; price changes invalidate confirmation before reservation, and replay uses the source request's model and scope.
+- Managed connections reject legacy account selection and bulk configuration writes. Runtime subscription observations preserve connection visibility while invalidating stale verification, through a narrowly scoped database fence.
+- WorkBuddy account edits preserve saved model selections and aliases after reopening. The same hydration fix covers Gemini/Anthropic OAuth and existing Kilo/OpenCode modes.
+- Public model names no longer select an arbitrary provider. Missing availability remains unknown; published state is independent of routing. Catalog, pricing layouts, details and command search use the same model IDs and price presentation.
+
+### Changed
+
+- Model facts retain field-level provenance for the reviewed registry, platform presets, pi-ai references and operator observations. Reference prices remain separate from sales tariffs, cost accounting and settlement.
+- Existing operator group/channel prices remain the sole editable sale-price authority. Shared resolution produces frozen request price contexts; additive exact-price bindings unify consumers without rewriting historical charges.
+- Key model rules use one canonical writer with compatible action/ownership projections. Legacy conflicts are evaluated as an intersection and reported for diagnosis.
+- The model operations view connects authorized project facts, discovered accounts, groups, sale-price sources and publication. Configuration diagnostics expose redacted effective values and sources, with version-checked whole-provider OAuth resets.
+- New installations explicitly default catalog network refresh and the public plaza to disabled, with JSON logging. Upgrade snapshots preserve existing effective behavior. Integration secret encryption supports a key separate from TOTP while retaining legacy ciphertext reads.
+
+### Upgrade and rollback
+
+- Migrations 339–341 are additive; existing migration files and billing records are unchanged. The schema floor and semantic rollback floor are separate; this release requires a safe rollback target of v0.3.5 after adopting its semantics. Do not point a v0.3.3 binary at an upgraded database as a normal rollback.
+- Release packaging, online update and the native installer consume the versioned compatibility authority. Verified installed manifests cannot lower the floor, and existing release artifacts are not replaced.
+- See `docs/plans/v0.3.5-unified-console-catalog.md` and the v0.3.5 delivery evidence for rollout gates and verification limits. This entry prepares the version; it does not publish a release or deploy production.
+
 ## 0.3.2 - 2026-11-22
 
 ### Added

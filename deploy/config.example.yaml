@@ -596,7 +596,7 @@ log:
   level: "info"
   # Log format: json/console
   # 日志格式：json/console
-  format: "console"
+  format: "json"
   # Service name field written into each log line
   # 每条日志都会附带 service 字段
   service_name: "omnihive"
@@ -1273,3 +1273,8 @@ image_storage:
   presign_expiry_hours: 24
   # 当上游返回的是图片 url 时，下载该图片再转存的字节上限（默认 32MB）
   max_download_bytes: 33554432
+
+# Integrations secret encryption (S3 backup/image storage); independent from TOTP.
+# Keep TOTP_ENCRYPTION_KEY available while legacy ciphertext exists.
+secrets:
+  encryption_key: ""  # SECRETS_ENCRYPTION_KEY, 32-byte key material; never publish a real key

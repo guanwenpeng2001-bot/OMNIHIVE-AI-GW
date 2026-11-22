@@ -31,7 +31,7 @@ run_case() {
     (
         release="$case_dir/release"
         INSTALL_DIR="$case_dir/installed"
-        LATEST_VERSION=v0.2.5
+        LATEST_VERSION=v0.3.5
         manifest_name=omnihive-release-manifest.json
         mkdir -p "$release" "$INSTALL_DIR" "$case_dir/archive/resources/model-pricing"
         printf 'installed binary\n' > "$INSTALL_DIR/omnihive"
@@ -39,11 +39,11 @@ run_case() {
         printf '{}\n' > "$case_dir/archive/resources/model-pricing/example.json"
 
         if [ "$test_case" = below_schema_floor ]; then
-            LATEST_VERSION=v0.2.4
+            LATEST_VERSION=v0.3.4
         fi
         asset_name="omnihive_${LATEST_VERSION#v}_linux_amd64.tar.gz"
         tar -czf "$release/$asset_name" -C "$case_dir/archive" .
-        printf '{"product":"omnihive","version":"%s","minimum_rollback_version":"0.2.5"}\n' "$LATEST_VERSION" > "$release/$manifest_name"
+        printf '{"product":"omnihive","version":"%s","minimum_rollback_version":"0.3.5"}\n' "$LATEST_VERSION" > "$release/$manifest_name"
         write_checksums
 
         case "$test_case" in
@@ -72,7 +72,7 @@ run_case() {
                 printf 'modified manifest\n' >> "$release/$manifest_name"
                 ;;
             wrong_product)
-                printf '{"product":"%s","version":"%s","minimum_rollback_version":"0.2.5"}\n' \
+                printf '{"product":"%s","version":"%s","minimum_rollback_version":"0.3.5"}\n' \
                     "$LEGACY_SERVICE_NAME" "$LATEST_VERSION" > "$release/$manifest_name"
                 write_checksums
                 ;;
@@ -81,8 +81,15 @@ run_case() {
                 tar -czf "$release/$asset_name" -C "$case_dir/archive" .
                 write_checksums
                 ;;
+            below_installed_floor)
+                printf '{"product":"omnihive","version":"0.3.6","minimum_rollback_version":"0.3.6"}\n' > "$INSTALL_DIR/omnihive-release-manifest.json"
+                ;;
+            below_semantic_floor)
+                printf '{"product":"omnihive","version":"%s","minimum_rollback_version":"0.3.5","schema_rollback_floor":"0.3.0","semantic_rollback_floor":"0.3.6"}\n' "$LATEST_VERSION" > "$release/$manifest_name"
+                write_checksums
+                ;;
             below_manifest_floor)
-                printf '{"product":"omnihive","version":"%s","minimum_rollback_version":"0.2.6"}\n' \
+                printf '{"product":"omnihive","version":"%s","minimum_rollback_version":"0.3.6"}\n' \
                     "$LATEST_VERSION" > "$release/$manifest_name"
                 write_checksums
                 ;;
@@ -122,3 +129,6 @@ run_case wrong_product 'Wrong product'
 run_case wrong_binary 'Wrong product executable'
 run_case below_schema_floor 'database rollback compatibility floor'
 run_case below_manifest_floor 'database rollback compatibility floor'
+
+run_case below_installed_floor 'database rollback compatibility floor'
+run_case below_semantic_floor 'database rollback compatibility floor'

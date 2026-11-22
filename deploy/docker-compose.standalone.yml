@@ -12,7 +12,7 @@
 
 services:
   omnihive:
-    image: ghcr.io/guanwenpeng2001-bot/omnihive-ai-gw:${OMNIHIVE_IMAGE_TAG:-v0.3.3}
+    image: ghcr.io/guanwenpeng2001-bot/omnihive-ai-gw:${OMNIHIVE_IMAGE_TAG:-v0.3.5}
     container_name: omnihive
     restart: unless-stopped
     # main.go grants shutdownApplication 20s; keep 10s for transport cleanup.
@@ -103,6 +103,8 @@ services:
       - JWT_ROTATE=${JWT_ROTATE:-false}
       # Persist the same 64-hex encryption key across rebuilds and database restores.
       - TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY:-}
+      - SECRETS_ENCRYPTION_KEY=${SECRETS_ENCRYPTION_KEY:-}
+      - MODEL_CATALOG_REFRESH_ENABLED=${MODEL_CATALOG_REFRESH_ENABLED:-}
       - JWT_EXPIRE_HOUR=${JWT_EXPIRE_HOUR:-24}
 
       # =======================================================================

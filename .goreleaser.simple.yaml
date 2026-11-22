@@ -6,10 +6,8 @@ project_name: omnihive
 # The global hooks run before GoReleaser checks that dist is empty.
 before:
   hooks:
-    - >-
-      sh -c 'mkdir -p .cache/omnihive-release &&
-      printf "{\"product\":\"omnihive\",\"version\":\"%s\",\"minimum_rollback_version\":\"0.3.0\",\"commit\":\"%s\"}\n"
-      "{{ .Version }}" "{{ .Commit }}" > .cache/omnihive-release/omnihive-release-manifest.json'
+    - python3 scripts/release_compatibility.py --check
+    - python3 scripts/release_compatibility.py --manifest {{ .Version }} {{ .Commit }} .cache/omnihive-release/omnihive-release-manifest.json
 
 builds:
   - id: omnihive
@@ -140,7 +138,7 @@ release:
     name: "{{ .Env.GITHUB_REPO_NAME }}"
   draft: false
   prerelease: auto
-  replace_existing_artifacts: true
+  replace_existing_artifacts: false
   name_template: "OmniHive AI Gateway v{{.Version}} (Simple)"
   header: |
     > OmniHive AI Gateway — self-hosted multi-protocol AI API gateway. Upgrade from the admin console (version badge → Update) or pull the matching Docker image.
