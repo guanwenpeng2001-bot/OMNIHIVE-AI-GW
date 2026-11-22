@@ -1192,3 +1192,76 @@ func parseAnthropicContentBlockEvents(t *testing.T, raw string) []anthropicConte
 	}
 	return events
 }
+
+func TestCodeAssistSynchronousThoughtAggregation(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		frames      []string // Gemini parts in each upstream SSE event.
+		wantContent string
+	}{
+		{
+			name:        "thought then answer",
+			frames:      []string{`[{"text":"summary","thought":true}]`, `[{"text":"answer"}]`},
+			wantContent: `[{"type":"thinking","thinking":"summary"},{"type":"text","text":"answer"}]`,
+		},
+		{
+			name: "interleaved signed thoughts, answer fragments and tool",
+			frames: []string{
+				`[{"text":"first","thought":true,"thoughtSignature":"sig1"},{"text":"be"}]`,
+				`[{"text":"fore"},{"functionCall":{"id":"call_1","name":"lookup","args":{"n":1}}},{"text":"after"}]`,
+				`[{"text":"second","thought":true,"thoughtSignature":"sig2"},{"text":"do"},{"text":"ne"}]`,
+			},
+			wantContent: `[
+				{"type":"thinking","thinking":"first","signature":"sig1"},
+				{"type":"text","text":"before"},
+				{"type":"tool_use","id":"call_1","name":"lookup","input":{"n":1}},
+				{"type":"text","text":"after"},
+				{"type":"thinking","thinking":"second","signature":"sig2"},
+				{"type":"text","text":"done"}
+			]`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var wire strings.Builder
+			for _, parts := range tc.frames {
+				fmt.Fprintf(&wire, "data:"+`{"response":{"candidates":[{"content":{"parts":%s}}]}}`+"\n\n", parts)
+			}
+			wire.WriteString("data:" + `{"response":{"candidates":[{"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":3}}}` + "\n\n")
+			upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+				StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}},
+				Body: io.NopCloser(strings.NewReader(wire.String())),
+			}}
+			svc := &GeminiMessagesCompatService{tokenProvider: &GeminiTokenProvider{}, httpUpstream: upstream, cfg: &config.Config{}}
+			account := &Account{ID: 101, Platform: PlatformGemini, Type: AccountTypeOAuth,
+				Credentials: map[string]any{"access_token": "fixture", "project_id": "project-1"}}
+			body := []byte(`{"model":"gemini-2.5-flash","max_tokens":16,"stream":false,"messages":[{"role":"user","content":"hi"}]}`)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+
+			result, err := svc.Forward(t.Context(), c, account, body)
+			require.NoError(t, err)
+			require.False(t, result.Stream)
+			require.Equal(t, "/v1internal:streamGenerateContent", upstream.lastReq.URL.Path)
+			require.Equal(t, "sse", upstream.lastReq.URL.Query().Get("alt"))
+			require.Equal(t, 7, result.Usage.InputTokens)
+			require.Equal(t, 3, result.Usage.OutputTokens)
+			require.Equal(t, http.StatusOK, rec.Code)
+			var response struct{ Content json.RawMessage }
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+			require.JSONEq(t, tc.wantContent, string(response.Content))
+		})
+	}
+}
+
+func TestCollectGeminiSSEPreservesPartMetadata(t *testing.T) {
+	// The native caller also consumes the aggregate. Signed text and inline
+	// data must keep their original fields and must separate plain text runs.
+	wire := `data:{"response":{"candidates":[{"content":{"parts":[{"text":"a"},{"text":"signed","thoughtSignature":"sig"},{"inlineData":{"mimeType":"image/png","data":"eA=="}}]}}]}}` + "\n\n" +
+		`data:{"response":{"candidates":[{"content":{"parts":[{"text":"b"},{"text":"c"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":2}}}` + "\n\n"
+	collected, _, err := collectGeminiSSE(nil, strings.NewReader(wire), true)
+	require.NoError(t, err)
+	parts, err := json.Marshal(extractGeminiParts(collected))
+	require.NoError(t, err)
+	require.JSONEq(t, `[{"text":"a"},{"text":"signed","thoughtSignature":"sig"},{"inlineData":{"mimeType":"image/png","data":"eA=="}},{"text":"bc"}]`, string(parts))
+}
