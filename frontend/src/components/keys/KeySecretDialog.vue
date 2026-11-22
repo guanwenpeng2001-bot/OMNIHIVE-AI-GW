@@ -9,6 +9,7 @@
     @close="requestClose"
   >
     <div data-testid="key-secret-once-dialog" class="space-y-4">
+      <p v-if="scopeLabel" data-testid="key-secret-scope" class="text-sm font-semibold text-[var(--foreground)]">{{ scopeLabel }}</p>
       <div
         class="flex items-start gap-3 rounded-[var(--oh-r-md,8px)] border border-[var(--oh-accent-border,rgba(245,158,11,0.4))] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.08))] p-3.5"
       >
@@ -75,6 +76,7 @@ const props = defineProps<{
   show: boolean
   secret: string
   graceUntil: string | null
+  scopeLabel?: string
 }>()
 
 const emit = defineEmits<{

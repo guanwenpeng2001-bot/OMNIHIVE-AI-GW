@@ -1,6 +1,8 @@
 import { baseCompile } from '@intlify/message-compiler'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import { useAppStore } from '@/stores/app'
 import { createI18n } from 'vue-i18n'
 import DashboardView from '../DashboardView.vue'
 import en from '@/i18n/locales/en/dashboard'
@@ -13,6 +15,11 @@ vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ user: {}, refreshUser: 
 const stubs = { AppLayout: { template: '<div><slot /></div>' }, LoadingSpinner: true, UserDashboardStats: true, UserDashboardCharts: true, UserDashboardRecentUsage: true, UserDashboardQuickActions: true }
 const mountPage = (locale = 'en', timeZone?: string) => mount(DashboardView, { props: { timeZone }, global: { stubs, plugins: [createI18n({ messageCompiler: message => new Function('return ' + baseCompile(message as string).code)(), legacy: false, locale, messages: { en, zh } })] } })
 beforeEach(() => {
+  localStorage.clear()
+  setActivePinia(createPinia())
+  const app = useAppStore()
+  app.scopesLoaded = true
+  app.scopes = []
   api.getDashboardStats.mockReset().mockResolvedValue({ total_requests: 1 })
   api.getDashboardTrend.mockReset().mockResolvedValue({ trend: [{ date: '2026-03-01', requests: 1 }] })
   api.getDashboardModels.mockReset().mockResolvedValue({ models: [{ model: 'example' }] })

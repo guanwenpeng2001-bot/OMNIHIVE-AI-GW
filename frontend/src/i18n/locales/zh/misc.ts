@@ -276,7 +276,7 @@ export default {
       welcome: {
         title: '欢迎使用 OmniHive 控制台',
         description:
-          '<div style="line-height: 1.75;"><p style="margin-bottom: 14px;">欢迎进入 OmniHive 智能算力中转蜂巢。一把 API 密钥即可接入 Claude、GPT、Gemini、DeepSeek 等全平台模型。</p><p style="margin-bottom: 10px;"><b>三步快速接入：</b></p><ul style="margin-left: 18px; margin-bottom: 14px;"><li>创建专属 API 访问密钥</li><li>在 OpenCode / Claude Code / Codex CLI / SDK 中配置网关地址</li><li>实时观测 Token 用量与调用明细</li></ul><p style="color: var(--brand-text, #92610a); font-weight: 600;">1 分钟完成接入引导 →</p></div>',
+          '<div style="line-height: 1.75;"><p style="margin-bottom: 14px;">欢迎进入 OmniHive 智能算力中转蜂巢。个人 Key 可调用其授权范围内、已配置渠道与销售价的模型。项目资源需要单独授权。</p><p style="margin-bottom: 10px;"><b>三步快速接入：</b></p><ul style="margin-left: 18px; margin-bottom: 14px;"><li>在个人空间创建个人 API Key；项目使用先申请授权</li><li>在 OpenCode / Claude Code / Codex CLI / SDK 中配置网关地址</li><li>实时观测 Token 用量与调用明细</li></ul><p style="color: var(--brand-text, #92610a); font-weight: 600;">1 分钟完成接入引导 →</p></div>',
         nextBtn: '开始引导 →',
         prevBtn: '跳过'
       },

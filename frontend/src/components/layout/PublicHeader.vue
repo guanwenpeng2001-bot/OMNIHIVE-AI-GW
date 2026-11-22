@@ -12,7 +12,7 @@ const LocaleSwitcher = defineAsyncComponent(
 )
 
 interface PublicNavItem {
-  key: 'models' | 'quota' | 'pricing' | 'status' | 'docs' | 'compatibility'
+  key: 'models' | 'quota' | 'status' | 'docs' | 'compatibility'
   label: string
   to?: string
   href?: string
@@ -138,12 +138,6 @@ const navItems = computed<PublicNavItem[]>(() => {
       to: '/key-usage',
       label: tr('navQuota'),
       active: currentPath.startsWith('/key-usage')
-    },
-    {
-      key: 'pricing',
-      to: '/pricing',
-      label: tr('navPricing'),
-      active: currentPath.startsWith('/pricing')
     },
     {
       key: 'status',

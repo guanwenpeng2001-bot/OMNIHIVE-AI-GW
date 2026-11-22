@@ -112,7 +112,7 @@ describe('public catalog formatters & API wiring', () => {
   it('resolves canonical provider/model slugs via encoded detail fetch and m_<32hex> catalog fallback on 404', async () => {
     const stableId = 'm_0123456789abcdef0123456789abcdef'
 
-    // 1) Direct 404 on slug -> fallback listPublicModels({ q: 'auto/gemini-3.8-flash', limit: 50 }) -> fetch by stable m_ ID
+    // 1) Direct 404 on slug -> fallback listPublicModels({ q: 'auto/gemini-3.8-flash', limit: 100 }) -> fetch by stable m_ ID
     getMock
       .mockRejectedValueOnce({ status: 404, message: 'Resource not found.' })
       .mockResolvedValueOnce({
@@ -149,7 +149,7 @@ describe('public catalog formatters & API wiring', () => {
       2,
       '/api/v2/public/models',
       expect.objectContaining({
-        params: expect.objectContaining({ q: 'auto/gemini-3.8-flash', limit: 50 })
+        params: expect.objectContaining({ q: 'auto/gemini-3.8-flash', limit: 100 })
       })
     )
     expect(getMock).toHaveBeenNthCalledWith(
@@ -198,7 +198,7 @@ describe('public catalog formatters & API wiring', () => {
       3,
       '/api/v2/public/models',
       expect.objectContaining({
-        params: expect.objectContaining({ q: 'gpt-5.6-sol', limit: 50 })
+        params: expect.objectContaining({ q: 'gpt-5.6-sol', limit: 100 })
       })
     )
   })

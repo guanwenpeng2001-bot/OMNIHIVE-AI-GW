@@ -227,7 +227,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/model-plaza',
     name: 'ModelPlaza',
-    component: () => import('@/views/public/PublicModelsView.vue'),
+    component: () => import('@/views/public/PublicModelDirectoryView.vue'),
     meta: {
       requiresAuth: false,
       title: 'Model Plaza',
@@ -261,7 +261,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/pricing',
     name: 'PublicPricing',
-    component: () => import('@/views/public/PublicPricingView.vue'),
+    redirect: (to) => ({ path: '/model-plaza', query: { ...to.query, view: 'pricing' } }),
     meta: {
       requiresAuth: false,
       title: 'Pricing',
@@ -334,7 +334,10 @@ const routes: RouteRecordRaw[] = [
       const wsId = String(to.params.id ?? '')
       if (/^[1-9]\d*$/.test(wsId)) {
         try {
-          useAppStore().selectWorkspaceScope(wsId)
+          const app = useAppStore()
+          if (app.activeScope.mode !== 'workspace' || app.activeScope.workspaceId !== wsId) {
+            app.selectWorkspaceScope(wsId, null)
+          }
         } catch {
           // Store may not be active during pure static resolution in tests.
         }
@@ -957,6 +960,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/settings/effective',
+    name: 'AdminEffectiveSettings',
+    component: () => import('@/views/admin/EffectiveSettingsView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Effective configuration', titleZh: '配置生效值与来源' }
+  },
+  {
+    path: '/catalog-management',
+    name: 'ModelCatalogManagement',
+    component: () => import('@/views/admin/ModelCatalogManagementView.vue'),
+    meta: { requiresAuth: true, title: 'Model catalog operations', titleZh: '模型目录与运营链路' }
+  },
+  {
     path: '/admin/settings/:section',
     name: 'AdminSettingsSection',
     props: true,
@@ -1148,7 +1163,9 @@ for (const route of routes) {
   if (route.meta?.requiresAuth !== true || typeof route.component !== 'function') continue
   const load = route.component as () => Promise<{ default: import('vue').Component }>
   const admin = route.meta.requiresAdmin === true
-  route.component = lazyIdentityScoped(load, admin)
+  // Keys owns scope invalidation so an in-flight one-time secret can remain
+  // attributed to its original scope. Identity/session changes still remount it.
+  route.component = lazyIdentityScoped(load, admin, route.path !== '/keys')
 }
 
 /**

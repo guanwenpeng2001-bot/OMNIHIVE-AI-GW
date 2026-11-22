@@ -123,7 +123,7 @@ describe('W07 Public Portal & Plaza Fixes (P2-1..5, P3-1..4, FE4-P1-02)', () => 
 
     // Duplicate data-testid fixed
     expect(wrapper.findAll('[data-testid="modality-filter-pills-row"]')).toHaveLength(1)
-    expect(wrapper.findAll('[data-testid="availability-filter-pills-row"]')).toHaveLength(1)
+    expect(wrapper.findAll('[data-testid="publication-filter-pills-row"]')).toHaveLength(1)
 
     // Select modality pill = image and input modality chip = PDF: backend gets ONLY ['image'], client filters by PDF
     await wrapper.get('[data-testid="modality-pill-image"]').trigger('click')
@@ -409,7 +409,7 @@ describe('W07 Public Portal & Plaza Fixes (P2-1..5, P3-1..4, FE4-P1-02)', () => 
 
     // Reference price shown once + source shown instead of duplicating price
     expect(wrapper.text().match(/\$5\.00/g)?.length ?? 0).toBe(1)
-    expect(wrapper.text()).toContain('Reference source: pi-ai')
+    expect(wrapper.text()).toContain('Ref $5.00 · pi-ai · comparison only')
 
     // cannot_opt_out is NOT mislabeled as "Not trained"
     expect(wrapper.text()).toContain('cannot_opt_out')
@@ -417,7 +417,7 @@ describe('W07 Public Portal & Plaza Fixes (P2-1..5, P3-1..4, FE4-P1-02)', () => 
 
     // Image model snippet uses /v1/images/generations and notes catalog_only
     expect(wrapper.text()).toContain('/v1/images/generations')
-    expect(wrapper.text()).toContain('catalog-only')
+    expect(wrapper.text()).toContain('does not promise integration')
 
     // Dynamic brand siteName reflected in document.title
     expect(document.title).toBe('GPT Image 1 - Acme AI')

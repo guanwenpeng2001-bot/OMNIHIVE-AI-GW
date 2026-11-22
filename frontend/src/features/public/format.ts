@@ -9,9 +9,23 @@ export function formatPriceSourceLabel(source?: string | null, isZh = false): st
   if (!source) return ''
   switch (source) {
     case 'public_plaza_reference':
-      return isZh ? '公开目录参考价' : 'Catalog Reference'
+      return isZh ? '公开目录展示价（按空间报价）' : 'Catalog display rate (scope quotation required)'
     case 'scoped_plaza_reference':
-      return isZh ? '空间目录参考价' : 'Workspace Reference'
+      return isZh ? '空间目录展示价' : 'Scoped catalog display rate'
+    case 'group':
+      return isZh ? '运营分组销售价' : 'Group sale tariff'
+    case 'channel':
+      return isZh ? '渠道销售价' : 'Channel sale tariff'
+    case 'litellm':
+      return isZh ? 'LiteLLM 销售基线' : 'LiteLLM sale baseline'
+    case 'fallback':
+    case 'static_fallback':
+      return isZh ? '内置销售基线' : 'Built-in sale baseline'
+    case 'pi-ai':
+    case 'pi_ai':
+      return isZh ? 'pi-ai 外部参考价' : 'pi-ai external reference'
+    case 'unavailable':
+      return isZh ? '暂无销售价格源' : 'No sale price source'
     case 'published':
       return isZh ? '已发布生效价格' : 'Published Rate'
     case 'reference':
@@ -438,7 +452,7 @@ export function modalityTone(modality: string): UiTone {
   }
 }
 
-export type ResolvedAvailabilityState = 'live' | 'catalog_only' | 'unknown'
+export type ResolvedAvailabilityState = 'live' | 'catalog_only' | 'unknown' | 'requires_scope' | 'unavailable' | 'eligible'
 
 export function resolveAvailabilityState(
   model?: Pick<
@@ -448,29 +462,26 @@ export function resolveAvailabilityState(
 ): ResolvedAvailabilityState {
   if (!model) return 'unknown'
   const explicit = model.availability_state?.trim().toLowerCase()
-  if (explicit === 'live') return 'live'
-  if (explicit === 'catalog_only') return 'catalog_only'
-  const hasLiveRate = Boolean(model.input_rate || model.output_rate)
-  if (model.price_state === 'unpriced' && !hasLiveRate && model.route_state !== 'eligible') {
-    return 'catalog_only'
-  }
-  if (
-    model.route_state === 'eligible' &&
-    (model.price_state === 'priced' || model.price_state === 'free' || hasLiveRate)
-  ) {
-    return 'live'
-  }
+  if (explicit === 'live' || explicit === 'catalog_only' || explicit === 'requires_scope' || explicit === 'unavailable' || explicit === 'eligible') return explicit
+  // Pricing and routing are independent facts. Older/malformed responses must
+  // remain unknown instead of manufacturing a routing guarantee in the UI.
   return 'unknown'
 }
 
 export function availabilityStateLabel(state: ResolvedAvailabilityState, isZh = false): string {
   switch (state) {
     case 'live':
-      return isZh ? '已接入可调用' : 'Live & Routable'
+      return isZh ? '路由健康已验证' : 'Route health verified'
     case 'catalog_only':
-      return isZh ? '平台目录 · 按需接入' : 'Platform Catalog · On Demand'
+      return isZh ? '参考目录 · 未确认接入' : 'Reference catalog · Integration unconfirmed'
+    case 'requires_scope':
+      return isZh ? '选择空间确认可用性' : 'Select scope to check availability'
+    case 'eligible':
+      return isZh ? '存在候选路由' : 'Eligible route candidate'
+    case 'unavailable':
+      return isZh ? '当前不可路由' : 'No eligible route'
     default:
-      return ''
+      return isZh ? '可用性未知' : 'Availability unknown'
   }
 }
 
@@ -479,8 +490,60 @@ export function availabilityStateTone(state: ResolvedAvailabilityState): UiTone 
     case 'live':
       return 'success'
     case 'catalog_only':
+    case 'eligible':
+    case 'requires_scope':
       return 'info'
+    case 'unavailable':
+      return 'warning'
     default:
       return 'unknown'
   }
+}
+
+export function billingStateLabel(model: PublicModelSummary | string | null | undefined, isZh = false): string {
+  const labels: Record<string, [string, string]> = {
+    priced: ['销售报价已配置', 'Sale tariff configured'],
+    scope_required: ['选择空间查看销售价', 'Select scope for sale price'],
+    multiple_offers: ['多个分组报价', 'Multiple group offers'],
+    missing: ['暂无销售报价', 'No sale price'],
+    partial_rate: ['计费维度缺价', 'Incomplete sale tariff'],
+    conflict: ['销售价格规则冲突', 'Conflicting sale tariffs'],
+    conditional: ['按条件计算销售价', 'Conditional sale tariff']
+  }
+  const state = typeof model === 'string' ? model : model?.billing_state
+  if (state && labels[state]) return labels[state][isZh ? 0 : 1]
+  if (typeof model !== 'string' && model?.price_state === 'unpriced') return isZh ? '暂无销售报价' : 'No sale price'
+  if (typeof model !== 'string' && model?.price_state === 'error') return isZh ? '销售报价不可用' : 'Sale quotation unavailable'
+  return isZh ? '销售报价状态未知' : 'Sale price unknown'
+}
+
+export type PublicationFilter = 'all' | 'published' | 'draft'
+
+export function publicationFilterOptions(isZh = false): Array<{ key: PublicationFilter; label: string }> {
+  return [
+    { key: 'all', label: isZh ? '全部模型' : 'All models' },
+    { key: 'published', label: isZh ? '公开上架' : 'Published' },
+    { key: 'draft', label: isZh ? '参考候选' : 'Reference candidates' }
+  ]
+}
+
+/** One sale-price presentation for the plaza, pricing view, details and compare. */
+export function salePriceLabel(model: PublicModelSummary | null | undefined, kind: 'input' | 'output', isZh = false): string {
+  if (!model) return billingStateLabel(model, isZh)
+  if (model.billing_state && model.billing_state !== 'priced') return billingStateLabel(model, isZh)
+  if (model.price_state === 'free') return isZh ? '免费' : 'Free'
+  const rate = kind === 'input' ? model.input_rate : model.output_rate
+  if (rate && (model.billing_state === 'priced' || model.price_state === 'priced')) return publicTokenPrice(rate, 'adaptive', isZh)
+  return billingStateLabel(model, isZh)
+}
+
+/** Reference records never substitute for sale rates, even when no sale exists. */
+export function referencePriceHint(model: PublicModelSummary | null | undefined, kind: 'input' | 'output', isZh = false): string | null {
+  const reference = model?.reference_price
+  const rate = kind === 'input' ? reference?.input_rate : reference?.output_rate
+  if (!rate) return null
+  const formatted = publicTokenPrice(rate, 'adaptive', isZh)
+  if (formatted === '—') return null
+  const source = reference?.source || (isZh ? '来源未声明' : 'source undeclared')
+  return isZh ? `参考 ${formatted} · ${source} · 仅供比较` : `Ref ${formatted} · ${source} · comparison only`
 }

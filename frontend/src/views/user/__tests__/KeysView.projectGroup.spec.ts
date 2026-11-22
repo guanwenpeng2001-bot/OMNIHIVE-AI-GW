@@ -1,7 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { reactive } from 'vue'
+import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
+import { identityScoped } from '@/router/identityScope'
 import KeysView from '../KeysView.vue'
+
+enableAutoUnmount(afterEach)
 
 const mocks = vi.hoisted(() => ({
   listKeys: vi.fn(),
@@ -9,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   getPublicSettings: vi.fn(),
   getDashboardApiKeysUsage: vi.fn(),
   getAvailableGroups: vi.fn(),
+  projectGroups: vi.fn(),
+  listKeyGroups: vi.fn(),
   getUserGroupRates: vi.fn(),
   showError: vi.fn(),
   showInfo: vi.fn(),
@@ -17,21 +23,18 @@ const mocks = vi.hoisted(() => ({
   createProjectKey: vi.fn(),
   listScopes: vi.fn(),
   getProjectAccess: vi.fn(),
+  authState: null as any,
   consoleScope: { mode: 'workspace' as const, workspaceId: '10', projectId: '20' },
 }))
 
 vi.mock('@/stores/auth', () => ({
-  useAuthStore: () =>
-    reactive({
-      user: { id: 1, email: 'dev@example.com', role: 'user', balance: 100 },
-      isSimpleMode: false,
-      refreshUser: vi.fn(),
-    }),
+  useAuthStore: () => mocks.authState,
 }))
 
 vi.mock('@/stores/app', () => ({
   SCOPE_CHANGED_EVENT: 'omnihive:scope-changed',
   useAppStore: () => ({
+    get activeScope() { return mocks.consoleScope },
     showError: mocks.showError,
     showInfo: mocks.showInfo,
     showSuccess: mocks.showSuccess,
@@ -89,6 +92,7 @@ vi.mock('@/features/console/scope', async (importOriginal) => {
       ...actual.identityApi,
       listScopes: mocks.listScopes,
       listProjectKeys: mocks.listProjectKeys,
+      listKeyGroups: mocks.listKeyGroups,
       createProjectKey: mocks.createProjectKey,
       getProjectAccess: mocks.getProjectAccess,
     },
@@ -129,15 +133,26 @@ const stubs = {
   Teleport: true,
 }
 
+async function mountRoutedKeys() {
+  const router = createRouter({ history: createMemoryHistory(), routes: [
+    { path: '/keys', component: identityScoped(KeysView, false, false) }
+  ] })
+  await router.push('/keys')
+  return mount(RouterView, { global: { plugins: [router], stubs } })
+}
+
 describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.consoleScope = { mode: 'workspace', workspaceId: '10', projectId: '20' }
+    mocks.consoleScope = reactive({ mode: 'workspace', workspaceId: '10', projectId: '20' })
+    mocks.authState = reactive({ user: { id: 1, email: 'dev@example.com', role: 'user', balance: 100 }, isAuthenticated: true, isSimpleMode: false, refreshUser: vi.fn(), sessionRevision: 'first' })
     mocks.listKeys.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 1 })
     mocks.getPublicSettings.mockResolvedValue({ api_base_url: 'https://api.example.com', site_name: 'OmniHive' })
     mocks.getDashboardApiKeysUsage.mockResolvedValue({ stats: {} })
     mocks.getUserGroupRates.mockResolvedValue({})
-    mocks.listProjectKeys.mockResolvedValue({ items: [] })
+    mocks.listProjectKeys.mockResolvedValue({ items: [], next_cursor: null, as_of: '2026-11-22T00:00:00Z' })
+    mocks.projectGroups.mockResolvedValue([])
+    mocks.listKeyGroups.mockImplementation(async (workspaceId, projectId) => ({ items: (await mocks.projectGroups({ workspaceId, projectId })).map((group: { id: number | string }) => ({ ...group, id: String(group.id) })), next_cursor: null, as_of: '2026-11-22T00:00:00Z' }))
     mocks.listScopes.mockResolvedValue({ items: [] })
     mocks.getProjectAccess.mockResolvedValue({
       actor_id: '1',
@@ -159,7 +174,7 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
   })
 
   it('blocks project-scoped key creation and shows explicit validation error when no available group exists', async () => {
-    mocks.getAvailableGroups.mockResolvedValue([])
+    mocks.projectGroups.mockResolvedValue([])
 
     const wrapper = mount(KeysView, { global: { stubs } })
     await flushPromises()
@@ -167,9 +182,6 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
     await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
     await flushPromises()
 
-    const checkbox = wrapper.get('#key-form input[type="checkbox"]')
-    await checkbox.setValue(true)
-    await flushPromises()
 
     const nameInput = wrapper.get('[data-tour="key-form-name"]')
     await nameInput.setValue('unbound-project-key')
@@ -189,7 +201,7 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
   })
 
   it('creates project-scoped key with explicit group_id when an available group exists', async () => {
-    mocks.getAvailableGroups.mockResolvedValue([
+    mocks.projectGroups.mockResolvedValue([
       {
         id: 7,
         name: 'Primary OpenAI Pool',
@@ -212,9 +224,6 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
     await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
     await flushPromises()
 
-    const checkbox = wrapper.get('#key-form input[type="checkbox"]')
-    await checkbox.setValue(true)
-    await flushPromises()
 
     await wrapper.get('[data-tour="key-form-name"]').setValue('bound-project-key')
     expect(wrapper.find('[data-testid="project-key-group-required-alert"]').exists()).toBe(false)
@@ -231,6 +240,8 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
       })
     )
     expect(mocks.showSuccess).toHaveBeenCalledWith('keys.keyCreatedSuccess')
+    expect(mocks.getAvailableGroups).not.toHaveBeenCalled()
+    expect(mocks.createKey).not.toHaveBeenCalled()
   })
 
   it('loads workspace/project-scoped groups instead of account-level group #1 for new workspace default project keys (E2-5)', async () => {
@@ -253,7 +264,7 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
       rate_multiplier: 1,
       is_exclusive: false,
     }
-    mocks.getAvailableGroups.mockImplementation(async (options?: { workspaceId?: string; projectId?: string }) => {
+    mocks.projectGroups.mockImplementation(async (options?: { workspaceId?: string; projectId?: string }) => {
       if (options?.workspaceId === '4' && options?.projectId === '5') {
         return [workspace4OpenAIGroup]
       }
@@ -271,11 +282,8 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
     await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
     await flushPromises()
 
-    const checkbox = wrapper.get('#key-form input[type="checkbox"]')
-    await checkbox.setValue(true)
-    await flushPromises()
 
-    expect(mocks.getAvailableGroups).toHaveBeenCalledWith(
+    expect(mocks.projectGroups).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceId: '4', projectId: '5' })
     )
     expect(wrapper.get<HTMLInputElement>('input[name="key-provider"][value="anthropic"]').element.disabled).toBe(true)
@@ -297,7 +305,7 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
 
   it('clears workspace 1 default group and blocks submit when workspace 4 default project 5 has no scoped groups (E2-5)', async () => {
     mocks.consoleScope = { mode: 'workspace', workspaceId: '4', projectId: '5' }
-    mocks.getAvailableGroups.mockImplementation(async (options?: { workspaceId?: string; projectId?: string }) => {
+    mocks.projectGroups.mockImplementation(async (options?: { workspaceId?: string; projectId?: string }) => {
       if (options?.workspaceId === '4' && options?.projectId === '5') {
         return []
       }
@@ -320,9 +328,6 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
     await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
     await flushPromises()
 
-    const checkbox = wrapper.get('#key-form input[type="checkbox"]')
-    await checkbox.setValue(true)
-    await flushPromises()
 
     await wrapper.get('[data-tour="key-form-name"]').setValue('fe-e2e-restricted')
     expect(wrapper.get('[data-testid="project-key-group-required-alert"]').text()).toContain(
@@ -339,7 +344,7 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
   it('filters out any foreign-workspace group returned in a scoped project lookup (E2-5)', async () => {
     mocks.consoleScope = { mode: 'workspace', workspaceId: '4', projectId: '5' }
     // Provide an account-level group so unpatched code would still see group #1.
-    mocks.getAvailableGroups.mockImplementation(async (options?: { workspaceId?: string; projectId?: string }) => {
+    mocks.projectGroups.mockImplementation(async (options?: { workspaceId?: string; projectId?: string }) => {
       if (options?.workspaceId === '4' && options?.projectId === '5') {
         return [
           {
@@ -388,8 +393,6 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
     await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
     await flushPromises()
 
-    await wrapper.get('#key-form input[type="checkbox"]').setValue(true)
-    await flushPromises()
 
     await wrapper.get('[data-tour="key-form-name"]').setValue('ws4-only-key')
     await wrapper.get('#key-form').trigger('submit.prevent')
@@ -405,7 +408,7 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
   })
 
   it('keeps models.read unchecked by default and allows opting in on project keys (E2-2)', async () => {
-    mocks.getAvailableGroups.mockResolvedValue([
+    mocks.projectGroups.mockResolvedValue([
       {
         id: '12',
         name: 'openai-main',
@@ -436,8 +439,6 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
     await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
     await flushPromises()
 
-    await wrapper.get('#key-form input[type="checkbox"]').setValue(true)
-    await flushPromises()
 
     const modelsReadCheckbox = wrapper.get('[data-testid="project-key-models-read-checkbox"]')
     expect((modelsReadCheckbox.element as HTMLInputElement).checked).toBe(false)
@@ -466,8 +467,6 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
 
     // Open again and explicitly grant models.read
     await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
-    await flushPromises()
-    await wrapper.get('#key-form input[type="checkbox"]').setValue(true)
     await flushPromises()
     await wrapper.get('[data-testid="project-key-models-read-checkbox"]').setValue(true)
     await flushPromises()
@@ -509,10 +508,12 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
     })
     const readOnly = mount(KeysView, { global: { stubs } })
     await flushPromises()
-    expect(mocks.listKeys).toHaveBeenCalled()
+    expect(mocks.listProjectKeys).toHaveBeenCalled()
+    expect(mocks.listKeys).not.toHaveBeenCalled()
     expect(readOnly.find('[data-testid="keys-create-btn"]').exists()).toBe(false)
     readOnly.unmount()
 
+    mocks.listProjectKeys.mockClear()
     mocks.listKeys.mockClear()
     mocks.getProjectAccess.mockResolvedValueOnce({
       actor_id: '1',
@@ -525,7 +526,133 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
     const noKeysGrant = mount(KeysView, { global: { stubs } })
     await flushPromises()
     expect(mocks.listKeys).not.toHaveBeenCalled()
+    expect(mocks.listProjectKeys).not.toHaveBeenCalled()
     expect(noKeysGrant.find('[data-testid="keys-create-btn"]').exists()).toBe(false)
     noKeysGrant.unmount()
   })
+  it.each([403, 404, 503, 0])('does not restore create permission after access status %s', async status => {
+    mocks.getProjectAccess.mockRejectedValue({ status, message: 'access unavailable' })
+    const wrapper = mount(KeysView, { global: { stubs } })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="keys-create-btn"]').exists()).toBe(false)
+    expect(mocks.listKeys).not.toHaveBeenCalled()
+    expect(mocks.createKey).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('keeps an empty grant/action intersection empty instead of restoring default actions', async () => {
+    mocks.getProjectAccess.mockResolvedValue({ actor_id: '1', workspace_id: '10', project_id: '20', actions: ['keys.read', 'keys.create'], scope_version: '1', expires_at: '2099-01-01T00:00:00Z' })
+    mocks.projectGroups.mockResolvedValue([{ id: 7, name: 'OpenAI', platform: 'openai' }])
+    const wrapper = mount(KeysView, { global: { stubs } })
+    await flushPromises()
+    await wrapper.get('[data-testid="keys-create-btn"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-tour="key-form-name"]').setValue('empty-intersection')
+    expect(wrapper.get('[data-tour="key-form-submit"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('#key-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(mocks.createProjectKey).not.toHaveBeenCalled()
+    expect(mocks.createKey).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('ignores the first delayed access response when scope changes before mounting finishes', async () => {
+    let resolveOld!: (value: unknown) => void
+    mocks.getProjectAccess.mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve }))
+    const wrapper = await mountRoutedKeys()
+    mocks.getProjectAccess.mockResolvedValue({ actor_id: '1', workspace_id: '11', project_id: '21', actions: [], scope_version: '2', expires_at: '2099-01-01T00:00:00Z' })
+    mocks.consoleScope.workspaceId = '11'
+    mocks.consoleScope.projectId = '21'
+    window.dispatchEvent(new Event('omnihive:scope-changed'))
+    await flushPromises()
+    resolveOld({ actor_id: '1', workspace_id: '10', project_id: '20', actions: ['keys.read', 'keys.create', 'text.chat'], scope_version: '1', expires_at: '2099-01-01T00:00:00Z' })
+    await flushPromises()
+    expect(mocks.getProjectAccess).toHaveBeenCalledWith('11', '21')
+    expect(wrapper.find('[data-testid="keys-create-btn"]').exists()).toBe(false)
+    expect(mocks.listProjectKeys).not.toHaveBeenCalled()
+    expect(mocks.listKeys).not.toHaveBeenCalled()
+  })
+
+  it('keeps a delayed one-time secret attributed to its original scope without closing the new form', async () => {
+    mocks.projectGroups.mockResolvedValue([{ id: 7, name: 'OpenAI', platform: 'openai' }])
+    let resolveCreated!: (value: unknown) => void
+    mocks.createProjectKey.mockImplementationOnce(() => new Promise(resolve => { resolveCreated = resolve }))
+    const wrapper = await mountRoutedKeys()
+    await flushPromises()
+    await wrapper.get('[data-testid="keys-create-btn"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-tour="key-form-name"]').setValue('original-key')
+    await wrapper.get('#key-form').trigger('submit.prevent')
+    await flushPromises()
+    mocks.consoleScope.workspaceId = '11'
+    mocks.consoleScope.projectId = '21'
+    window.dispatchEvent(new Event('omnihive:scope-changed'))
+    await flushPromises()
+    await wrapper.get('[data-testid="keys-create-btn"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-tour="key-form-name"]').setValue('new-scope-draft')
+    resolveCreated({ id: '901', name: 'original-key', actions: ['text.chat'], credential: 'one-time-original-secret' })
+    await flushPromises()
+    expect(mocks.createProjectKey).toHaveBeenCalledTimes(1)
+    expect(mocks.createProjectKey).toHaveBeenCalledWith('10', '20', expect.objectContaining({ name: 'original-key' }))
+    expect(wrapper.get('[data-testid="key-secret-scope"]').text()).toContain('Workspace #10 / Project #20')
+    expect(wrapper.get('[data-testid="key-secret-value"]').text()).toBe('one-time-original-secret')
+    expect(wrapper.get('[data-testid="issued-project-key-origin"]').text()).toContain('Workspace #10 / Project #20')
+    expect(wrapper.get<HTMLInputElement>('[data-tour="key-form-name"]').element.value).toBe('new-scope-draft')
+    expect(mocks.createKey).not.toHaveBeenCalled()
+  })
+
+  it('destroys a delayed secret when the login principal changes', async () => {
+    mocks.projectGroups.mockResolvedValue([{ id: 7, name: 'OpenAI', platform: 'openai' }])
+    let resolveCreated!: (value: unknown) => void
+    mocks.createProjectKey.mockImplementationOnce(() => new Promise(resolve => { resolveCreated = resolve }))
+    const wrapper = await mountRoutedKeys()
+    await flushPromises()
+    await wrapper.get('[data-testid="keys-create-btn"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-tour="key-form-name"]').setValue('original-key')
+    await wrapper.get('#key-form').trigger('submit.prevent')
+    await flushPromises()
+    mocks.authState.user.id = 2
+    await flushPromises()
+    resolveCreated({ id: '901', name: 'original-key', actions: ['text.chat'], credential: 'must-never-cross-actor' })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="key-secret-once-dialog"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('must-never-cross-actor')
+    expect(wrapper.find('[data-testid="issued-project-key-scope-banner"]').exists()).toBe(false)
+    expect(mocks.showInfo).toHaveBeenCalledWith(expect.stringContaining('original account'))
+    expect(mocks.createProjectKey).toHaveBeenCalledTimes(1)
+  })
+
+  it('queues subsequent one-time results instead of overwriting the visible secret', async () => {
+    mocks.projectGroups.mockResolvedValue([{ id: 7, name: 'OpenAI', platform: 'openai' }])
+    mocks.createProjectKey
+      .mockResolvedValueOnce({ id: '901', name: 'first', credential: 'first-once-only', actions: ['text.chat'] })
+      .mockResolvedValueOnce({ id: '902', name: 'second', credential: 'second-once-only', actions: ['text.chat'] })
+    const wrapper = await mountRoutedKeys()
+    await flushPromises()
+    await wrapper.get('[data-testid="keys-create-btn"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-tour="key-form-name"]').setValue('first')
+    await wrapper.get('#key-form').trigger('submit.prevent')
+    await flushPromises()
+    mocks.consoleScope.workspaceId = '11'
+    mocks.consoleScope.projectId = '21'
+    window.dispatchEvent(new Event('omnihive:scope-changed'))
+    await flushPromises()
+    await wrapper.get('[data-testid="keys-create-btn"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-tour="key-form-name"]').setValue('second')
+    await wrapper.get('#key-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="key-secret-value"]').text()).toBe('first-once-only')
+    expect(wrapper.get('[data-testid="key-secret-scope"]').text()).toContain('Workspace #10 / Project #20')
+    await wrapper.get('[data-testid="confirm-secret-saved-checkbox"]').setValue(true)
+    await wrapper.get('[data-testid="confirm-secret-close-btn"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="key-secret-value"]').text()).toBe('second-once-only')
+    expect(wrapper.get('[data-testid="key-secret-scope"]').text()).toContain('Workspace #11 / Project #21')
+    expect(wrapper.get<HTMLInputElement>('[data-testid="confirm-secret-saved-checkbox"]').element.checked).toBe(false)
+  })
+
 })

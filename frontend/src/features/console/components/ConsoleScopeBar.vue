@@ -33,7 +33,7 @@ const emit = defineEmits<{
 const { t } = useI18n()
 
 const activeWorkspace = computed(() =>
-  props.workspaces.find((item) => item.workspace_id === props.workspaceId) ?? props.workspaces[0] ?? null
+  props.workspaces.find((item) => item.workspace_id === props.workspaceId) ?? null
 )
 
 const activeProject = computed(() =>
@@ -73,6 +73,7 @@ const activeProject = computed(() =>
     </div>
 
     <div class="flex items-center gap-2">
+      <Button variant="ghost" size="xs" @click="emit('navigate', '/workspaces')">{{ t('nav.workspaces') }}</Button>
       <span v-if="lastSyncedAt" class="hidden font-mono text-[11px] text-[var(--oh-ink-tertiary,var(--muted-foreground))] sm:inline">
         {{ lastSyncedAt }}
       </span>

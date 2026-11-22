@@ -103,14 +103,12 @@ export const getUserSteps = (t: (key: string) => string, isZh = true): DriveStep
     }
   },
   {
-    element: '[data-testid="console-cmdk-trigger"]',
     popover: {
-      title: isZh ? '快捷命令面板 (⌘K)' : 'Quick Command Palette (⌘K)',
+      title: isZh ? '个人空间与项目授权' : 'Personal space and project access',
       description: isZh
-        ? '随时按 ⌘K 搜索可用模型、查看费用账单或快速跳转功能页面。'
-        : 'Press ⌘K anytime to search models, inspect billing, or jump between views.',
-      side: 'bottom',
-      align: 'end',
+        ? '在个人空间可自助创建个人 Key。加入 Default 工作空间不代表获得项目授权；需要协作时，请在工作空间页查看项目并联系该空间管理员授权，然后通过顶部作用域选择项目。Playground 仅用于已授权项目，不会自动切换到 Default。'
+        : 'Create a personal Key in Personal space. Default workspace membership does not grant project access. For collaboration, open Workspaces and ask its administrator for project actions, then select that project in the scope switcher. Playground requires an authorized project and never switches to Default automatically.',
+      align: 'center',
       showButtons: ['next', 'previous', 'close']
     }
   },

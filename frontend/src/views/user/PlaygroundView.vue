@@ -18,7 +18,8 @@ import {
   formatNullableInteger,
   formatNullableLatencyMs
 } from '@/features/console/format'
-import { identityApi, useConsoleScope } from '@/features/console/scope'
+import { identityApi, useConsoleScope, type IdentityKey } from '@/features/console/scope'
+import { isUsableIdentityKey } from '@/features/console/keyPolicy'
 import { playgroundApi } from '@/features/playground/api'
 import { useAuthStore } from '@/stores/auth'
 import PlaygroundCostConfirmModal from '@/features/playground/components/PlaygroundCostConfirmModal.vue'
@@ -30,9 +31,11 @@ import {
   DEFAULT_MAX_OUTPUT_TOKENS,
   estimatePlaygroundRunCost,
   formatModelRatePerMillion,
-  resolveCatalogQuoteModelId
+  resolveCatalogQuoteModelId,
+  isExecutableEstimate
 } from '@/features/playground/costEstimate'
 import { createPlaygroundRunController } from '@/features/playground/runMachine'
+import { listRecoveries, type PlaygroundRecovery } from '@/features/playground/recovery'
 import type {
   PlaygroundCostEstimate,
   PlaygroundMessageDraft,
@@ -48,6 +51,10 @@ interface KeyOption {
   prefix: string
   ownerId: string | null
   isOwned: boolean
+  platform: string
+  actions: string[]
+  modelAccess: IdentityKey['model_access']
+  excludedModels: string[]
 }
 
 const props = withDefaults(
@@ -84,7 +91,12 @@ let hasBootstrapped = false
 
 const availableKeys = ref<KeyOption[]>([])
 const canActAsKeys = ref(false)
-const canManageByok = ref(true)
+const canManageByok = ref(false)
+const canRunPlayground = ref(false)
+const canReadRaw = ref(false)
+const canRetainContent = ref(false)
+const canReplay = ref(false)
+const projectAccessVersion = ref('')
 const catalogModels = ref<CatalogModelItem[]>([])
 const modelFilterQuery = ref('')
 
@@ -125,7 +137,7 @@ const sideB = reactive<PlaygroundSideConfig>({
 
 function isKeyOwnedByCurrentUser(apiKeyId: string): boolean {
   const key = availableKeys.value.find((item) => item.id === apiKeyId)
-  return key ? key.isOwned : true
+  return key ? key.isOwned : false
 }
 
 function resolvePayerForKey(apiKeyId: string): string | undefined {
@@ -136,12 +148,24 @@ function resolvePayerForKey(apiKeyId: string): string | undefined {
 
 const controllerA = createPlaygroundRunController({
   isZh: () => isZh.value,
-  isKeyOwned: isKeyOwnedByCurrentUser
+  isKeyOwned: isKeyOwnedByCurrentUser,
+  principalId: () => String(authStore.user?.id ?? ''),
+  slot: 'A'
 })
 const controllerB = createPlaygroundRunController({
   isZh: () => isZh.value,
-  isKeyOwned: isKeyOwnedByCurrentUser
+  isKeyOwned: isKeyOwnedByCurrentUser,
+  principalId: () => String(authStore.user?.id ?? ''),
+  slot: 'B'
 })
+
+const recoveryItems = ref<PlaygroundRecovery[]>([])
+async function recoverRun(handle: PlaygroundRecovery) {
+  if (handle.workspaceId !== scope.activeWorkspaceId.value || handle.projectId !== scope.activeProjectId.value) return
+  if (!controllerA.restoreRecovery(handle)) return
+  await controllerA.recoverByIdempotencyKey(handle.workspaceId, handle.projectId)
+  recoveryItems.value = listRecoveries(String(authStore.user?.id ?? ''), handle.workspaceId, handle.projectId)
+}
 
 const consentModalOpen = ref(false)
 const pendingTargets = ref<Array<'A' | 'B'>>([])
@@ -152,6 +176,20 @@ const quoteLoading = ref(false)
 const inlinePreviewEstimates = ref<PlaygroundCostEstimate[]>([])
 const inlinePreviewLoading = ref(false)
 let quoteGeneration = 0
+let quotedAt = 0
+let consentContext = ''
+const currentContext = computed(() => JSON.stringify({ scope: scope.selection.value, access: projectAccessVersion.value, sideA, sideB, compare: compareMode.value, messages: messages.value, system: systemPrompt.value, tools: toolsJson.value, replay: replayRequestId.value }))
+watch(currentContext, () => {
+  if (consentContext && consentContext !== currentContext.value) {
+    quoteGeneration++
+    quotedAt = 0
+    consentModalOpen.value = false
+    pendingEstimates.value = []
+    pendingPayloads.value = {}
+    pendingReplayPayload.value = null
+    quoteLoading.value = false
+  }
+}, { flush: 'sync' })
 
 const protocolOptions = computed<Array<{ value: PlaygroundProtocol; label: string }>>(() =>
   isZh.value
@@ -190,6 +228,26 @@ const filteredModels = computed(() => {
   )
 })
 
+function modelsForKey(keyId: string): CatalogModelItem[] {
+  const key = availableKeys.value.find(item => item.id === keyId)
+  if (!key || !key.actions.includes('text.chat') || !key.modelAccess || key.modelAccess.mode === 'deny_all') return []
+  return filteredModels.value.filter(model => {
+    if (key.platform && key.platform !== 'composite' && model.provider !== key.platform) return false
+    if (model.availabilityState === 'catalog_only' || model.routeState !== 'eligible' || model.accessState !== 'allowed') return false
+    const native = model.slug.startsWith(`${model.provider}/`) ? model.slug.slice(model.provider.length + 1) : model.slug
+    if (key.excludedModels.some(id => id === model.id || id === model.slug || (key.platform === model.provider && id === native))) return false
+    if (key.modelAccess.mode === 'inherit') return true
+    return key.modelAccess.mode === 'allow_list' && key.modelAccess.ids.some(id => id === model.id || id === model.slug || (key.platform === model.provider && id === native))
+  })
+}
+const modelsA = computed(() => modelsForKey(sideA.apiKeyId))
+const modelsB = computed(() => modelsForKey(sideB.apiKeyId))
+watch([() => sideA.apiKeyId, () => sideB.apiKeyId, catalogModels], () => {
+  if (!hasBootstrapped) return
+  if (sideA.modelId && !isModelInList(sideA.modelId, modelsA.value)) sideA.modelId = ''
+  if (sideB.modelId && !isModelInList(sideB.modelId, modelsB.value)) sideB.modelId = ''
+}, { flush: 'sync' })
+
 function isModelInList(modelId: string, list: CatalogModelItem[]): boolean {
   const target = modelId.trim()
   if (!target) return false
@@ -210,10 +268,9 @@ const modelACatalogOnly = computed(() => isCatalogOnlyOrUnrouted(sideA.modelId))
 const modelBCatalogOnly = computed(() => compareMode.value && isCatalogOnlyOrUnrouted(sideB.modelId))
 
 function selectFirstRoutedModel(side: 'A' | 'B'): void {
-  const firstRouted =
-    catalogModels.value.find((m) => m.availabilityState !== 'catalog_only') ?? catalogModels.value[0]
+  const firstRouted = modelsForKey(side === 'A' ? sideA.apiKeyId : sideB.apiKeyId)[0]
   if (!firstRouted) return
-  const nextId = firstRouted.slug || firstRouted.id
+  const nextId = firstRouted.id
   if (side === 'A') {
     sideA.modelId = nextId
   } else {
@@ -266,7 +323,8 @@ const hasValidKeyB = computed(
 )
 
 const canTriggerPrimaryRun = computed(() => {
-  if (!hasPromptInput.value || !hasValidKeyA.value) return false
+  if (!canRunPlayground.value || bootstrapLoading.value || bootstrapRefreshing.value || !hasPromptInput.value || !hasValidKeyA.value) return false
+  if (replayRequestId.value.trim() && !canReplay.value) return false
   if (compareMode.value) {
     return Boolean(sideA.modelId) && hasValidKeyB.value && Boolean(sideB.modelId)
   }
@@ -295,10 +353,22 @@ function resetTransientScopeState(): void {
   inlinePreviewEstimates.value = []
   availableKeys.value = []
   canActAsKeys.value = false
-  canManageByok.value = true
+  canManageByok.value = false
+  canRunPlayground.value = false
+  canReadRaw.value = false
+  canRetainContent.value = false
+  canReplay.value = false
+  quoteGeneration++
+  quotedAt = 0
+  consentContext = ''
+  catalogModels.value = []
   sideA.apiKeyId = ''
   sideB.apiKeyId = ''
   keysLoadError.value = false
+}
+
+function isUsableKey(key: IdentityKey): boolean {
+  return isUsableIdentityKey(key, 'text.chat')
 }
 
 async function fetchAllProjectKeys(wsId: string, projId: string) {
@@ -311,10 +381,10 @@ async function fetchAllProjectKeys(wsId: string, projId: string) {
       cursor ? { limit: 100, cursor } : { limit: 100 }
     )
     collected.push(...(page.items || []))
-    if (!page.next_cursor) break
+    if (!page.next_cursor) return collected.filter(isUsableKey)
     cursor = page.next_cursor
   }
-  return collected.filter((k) => !k.state || k.state === 'active')
+  throw new Error('The key list is incomplete; narrow the project or retry.')
 }
 
 async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
@@ -335,12 +405,13 @@ async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
     const projId = scope.activeProjectId.value
     const hasScope = Boolean(wsId && projId)
     loadedScopeKey = `${wsId}:${projId}`
+    recoveryItems.value = listRecoveries(String(authStore.user?.id ?? ''), wsId, projId)
 
     const [keysResult, modelsResult, accessResult] = await Promise.allSettled([
       hasScope
         ? fetchAllProjectKeys(wsId, projId)
         : Promise.resolve([]),
-      catalogApi.listScopedModels(wsId, projId, { limit: 100 }),
+      hasScope ? catalogApi.listScopedModels(wsId, projId, { limit: 100 }) : Promise.resolve([]),
       hasScope && typeof identityApi.getProjectAccess === 'function'
         ? identityApi.getProjectAccess(wsId, projId)
         : Promise.resolve(null)
@@ -352,11 +423,15 @@ async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
         ? accessResult.value.actions
         : []
     canActAsKeys.value = accessActions.includes('keys.act_as') || accessActions.includes('*')
-    canManageByok.value =
-      authStore.isAdmin ||
-      (accessResult.status === 'fulfilled' && accessResult.value && Array.isArray(accessResult.value.actions)
-        ? accessActions.includes('credentials.byok.manage') || accessActions.includes('*')
-        : true)
+    canManageByok.value = accessActions.includes('credentials.byok.manage') || accessActions.includes('*')
+    canRunPlayground.value = accessActions.includes('playground.run') || accessActions.includes('*')
+    canReadRaw.value = accessActions.includes('playground.raw') || accessActions.includes('*')
+    canRetainContent.value = accessActions.includes('requests.content.read') || accessActions.includes('*')
+    canReplay.value = accessActions.includes('requests.replay') || accessActions.includes('*')
+    projectAccessVersion.value = accessResult.status === 'fulfilled' ? accessResult.value?.scope_version ?? '' : ''
+    if (!canReadRaw.value) { sideA.includeRawEvents = false; sideB.includeRawEvents = false }
+    if (!canRetainContent.value) { sideA.retainTextPreview = false; sideB.retainTextPreview = false }
+    if (accessResult.status === 'rejected') bootstrapNotice.value = classifyConsoleError(accessResult.reason, { isZh: isZh.value, requiredGrantFallback: 'playground.run' })
 
     const rawUserId = authStore.user?.id
     const currentUserId =
@@ -375,12 +450,16 @@ async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
           rawOwner !== undefined && rawOwner !== null && String(rawOwner).trim() !== ''
             ? String(rawOwner).trim()
             : null
-        const isOwned = !ownerId ? true : Boolean(currentUserId && ownerId === currentUserId)
+        const isOwned = Boolean(ownerId && currentUserId && ownerId === currentUserId)
         return {
           id: String(k.id),
           name: k.name,
           prefix: k.prefix,
           ownerId,
+          platform: k.platform,
+          actions: k.actions,
+          modelAccess: k.model_access,
+          excludedModels: k.excluded_models ?? [],
           isOwned
         }
       })
@@ -409,11 +488,9 @@ async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
     if (modelsResult.status === 'fulfilled') {
       catalogModels.value = modelsResult.value
     } else {
-      const pubModels = await catalogApi.listPublicModels({ limit: 100 }).catch((err) => {
-        throw err
-      })
-      if (gen !== bootstrapGeneration) return
-      catalogModels.value = pubModels
+      catalogModels.value = []
+      canRunPlayground.value = false
+      bootstrapNotice.value = classifyConsoleError(modelsResult.reason, { isZh: isZh.value, requiredGrantFallback: 'models.read' })
     }
 
     const validIds = new Set(availableKeys.value.map((k) => k.id))
@@ -424,13 +501,8 @@ async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
     if (!validIds.has(sideB.apiKeyId)) {
       sideB.apiKeyId = preferredKeyId
     }
-    if (!sideA.modelId && catalogModels.value.length > 0) {
-      sideA.modelId = catalogModels.value[0].slug || catalogModels.value[0].id
-    }
-    if (!sideB.modelId && catalogModels.value.length > 0) {
-      const second = catalogModels.value[1] ?? catalogModels.value[0]
-      sideB.modelId = second.slug || second.id
-    }
+    if (!sideA.modelId && modelsA.value.length > 0) sideA.modelId = modelsA.value[0].id
+    if (!sideB.modelId && modelsB.value.length > 0) sideB.modelId = (modelsB.value[1] ?? modelsB.value[0]).id
   } catch (err) {
     if (gen !== bootstrapGeneration) return
     bootstrapNotice.value = classifyConsoleError(err, {
@@ -515,19 +587,11 @@ async function resolveServerQuoteForEstimate(
   }
 
   if (typeof playgroundApi.quoteProjectModel !== 'function') {
-    return base
+    return { ...base, rateKnown: false, maxTotalCost: null, quoteState: 'error', keyScoped: false }
   }
 
   const canonicalModelId = resolveCatalogQuoteModelId(base.modelId, catalogModel)
-  if (!canonicalModelId) {
-    return base.rateKnown
-      ? base
-      : {
-          ...base,
-          quoteState: 'unpriced',
-          unpricedReason: 'unlisted_model'
-        }
-  }
+  if (!canonicalModelId) return { ...base, rateKnown: false, maxTotalCost: null, quoteState: 'unpriced', keyScoped: false, unpricedReason: 'unlisted_model' }
 
   const validKeyId = /^[1-9]\d*$/.test(base.apiKeyId.trim()) ? base.apiKeyId.trim() : undefined
   const scenario = {
@@ -547,31 +611,11 @@ async function resolveServerQuoteForEstimate(
       : Promise.resolve(null)
 
   try {
-    let keyScoped = Boolean(validKeyId)
-    let quoteResult
-    try {
-      quoteResult = await playgroundApi.quoteProjectModel(wsId, projId, {
-        model_id: canonicalModelId,
-        ...(validKeyId ? { api_key_id: validKeyId } : {}),
-        protocol: base.protocol,
-        action: 'text.chat',
-        scenario
-      })
-    } catch (err) {
-      const status = (err as { status?: number; response?: { status?: number } })?.status ??
-        (err as { response?: { status?: number } })?.response?.status
-      if (validKeyId && status === 404) {
-        keyScoped = false
-        quoteResult = await playgroundApi.quoteProjectModel(wsId, projId, {
-          model_id: canonicalModelId,
-          protocol: base.protocol,
-          action: 'text.chat',
-          scenario
-        })
-      } else {
-        throw err
-      }
-    }
+    if (!validKeyId) throw new Error('An active project key is required for a quote.')
+    const keyScoped = true
+    const quoteResult = await playgroundApi.quoteProjectModel(wsId, projId, {
+      model_id: canonicalModelId, api_key_id: validKeyId, protocol: base.protocol, action: 'text.chat', scenario
+    })
     const quota = await quotaPromise
     return applyAuthoritativeQuoteToEstimate(base, quoteResult, {
       keyScoped,
@@ -594,13 +638,8 @@ async function resolveServerQuoteForEstimate(
         unpricedReason: status === 403 ? 'forbidden' : 'quote_error'
       }
     }
-    return base.rateKnown
-      ? base
-      : {
-          ...base,
-          quoteState: 'unpriced',
-          unpricedReason: 'server_unpriced'
-        }
+    return { ...base, rateKnown: false, maxTotalCost: null, priceVersion: null, keyScoped: false,
+      quoteState: 'error', unpricedReason: 'quote_error' }
   }
 }
 
@@ -609,6 +648,7 @@ async function refreshAuthoritativeQuotes(
   target: 'modal' | 'inline'
 ): Promise<void> {
   if (typeof playgroundApi.quoteProjectModel !== 'function' && scope.activeWorkspaceId.value && scope.activeProjectId.value) {
+    pendingEstimates.value = initialEstimates.map(item => ({ ...item, rateKnown: false, maxTotalCost: null, quoteState: 'error' }))
     return
   }
   quoteErrorNotice.value = null
@@ -627,6 +667,7 @@ async function refreshAuthoritativeQuotes(
     if (gen !== quoteGeneration) return
     if (target === 'modal') {
       pendingEstimates.value = enriched
+      quotedAt = Date.now()
     } else {
       inlinePreviewEstimates.value = enriched
     }
@@ -639,6 +680,7 @@ async function refreshAuthoritativeQuotes(
 }
 
 function previewAuthoritativeQuotes(): void {
+  if (consentModalOpen.value) return
   toolsJsonError.value = ''
   quoteErrorNotice.value = null
   try {
@@ -664,11 +706,11 @@ function previewAuthoritativeQuotes(): void {
   }
 }
 
-function prepareConsentForTargets(targets: Array<'A' | 'B'>): void {
+async function prepareConsentForTargets(targets: Array<'A' | 'B'>): Promise<void> {
   toolsJsonError.value = ''
   quoteErrorNotice.value = null
   confirmedNotice.value = null
-  if (!hasActiveProjectScope.value || availableKeys.value.length === 0) {
+  if (!canRunPlayground.value || !hasActiveProjectScope.value || availableKeys.value.length === 0) {
     return
   }
   for (const target of targets) {
@@ -684,6 +726,13 @@ function prepareConsentForTargets(targets: Array<'A' | 'B'>): void {
     pendingReplayPayload.value = null
 
     if (replayRequestId.value.trim() && targets.length === 1 && targets[0] === 'A') {
+      if (!canReplay.value) return
+      const fingerprint = currentContext.value
+      const replay = await playgroundApi.getReplayContext(scope.activeWorkspaceId.value, scope.activeProjectId.value, replayRequestId.value.trim())
+      if (fingerprint !== currentContext.value) return
+      sideA.modelId = replay.model_id
+      sideA.protocol = replay.protocol
+
       const nativeInput = buildNativePlaygroundInput(sideA.protocol, {
         systemPrompt: systemPrompt.value,
         messages: messages.value,
@@ -735,6 +784,8 @@ function prepareConsentForTargets(targets: Array<'A' | 'B'>): void {
       }
     }
 
+    consentContext = currentContext.value
+    quotedAt = 0
     pendingTargets.value = targets
     pendingPayloads.value = payloads
     pendingEstimates.value = estimates
@@ -752,6 +803,12 @@ function handleCancelConsent(): void {
 }
 
 async function handleConfirmAndExecute(): Promise<void> {
+  if (!canRunPlayground.value || quoteLoading.value || consentContext !== currentContext.value || !quotedAt || Date.now() - quotedAt > 60_000 || !pendingEstimates.value.length || !pendingEstimates.value.every(isExecutableEstimate)) return
+  for (const [index, target] of pendingTargets.value.entries()) {
+    const version = pendingEstimates.value[index]?.priceVersion
+    if (pendingPayloads.value[target] && version) pendingPayloads.value[target]!.expected_price_version = version
+  }
+  if (pendingReplayPayload.value && pendingEstimates.value[0]?.priceVersion) pendingReplayPayload.value.expected_price_version = pendingEstimates.value[0].priceVersion
   consentModalOpen.value = false
   const wsId = scope.activeWorkspaceId.value
   const projId = scope.activeProjectId.value
@@ -871,6 +928,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  bootstrapGeneration++
+  quoteGeneration++
   controllerA.reset()
   controllerB.reset()
   if (typeof window !== 'undefined') {
@@ -935,6 +994,15 @@ function formatSettlementState(state: string | null | undefined): string {
 <template>
   <AppLayout>
     <div data-testid="playground-workbench" class="w-full space-y-4">
+      <section v-if="!hasActiveProjectScope && !bootstrapLoading" class="card space-y-3 p-4" data-testid="playground-project-guidance">
+        <p>{{ isZh ? 'Playground 使用项目权限和项目资源。请选择已授权项目，或向工作空间管理员申请。个人 Key 可在个人空间独立创建和使用。' : 'Playground requires an authorized project. Select a project or ask its workspace administrator for access. Personal keys remain available in Personal.' }}</p>
+        <button class="btn btn-primary" @click="navigateTo('/workspaces')">{{ isZh ? '选择项目与查看申请方式' : 'Select project and access guidance' }}</button>
+        <button class="btn btn-secondary" @click="scope.selectPersonalScope(); navigateTo('/keys')">{{ isZh ? '创建个人 Key' : 'Create Personal Key' }}</button>
+      </section>
+      <section v-if="recoveryItems.length" class="card space-y-2 p-4" data-testid="playground-recovery-journal">
+        <p>{{ isZh ? '以下运行尚未确认结算。请查询原运行，不要重复提交付费请求。' : 'These runs have no confirmed settlement. Recover the original run before submitting another paid request.' }}</p>
+        <button v-for="handle in recoveryItems" :key="handle.idempotencyKey" class="btn btn-secondary" @click="recoverRun(handle)">{{ isZh ? '恢复原运行' : 'Recover original run' }} · {{ handle.runId || handle.idempotencyKey }}</button>
+      </section>
       <ConsoleScopeBar
         :workspaces="scope.scopes.value"
         :projects="scope.availableProjects.value"
@@ -1166,18 +1234,18 @@ function formatSettlementState(state: string | null | undefined): string {
                 {{ isZh ? '模型 ID (Model A)' : 'Model ID (A)' }}
               </span>
               <select
-                v-if="filteredModels.length > 0"
+                v-if="modelsA.length > 0"
                 v-model="sideA.modelId"
                 data-testid="select-model-a"
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
               >
                 <option
-                  v-if="sideA.modelId && !isModelInList(sideA.modelId, filteredModels)"
+                  v-if="sideA.modelId && !isModelInList(sideA.modelId, modelsA)"
                   :value="sideA.modelId"
                 >
                   {{ sideA.modelId }} ({{ isZh ? '平台目录模型 / 暂无可用路由' : 'Catalog only / No route' }})
                 </option>
-                <option v-for="m in filteredModels" :key="m.id" :value="m.slug || m.id">
+                <option v-for="m in modelsA" :key="m.id" :value="m.id">
                   {{ m.displayName && m.displayName !== m.slug ? `${m.displayName} (${m.slug})` : (m.slug || m.displayName) }}
                 </option>
               </select>
@@ -1280,11 +1348,11 @@ function formatSettlementState(state: string | null | undefined): string {
                 <span>{{ isZh ? '流式输出 (SSE)' : 'SSE Streaming' }}</span>
               </label>
               <label class="flex items-center gap-2 text-[var(--oh-ink-secondary,var(--muted-foreground))]">
-                <input v-model="sideA.includeRawEvents" :disabled="!sideA.stream" type="checkbox" class="h-3.5 w-3.5" />
+                <input v-model="sideA.includeRawEvents" :disabled="!sideA.stream || !canReadRaw" type="checkbox" class="h-3.5 w-3.5" />
                 <span>{{ isZh ? '包含上游原始帧' : 'Include raw upstream frames' }}</span>
               </label>
               <label class="flex items-center gap-2 text-[var(--oh-ink-secondary,var(--muted-foreground))]">
-                <input v-model="sideA.retainTextPreview" type="checkbox" class="h-3.5 w-3.5" />
+                <input v-model="sideA.retainTextPreview" :disabled="!canRetainContent" type="checkbox" class="h-3.5 w-3.5" />
                 <span>{{ isZh ? '保留 30 秒临时文本预览' : '30s Ephemeral Text Preview' }}</span>
               </label>
             </div>
@@ -1341,18 +1409,18 @@ function formatSettlementState(state: string | null | undefined): string {
                 {{ isZh ? '模型 ID (Model B)' : 'Model ID (B)' }}
               </span>
               <select
-                v-if="filteredModels.length > 0"
+                v-if="modelsB.length > 0"
                 v-model="sideB.modelId"
                 data-testid="select-model-b"
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
               >
                 <option
-                  v-if="sideB.modelId && !isModelInList(sideB.modelId, filteredModels)"
+                  v-if="sideB.modelId && !isModelInList(sideB.modelId, modelsB)"
                   :value="sideB.modelId"
                 >
                   {{ sideB.modelId }} ({{ isZh ? '平台目录模型 / 暂无可用路由' : 'Catalog only / No route' }})
                 </option>
-                <option v-for="m in filteredModels" :key="m.id" :value="m.slug || m.id">
+                <option v-for="m in modelsB" :key="m.id" :value="m.id">
                   {{ m.displayName && m.displayName !== m.slug ? `${m.displayName} (${m.slug})` : (m.slug || m.displayName) }}
                 </option>
               </select>

@@ -209,7 +209,7 @@ export function estimatePlaygroundRunCost(
 
   const inCostNum = computeRateCost(estimatedInputTokens, inputRate)
   const outCostNum = computeRateCost(maxOutputTokens, outputRate)
-  const rateKnown = inCostNum !== null || outCostNum !== null
+  const rateKnown = inCostNum !== null && outCostNum !== null
   const totalNum =
     rateKnown ? (inCostNum ?? 0) + (outCostNum ?? 0) : null
   const isFreeCatalog = catalogModel?.priceState === 'free'
@@ -325,6 +325,7 @@ export function applyAuthoritativeQuoteToEstimate(
       maxTotalCost: quote.estimated_charge?.amount ?? '0.00000000',
       rateKnown: true,
       quoteState: 'free',
+      keyScoped: options?.keyScoped === true,
       quoteSource: quote.source || (options?.keyScoped ? 'frozen' : 'reference'),
       priceVersion: quote.price_version ?? null,
       fundingSource: options?.fundingSource ?? base.fundingSource ?? null,
@@ -345,6 +346,7 @@ export function applyAuthoritativeQuoteToEstimate(
       maxTotalCost: quote.estimated_charge.amount,
       rateKnown: true,
       quoteState: 'authoritative',
+      keyScoped: options?.keyScoped === true,
       quoteSource: quote.source || (options?.keyScoped ? 'frozen' : 'reference'),
       priceVersion: quote.price_version ?? null,
       fundingSource: options?.fundingSource ?? base.fundingSource ?? null,
@@ -368,4 +370,25 @@ export function applyAuthoritativeQuoteToEstimate(
     unpricedReason: 'server_unpriced',
     authoritativeComponents: quote.components ?? []
   }
+}
+
+/** Only a complete price for the selected key is executable consent. */
+export function isExecutableEstimate(item: PlaygroundCostEstimate): boolean {
+  return item.keyScoped === true && Boolean(item.priceVersion) &&
+    (item.quoteState === 'authoritative' || item.quoteState === 'free') &&
+    item.rateKnown && item.maxTotalCost !== null && /^\d+(?:\.\d+)?$/.test(item.maxTotalCost) &&
+    !item.budgetBlocked && !item.exceedsBodyLimit && Boolean(item.apiKeyId)
+}
+
+export function combinedExactBound(estimates: PlaygroundCostEstimate[]): string | null {
+  if (estimates.length < 2 || !estimates.every(isExecutableEstimate)) return null
+  if (estimates.some(item => item.currency !== estimates[0].currency)) return null
+  const amounts = estimates.map(item => item.maxTotalCost!)
+  const scale = Math.max(...amounts.map(amount => (amount.split('.')[1] ?? '').length))
+  const total = amounts.reduce((sum, amount) => {
+    const [whole, fraction = ''] = amount.split('.')
+    return sum + BigInt(whole + fraction.padEnd(scale, '0'))
+  }, 0n)
+  const digits = total.toString().padStart(scale + 1, '0')
+  return scale ? `${digits.slice(0, -scale)}.${digits.slice(-scale)}` : digits
 }

@@ -198,12 +198,6 @@ onBeforeUnmount(() => {
                 {{ tr('models') }}
               </router-link>
               <router-link
-                to="/pricing"
-                class="oh-focus-ring rounded-oh-xs transition-colors hover:text-oh-primary"
-              >
-                {{ tr('pricing') }}
-              </router-link>
-              <router-link
                 to="/status"
                 class="oh-focus-ring rounded-oh-xs transition-colors hover:text-oh-primary"
               >

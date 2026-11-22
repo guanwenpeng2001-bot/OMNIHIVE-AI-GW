@@ -17,6 +17,8 @@ import { useAuthStore } from '@/stores/auth'
 import {
   MODALITY_FILTER_PILLS,
   availabilityStateLabel,
+  publicationFilterOptions,
+  type PublicationFilter,
   availabilityStateTone,
   extractDisplayModalities,
   formatContextTokens,
@@ -25,7 +27,8 @@ import {
   maturityLabel,
   modalityLabel,
   modalityTone,
-  publicTokenPrice,
+  salePriceLabel,
+  referencePriceHint,
   publicValue,
   resolveAvailabilityState,
   routeStateLabel,
@@ -112,7 +115,7 @@ const MAX_SNAPSHOT_RESET_ATTEMPTS = 3
 let request = 0
 const query = ref('')
 const sort = ref<NonNullable<ListParams['sort']>>('availability')
-const availabilityState = ref<'all' | 'live' | 'catalog_only'>('all')
+const publicationState = ref<PublicationFilter>('all')
 const viewMode = ref<ViewMode>('table')
 const providers = ref<string[]>([])
 const activeModalityPill = ref<ModalityFilterKey>('all')
@@ -294,22 +297,18 @@ const retentionChips = computed(() => [
 ])
 
 const sortOptions = computed(() => [
-  { value: 'availability', label: isZh.value ? '优先已接入可用' : 'Sort: Availability' },
+  { value: 'availability', label: isZh.value ? '按目录状态' : 'Sort: Availability' },
   { value: 'name', label: isZh.value ? '按模型名称' : 'Sort: Name' },
   { value: 'price_input', label: isZh.value ? '按输入价格' : 'Sort: Input Price' },
   { value: 'context', label: isZh.value ? '按上下文长度' : 'Sort: Context Window' },
   { value: 'ttft', label: isZh.value ? '按首字延迟 (TTFT)' : 'Sort: TTFT' }
 ])
 
-const availabilityFilterOptions = computed(() => [
-  { key: 'all' as const, label: isZh.value ? '全部模型' : 'All' },
-  { key: 'live' as const, label: isZh.value ? '已接入可调用' : 'Live & Routable' },
-  { key: 'catalog_only' as const, label: isZh.value ? '平台目录' : 'Platform Catalog' }
-])
+const publicationOptions = computed(() => publicationFilterOptions(isZh.value))
 
 const activeFilters = computed(
   () =>
-    availabilityState.value !== 'all' ||
+    publicationState.value !== 'all' ||
     activeModalityPill.value !== 'all' ||
     providers.value.length > 0 ||
     selectedActions.value.length > 0 ||
@@ -351,7 +350,7 @@ async function load(reset = true): Promise<void> {
       protocol: selectedProtocols.value.length ? selectedProtocols.value : undefined,
       region: selectedRegions.value.length ? selectedRegions.value : undefined,
       retention: selectedRetentions.value.length ? selectedRetentions.value : undefined,
-      availability_state: availabilityState.value === 'all' ? undefined : availabilityState.value,
+      publication_state: publicationState.value === 'all' ? undefined : publicationState.value,
       sort: sort.value,
       cursor: reset ? undefined : nextCursor.value,
       limit: 100
@@ -359,7 +358,7 @@ async function load(reset = true): Promise<void> {
     if (currentRequest !== request) return
     if (
       !appliedQuery &&
-      availabilityState.value === 'all' &&
+      publicationState.value === 'all' &&
       activeModalityPill.value === 'all' &&
       !providers.value.length &&
       !selectedActions.value.length &&
@@ -448,7 +447,7 @@ function toggleFilterByKey(
 function resetFilters(): void {
   snapshotResetAttempts.value = 0
   query.value = ''
-  availabilityState.value = 'all'
+  publicationState.value = 'all'
   activeModalityPill.value = 'all'
   providers.value = []
   selectedActions.value = []
@@ -461,9 +460,9 @@ function resetFilters(): void {
   void load()
 }
 
-function selectAvailabilityState(next: 'all' | 'live' | 'catalog_only'): void {
+function selectPublicationState(next: PublicationFilter): void {
   snapshotResetAttempts.value = 0
-  availabilityState.value = next
+  publicationState.value = next
   void load()
 }
 
@@ -474,23 +473,11 @@ function selectModalityPill(next: ModalityFilterKey): void {
 }
 
 function displayRate(model: PublicModelSummary, kind: 'input' | 'output'): string {
-  if (model.price_state === 'free') return isZh.value ? '免费' : 'Free'
-  const rate = kind === 'input' ? model.input_rate : model.output_rate
-  if (rate) return publicTokenPrice(rate, 'adaptive', isZh.value)
-  const refRate = kind === 'input' ? model.reference_price?.input_rate : model.reference_price?.output_rate
-  if (refRate) {
-    const formatted = publicTokenPrice(refRate, 'adaptive', isZh.value)
-    return isZh.value ? `参考 ${formatted}` : `Ref ${formatted}`
-  }
-  if (resolveAvailabilityState(model) === 'catalog_only') {
-    return isZh.value ? '按需接入' : 'On demand'
-  }
-  return publicTokenPrice(rate, 'adaptive', isZh.value)
+  return salePriceLabel(model, kind, isZh.value)
 }
 
 function availabilityBadge(model: PublicModelSummary) {
   const state = resolveAvailabilityState(model)
-  if (state === 'unknown') return null
   return {
     state,
     label: availabilityStateLabel(state, isZh.value),
@@ -572,7 +559,7 @@ onBeforeUnmount(() => {
           {{ isZh ? '多模型横向对比' : 'Compare models' }}
         </RouterLink>
         <RouterLink
-          to="/pricing"
+          to="/model-plaza?view=pricing"
           class="oh-focus-ring inline-flex h-9 items-center rounded-oh-md border border-oh-default bg-oh-surface px-3.5 text-xs font-medium text-oh-secondary hover:border-oh-strong hover:text-oh-primary"
         >
           {{ isZh ? '费率总表' : 'Pricing sheet' }}
@@ -634,24 +621,24 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div class="flex flex-wrap items-center gap-1.5" data-testid="availability-filter-pills-row">
+      <div class="flex flex-wrap items-center gap-1.5" data-testid="publication-filter-pills-row">
         <span class="mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
           {{ isZh ? '接入状态' : 'Availability' }}
         </span>
-        <div class="mr-3 inline-flex flex-wrap items-center gap-1.5" data-testid="availability-filter-bar">
+        <div class="mr-3 inline-flex flex-wrap items-center gap-1.5" data-testid="publication-filter-bar">
           <button
-            v-for="opt in availabilityFilterOptions"
+            v-for="opt in publicationOptions"
             :key="opt.key"
             type="button"
-            :data-testid="`availability-pill-${opt.key}`"
+            :data-testid="`publication-pill-${opt.key}`"
             class="oh-focus-ring inline-flex items-center rounded-full border px-3 py-1 text-xs transition-colors"
             :class="
-              availabilityState === opt.key
+              publicationState === opt.key
                 ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
                 : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
             "
-            :aria-pressed="availabilityState === opt.key"
-            @click="selectAvailabilityState(opt.key)"
+            :aria-pressed="publicationState === opt.key"
+            @click="selectPublicationState(opt.key)"
           >
             {{ opt.label }}
           </button>
@@ -999,9 +986,11 @@ onBeforeUnmount(() => {
               </td>
               <td class="px-4 py-3 text-right font-mono tabular-nums text-oh-primary">
                 {{ displayRate(model, 'input') }}
+                <p v-if="referencePriceHint(model, 'input', isZh)" class="mt-1 text-[11px] font-normal text-oh-muted">{{ referencePriceHint(model, 'input', isZh) }}</p>
               </td>
               <td class="px-4 py-3 text-right font-mono tabular-nums text-oh-primary">
                 {{ displayRate(model, 'output') }}
+                <p v-if="referencePriceHint(model, 'output', isZh)" class="mt-1 text-[11px] font-normal text-oh-muted">{{ referencePriceHint(model, 'output', isZh) }}</p>
               </td>
               <td class="px-4 py-3 text-right font-mono tabular-nums">
                 <span v-if="modelTtftMs(model) !== null" class="text-oh-primary">
@@ -1097,10 +1086,12 @@ onBeforeUnmount(() => {
             <div>
               <dt class="text-[10px] uppercase text-oh-muted">{{ isZh ? '输入 / 1M' : 'Input / 1M' }}</dt>
               <dd class="mt-0.5 text-oh-primary">{{ displayRate(model, 'input') }}</dd>
+              <dd v-if="referencePriceHint(model, 'input', isZh)" class="mt-1 text-[11px] text-oh-muted">{{ referencePriceHint(model, 'input', isZh) }}</dd>
             </div>
             <div>
               <dt class="text-[10px] uppercase text-oh-muted">{{ isZh ? '输出 / 1M' : 'Output / 1M' }}</dt>
               <dd class="mt-0.5 text-oh-primary">{{ displayRate(model, 'output') }}</dd>
+              <dd v-if="referencePriceHint(model, 'output', isZh)" class="mt-1 text-[11px] text-oh-muted">{{ referencePriceHint(model, 'output', isZh) }}</dd>
             </div>
             <div>
               <dt class="text-[10px] uppercase text-oh-muted">TTFT</dt>

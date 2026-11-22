@@ -95,6 +95,22 @@ describe('route identity boundary', () => {
     wrapper.unmount()
   })
 
+  it('allows Keys to own same-user scope changes while still remounting on session changes', async () => {
+    state.current = reactive({ user: { id: 1, role: 'user' }, isAuthenticated: true, sessionRevision: 'first' })
+    let mounts = 0
+    const wrapper = mount(identityScoped(defineComponent({ setup() { mounts++; return () => h('p', 'Key issuance') } }), false, false))
+    window.dispatchEvent(new Event('omnihive:scope-changed'))
+    await nextTick()
+    expect(mounts).toBe(1)
+    state.current.sessionRevision = 'second'
+    await nextTick()
+    expect(mounts).toBe(2)
+    state.current.user.id = 2
+    await nextTick()
+    expect(mounts).toBe(3)
+    wrapper.unmount()
+  })
+
   it('preserves an unsaved form when the same user profile is refreshed', async () => {
     state.current = reactive({ user: { id: 1, role: 'admin', balance: 10 }, isAuthenticated: true, isAdmin: true })
     let mounts = 0

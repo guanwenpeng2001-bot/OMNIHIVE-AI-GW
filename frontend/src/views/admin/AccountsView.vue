@@ -802,7 +802,7 @@ import { buildGrokUsageRefreshKey, buildOpenAIUsageRefreshKey } from '@/utils/ac
 import { normalizeWorkBuddySite } from '@/api/admin/workbuddy'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
-import { extractApiErrorCode, extractApiErrorMessage, extractApiErrorStatus } from '@/utils/apiError'
+import { extractApiErrorCode, extractApiErrorMessage, extractApiErrorMetadata, extractApiErrorStatus } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
@@ -2983,7 +2983,8 @@ onMounted(async () => {
           extractApiErrorCode(err) === 'ACCOUNT_CONNECTION_MANAGED'
         ) {
           const urlMatch = String(err?.config?.url || '').match(/\/accounts\/(\d+)/)
-          const targetId = urlMatch?.[1] || (edAcc.value ? String(edAcc.value.id) : null)
+          const metadataId = String(extractApiErrorMetadata(err).account_id ?? '')
+          const targetId = (/^[1-9]\d*$/.test(metadataId) ? metadataId : null) || urlMatch?.[1] || (edAcc.value ? String(edAcc.value.id) : null)
           if (targetId) {
             managedPromptAccountId.value = targetId
             showEdit.value = false

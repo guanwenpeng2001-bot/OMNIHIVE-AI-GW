@@ -56,6 +56,7 @@ function readInitialSidebarCollapsed(): boolean {
 
 function readInitialScopeSelection(): ScopeSelection {
   const stored = scopeSelectionStorage.getJSON<Partial<ScopeSelection> | null>(null)
+  if (stored?.mode === 'personal') return { mode: 'personal', workspaceId: null, projectId: null }
   if (
     stored &&
     stored.mode === 'workspace' &&
@@ -413,6 +414,9 @@ export const useAppStore = defineStore('app', () => {
       activeScope.value.projectId === normalized.projectId
 
     activeScope.value = normalized
+    if (normalized.mode === 'personal' || (activeWorkspace.value && (!normalized.projectId || activeProject.value))) {
+      if (scopesError.value?.reason === 'SCOPE_UNAVAILABLE') scopesError.value = null
+    }
     persistScopeSelectionToStorage(normalized)
     if (!unchanged) {
       notifyScopeChanged(normalized)
@@ -428,11 +432,7 @@ export const useAppStore = defineStore('app', () => {
       selectPersonalScope()
       return
     }
-    const ws = scopes.value.find((item) => item.workspace_id === workspaceId)
-    const resolvedProject =
-      projectId !== undefined
-        ? projectId
-        : ws?.projects[0]?.id ?? null
+    const resolvedProject = projectId ?? null
     selectScope({
       mode: 'workspace',
       workspaceId,
@@ -442,23 +442,9 @@ export const useAppStore = defineStore('app', () => {
 
   function reconcileActiveScopeWithLoadedList(): void {
     if (activeScope.value.mode !== 'workspace' || !activeScope.value.workspaceId) return
-    const ws = scopes.value.find((item) => item.workspace_id === activeScope.value.workspaceId)
-    if (!ws) {
-      if (!scopesNextCursor.value) {
-        selectPersonalScope()
-      }
-      return
-    }
-    if (
-      activeScope.value.projectId &&
-      !ws.projects.some((proj) => proj.id === activeScope.value.projectId) &&
-      !ws.projects_next_cursor
-    ) {
-      selectScope({
-        mode: 'workspace',
-        workspaceId: ws.workspace_id,
-        projectId: ws.projects[0]?.id ?? null
-      })
+    const ws = scopes.value.find(item => item.workspace_id === activeScope.value.workspaceId)
+    if ((!ws && !scopesNextCursor.value) || (ws && activeScope.value.projectId && !ws.projects.some(project => project.id === activeScope.value.projectId) && !ws.projects_next_cursor)) {
+      scopesError.value = { status: 404, reason: 'SCOPE_UNAVAILABLE', message: 'The selected scope is unavailable. Select a project or return to Personal.' }
     }
   }
 

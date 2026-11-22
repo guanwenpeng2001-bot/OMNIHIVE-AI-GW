@@ -1,7 +1,7 @@
 import { defineComponent, h, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRoute, type Router } from 'vue-router'
-import { SCOPE_CHANGED_EVENT } from '@/stores/app'
+import { SCOPE_CHANGED_EVENT, useAppStore } from '@/stores/app'
 
 /** Recover an already-open protected route when another tab revokes its identity. */
 export function watchIdentityRouteRecovery(router: Router, auth: ReturnType<typeof useAuthStore>) {
@@ -19,7 +19,7 @@ export function watchIdentityRouteRecovery(router: Router, auth: ReturnType<type
 }
 
 /** Destroy page-local filters, data and dialogs when the authenticated principal changes. */
-export function identityScoped(component: Component, admin: boolean) {
+export function identityScoped(component: Component, admin: boolean, remountOnScope = true) {
   return defineComponent({
     name: 'IdentityScopedPage',
     setup() {
@@ -27,9 +27,18 @@ export function identityScoped(component: Component, admin: boolean) {
       const route = useRoute()
       const revision = ref(0)
       const bumpRevision = () => {
-        revision.value++
+        if (remountOnScope) revision.value++
       }
-      watch(() => route?.params.workspace_id, () => revision.value++, { flush: 'sync' })
+      watch(() => route?.params.workspace_id, (value) => {
+        const workspaceId = typeof value === 'string' && /^[1-9]\d*$/.test(value) ? value : null
+        if (workspaceId) {
+          const app = useAppStore()
+          if (app.activeScope.workspaceId !== workspaceId || app.activeScope.mode !== 'workspace') {
+            app.selectWorkspaceScope(workspaceId, null)
+          }
+        }
+        revision.value++
+      }, { immediate: true, flush: 'sync' })
       // Token rotation alone is not a different principal. Never put a token into a DOM key.
       watch([() => auth.user?.id, () => auth.user?.role, () => auth.isAuthenticated, () => auth.sessionRevision], () => revision.value++, { flush: 'sync' })
       onMounted(() => {
@@ -49,11 +58,11 @@ export function identityScoped(component: Component, admin: boolean) {
 }
 
 /** Share prefetch/navigation and retain one wrapper type; failed chunks can retry. */
-export function lazyIdentityScoped(load: () => Promise<{ default: Component }>, admin: boolean) {
+export function lazyIdentityScoped(load: () => Promise<{ default: Component }>, admin: boolean, remountOnScope = true) {
   let pending: Promise<Component> | undefined
   return () => {
     if (!pending) {
-      pending = load().then(module => identityScoped(module.default, admin)).catch(error => {
+      pending = load().then(module => identityScoped(module.default, admin, remountOnScope)).catch(error => {
         pending = undefined
         throw error
       })

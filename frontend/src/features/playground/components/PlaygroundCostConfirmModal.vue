@@ -9,7 +9,7 @@ import {
   formatNullableBytes,
   formatNullableInteger
 } from '@/features/console/format'
-import { formatModelRatePerMillion, MAX_PLAYGROUND_BODY_BYTES } from '../costEstimate'
+import { formatModelRatePerMillion, MAX_PLAYGROUND_BODY_BYTES, combinedExactBound, isExecutableEstimate } from '../costEstimate'
 import type { PlaygroundCostEstimate } from '../types'
 
 const props = withDefaults(
@@ -40,11 +40,8 @@ const emit = defineEmits<{
 const hasOversizedPayload = computed(() => props.estimates.some((item) => item.exceedsBodyLimit))
 
 const combinedMaxTotal = computed(() => {
-  if (props.estimates.length <= 1) return null
-  const known = props.estimates.filter((e) => e.maxTotalCost !== null)
-  if (known.length === 0) return null
-  const sum = known.reduce((acc, item) => acc + Number(item.maxTotalCost || 0), 0)
-  return formatExactMoney(sum.toFixed(8), known[0]?.currency || 'USD')
+  const amount = combinedExactBound(props.estimates)
+  return amount === null ? null : formatExactMoney(amount, props.estimates[0]?.currency || 'USD')
 })
 
 function quoteBadgeLabel(item: PlaygroundCostEstimate): string {
@@ -323,10 +320,11 @@ function handleClose(): void {
           size="sm"
           :loading="submitting"
           :disabled="
+            quoteLoading ||
             hasOversizedPayload ||
             submitting ||
             estimates.length === 0 ||
-            estimates.some((item) => !item.apiKeyId || item.quoteState === 'requires_scope')
+            estimates.some((item) => !isExecutableEstimate(item))
           "
           @click="emit('confirm')"
         >

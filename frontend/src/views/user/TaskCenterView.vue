@@ -6,13 +6,13 @@ import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
-import { keysAPI } from '@/api'
 import { classifyConsoleError, type ConsoleAsyncNotice } from '@/features/console/asyncState'
 import { catalogApi, type CatalogModelItem } from '@/features/console/catalogApi'
 import ConsoleAsyncBanner from '@/features/console/components/ConsoleAsyncBanner.vue'
 import ConsoleScopeBar from '@/features/console/components/ConsoleScopeBar.vue'
 import { EM_DASH, formatNullableInteger } from '@/features/console/format'
-import { identityApi, useConsoleScope } from '@/features/console/scope'
+import { isUsableIdentityKey, identityKeyAllowsModel } from '@/features/console/keyPolicy'
+import { identityApi, useConsoleScope, type IdentityKey } from '@/features/console/scope'
 import { tasksApi } from '@/features/tasks/api'
 import TaskCreateModal from '@/features/tasks/components/TaskCreateModal.vue'
 import TaskDetailDrawer, { type ArtifactPreviewEntry } from '@/features/tasks/components/TaskDetailDrawer.vue'
@@ -63,9 +63,14 @@ const asOf = ref('')
 
 const pageNotice = ref<ConsoleAsyncNotice | null>(null)
 const confirmedNotice = ref<ConsoleAsyncNotice | null>(null)
-const canReadTasks = ref(true)
-const canCreateTasks = ref(true)
-const canReadKeys = ref(true)
+const canReadTasks = ref(false)
+const canCreateTasks = ref(false)
+const canReadKeys = ref(false)
+const accessActorId = ref('')
+let accessGeneration = 0
+let taskGeneration = 0
+let createGeneration = 0
+const createKeyPolicies = ref<IdentityKey[]>([])
 
 const activeScopeIds = computed<{ wsId: string; projId: string } | null>(() => {
   const wsId = scope.activeWorkspaceId.value
@@ -118,6 +123,7 @@ watch(drawerOpen, (isOpen) => {
 })
 
 onBeforeUnmount(() => {
+  taskGeneration++; accessGeneration++; createGeneration++
   revokeAllArtifactPreviews()
 })
 
@@ -145,37 +151,28 @@ function navigateTo(path: string): void {
 }
 
 async function refreshTaskAccess(wsId: string, projId: string): Promise<boolean> {
-  if (typeof identityApi.getProjectAccess !== 'function') {
-    canReadTasks.value = true
-    canCreateTasks.value = true
-    canReadKeys.value = true
-    return true
-  }
+  const generation = ++accessGeneration
+  canReadTasks.value = false
+  canCreateTasks.value = false
+  canReadKeys.value = false
   try {
     const access = await identityApi.getProjectAccess(wsId, projId)
+    if (generation !== accessGeneration) return false
     const actions = Array.isArray(access?.actions) ? access.actions : []
-    const allowAll = actions.includes('*')
-    canReadTasks.value = allowAll || actions.includes('tasks.read')
-    canCreateTasks.value = allowAll || actions.includes('tasks.create')
-    canReadKeys.value = allowAll || actions.includes('keys.read')
+    const allowed = (action: string) => actions.includes('*') || actions.includes(action)
+    canReadTasks.value = allowed('tasks.read')
+    canCreateTasks.value = allowed('tasks.create')
+    canReadKeys.value = allowed('keys.read')
+    accessActorId.value = String(access.actor_id)
     return canReadTasks.value
   } catch (err) {
-    const status = (err as { status?: number; response?: { status?: number } })?.status ??
-      (err as { response?: { status?: number } })?.response?.status
-    if (status === 403) {
-      canReadTasks.value = false
-      canCreateTasks.value = false
-      canReadKeys.value = false
-      return false
-    }
-    canReadTasks.value = true
-    canCreateTasks.value = true
-    canReadKeys.value = true
-    return true
+    if (generation === accessGeneration) pageNotice.value = classifyConsoleError(err, { requiredGrantFallback: 'tasks.read', isZh: isZh.value })
+    return false
   }
 }
 
 async function loadTasks(options?: { refresh?: boolean; cursor?: string }): Promise<void> {
+  const generation = ++taskGeneration
   const isRefresh = Boolean(options?.refresh)
   if (isRefresh && tasks.value.length > 0) {
     refreshing.value = true
@@ -187,6 +184,7 @@ async function loadTasks(options?: { refresh?: boolean; cursor?: string }): Prom
 
   try {
     await scope.refreshScopes(false)
+    if (generation !== taskGeneration) return
     const ids = activeScopeIds.value
     if (!ids) {
       tasks.value = []
@@ -198,10 +196,11 @@ async function loadTasks(options?: { refresh?: boolean; cursor?: string }): Prom
     }
     const { wsId, projId } = ids
     const canRead = await refreshTaskAccess(wsId, projId)
+    if (generation !== taskGeneration) return
     if (!canRead) {
       tasks.value = []
       nextCursor.value = null
-      pageNotice.value = classifyConsoleError(
+      pageNotice.value ??= classifyConsoleError(
         { status: 403, reason: 'INSUFFICIENT_GRANT' },
         { requiredGrantFallback: 'tasks.read', isZh: isZh.value }
       )
@@ -216,10 +215,12 @@ async function loadTasks(options?: { refresh?: boolean; cursor?: string }): Prom
       from: filters.from ? new Date(filters.from).toISOString() : undefined,
       to: filters.to ? new Date(filters.to).toISOString() : undefined
     })
+    if (generation !== taskGeneration) return
     tasks.value = page.items ?? []
     nextCursor.value = page.next_cursor ?? null
     asOf.value = page.as_of || new Date().toISOString()
   } catch (err) {
+    if (generation !== taskGeneration) return
     const status = (err as { status?: number; response?: { status?: number } })?.status ??
       (err as { response?: { status?: number } })?.response?.status
     if (status === 403) {
@@ -234,8 +235,7 @@ async function loadTasks(options?: { refresh?: boolean; cursor?: string }): Prom
       isZh: isZh.value
     })
   } finally {
-    loading.value = false
-    refreshing.value = false
+    if (generation === taskGeneration) { loading.value = false; refreshing.value = false }
   }
 }
 
@@ -508,46 +508,38 @@ async function openCreateModal(): Promise<void> {
   createModalOpen.value = true
   const { wsId, projId } = ids
   createModelsLoading.value = true
-  const [projKeysRes, userKeysRes, mRes] = await Promise.allSettled([
-    canReadKeys.value && typeof identityApi.listProjectKeys === 'function'
-      ? identityApi.listProjectKeys(wsId, projId, { limit: 100 })
-      : Promise.resolve({ items: [] }),
-    canReadKeys.value ? keysAPI.list(1, 50, { status: 'active' }) : Promise.resolve({ items: [] }),
+  const generation = ++createGeneration
+  createKeys.value = []
+  createKeyPolicies.value = []
+  createModels.value = []
+  const [projKeysRes, mRes] = await Promise.allSettled([
+    (async () => {
+      if (!canReadKeys.value) return []
+      const items: IdentityKey[] = []
+      let cursor: string | undefined
+      const seen = new Set<string>()
+      do {
+        const page = await identityApi.listProjectKeys(wsId, projId, { limit: 100, ...(cursor ? { cursor } : {}) })
+        items.push(...page.items)
+        cursor = page.next_cursor ?? undefined
+        if (cursor && seen.has(cursor)) throw new Error('Key pagination did not advance.')
+        if (cursor) seen.add(cursor)
+      } while (cursor)
+      return items
+    })(),
     catalogApi.listScopedModels(wsId, projId, { modality: [createActiveKind.value], limit: 50 })
   ])
+  if (generation !== createGeneration || activeScopeIds.value?.wsId !== wsId || activeScopeIds.value?.projId !== projId) return
   createModelsLoading.value = false
+  if (projKeysRes.status === 'rejected' || mRes.status === 'rejected') {
+    pageNotice.value = classifyConsoleError(projKeysRes.status === 'rejected' ? projKeysRes.reason : mRes.status === 'rejected' ? mRes.reason : null, { requiredGrantFallback: 'keys.read', isZh: isZh.value })
+    return
+  }
+  const action = createActiveKind.value === 'audio' ? 'audio.tts' : `${createActiveKind.value}.generate`
+  createKeyPolicies.value = projKeysRes.value.filter(key => key.owner_id === accessActorId.value && isUsableIdentityKey(key, action))
+  createKeys.value = createKeyPolicies.value.map(key => ({ id: key.id, name: key.name, prefix: key.prefix, scopeLabel: isZh.value ? '项目密钥' : 'Project' }))
+  createModels.value = mRes.value.filter(model => createKeyPolicies.value.some(key => identityKeyAllowsModel(key, model, action)))
 
-  const merged = new Map<string, { id: string; name: string; prefix?: string; scopeLabel?: string }>()
-  if (projKeysRes.status === 'fulfilled') {
-    for (const k of projKeysRes.value.items || []) {
-      if (!k.state || k.state === 'active') {
-        merged.set(String(k.id), {
-          id: String(k.id),
-          name: k.name,
-          prefix: k.prefix,
-          scopeLabel: isZh.value ? '项目密钥' : 'Project'
-        })
-      }
-    }
-  }
-  if (userKeysRes.status === 'fulfilled') {
-    for (const k of userKeysRes.value.items || []) {
-      const id = String(k.id)
-      if (!merged.has(id)) {
-        merged.set(id, {
-          id,
-          name: k.name,
-          prefix: k.key ? k.key.slice(0, 10) : undefined,
-          scopeLabel: isZh.value ? '账户密钥' : 'Account'
-        })
-      }
-    }
-  }
-  createKeys.value = Array.from(merged.values())
-
-  if (mRes.status === 'fulfilled') {
-    createModels.value = mRes.value
-  }
 }
 
 function handleNavigateToKeysFromCreate(): void {
@@ -557,7 +549,14 @@ function handleNavigateToKeysFromCreate(): void {
 
 async function handleCreateTask(payload: ImageTaskCreateInput): Promise<void> {
   const ids = activeScopeIds.value
-  if (!ids || !canCreateTasks.value) return
+  if (!ids || !canCreateTasks.value || createModelsLoading.value) return
+  const key = createKeyPolicies.value.find(key => key.id === payload.api_key_id)
+  const model = createModels.value.find(model => model.id === payload.model_id || model.slug === payload.model_id)
+  const action = payload.kind === 'audio' ? 'audio.tts' : `${payload.kind}.generate`
+  if (!key || !model || !identityKeyAllowsModel(key, model, action)) {
+    pageNotice.value = classifyConsoleError({ status: 403, reason: 'KEY_MODEL_DENIED', message: isZh.value ? '所选 Key 无法调用此模型，请重新选择。' : 'The selected key cannot call this model. Choose an allowed model.' }, { isZh: isZh.value })
+    return
+  }
   createSubmitting.value = true
   const { wsId, projId } = ids
   try {
@@ -587,6 +586,11 @@ async function handleCreateTask(payload: ImageTaskCreateInput): Promise<void> {
 }
 
 function handleScopeSelect(payload: { workspaceId: string; projectId: string | null }): void {
+  taskGeneration++; accessGeneration++; createGeneration++
+  createModalOpen.value = false
+  createKeys.value = []
+  createKeyPolicies.value = []
+  createModels.value = []
   drawerOpen.value = false
   selectedDetail.value = null
   cursorStack.value = []

@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import { useAppStore } from '@/stores/app'
 import { identityApi, persistConsoleScope } from '@/features/console/scope'
 import PlaygroundCostConfirmModal from '@/features/playground/components/PlaygroundCostConfirmModal.vue'
 import PlaygroundView from '../PlaygroundView.vue'
@@ -13,6 +15,9 @@ const mocks = vi.hoisted(() => ({
   getRunByIdempotencyKey: vi.fn(),
   getRunDetail: vi.fn(),
   cancelRun: vi.fn(),
+  quoteProjectModel: vi.fn(),
+  getEffectiveQuota: vi.fn(),
+  getReplayContext: vi.fn(),
   authUser: { id: '1', role: 'admin' } as { id: string | number; role?: string } | null
 }))
 
@@ -52,21 +57,39 @@ vi.mock('@/features/playground/api', () => ({
     replayRequest: mocks.replayRequest,
     getRunByIdempotencyKey: mocks.getRunByIdempotencyKey,
     getRunDetail: mocks.getRunDetail,
-    cancelRun: mocks.cancelRun
+    cancelRun: mocks.cancelRun,
+    quoteProjectModel: mocks.quoteProjectModel,
+    getEffectiveQuota: mocks.getEffectiveQuota,
+    getReplayContext: mocks.getReplayContext
   }
 }))
 
 describe('PlaygroundView 3-pane workbench', () => {
   beforeEach(() => {
     localStorage.clear()
+    sessionStorage.clear()
     vi.resetAllMocks()
+    setActivePinia(createPinia())
+    mocks.authUser = { id: '1', role: 'admin' }
+    const app = useAppStore()
+    app.selectScope({ mode: 'workspace', workspaceId: '2', projectId: '9' })
+    vi.spyOn(app, 'fetchScopes').mockImplementation(async () => {
+      const page = await identityApi.listScopes()
+      app.scopes = page.items
+      app.scopesLoaded = true
+      app.scopesNextCursor = page.next_cursor
+      app.scopesAsOf = page.as_of
+      return page
+    })
+    mocks.quoteProjectModel.mockResolvedValue({ state: 'estimated', price_version: 'sale_test', source: 'group', estimated_charge: { currency: 'USD', amount: '0.01' }, components: [], rounding_adjustment: '0', effective_scope: { workspace_id: '2', project_id: '9', scope_version: '1' } })
+    mocks.getEffectiveQuota.mockResolvedValue({ blocked: false, rules: [{ source: 'wallet' }] })
     vi.spyOn(identityApi, 'listScopes').mockResolvedValue({
       items: [
         {
           workspace_id: '2',
-          workspace_name: 'Core Eng',
-          workspace_state: 'active',
-          projects: [{ id: '9', name: 'Prod Gateway', state: 'active' }]
+          name: 'Core Eng',
+          projects_next_cursor: null,
+          projects: [{ id: '9', name: 'Prod Gateway' }]
         }
       ],
       next_cursor: null,
@@ -76,11 +99,11 @@ describe('PlaygroundView 3-pane workbench', () => {
       items: [
         {
           id: '15',
-          project_id: '9',
           name: 'Service Key',
           prefix: 'oh_live_15',
-          state: 'active',
-          created_at: '2026-11-19T09:00:00Z',
+          owner_id: '1', credential: null, expires_at: null, evaluated_at: '2026-11-22T00:00:00Z',
+          actions: ['text.chat'], model_access: { mode: 'inherit', ids: [] }, excluded_models: [], model_policy_source: 'model_access_rules', group_id: '7', platform: 'openai',
+          status: 'active',
           version: '1'
         }
       ],
@@ -91,7 +114,7 @@ describe('PlaygroundView 3-pane workbench', () => {
       actor_id: '1',
       workspace_id: '2',
       project_id: '9',
-      actions: ['keys.read', 'playground.run'],
+      actions: ['keys.read', 'playground.run', 'credentials.byok.manage'],
       scope_version: '1',
       expires_at: '2026-11-20T00:00:00Z'
     })
@@ -102,6 +125,7 @@ describe('PlaygroundView 3-pane workbench', () => {
         slug: 'gpt-5.4-mini',
         displayName: 'GPT-5.4 Mini',
         provider: 'openai',
+        accessState: 'allowed', routeState: 'eligible', availabilityState: 'live',
         protocols: ['openai_chat'],
         modalities: ['text'],
         maxOutputTokens: 8192,
@@ -113,10 +137,11 @@ describe('PlaygroundView 3-pane workbench', () => {
       },
       {
         id: 'm_22222222222222222222222222222222',
-        slug: 'claude-4-sonnet',
-        displayName: 'Claude 4 Sonnet',
-        provider: 'anthropic',
-        protocols: ['anthropic_messages'],
+        slug: 'gpt-5.4',
+        displayName: 'GPT-5.4',
+        provider: 'openai',
+        accessState: 'allowed', routeState: 'eligible', availabilityState: 'live',
+        protocols: ['openai_chat'],
         modalities: ['text'],
         maxOutputTokens: 8192,
         contextTokens: 200000,
@@ -161,7 +186,7 @@ describe('PlaygroundView 3-pane workbench', () => {
 
     // Must NOT have called submitRun before explicit confirmation
     expect(mocks.submitRun).not.toHaveBeenCalled()
-    expect(wrapper.get('[data-testid="playground-cost-confirm-modal"]').text()).toContain('gpt-5.4-mini')
+    expect(wrapper.get('[data-testid="playground-cost-confirm-modal"]').text()).toContain('m_11111111111111111111111111111111')
 
     await wrapper.get('[data-testid="confirm-playground-funding"]').trigger('click')
     await flushPromises()
@@ -169,7 +194,8 @@ describe('PlaygroundView 3-pane workbench', () => {
     expect(mocks.submitRun).toHaveBeenCalledTimes(1)
     expect(mocks.submitRun.mock.calls[0][2]).toMatchObject({
       api_key_id: '15',
-      model_id: 'gpt-5.4-mini',
+      model_id: 'm_11111111111111111111111111111111',
+      expected_price_version: 'sale_test',
       action: 'text.chat',
       funding_acknowledged: true
     })
@@ -180,7 +206,7 @@ describe('PlaygroundView 3-pane workbench', () => {
   it('runs Compare Side A and Side B with independent idempotency keys and stops Side A without interrupting Side B', async () => {
     let resolveB!: (v: { kind: 'stream_completed' }) => void
     mocks.submitRun.mockImplementation((_ws, _proj, payload, opts) => {
-      if (payload.model_id === 'gpt-5.4-mini') {
+      if (payload.model_id === 'm_11111111111111111111111111111111') {
         opts.onFrame({
           id: '1',
           event: 'started',
@@ -314,11 +340,11 @@ describe('PlaygroundView 3-pane workbench', () => {
         items: [
           {
             id: '15',
-            project_id: '9',
             name: 'Service Key',
             prefix: 'oh_live_15',
-            state: 'active',
-            created_at: '2026-11-19T09:00:00Z',
+          owner_id: '1', credential: null, expires_at: null, evaluated_at: '2026-11-22T00:00:00Z',
+          actions: ['text.chat'], model_access: { mode: 'inherit', ids: [] }, excluded_models: [], model_policy_source: 'model_access_rules', group_id: '7', platform: 'openai',
+            status: 'active',
             version: '1'
           }
         ],
@@ -329,11 +355,11 @@ describe('PlaygroundView 3-pane workbench', () => {
         items: [
           {
             id: '19',
-            project_id: '10',
             name: 'Revoked Key',
             prefix: 'oh_live_19',
-            state: 'revoked',
-            created_at: '2026-11-19T09:00:00Z',
+          owner_id: '1', credential: null, expires_at: null, evaluated_at: '2026-11-22T00:00:00Z',
+          actions: ['text.chat'], model_access: { mode: 'inherit', ids: [] }, excluded_models: [], model_policy_source: 'model_access_rules', group_id: '7', platform: 'openai',
+            status: 'revoked',
             version: '1'
           }
         ],
@@ -344,11 +370,11 @@ describe('PlaygroundView 3-pane workbench', () => {
       items: [
         {
           workspace_id: '2',
-          workspace_name: 'Core Eng',
-          workspace_state: 'active',
+          name: 'Core Eng',
+          projects_next_cursor: null,
           projects: [
-            { id: '9', name: 'Prod Gateway', state: 'active' },
-            { id: '10', name: 'Empty Sandbox', state: 'active' }
+            { id: '9', name: 'Prod Gateway' },
+            { id: '10', name: 'Empty Sandbox' }
           ]
         }
       ],
@@ -376,6 +402,20 @@ describe('PlaygroundView 3-pane workbench', () => {
     wrapper.unmount()
   })
 
+  it('keeps verified concrete-provider models available to an existing composite key', async () => {
+    const page = await identityApi.listProjectKeys('2', '9')
+    vi.mocked(identityApi.listProjectKeys).mockResolvedValue({ ...page, items: page.items.map(key => ({ ...key, platform: 'composite' })) })
+    const wrapper = mount(PlaygroundView, { props: { teleportDisabled: true } })
+    await flushPromises()
+    await wrapper.get('[data-testid="message-input-0"]').setValue('Use the composite group')
+    expect(wrapper.get('[data-testid="playground-run-trigger"]').attributes('disabled')).toBeUndefined()
+    await wrapper.get('[data-testid="playground-run-trigger"]').trigger('click')
+    await flushPromises()
+    expect(mocks.quoteProjectModel).toHaveBeenCalledWith('2', '9', expect.objectContaining({ api_key_id: '15', model_id: 'm_11111111111111111111111111111111' }))
+    expect(mocks.submitRun).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('surfaces project key permission error without falling back to personal keys', async () => {
     vi.spyOn(identityApi, 'listProjectKeys').mockRejectedValue({
       status: 403,
@@ -398,6 +438,7 @@ describe('PlaygroundView 3-pane workbench', () => {
   })
 
   it('blocks execution and shows scope-required empty state when no project scope is available', async () => {
+    useAppStore().selectPersonalScope()
     const listProjectKeysSpy = vi.spyOn(identityApi, 'listProjectKeys')
     vi.spyOn(identityApi, 'listScopes').mockResolvedValue({
       items: [],
@@ -471,19 +512,19 @@ describe('PlaygroundView 3-pane workbench', () => {
           id: '15',
           name: 'My Key',
           prefix: 'oh_live_15',
-          owner_id: '1',
-          state: 'active',
+          owner_id: '1', credential: null, expires_at: null, evaluated_at: '2026-11-22T00:00:00Z',
+          actions: ['text.chat'], model_access: { mode: 'inherit', ids: [] }, excluded_models: [], model_policy_source: 'model_access_rules', group_id: '7', platform: 'openai',
+          status: 'active',
           version: '1',
-          credential: null
         },
         {
           id: '22',
           name: 'Other Admin Key',
           prefix: 'oh_live_22',
-          owner_id: '99',
-          state: 'active',
+          owner_id: '99', credential: null, expires_at: null, evaluated_at: '2026-11-22T00:00:00Z',
+          actions: ['text.chat'], model_access: { mode: 'inherit', ids: [] }, excluded_models: [], model_policy_source: 'model_access_rules', group_id: '7', platform: 'openai',
+          status: 'active',
           version: '1',
-          credential: null
         }
       ],
       next_cursor: null,
@@ -516,19 +557,19 @@ describe('PlaygroundView 3-pane workbench', () => {
           id: '15',
           name: 'My Key',
           prefix: 'oh_live_15',
-          owner_id: '1',
-          state: 'active',
+          owner_id: '1', credential: null, expires_at: null, evaluated_at: '2026-11-22T00:00:00Z',
+          actions: ['text.chat'], model_access: { mode: 'inherit', ids: [] }, excluded_models: [], model_policy_source: 'model_access_rules', group_id: '7', platform: 'openai',
+          status: 'active',
           version: '1',
-          credential: null
         },
         {
           id: '22',
           name: 'Teammate Key',
           prefix: 'oh_live_22',
-          owner_id: '99',
-          state: 'active',
+          owner_id: '99', credential: null, expires_at: null, evaluated_at: '2026-11-22T00:00:00Z',
+          actions: ['text.chat'], model_access: { mode: 'inherit', ids: [] }, excluded_models: [], model_policy_source: 'model_access_rules', group_id: '7', platform: 'openai',
+          status: 'active',
           version: '1',
-          credential: null
         }
       ],
       next_cursor: null,
@@ -629,7 +670,7 @@ describe('PlaygroundView 3-pane workbench', () => {
 
     await wrapper.get('[data-testid="switch-routed-model-A"]').trigger('click')
     await flushPromises()
-    expect((selectEl.element as HTMLSelectElement).value).toBe('gpt-5.4-mini')
+    expect((selectEl.element as HTMLSelectElement).value).toBe('m_11111111111111111111111111111111')
     expect(wrapper.find('[data-testid="playground-catalog-only-notice-A"]').exists()).toBe(false)
     wrapper.unmount()
   })
@@ -663,4 +704,64 @@ describe('PlaygroundView 3-pane workbench', () => {
     expect(wrapper.find('[data-testid="playground-contact-admin-A"]').exists()).toBe(true)
     wrapper.unmount()
   })
+  it.each([403, 404, 503, 0])('keeps permission unknown/denied fail-closed on access status %s, including a platform admin', async status => {
+    vi.spyOn(identityApi, 'getProjectAccess').mockRejectedValue({ status, message: 'access unavailable' })
+    const wrapper = mount(PlaygroundView, { props: { teleportDisabled: true } })
+    await flushPromises()
+    await wrapper.get('[data-testid="message-input-0"]').setValue('No permission shortcut')
+    expect(wrapper.get('[data-testid="playground-run-trigger"]').attributes('disabled')).toBeDefined()
+    expect(mocks.submitRun).not.toHaveBeenCalled()
+    expect(mocks.listPublicModels).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('never retries a key quote 404 without its key and keeps funding confirmation disabled', async () => {
+    mocks.quoteProjectModel.mockRejectedValue({ status: 404, reason: 'NOT_FOUND' })
+    const wrapper = mount(PlaygroundView, { props: { teleportDisabled: true } })
+    await flushPromises()
+    await wrapper.get('[data-testid="message-input-0"]').setValue('A restricted key')
+    await wrapper.get('[data-testid="playground-run-trigger"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="confirm-playground-funding"]').attributes('disabled')).toBeDefined()
+    expect(mocks.quoteProjectModel.mock.calls.length).toBeGreaterThan(0)
+    for (const call of mocks.quoteProjectModel.mock.calls) expect(call[2].api_key_id).toBe('15')
+    expect(mocks.submitRun).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('invalidates consent when the payload changes while its quote is in flight', async () => {
+    const pending: Array<(value: unknown) => void> = []
+    mocks.quoteProjectModel.mockImplementation(() => new Promise(resolve => pending.push(resolve)))
+    const wrapper = mount(PlaygroundView, { props: { teleportDisabled: true } })
+    await flushPromises()
+    await wrapper.get('[data-testid="message-input-0"]').setValue('Original payload')
+    await wrapper.get('[data-testid="playground-run-trigger"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="confirm-playground-funding"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-testid="message-input-0"]').setValue('Changed payload')
+    for (const resolve of pending) resolve({ state: 'estimated', price_version: 'sale_old', estimated_charge: { currency: 'USD', amount: '0.1' }, components: [] })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="playground-cost-confirm-modal"]').exists()).toBe(false)
+    expect(mocks.submitRun).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('resolves replay model and protocol before quoting and submits the same confirmed version', async () => {
+    vi.spyOn(identityApi, 'getProjectAccess').mockResolvedValue({ actor_id: '1', workspace_id: '2', project_id: '9', actions: ['keys.read', 'playground.run', 'requests.replay'], scope_version: '1', expires_at: '2099-01-01T00:00:00Z' })
+    mocks.getReplayContext.mockResolvedValue({ request_id: 'old-request', model_id: 'm_22222222222222222222222222222222', protocol: 'openai_responses' })
+    mocks.replayRequest.mockResolvedValue({ kind: 'summary', summary: { run_id: 'replay-run', request_id: 'new-request', protocol: 'openai_responses', state: 'succeeded', last_seq: 1, content_retained: false, status_url: '/s', detail_url: '/d', payer_user_id: '1', settlement_state: 'settled' } })
+    const wrapper = mount(PlaygroundView, { props: { teleportDisabled: true }, global: { mocks: { $route: { query: { replay_request_id: 'old-request' } } } } })
+    await flushPromises()
+    await wrapper.get('[data-testid="message-input-0"]').setValue('Explicit replay input')
+    await wrapper.get('[data-testid="playground-run-trigger"]').trigger('click')
+    await flushPromises()
+    expect(mocks.getReplayContext).toHaveBeenCalledWith('2', '9', 'old-request')
+    expect(mocks.quoteProjectModel).toHaveBeenLastCalledWith('2', '9', expect.objectContaining({ api_key_id: '15', model_id: 'm_22222222222222222222222222222222', protocol: 'openai_responses' }))
+    await wrapper.get('[data-testid="confirm-playground-funding"]').trigger('click')
+    await flushPromises()
+    expect(mocks.replayRequest).toHaveBeenCalledWith('2', '9', 'old-request', expect.objectContaining({ api_key_id: '15', expected_price_version: 'sale_test', input: expect.objectContaining({ input: expect.any(Array) }) }), expect.any(Object))
+    expect(mocks.submitRun).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
 })

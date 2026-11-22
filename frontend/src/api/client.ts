@@ -208,7 +208,10 @@ apiClient.interceptors.request.use(
   },
   (error) => {
     return Promise.reject(error)
-  }
+  },
+  // Capture URL-derived workspace context at invocation, before a navigation
+  // can run in the promise queue. Retries retain the already-scoped URL.
+  { synchronous: true }
 )
 
 // ==================== Response Interceptor ====================

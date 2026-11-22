@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -16,6 +16,7 @@ import { useAuthStore } from '@/stores/auth'
 import ConsoleAsyncBanner from '@/features/console/components/ConsoleAsyncBanner.vue'
 import ConsoleScopeBar from '@/features/console/components/ConsoleScopeBar.vue'
 import { classifyConsoleError, type ConsoleAsyncNotice } from '@/features/console/asyncState'
+import { isUsableIdentityKey } from '@/features/console/keyPolicy'
 import { identityApi, useConsoleScope, type IdentityKey } from '@/features/console/scope'
 import {
   byokApi,
@@ -67,8 +68,9 @@ const loadingList = ref(false)
 const loadingMore = ref(false)
 const pageNotice = ref<ConsoleAsyncNotice | null>(null)
 const rowBusyId = ref<string | null>(null)
-const canManageByok = ref(true)
-const canReadKeys = ref(true)
+const canManageByok = ref(false)
+const canReadByok = ref(false)
+const canReadKeys = ref(false)
 let loadGeneration = 0
 
 // Modal state (create & policy)
@@ -107,6 +109,7 @@ const enabledProviderClasses = computed(() =>
 const hasByokManagePermission = computed(
   () => canManageByok.value && pageNotice.value?.kind !== 'permission'
 )
+const workspaceReadOnly = computed(() => activeTab.value === 'workspace' && canReadByok.value && !canManageByok.value)
 
 const scopeErrorNotice = computed<ConsoleAsyncNotice | null>(() => {
   if (!scopeError.value) return null
@@ -117,80 +120,72 @@ const scopeErrorNotice = computed<ConsoleAsyncNotice | null>(() => {
 })
 
 async function loadProjectKeysSilently(wsId: string, projId: string): Promise<void> {
-  if (!wsId || !projId || !canReadKeys.value) {
-    projectKeys.value = []
-    return
-  }
+  const generation = loadGeneration
+  projectKeys.value = []
+  if (!wsId || !projId || !canReadKeys.value) return
   try {
-    const page = await identityApi.listProjectKeys(wsId, projId, { limit: 50 })
-    projectKeys.value = page.items ?? []
-  } catch {
-    projectKeys.value = []
-  }
+    const keys: IdentityKey[] = []
+    let cursor: string | undefined
+    const seen = new Set<string>()
+    do {
+      const page = await identityApi.listProjectKeys(wsId, projId, { limit: 100, ...(cursor ? { cursor } : {}) })
+      if (generation !== loadGeneration) return
+      keys.push(...page.items.filter(key => isUsableIdentityKey(key)))
+      cursor = page.next_cursor ?? undefined
+      if (cursor && seen.has(cursor)) throw new Error('Key pagination did not advance.')
+      if (cursor) seen.add(cursor)
+    } while (cursor)
+    projectKeys.value = keys
+  } catch { if (generation === loadGeneration) projectKeys.value = [] }
 }
 
-async function refreshByokAccess(wsId: string, projId: string): Promise<boolean> {
-  if (!wsId || !projId || typeof identityApi.getProjectAccess !== 'function') {
-    canManageByok.value = true
-    canReadKeys.value = true
-    return true
-  }
+async function refreshByokAccess(wsId: string, projId: string, generation: number): Promise<boolean> {
+  canManageByok.value = false
+  canReadByok.value = false
+  canReadKeys.value = false
+  if (!wsId || (activeTab.value === 'project' && !projId)) return false
   try {
-    const access = await identityApi.getProjectAccess(wsId, projId)
+    const access = activeTab.value === 'workspace'
+      ? await identityApi.getWorkspaceAccess(wsId)
+      : await identityApi.getProjectAccess(wsId, projId)
+    if (generation !== loadGeneration) return false
     const actions = Array.isArray(access?.actions) ? access.actions : []
-    const allowAll = actions.includes('*')
-    canManageByok.value = allowAll || actions.includes('credentials.byok.manage')
-    canReadKeys.value = allowAll || actions.includes('keys.read')
-    return canManageByok.value
+    const allowed = actions.includes('*') || actions.includes('credentials.byok.manage')
+    canReadByok.value = allowed
+    canManageByok.value = allowed && (activeTab.value === 'project' || actions.includes('*') || actions.includes('members.grants.write'))
+    canReadKeys.value = Boolean(projId) && (actions.includes('*') || actions.includes('keys.read'))
+    return canReadByok.value
   } catch (err) {
-    const status = (err as { status?: number; response?: { status?: number } })?.status ??
-      (err as { response?: { status?: number } })?.response?.status
-    if (status === 403) {
-      canManageByok.value = false
-      canReadKeys.value = false
-      return false
-    }
-    canManageByok.value = true
-    canReadKeys.value = true
-    return true
+    if (generation === loadGeneration) pageNotice.value = classifyConsoleError(err, { isZh: isZh.value, requiredGrantFallback: 'credentials.byok.manage' })
+    return false
   }
 }
 
 async function loadSurface(reset = true): Promise<void> {
+  if (!reset && (!nextCursor.value || loadingMore.value)) return
+  const currentGen = ++loadGeneration
   const wsId = activeWorkspaceId.value
   const projId = activeProjectId.value
-  if (!wsId) return
-  if (reset && projId) {
-    await refreshByokAccess(wsId, projId)
+  if (reset) { loadingList.value = true; pageNotice.value = null }
+  else loadingMore.value = true
+  if (!wsId || (activeTab.value === 'project' && !projId)) {
+    canManageByok.value = false
+    canReadByok.value = false
+    canReadKeys.value = false
+  } else if (reset) {
+    await refreshByokAccess(wsId, projId, currentGen)
   }
-  if (activeTab.value === 'project' && !projId) {
-    credentials.value = []
-    nextCursor.value = null
-    providerClasses.value = []
-    pageNotice.value = null
-    return
-  }
-  if (activeTab.value === 'project' && !canManageByok.value) {
+  if (currentGen !== loadGeneration) return
+  if (!wsId || (activeTab.value === 'project' && !projId) || !canReadByok.value) {
     credentials.value = []
     nextCursor.value = null
     providerClasses.value = []
     projectKeys.value = []
     loadingList.value = false
     loadingMore.value = false
-    pageNotice.value = classifyConsoleError(
-      { status: 403, reason: 'INSUFFICIENT_GRANT' },
-      { isZh: isZh.value, requiredGrantFallback: 'credentials.byok.manage' }
-    )
+    if (wsId && activeTab.value === 'project' && !projId) pageNotice.value = classifyConsoleError({ status: 403, reason: 'PROJECT_SCOPE_REQUIRED', message: isZh.value ? '请选择具体项目以验证 BYOK 管理权限。' : 'Select a project to verify BYOK management access.' }, { isZh: isZh.value, requiredGrantFallback: 'credentials.byok.manage' })
+    else if (wsId) pageNotice.value ??= classifyConsoleError({ status: 403, reason: 'INSUFFICIENT_GRANT' }, { isZh: isZh.value, requiredGrantFallback: 'credentials.byok.manage' })
     return
-  }
-  if (!reset && (!nextCursor.value || loadingMore.value)) return
-
-  const currentGen = ++loadGeneration
-  if (reset) {
-    loadingList.value = true
-    pageNotice.value = null
-  } else {
-    loadingMore.value = true
   }
 
   try {
@@ -229,6 +224,10 @@ async function loadSurface(reset = true): Promise<void> {
     }
   } catch (err) {
     if (currentGen !== loadGeneration) return
+    canManageByok.value = false
+    canReadByok.value = false
+    canReadKeys.value = false
+    projectKeys.value = []
     pageNotice.value = classifyConsoleError(err, {
       hasCachedData: credentials.value.length > 0,
       lastSyncedAt: lastSyncedAt.value,
@@ -271,6 +270,7 @@ function openCreateModal(): void {
 }
 
 function openPolicyModal(cred: ByokCredential): void {
+  if (!hasByokManagePermission.value) return
   formMode.value = 'policy'
   editingCredential.value = cred
   formErrorNotice.value = null
@@ -283,16 +283,19 @@ function openInspector(cred: ByokCredential): void {
 }
 
 async function handleCreateSubmit(payload: ByokCreatePayload): Promise<void> {
+  const generation = loadGeneration
+  const tab = activeTab.value
   const wsId = activeWorkspaceId.value
   const projId = activeProjectId.value
-  if (!wsId || formSaving.value) return
+  if (!wsId || formSaving.value || !hasByokManagePermission.value) return
   formSaving.value = true
   formErrorNotice.value = null
   try {
     const created =
-      activeTab.value === 'project' && projId
+      tab === 'project' && projId
         ? await byokApi.createProjectCredential(wsId, projId, payload)
         : await byokApi.createWorkspaceCredential(wsId, payload)
+    if (generation !== loadGeneration) return
     upsertLocalCredential(created)
     formModalOpen.value = false
     pushUiToast({
@@ -301,12 +304,13 @@ async function handleCreateSubmit(payload: ByokCreatePayload): Promise<void> {
       description: `${created.provider} · ${created.fingerprint}`
     })
   } catch (err) {
+    if (generation !== loadGeneration) return
     formErrorNotice.value = classifyConsoleError(err, {
       isZh: isZh.value,
       requiredGrantFallback: 'credentials.byok.manage'
     })
   } finally {
-    formSaving.value = false
+    if (generation === loadGeneration) formSaving.value = false
   }
 }
 
@@ -315,16 +319,19 @@ async function handlePolicySubmit(payload: {
   version: string
   policy: ByokPolicyPayload
 }): Promise<void> {
+  const generation = loadGeneration
+  const tab = activeTab.value
   const wsId = activeWorkspaceId.value
   const projId = activeProjectId.value
-  if (!wsId || formSaving.value) return
+  if (!wsId || formSaving.value || !hasByokManagePermission.value) return
   formSaving.value = true
   formErrorNotice.value = null
   try {
     const updated =
-      activeTab.value === 'project' && projId
+      tab === 'project' && projId
         ? await byokApi.putProjectPolicy(wsId, projId, payload.id, payload.version, payload.policy)
         : await byokApi.putWorkspacePolicy(wsId, payload.id, payload.version, payload.policy)
+    if (generation !== loadGeneration) return
     upsertLocalCredential(updated)
     formModalOpen.value = false
     pushUiToast({
@@ -332,28 +339,33 @@ async function handlePolicySubmit(payload: {
       title: isZh.value ? '凭据策略已更新' : 'Credential Policy Updated'
     })
   } catch (err) {
+    if (generation !== loadGeneration) return
     formErrorNotice.value = classifyConsoleError(err, {
       isZh: isZh.value,
       requiredGrantFallback: 'credentials.byok.manage'
     })
   } finally {
-    formSaving.value = false
+    if (generation === loadGeneration) formSaving.value = false
   }
 }
 
 async function reloadEditingCredential(): Promise<void> {
   const target = editingCredential.value
+  const generation = loadGeneration
+  const tab = activeTab.value
   const wsId = activeWorkspaceId.value
   const projId = activeProjectId.value
   if (!target || !wsId) return
   formErrorNotice.value = null
   try {
     const fresh =
-      activeTab.value === 'project' && projId
+      tab === 'project' && projId
         ? await byokApi.getProjectCredential(wsId, projId, target.id)
         : await byokApi.getWorkspaceCredential(wsId, target.id)
+    if (generation !== loadGeneration) return
     upsertLocalCredential(fresh)
   } catch (err) {
+    if (generation !== loadGeneration) return
     formErrorNotice.value = classifyConsoleError(err, {
       isZh: isZh.value,
       requiredGrantFallback: 'credentials.byok.manage'
@@ -362,20 +374,23 @@ async function reloadEditingCredential(): Promise<void> {
 }
 
 async function handleVerifyProbe(cred: ByokCredential): Promise<void> {
+  const generation = loadGeneration
+  const tab = activeTab.value
   const wsId = activeWorkspaceId.value
   const projId = activeProjectId.value
-  if (!wsId || rowBusyId.value) return
+  if (!wsId || rowBusyId.value || !hasByokManagePermission.value) return
   rowBusyId.value = cred.id
   pageNotice.value = null
   try {
     const op =
-      activeTab.value === 'project' && projId
+      tab === 'project' && projId
         ? await byokApi.verifyProjectCredential(wsId, projId, cred.id, cred.version)
         : await byokApi.verifyWorkspaceCredential(wsId, cred.id, cred.version)
     const refreshed =
-      activeTab.value === 'project' && projId
+      tab === 'project' && projId
         ? await byokApi.getProjectCredential(wsId, projId, cred.id)
         : await byokApi.getWorkspaceCredential(wsId, cred.id)
+    if (generation !== loadGeneration) return
     upsertLocalCredential(refreshed)
     pushUiToast({
       tone: refreshed.state === 'verified' ? 'success' : 'warning',
@@ -389,38 +404,43 @@ async function handleVerifyProbe(cred: ByokCredential): Promise<void> {
           : undefined
     })
   } catch (err) {
+    if (generation !== loadGeneration) return
     pageNotice.value = classifyConsoleError(err, {
       isZh: isZh.value,
       requiredGrantFallback: 'credentials.byok.manage'
     })
   } finally {
-    rowBusyId.value = null
+    if (generation === loadGeneration) rowBusyId.value = null
   }
 }
 
 async function handleQuickPatch(cred: ByokCredential, patch: ByokPatchPayload): Promise<void> {
+  const generation = loadGeneration
+  const tab = activeTab.value
   const wsId = activeWorkspaceId.value
   const projId = activeProjectId.value
-  if (!wsId || rowBusyId.value) return
+  if (!wsId || rowBusyId.value || !hasByokManagePermission.value) return
   rowBusyId.value = cred.id
   pageNotice.value = null
   try {
     const updated =
-      activeTab.value === 'project' && projId
+      tab === 'project' && projId
         ? await byokApi.patchProjectCredential(wsId, projId, cred.id, cred.version, patch)
         : await byokApi.patchWorkspaceCredential(wsId, cred.id, cred.version, patch)
+    if (generation !== loadGeneration) return
     upsertLocalCredential(updated)
     pushUiToast({
       tone: 'success',
       title: isZh.value ? '调度开关已即时生效' : 'Routing Policy Updated'
     })
   } catch (err) {
+    if (generation !== loadGeneration) return
     pageNotice.value = classifyConsoleError(err, {
       isZh: isZh.value,
       requiredGrantFallback: 'credentials.byok.manage'
     })
   } finally {
-    rowBusyId.value = null
+    if (generation === loadGeneration) rowBusyId.value = null
   }
 }
 
@@ -434,10 +454,22 @@ async function handleFullRefresh(): Promise<void> {
 }
 
 watch([activeWorkspaceId, activeProjectId, activeTab], () => {
-  if (activeWorkspaceId.value) {
-    void loadSurface(true)
-  }
+  loadGeneration++
+  formModalOpen.value = false
+  inspectorOpen.value = false
+  editingCredential.value = null
+  inspectedCredential.value = null
+  formSaving.value = false
+  rowBusyId.value = null
+  canManageByok.value = false
+  canReadByok.value = false
+  canReadKeys.value = false
+  credentials.value = []
+  providerClasses.value = []
+  projectKeys.value = []
+  void loadSurface(true)
 })
+onBeforeUnmount(() => { loadGeneration++ })
 
 onMounted(async () => {
   await refreshScopes()
@@ -516,6 +548,10 @@ onMounted(async () => {
         :retry-label="isZh ? '重试加载作用域' : 'Retry Scope'"
         @retry="handleFullRefresh"
       />
+
+      <p v-if="workspaceReadOnly" data-testid="byok-workspace-readonly" class="rounded-oh-md border border-oh-default bg-oh-surface p-3 text-sm text-oh-secondary">
+        {{ isZh ? '当前为工作空间汇总只读视图。跨项目凭据由工作空间管理员管理；请切换到已授权项目进行项目级管理。' : 'This workspace summary is read-only. Workspace administrators manage credentials across projects; switch to an authorized project for project-level management.' }}
+      </p>
 
       <ConsoleAsyncBanner
         v-if="pageNotice"

@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/api/workspaces', () => ({ workspacesAPI: mocks }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => mocks.auth }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => mocks }))
-vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
+vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key, locale: { value: 'en' } }) }))
 vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<main><slot /></main>' } }))
 
 const workspace = { id: 2, name: 'Team', role: 'admin', is_default: false }
@@ -32,7 +32,7 @@ describe('workspace membership UI', () => {
     await flushPromises()
     expect(mocks.members).not.toHaveBeenCalled()
     expect(page.find('form').exists()).toBe(false)
-    expect(page.find('a[href="/workspaces/2/keys"]').exists()).toBe(true)
+    expect(page.find('a[href="/workspaces/2/keys"]').exists()).toBe(false)
     expect(page.find('a[href="/workspaces/2/accounts"]').exists()).toBe(false)
     page.unmount()
   })

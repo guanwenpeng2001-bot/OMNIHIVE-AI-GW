@@ -34,7 +34,7 @@ const modelPlazaVisible = computed(
 )
 const modelCountText = ref<string | null>(null)
 const providerCountText = ref<string | null>(null)
-const sampleModelId = ref('gpt-4o')
+const sampleModelId = ref('YOUR_MODEL_ID')
 const sampleProvider = ref('openai')
 const status = ref<PublicStatusResponse | null>(null)
 const snippetTab = ref<'curl' | 'openai' | 'anthropic'>('curl')
@@ -102,8 +102,8 @@ const features = computed(() => [
 
 const steps = computed(() =>
   isZh.value
-    ? ['创建受作用域约束的项目 API Key 或登记 BYOK 凭据', '通过标准 OpenAI / Anthropic / Gemini SDK 发起调用', '在控制台逐条核对路由解释、实测延迟与精确费用回执']
-    : ['Create a project-scoped API key or enroll BYOK', 'Call any published model via standard SDKs', 'Inspect route trace, live latency, and exact receipt']
+    ? ['在个人空间创建个人 API Key；项目使用需先取得授权', '通过标准 OpenAI / Anthropic / Gemini SDK 发起调用', '在控制台逐条核对路由解释、实测延迟与精确费用回执']
+    : ['Create a personal API Key; obtain project access for project workflows', 'Call an allowed model with a configured sale tariff via standard SDKs', 'Inspect route trace, live latency, and exact receipt']
 )
 
 function resolveSampleProvider(model?: PublicModelSummary | null): string {
@@ -122,8 +122,8 @@ function resolveSampleProvider(model?: PublicModelSummary | null): string {
 onMounted(() => {
   if (modelPlazaVisible.value) {
     void Promise.allSettled([
-      listPublicModels({ limit: 100, sort: 'availability' }),
-      listPublicModels({ availability_state: 'live', modality: ['text'], limit: 10, sort: 'name' })
+      listPublicModels({ publication_state: 'published', limit: 100, sort: 'availability' }),
+      listPublicModels({ publication_state: 'published', modality: ['text'], limit: 10, sort: 'name' })
     ])
       .then(([catalogResult, liveTextResult]) => {
         const catalogItems =
@@ -132,16 +132,11 @@ onMounted(() => {
           liveTextResult.status === 'fulfilled' ? (liveTextResult.value.items ?? []) : []
         const preferredLive =
           liveTextItems.find(
-            (m) => resolveAvailabilityState(m) !== 'catalog_only' && matchesModalityFilter(m, 'text')
+            (m) => (m.publication_state === 'published' || resolveAvailabilityState(m) === 'live') && matchesModalityFilter(m, 'text') && m.actions?.includes('text.chat')
           ) ??
           catalogItems.find(
-            (m) => resolveAvailabilityState(m) === 'live' && matchesModalityFilter(m, 'text')
-          ) ??
-          liveTextItems.find((m) => resolveAvailabilityState(m) !== 'catalog_only') ??
-          catalogItems.find((m) => resolveAvailabilityState(m) === 'live') ??
-          catalogItems.find((m) => matchesModalityFilter(m, 'text')) ??
-          liveTextItems[0] ??
-          catalogItems[0]
+            (m) => (m.publication_state === 'published' || resolveAvailabilityState(m) === 'live') && matchesModalityFilter(m, 'text') && m.actions?.includes('text.chat')
+          )
         if (preferredLive?.model) {
           sampleModelId.value = preferredLive.model
           sampleProvider.value = resolveSampleProvider(preferredLive)
@@ -217,7 +212,7 @@ const ctaTarget = () => (authStore.isAuthenticated ? '/dashboard' : '/login')
             </RouterLink>
             <RouterLink
               v-if="modelPlazaVisible"
-              to="/pricing"
+              to="/model-plaza?view=pricing"
               class="oh-focus-ring inline-flex h-10 items-center rounded-oh-md border border-transparent px-3 text-sm font-medium text-oh-secondary hover:text-oh-primary"
             >
               {{ isZh ? '查看透明定价 →' : 'View pricing →' }}

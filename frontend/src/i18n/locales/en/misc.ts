@@ -257,7 +257,7 @@ export default {
     user: {
       welcome: {
         title: 'Welcome to OmniHive Console',
-        description: '<div style="line-height: 1.75;"><p style="margin-bottom: 14px;">Welcome to OmniHive Unified AI Gateway. Route Claude, GPT, Gemini, and DeepSeek workloads through a single API key.</p><p style="margin-bottom: 10px;"><b>Quick Start:</b></p><ul style="margin-left: 18px; margin-bottom: 14px;"><li>Create an API key bound to your target group</li><li>Configure OpenCode, Claude Code, Codex CLI, or your SDK</li><li>Monitor token usage and latency in real time</li></ul><p style="color: var(--brand-text, #92610a); font-weight: 600;">Get started in 1 minute →</p></div>',
+        description: '<div style="line-height: 1.75;"><p style="margin-bottom: 14px;">Welcome to OmniHive Unified AI Gateway. A personal Key can call allowed models with configured routes and sale tariffs. Project resources require separate access.</p><p style="margin-bottom: 10px;"><b>Quick Start:</b></p><ul style="margin-left: 18px; margin-bottom: 14px;"><li>Create a personal API Key; obtain project access for project workflows</li><li>Configure OpenCode, Claude Code, Codex CLI, or your SDK</li><li>Monitor token usage and latency in real time</li></ul><p style="color: var(--brand-text, #92610a); font-weight: 600;">Get started in 1 minute →</p></div>',
         nextBtn: 'Get Started →',
         prevBtn: 'Skip'
       },

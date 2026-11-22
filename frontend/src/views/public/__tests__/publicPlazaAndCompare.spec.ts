@@ -98,9 +98,61 @@ afterEach(() => {
 })
 
 describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16, FE-F05-01)', () => {
+  it.each(['same page', 'later page'])('rejects a legacy name shared by providers on the %s without running a comparison', async (placement) => {
+    const first = { ...sampleCatalogItems[0], provider: 'provider-a', model: 'same' }
+    const second = { ...sampleCatalogItems[1], provider: 'provider-b', model: 'same' }
+    const other = { ...sampleCatalogItems[0], id: 'm_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', model: 'other' }
+    apiGetMock.mockImplementation(async (url: string, config?: { params?: { q?: string; cursor?: string } }) => {
+      if (url !== '/api/v2/public/models') throw { status: 404, message: 'Not found' }
+      if (config?.params?.q === 'same') {
+        if (placement === 'same page') return { data: { items: [first, second], next_cursor: null } }
+        return config.params.cursor
+          ? { data: { items: [second], next_cursor: null } }
+          : { data: { items: [first], next_cursor: 'identity-page-2' } }
+      }
+      return { data: { items: placement === 'same page' ? [first, second, other] : [first, other], next_cursor: placement === 'later page' ? 'browse-page-2' : null } }
+    })
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/model-plaza/compare', component: PublicCompareView }] })
+    await router.push(`/model-plaza/compare?ids=same,${other.id}`)
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const wrapper = mount(PublicCompareView, { global: { plugins: [router, i18n], stubs: { SiteICPFooter: true, LocaleSwitcher: true } } })
+    wrappers.push(wrapper)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Model name is ambiguous; select a provider-qualified model.')
+    expect(apiPostMock).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="scenario-recalculate"]').exists()).toBe(false)
+    expect(apiGetMock).toHaveBeenCalledWith('/api/v2/public/models/same', expect.any(Object))
+    if (placement === 'later page') {
+      expect(apiGetMock).toHaveBeenCalledWith('/api/v2/public/models', expect.objectContaining({ params: expect.objectContaining({ q: 'same', cursor: 'identity-page-2' }) }))
+    }
+  })
+
+  it('resolves a provider-qualified legacy selection independently of list order', async () => {
+    const first = { ...sampleCatalogItems[0], provider: 'provider-a', model: 'same' }
+    const second = { ...sampleCatalogItems[1], provider: 'provider-b', model: 'same' }
+    apiGetMock.mockImplementation(async (url: string) => {
+      if (url === '/api/v2/public/models') return { data: { items: [first, second], next_cursor: null } }
+      if (url === `/api/v2/public/models/${MODEL_B_ID}`) return { data: { model: second } }
+      throw { status: 404, message: 'Not found' }
+    })
+    apiPostMock.mockResolvedValue({ data: { rows: [] } })
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/model-plaza/compare', component: PublicCompareView }] })
+    await router.push(`/model-plaza/compare?ids=provider-b%2Fsame,${MODEL_A_ID}`)
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const wrapper = mount(PublicCompareView, { global: { plugins: [router, i18n], stubs: { SiteICPFooter: true, LocaleSwitcher: true } } })
+    wrappers.push(wrapper)
+    await flushPromises()
+
+    expect(apiPostMock).toHaveBeenCalledWith('/api/v2/public/models/compare', expect.objectContaining({ model_ids: [MODEL_B_ID, MODEL_A_ID] }))
+    expect(apiGetMock).toHaveBeenCalledWith('/api/v2/public/models/provider-b%2Fsame', expect.any(Object))
+  })
+
   it('recalculates interactive scenario cost and renders metrics.window + metrics.source in PublicCompareView', async () => {
-    apiGetMock.mockResolvedValueOnce({
-      data: { items: sampleCatalogItems, next_cursor: null }
+    apiGetMock.mockImplementation(async (url: string) => {
+      if (url === '/api/v2/public/models') return { data: { items: sampleCatalogItems, next_cursor: null } }
+      if (url === `/api/v2/public/models/${MODEL_A_ID}`) return { data: { model: sampleCatalogItems[0] } }
+      throw { status: 404, message: 'Not found' }
     })
     apiPostMock.mockImplementation(async (_url: string, body: { scenario?: { requests?: string } }) => {
       const isUpdatedScenario = body?.scenario?.requests === '250'
@@ -297,6 +349,7 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
     expect(detailWrapper.text()).toContain('Gemini 3.8 Flash')
     expect(detailWrapper.text()).toContain('$0.075')
     expect(detailWrapper.text()).toContain('$0.30')
+    expect(document.querySelector('link[rel="canonical"]')?.getAttribute('href')).toContain(`/model-plaza/${MODEL_A_ID}`)
   })
 
   it('does not override backend unpriced quote with local estimate in PublicCompareView', async () => {
@@ -399,6 +452,7 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
         route_state: 'eligible',
         price_state: 'priced',
         availability_state: 'live',
+        publication_state: 'published',
         input_rate: { currency: 'USD', amount: '2.5', per: '1000000', unit: 'input_token' },
         output_rate: { currency: 'USD', amount: '10', per: '1000000', unit: 'output_token' }
       },
@@ -414,6 +468,7 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
         route_state: 'ineligible',
         price_state: 'unpriced',
         availability_state: 'catalog_only',
+        publication_state: 'draft',
         reference_price: {
           source: 'pi-ai',
           input_rate: { currency: 'USD', amount: '5', per: '1000000', unit: 'input_token' },
@@ -429,7 +484,7 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
         actions: ['video.generate'],
         route_state: 'ineligible',
         price_state: 'unpriced',
-        availability_state: 'catalog_only'
+        availability_state: 'catalog_only', publication_state: 'draft'
       },
       {
         id: 'm_44444444444444444444444444444444',
@@ -447,11 +502,8 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
     apiGetMock.mockImplementation(async (_url: string, config?: { params?: Record<string, unknown> }) => {
       const params = config?.params ?? {}
       let filtered = [...multimodalCatalog]
-      if (params.availability_state) {
-        filtered = filtered.filter((item) => {
-          const state = item.availability_state ?? (item.route_state === 'eligible' ? 'live' : 'catalog_only')
-          return state === params.availability_state
-        })
+      if (params.publication_state) {
+        filtered = filtered.filter(item => item.publication_state === params.publication_state)
       }
       if (Array.isArray(params.modality) && params.modality.length > 0) {
         filtered = filtered.filter((item) =>
@@ -487,10 +539,10 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
         params: expect.objectContaining({ sort: 'availability', limit: 100 })
       })
     )
-    expect(wrapper.text()).toContain('Live & Routable')
-    expect(wrapper.text()).toContain('Platform Catalog · On Demand')
+    expect(wrapper.text()).toContain('Route health verified')
+    expect(wrapper.text()).toContain('Reference catalog · Integration unconfirmed')
     expect(wrapper.text()).toContain('Ref $5.00')
-    expect(wrapper.text()).toContain('On demand')
+    expect(wrapper.text()).toContain('No sale price')
     expect(wrapper.find('[data-testid="modality-badge-image"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="modality-badge-video"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="modality-badge-embedding"]').exists()).toBe(true)
@@ -498,18 +550,18 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
     // When next_cursor is present, pill numeric counts must NOT show misleading unloaded counts
     expect(wrapper.get('[data-testid="modality-pill-audio"]').text()).toBe('Audio & Speech')
 
-    await wrapper.get('[data-testid="availability-pill-live"]').trigger('click')
+    await wrapper.get('[data-testid="publication-pill-published"]').trigger('click')
     await flushPromises()
     expect(apiGetMock).toHaveBeenLastCalledWith(
       '/api/v2/public/models',
       expect.objectContaining({
-        params: expect.objectContaining({ availability_state: 'live', sort: 'availability' })
+        params: expect.objectContaining({ publication_state: 'published', sort: 'availability' })
       })
     )
     expect(wrapper.text()).toContain('GPT-4o')
     expect(wrapper.text()).not.toContain('GPT Image 1')
 
-    await wrapper.get('[data-testid="availability-pill-all"]').trigger('click')
+    await wrapper.get('[data-testid="publication-pill-all"]').trigger('click')
     await flushPromises()
 
     await wrapper.get('[data-testid="modality-pill-image"]').trigger('click')
@@ -570,7 +622,7 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
     await flushPromises()
 
     expect(detailWrapper.get('[data-testid="detail-availability-badge-catalog_only"]').text()).toContain(
-      'Platform Catalog · On Demand'
+      'Reference catalog · Integration unconfirmed'
     )
     expect(detailWrapper.get('[data-testid="detail-modality-badge-image"]').text()).toContain('Image')
     expect(detailWrapper.text()).toContain('Ref $5.00')
@@ -580,7 +632,7 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
     const pricingItems = [
       {
         ...sampleCatalogItems[0],
-        availability_state: 'live'
+        availability_state: 'live', publication_state: 'published'
       },
       {
         id: 'm_catalog_ref_1',
@@ -592,6 +644,7 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
         route_state: 'ineligible',
         price_state: 'unpriced',
         availability_state: 'catalog_only',
+        publication_state: 'draft',
         reference_price: {
           source: 'pi-ai',
           input_rate: { currency: 'USD', amount: '5', per: '1000000', unit: 'input_token' },
@@ -600,9 +653,9 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
       }
     ]
     apiGetMock.mockImplementation(async (_url: string, config?: { params?: Record<string, unknown> }) => {
-      const avail = config?.params?.availability_state
-      const items = avail
-        ? pricingItems.filter((item) => item.availability_state === avail)
+      const publication = config?.params?.publication_state
+      const items = publication
+        ? pricingItems.filter((item) => item.publication_state === publication)
         : pricingItems
       return { data: { items, next_cursor: null } }
     })
@@ -625,19 +678,19 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
     wrappers.push(wrapper)
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="pricing-availability-badge-live"]').text()).toContain('Live & Routable')
+    expect(wrapper.get('[data-testid="pricing-availability-badge-live"]').text()).toContain('Route health verified')
     expect(wrapper.get('[data-testid="pricing-availability-badge-catalog_only"]').text()).toContain(
-      'Platform Catalog · On Demand'
+      'Reference catalog · Integration unconfirmed'
     )
     expect(wrapper.get('[data-testid="pricing-reference-rate-input"]').text()).toContain('Ref $5.00')
     expect(wrapper.get('[data-testid="pricing-reference-rate-output"]').text()).toContain('Ref $40.00')
 
-    await wrapper.get('[data-testid="pricing-availability-pill-live"]').trigger('click')
+    await wrapper.get('[data-testid="pricing-publication-pill-published"]').trigger('click')
     await flushPromises()
     expect(apiGetMock).toHaveBeenLastCalledWith(
       '/api/v2/public/models',
       expect.objectContaining({
-        params: expect.objectContaining({ availability_state: 'live' })
+        params: expect.objectContaining({ publication_state: 'published' })
       })
     )
     expect(wrapper.text()).toContain('Gemini 3.8 Flash')
@@ -649,7 +702,7 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
       if (url === '/api/v2/public/status') {
         return { data: { overall: 'operational', components: [] } }
       }
-      if (config?.params?.availability_state === 'live') {
+      if (config?.params?.publication_state === 'published') {
         return {
           data: {
             items: [
@@ -660,6 +713,7 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
                 modalities: ['image'],
                 actions: ['image.generate'],
                 availability_state: 'live',
+        publication_state: 'published',
                 route_state: 'eligible',
                 price_state: 'priced'
               },
@@ -670,6 +724,7 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
                 modalities: ['text'],
                 actions: ['text.chat'],
                 availability_state: 'live',
+        publication_state: 'published',
                 route_state: 'eligible',
                 price_state: 'priced'
               }
@@ -688,6 +743,7 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
               modalities: ['text'],
               actions: ['text.chat'],
               availability_state: 'catalog_only',
+        publication_state: 'draft',
               route_state: 'ineligible',
               price_state: 'unpriced'
             },
@@ -698,6 +754,7 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
               modalities: ['text'],
               actions: ['text.chat'],
               availability_state: 'live',
+        publication_state: 'published',
               route_state: 'eligible',
               price_state: 'priced'
             }
@@ -732,7 +789,7 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
     expect(apiGetMock).toHaveBeenCalledWith(
       '/api/v2/public/models',
       expect.objectContaining({
-        params: expect.objectContaining({ availability_state: 'live', limit: 10, sort: 'name' })
+        params: expect.objectContaining({ publication_state: 'published', modality: ['text'], limit: 10, sort: 'name' })
       })
     )
     expect(wrapper.text()).toContain('anthropic/claude-sonnet-4-5')
@@ -755,6 +812,7 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
             modalities: ['text'],
             actions: ['text.chat'],
             availability_state: 'live',
+        publication_state: 'published',
             route_state: 'eligible',
             price_state: 'priced'
           }

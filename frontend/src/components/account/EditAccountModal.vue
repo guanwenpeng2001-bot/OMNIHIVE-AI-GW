@@ -3803,7 +3803,9 @@ const modelDiscoveryContext = computed(() => JSON.stringify([
   editBedrockRegion.value, editBedrockForceGlobal.value, editBedrockApiKeyValue.value, editVertexProjectId.value, editVertexClientEmail.value, editVertexLocation.value,
   customBaseUrlEnabled.value, customBaseUrl.value, openAIEndpointCapabilities.value, openaiPassthroughEnabled.value, anthropicPassthroughEnabled.value,
   antigravityProjectId.value, headerOverrideEnabled.value, headerOverrideRows.value, grokOAuthBaseUrl.value, anthropicAPIKeyAuthScheme.value,
-  openAIResponsesMode.value, mixedScheduling.value
+  openAIResponsesMode.value, mixedScheduling.value,
+  props.account?.platform === 'workbuddy' ? [workbuddySite.value, workbuddyOAuthCredentials.value] : null,
+  props.account?.platform === 'kilo' ? editKiloAccountMode.value : null
 ]))
 const modelConnectionContext = computed(() => JSON.stringify([modelDiscoveryContext.value, allowedModels.value, modelMappings.value, openAICompactModelMappings.value]))
 const savedModelDiscovery = ref('')
@@ -4163,9 +4165,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       ? editAdaptiveBaseUrls.value.chat_completions
       : (credentials.base_url as string) || platformDefaultUrl
 
-    // Load model mappings and detect mode
-    loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
-
     // Load pool mode
     poolModeEnabled.value = credentials.pool_mode === true
     poolModeRetryCount.value = normalizePoolModeRetryCount(
@@ -4210,8 +4209,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     // Load quota notify for bedrock
     loadQuotaNotifyFromExtra(bedrockExtra)
 
-    // Load model mappings for bedrock
-    loadModelRestrictionFromMapping(bedrockCreds.model_mapping as Record<string, unknown> | undefined)
   } else if (newAccount.type === 'upstream' && newAccount.credentials) {
     const credentials = newAccount.credentials as Record<string, unknown>
     editBaseUrl.value = (credentials.base_url as string) || ''
@@ -4221,8 +4218,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     editVertexClientEmail.value = (credentials.client_email as string) || ''
     editVertexLocation.value = (credentials.location as string) || (credentials.vertex_location as string) || 'us-central1'
 
-    // Load model mappings for service_account
-    loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
   } else {
     const platformDefaultUrl =
       newAccount.platform === 'openai'
@@ -4234,15 +4229,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
             : 'https://api.anthropic.com'
     editBaseUrl.value = platformDefaultUrl
 
-    // Load model mappings for supported OAuth accounts
-    if (['openai', 'grok', 'cursor', 'antigravity'].includes(newAccount.platform) && newAccount.credentials) {
-      const oauthCredentials = newAccount.credentials as Record<string, unknown>
-      loadModelRestrictionFromMapping(oauthCredentials.model_mapping as Record<string, unknown> | undefined)
-    } else {
-      modelRestrictionMode.value = 'whitelist'
-      modelMappings.value = []
-      allowedModels.value = []
-    }
+    // Model rules were hydrated once above for every platform/auth type. A
+    // provider-specific credentials branch must not erase the saved selection.
     poolModeEnabled.value = false
     poolModeRetryCount.value = DEFAULT_POOL_MODE_RETRY_COUNT
     poolModeRetryStatusCodesInput.value = ''

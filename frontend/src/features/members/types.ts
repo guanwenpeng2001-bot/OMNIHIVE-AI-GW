@@ -8,20 +8,8 @@ export type IdentityAccess = components['schemas']['IdentityAccess']
 export type IdentityGrantInput = components['schemas']['IdentityGrantInput']
 export type IdentityGrantVersion = components['schemas']['IdentityGrantVersion']
 
-export interface IdentityMemberItem {
-  id: string
-  user_id: string
-  email: string
-  username: string
-  role: string
-  status: string
-  version: string
-}
-
-export interface IdentityMemberGrants extends IdentityGrantVersion {
-  project_ids: string[]
-  actions: string[]
-}
+export type IdentityMemberItem = components['schemas']['IdentityMember']
+export type IdentityMemberGrants = components['schemas']['IdentityMemberGrants']
 
 export interface WorkspaceRoleProjection {
   canViewMembers: boolean

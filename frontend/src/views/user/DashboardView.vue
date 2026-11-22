@@ -15,6 +15,11 @@
         @refresh="refreshAll(true)"
         @navigate="navigateTo"
       />
+      <section v-if="scope.selection.value.mode === 'personal'" class="card space-y-2 p-4" data-testid="personal-onboarding">
+        <p>{{ isZh ? '你正在个人空间。创建个人 Key 后，可使用账户可用额度调用已开放的模型。项目资源需要项目授权。' : 'You are in Personal. Create a personal key to call available models using your account funds. Project resources require project access.' }}</p>
+        <button class="btn btn-primary" @click="navigateTo('/keys')">{{ isZh ? '创建个人 Key' : 'Create Personal Key' }}</button>
+        <button class="btn btn-secondary" @click="navigateTo('/workspaces')">{{ isZh ? '查看项目与申请方式' : 'Projects and access guidance' }}</button>
+      </section>
       <header class="flex flex-wrap items-start justify-between gap-4">
         <div class="min-w-0 space-y-1.5">
           <h1 class="text-2xl font-bold tracking-tight sm:text-3xl">{{ activeTabLabel }}</h1>
@@ -340,11 +345,11 @@ const projectAccessLoaded = ref(false)
 const projectActions = ref<string[]>([])
 const hasProjectAction = (action: string) =>
   projectActions.value.includes('*') || projectActions.value.includes(action)
-const canCreateApiKey = computed(() => !projectAccessLoaded.value || hasProjectAction('keys.create'))
-const canRunPlayground = computed(() => !projectAccessLoaded.value || hasProjectAction('playground.run'))
+const canCreateApiKey = computed(() => scope.selection.value.mode === 'personal' || (projectAccessLoaded.value && hasProjectAction('keys.create')))
+const canRunPlayground = computed(() => Boolean(scope.activeProjectId.value) && projectAccessLoaded.value && hasProjectAction('playground.run'))
 const canViewUsage = computed(
   () =>
-    !projectAccessLoaded.value ||
+    scope.selection.value.mode === 'personal' ||
     hasProjectAction('usage.read') ||
     hasProjectAction('requests.read') ||
     hasProjectAction('billing.read')
@@ -671,7 +676,7 @@ const loadScopedReliabilitySample = async () => {
       } catch (err) {
         const status = (err as { status?: number; response?: { status?: number } })?.status ??
           (err as { response?: { status?: number } })?.response?.status
-        if (status === 403) {
+        if (status !== undefined || err) {
           projectActions.value = []
           projectAccessLoaded.value = true
         }

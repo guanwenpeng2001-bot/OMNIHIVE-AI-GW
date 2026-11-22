@@ -39,12 +39,18 @@ const mocks = vi.hoisted(() => ({
   listScopes: vi.fn(),
   listProjects: vi.fn(),
   getProjectAccess: vi.fn(),
+  getMemberGrants: vi.fn(),
+  updateProjectGrants: vi.fn(),
 }))
 
 vi.mock('@/api/client', () => ({
   apiClient: {
     get: mocks.apiGet,
   },
+}))
+
+vi.mock('@/features/console/scope', () => ({
+  identityApi: { getMemberGrants: mocks.getMemberGrants, updateProjectGrants: mocks.updateProjectGrants },
 }))
 
 vi.mock('@/api/workspaces', () => ({
@@ -89,6 +95,8 @@ describe('MembersAccessPage remote user search & i18n', () => {
       scope_version: '5',
       actions: ['members.grants.write', 'projects.write'],
     })
+    mocks.getMemberGrants.mockResolvedValue({ member_id: '7', version: '3', project_ids: ['p1'], actions: ['tasks.read'], project_grants: [{ project_id: 'p1', actions: ['tasks.read'] }], delegable_actions: ['projects.read', 'projects.edit', 'tasks.read', 'tasks.create', 'tasks.cancel', 'tasks.retry', 'tasks.artifacts.read'] })
+    mocks.updateProjectGrants.mockResolvedValue({ member_id: '7', version: '4' })
     mocks.workspacesMembers.mockResolvedValue([])
     mocks.workspacesSetMember.mockResolvedValue(undefined)
 
@@ -237,7 +245,7 @@ describe('MembersAccessPage remote user search & i18n', () => {
     expect(wrapper.find('[data-testid="platform-user-search-empty"]').exists()).toBe(true)
   })
 
-  it('renders grantable actions strictly from server authorization scope including tasks.* and excluding workspace/platform actions (E2-1)', async () => {
+  it('uses the shared per-project editor and server delegable actions without flattening grants', async () => {
     mocks.getProjectAccess.mockResolvedValue({
       actor_id: '1',
       scope_version: '5',
@@ -301,7 +309,11 @@ describe('MembersAccessPage remote user search & i18n', () => {
     await editGrantsBtn!.trigger('click')
     await flushPromises()
 
-    const modalText = wrapper.get('[data-testid="grant-actions-grid"]').text()
+    const editor = wrapper.get('[data-testid="project-grant-editor"]')
+    expect(mocks.getMemberGrants).toHaveBeenCalledWith('1', '7')
+    expect(editor.find('fieldset').exists()).toBe(false)
+    await editor.get('select').setValue('p1')
+    const modalText = editor.get('fieldset').text()
     expect(modalText).toContain('tasks.read')
     expect(modalText).toContain('tasks.create')
     expect(modalText).toContain('tasks.cancel')
@@ -315,6 +327,10 @@ describe('MembersAccessPage remote user search & i18n', () => {
     expect(modalText).not.toContain('members.grants.write')
     expect(modalText).not.toContain('ops.export.configure')
     expect(modalText).not.toContain('catalog.publish')
+    const save = editor.findAll('button').find(button => button.text() === 'Save project grants')!
+    await save.trigger('click')
+    await flushPromises()
+    expect(mocks.updateProjectGrants).toHaveBeenCalledWith('1', '7', 'p1', ['tasks.read'], '3')
   })
 
   it('provides accessible labels for all three select controls (E2-6)', async () => {

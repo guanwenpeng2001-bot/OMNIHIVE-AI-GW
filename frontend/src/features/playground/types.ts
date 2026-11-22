@@ -37,6 +37,7 @@ export interface PlaygroundSubmit {
   input: Record<string, unknown>
   options?: PlaygroundOptions
   funding_acknowledged: true
+  expected_price_version?: string
 }
 
 export interface PlaygroundReplay {
@@ -45,6 +46,7 @@ export interface PlaygroundReplay {
   input: Record<string, unknown>
   options?: PlaygroundOptions
   funding_acknowledged: true
+  expected_price_version?: string
 }
 
 export type PlaygroundRunState =
@@ -189,6 +191,7 @@ export interface PlaygroundCostEstimate {
   exceedsBodyLimit: boolean
   quoteState?: PlaygroundQuoteState
   quoteSource?: string | null
+  keyScoped?: boolean
   priceVersion?: string | null
   fundingSource?: string | null
   budgetBlocked?: boolean

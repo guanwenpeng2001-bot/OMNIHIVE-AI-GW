@@ -8,195 +8,46 @@ export interface PublicRequestOptions {
 
 export function isSnapshotExpiredError(err: unknown): boolean {
   const normalized = normalizeApiError(err)
-  if (normalized.status === 409 || normalized.status === 410) {
-    return true
-  }
+  if (normalized.status === 410) return true
   const reason = String(normalized.reason || '').toUpperCase()
   return reason === 'SNAPSHOT_EXPIRED'
 }
 
-export interface PublicRate {
-  amount: string
-  currency: string
-  per: string
-  unit: string
-}
-
-export interface PublicCatalogEvidence {
-  source: string
-  maturity: 'unknown' | 'stable' | 'experimental' | 'deprecated' | string
-  observed_at: string | null
-  expires_at: string | null
-  state: 'fresh' | 'stale' | 'unknown' | string
-}
-
-export interface PublicModelFacts {
-  source?: string
-  maturity?: 'unknown' | 'stable' | 'experimental' | 'deprecated' | string
-  observed_at?: string | null
-  expires_at?: string | null
-  state?: 'fresh' | 'stale' | 'unknown' | string
-  context_tokens?: string | null
-  max_output_tokens?: string | null
-  embedding_dimensions?: string | null
-  context_kind?: 'input' | 'total' | 'unspecified' | '' | string
-  tools?: boolean | null
-  vision?: boolean | null
-  reasoning?: boolean | null
-  prompt_caching?: boolean | null
-  pdf?: boolean | null
-  modalities?: string[] | null
-}
-
-export interface PublicCatalogCapability {
-  verified_extension_actions?: string[]
-  source?: string
-  maturity?: 'unknown' | 'stable' | 'experimental' | 'deprecated' | string
-  observed_at?: string | null
-  expires_at?: string | null
-  state?: 'fresh' | 'stale' | 'unknown' | string
-  action?: string
-  protocol?: string
-  mode?: 'native' | 'bridge' | 'unknown' | string
-  tools?: 'supported' | 'unsupported' | 'unknown' | string
-  stream?: 'supported' | 'unsupported' | 'unknown' | string
-  verified_at?: string | null
-  adapter_version?: string | null
-  limitations?: string[]
-}
-
-export interface PublicCatalogEndpoint {
-  id: string
-  provider: string
-  training: string
-  content_retention: string
-  regions: string[]
-  safety_retention_days: string | null
-  region_evidence?: PublicCatalogEvidence | null
-  privacy_evidence?: PublicCatalogEvidence | null
-  capabilities?: PublicCatalogCapability[]
-}
-
-export interface PublicRateBand {
-  rate: PublicRate
-  kind: string
-  min_tokens: string | null
-  max_tokens: string | null
-  label?: string
-}
-
-export interface PublicTimeBand {
-  timezone: string
-  start_time: string
-  end_time: string
-  weekdays_only: boolean
-  multiplier: string
-}
-
-export type PublicCatalogMetrics = components['schemas']['CatalogMetrics']
-
-export interface PublicCatalogBenchmark {
-  benchmark_id: string
-  unit: string
-  source: string
-  value: string
-  verified_at: string
-}
-
-export interface PublicModelCompatibility {
-  action: string
-  protocol: string
-  account_mode: string
-  adapter_version: string
-  maturity: 'candidate' | 'experimental' | 'stable' | 'deprecated' | 'closed' | string
-  publication_version: string
-  published_at: string
-}
-
-export interface PublicModelSummary {
-  id: string
-  model: string
-  display_name?: string
-  provider?: string | null
-  catalog_version?: string
-  context_tokens?: string | null
-  modalities?: string[] | null
-  protocols?: string[] | null
-  actions?: string[] | null
-  regions?: string[] | null
-  maturity?: 'unknown' | 'stable' | 'experimental' | 'deprecated' | string | null
-  catalog_state?: string | null
-  access_state?: 'allowed' | 'denied' | 'unknown' | 'requires_scope' | string | null
-  input_rate?: PublicRate | null
-  output_rate?: PublicRate | null
-  route_state?: string | null
-  price_state?: 'priced' | 'free' | 'unpriced' | 'error' | string | null
-  availability_state?: 'live' | 'catalog_only' | string | null
-  reference_price?: {
-    source?: string
-    input_rate?: PublicRate | null
-    output_rate?: PublicRate | null
-  } | null
-  observed_at?: string | null
-  evidence_state?: 'fresh' | 'stale' | 'unknown' | string | null
-  metrics?: PublicCatalogMetrics | null
-}
-
-export interface PublicModelPage {
+// Generated schemas define transport facts. The optional projections below
+// tolerate older servers during a rolling upgrade; omitted values stay unknown.
+type Schema = components['schemas']
+export type PublicRate = Schema['CatalogRate']
+export type PublicCatalogEvidence = Schema['CatalogEvidence']
+export type PublicModelFacts = Partial<Schema['CatalogModelFacts']>
+export type PublicCatalogCapability = Partial<Schema['CatalogCapability']>
+export type PublicCatalogEndpoint = Schema['CatalogEndpoint']
+export type PublicRateBand = Schema['CatalogRateBand']
+export type PublicTimeBand = Schema['CatalogTimeBand']
+export type PublicCatalogMetrics = Schema['CatalogMetrics']
+export type PublicCatalogBenchmark = Schema['CatalogBenchmark']
+export type PublicModelCompatibility = Omit<Schema['CatalogModelCompatibility'], 'evidence' | 'deprecation'> &
+  Partial<Pick<Schema['CatalogModelCompatibility'], 'evidence' | 'deprecation'>>
+export type PublicModelSummary = Pick<Schema['ModelSummary'], 'id' | 'model'> &
+  Partial<Omit<Schema['ModelSummary'], 'id' | 'model' | 'reference_price'>> & {
+    reference_price?: Partial<Schema['CatalogReferencePrice']> | null
+  }
+export type PublicModelPage = Partial<Omit<Schema['CatalogModelPage'], 'items'>> & {
   items: PublicModelSummary[]
-  next_cursor?: string | null
-  as_of?: string | null
-  catalog_version?: string | null
 }
-
-export interface PublicModelDetail {
+export type PublicModelDetail = Partial<Omit<Schema['ModelDetail'], 'model' | 'model_facts' | 'capabilities' | 'reference_price'>> & {
   model: PublicModelSummary
-  aliases?: string[]
   model_facts?: PublicModelFacts[]
   capabilities?: PublicCatalogCapability[] | null
-  endpoints?: PublicCatalogEndpoint[]
-  price_version?: string | null
-  price_source?: string | null
-  reference_price?: { source: string; input_rate: PublicRate; output_rate: PublicRate }
-  additional_rates?: PublicRateBand[]
-  context_basis?: string
-  time_bands?: PublicTimeBand[]
-  metrics?: PublicCatalogMetrics | null
-  benchmarks?: PublicCatalogBenchmark[]
-  compatibility?: PublicModelCompatibility[]
-  documentation_url?: string | null
-  redactions?: string[]
+  reference_price?: Partial<Schema['CatalogReferencePrice']> | null
 }
-
-export interface PublicCatalogMoney {
-  currency: string
-  amount: string
-}
-
-export interface PublicCatalogEstimate {
-  state: 'estimated' | 'unpriced' | string
-  price_version?: string | null
-  estimated_charge?: PublicCatalogMoney | null
-  components?: Array<{ kind: string; quantity: string; raw_amount: string }>
-  rounding_adjustment?: string | null
-}
-
-export type PublicCompareInput = components['schemas']['CatalogCompareInput']
-
-export interface PublicCompareRow {
-  model_id: string
-  capabilities?: {
-    tools?: 'supported' | 'unsupported' | 'unknown' | string
-    stream?: 'supported' | 'unsupported' | 'unknown' | string
-  } | null
-  metrics?: PublicCatalogMetrics | null
-  benchmarks?: PublicCatalogBenchmark[] | null
-  quote?: PublicCatalogEstimate | null
-}
-
-export interface PublicCompareResponse {
-  catalog_version?: string | null
-  as_of?: string | null
+export type PublicCatalogMoney = Schema['CatalogMoney']
+export type PublicCatalogEstimate = Partial<Schema['CatalogEstimate']>
+export type PublicCompareInput = Schema['CatalogCompareInput']
+export type PublicCompareRow = Pick<Schema['CatalogCompareRow'], 'model_id'> &
+  Partial<Omit<Schema['CatalogCompareRow'], 'model_id' | 'quote'>> & {
+    quote?: PublicCatalogEstimate | null
+  }
+export type PublicCompareResponse = Partial<Omit<Schema['CatalogCompareResult'], 'rows'>> & {
   rows: PublicCompareRow[]
 }
 
@@ -284,7 +135,8 @@ export interface ListParams {
   region?: string[]
   retention?: string[]
   stability?: string[]
-  availability_state?: 'live' | 'catalog_only'
+  availability_state?: 'live' | 'catalog_only' | 'requires_scope' | 'unknown' | 'unavailable' | 'eligible'
+  publication_state?: 'published' | 'draft' | 'withdrawn'
   sort?: 'name' | 'price_input' | 'context' | 'ttft' | 'availability'
   cursor?: string | null
   limit?: number
@@ -301,6 +153,7 @@ function arrayParams(params: ListParams): Record<string, unknown> {
     retention: params.retention?.length ? params.retention : undefined,
     stability: params.stability?.length ? params.stability : undefined,
     availability_state: params.availability_state || undefined,
+    publication_state: params.publication_state || undefined,
     sort: params.sort,
     cursor: params.cursor || undefined,
     limit: params.limit ?? 20
@@ -346,6 +199,40 @@ function matchesCanonicalModelSlug(item: PublicModelSummary, idOrSlug: string): 
   return false
 }
 
+// Legacy links may contain a name rather than an immutable model ID. Resolve
+// every matching page before choosing: names are not globally unique.
+async function resolveLegacyModelName(
+  target: string,
+  query: string,
+  options?: PublicRequestOptions
+): Promise<PublicModelSummary | undefined> {
+  const matches = new Map<string, PublicModelSummary>()
+  const seenCursors = new Set<string>()
+  let cursor: string | undefined
+  do {
+    const page = await listPublicModels({ q: query, limit: 100, cursor }, options)
+    for (const model of page.items ?? []) {
+      if (matchesCanonicalModelSlug(model, target)) matches.set(model.id, model)
+    }
+    if (matches.size > 1) {
+      throw Object.assign(new Error('Model name is ambiguous; select a provider-qualified model.'), {
+        status: 409,
+        reason: 'MODEL_IDENTITY_AMBIGUOUS'
+      })
+    }
+    cursor = page.next_cursor || undefined
+    if (cursor) {
+      if (seenCursors.has(cursor) || seenCursors.size >= 100) {
+        throw Object.assign(new Error('Model lookup could not complete; retry from the directory.'), {
+          reason: 'CATALOG_PAGINATION_INCOMPLETE'
+        })
+      }
+      seenCursors.add(cursor)
+    }
+  } while (cursor)
+  return matches.values().next().value
+}
+
 async function fetchPublicModelDirect(
   idOrSlug: string,
   catalogVersion?: string,
@@ -386,19 +273,13 @@ export async function getPublicModel(
       throw err
     }
 
-    const primaryPage = await listPublicModels({ q: target, limit: 50 }, requestOptions)
-    let matched = (primaryPage.items ?? []).find((item) =>
-      matchesCanonicalModelSlug(item, target)
-    )
+    let matched = await resolveLegacyModelName(target, target, requestOptions)
 
     if (!matched && target.includes('/')) {
       const slashIndex = target.indexOf('/')
       const modelTail = target.slice(slashIndex + 1).trim()
       if (modelTail) {
-        const tailPage = await listPublicModels({ q: modelTail, limit: 50 }, requestOptions)
-        matched = (tailPage.items ?? []).find((item) =>
-          matchesCanonicalModelSlug(item, target)
-        )
+        matched = await resolveLegacyModelName(target, modelTail, requestOptions)
       }
     }
 

@@ -4,6 +4,40 @@
  */
 
 export interface paths {
+    "/api/v1/admin/settings/effective": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Inspect redacted effective configuration and its authority (platform administrator) */
+        get: operations["getEffectiveSettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/settings/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Atomically remove allowed overrides under an optimistic settings version */
+        post: operations["resetSettingOverrides"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/workbuddy/oauth/poll": {
         parameters: {
             query?: never;
@@ -458,6 +492,25 @@ export interface paths {
         };
         /** Read a published incident and its full update history */
         get: operations["publicIncidentDetail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        /** Read current actions in workspace aggregate scope */
+        get: operations["identityWorkspaceAccess"];
         put?: never;
         post?: never;
         delete?: never;
@@ -964,6 +1017,27 @@ export interface paths {
         get: operations["identityMemberGrants"];
         /** Replace member project grants */
         put: operations["identitySetGrants"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/members/{id}/grants/projects/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace direct actions for one member and project without altering other projects */
+        put: operations["identitySetProjectGrants"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1813,6 +1887,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/model-diagnostics/{model_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                model_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Project model operations view; requires models.read and connections.read. */
+        get: operations["getModelDiagnostics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/workspaces/{workspace_id}/projects/{project_id}/models": {
         parameters: {
             query?: never;
@@ -2088,6 +2183,27 @@ export interface paths {
         put?: never;
         /** Authorize and fund a new call using the original model and protocol */
         post: operations["playgroundReplayRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/requests/{id}/replay-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["RequestsID"];
+            };
+            cookie?: never;
+        };
+        /** Resolve the source model and protocol before quoting a replay */
+        get: operations["playgroundReplayContext"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2422,6 +2538,14 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AdminModelDiagnostics: {
+            model: components["schemas"]["ModelSummary"];
+            field_evidence: components["schemas"]["CatalogModelFacts"][];
+            offers: components["schemas"]["CatalogOfferDiagnostic"][];
+            catalog_version: string;
+            /** Format: date-time */
+            evaluated_at: string;
+        };
         /** @description Frozen server admission metadata. Readers apply project authorization and their field-level projection before delivery. */
         AdmittedExecution: {
             /** Format: uuid */
@@ -2585,6 +2709,14 @@ export interface components {
             revoked_at: string | null;
         };
         ByokVerify: Record<string, never>;
+        CatalogAccountDiagnostic: {
+            account_id: string;
+            /** @enum {string} */
+            discovery_state: "unknown" | "fresh" | "stale";
+            /** @enum {string} */
+            connection_state: "unknown" | "active" | "verification_failed" | "verification_stale";
+            observed_at: string | null;
+        };
         CatalogBenchmark: {
             benchmark_id: string;
             unit: string;
@@ -2594,6 +2726,9 @@ export interface components {
             verified_at: string;
         };
         CatalogCapability: {
+            provenance?: {
+                [key: string]: components["schemas"]["CatalogProvenance"];
+            };
             verified_extension_actions?: components["schemas"]["ExtensionActionLabel"][];
             source: string;
             /** @enum {string} */
@@ -2679,6 +2814,9 @@ export interface components {
             raw_amount: string;
         };
         CatalogEvidence: {
+            provenance?: {
+                [key: string]: components["schemas"]["CatalogProvenance"];
+            };
             source: string;
             /** @enum {string} */
             maturity: "unknown" | "stable" | "experimental" | "deprecated";
@@ -2716,6 +2854,9 @@ export interface components {
             deprecation: components["schemas"]["CatalogDeprecationNotice"] | null;
         };
         CatalogModelFacts: {
+            provenance?: {
+                [key: string]: components["schemas"]["CatalogProvenance"];
+            };
             source: string;
             /** @enum {string} */
             maturity: "unknown" | "stable" | "experimental" | "deprecated";
@@ -2746,11 +2887,28 @@ export interface components {
             currency: string;
             amount: string;
         };
+        CatalogOfferDiagnostic: {
+            accounts?: components["schemas"]["CatalogAccountDiagnostic"][];
+            group_id: string;
+            account_ids: string[];
+            access: boolean;
+            eligible: boolean;
+            discovered_only: boolean;
+            sale_price: components["schemas"]["CatalogSalePrice"];
+        };
         CatalogPriceScenario: {
             input_tokens?: string;
             cached_input_tokens?: string;
             output_tokens?: string;
             requests?: string;
+        };
+        CatalogProvenance: {
+            source_kind: string;
+            source_revision: string;
+            field_path: string;
+            /** @enum {string} */
+            approval: "approved" | "reference" | "unreviewed";
+            selected_reason: string;
         };
         CatalogRate: {
             currency: string;
@@ -2766,6 +2924,10 @@ export interface components {
             label?: string;
         };
         CatalogReferencePrice: {
+            /** @enum {string} */
+            price_kind?: "reference";
+            billing_state?: string;
+            billing_reason?: string;
             state: string;
             source: string;
             input_rate: components["schemas"]["CatalogRate"] | null;
@@ -2773,6 +2935,22 @@ export interface components {
             additional_rates: components["schemas"]["CatalogRateBand"][] | null;
             context_basis?: string;
             time_bands: components["schemas"]["CatalogTimeBand"][] | null;
+        };
+        CatalogSalePrice: {
+            provenance?: {
+                [key: string]: components["schemas"]["CatalogProvenance"];
+            };
+            /** @enum {string} */
+            price_kind?: "sale";
+            state: string;
+            source: string;
+            billing_state?: string;
+            billing_reason?: string;
+            input_rate: components["schemas"]["CatalogRate"] | null;
+            output_rate: components["schemas"]["CatalogRate"] | null;
+            additional_rates: components["schemas"]["CatalogRateBand"][];
+            time_bands: components["schemas"]["CatalogTimeBand"][];
+            context_basis?: string;
         };
         CatalogScope: {
             workspace_id: components["schemas"]["IdentityID"];
@@ -3325,6 +3503,11 @@ export interface components {
             output_tokens: string | null;
             platform_charge: components["schemas"]["CostMoney"] | null;
         };
+        EffectiveSettings: {
+            setting_version: string;
+            items: components["schemas"]["SettingEffectiveValue"][];
+            reset_groups: string[];
+        };
         ExactCount: string;
         ExactDuration: string;
         /** @description Quantities per request. Cached input is included in input; other dimensions are disjoint. Missing usage fields default to zero and requests defaults to one. */
@@ -3346,6 +3529,9 @@ export interface components {
             size_tier?: string;
         };
         ExactQuote: {
+            price_context?: components["schemas"]["PriceContext"];
+            /** Format: date-time */
+            expires_at?: string;
             /** @enum {string} */
             state: "estimated" | "free" | "unpriced";
             price_version: string | null;
@@ -3417,7 +3603,8 @@ export interface components {
         IdentityAccess: {
             actor_id: components["schemas"]["IdentityID"];
             workspace_id: components["schemas"]["IdentityID"];
-            project_id: components["schemas"]["IdentityID"];
+            /** @description Explicit project ID, or zero for workspace aggregate access. */
+            project_id: components["schemas"]["IdentityID"] | "0";
             actions: string[];
             scope_version: components["schemas"]["IdentityID"];
             /** Format: date-time */
@@ -3452,6 +3639,24 @@ export interface components {
             owner_id: components["schemas"]["IdentityID"];
             version: components["schemas"]["IdentityID"];
             credential: string | null;
+            /** @description Effective credential lifecycle; unknown values must not be treated as executable. */
+            status: string;
+            /** Format: date-time */
+            expires_at: string | null;
+            /** Format: date-time */
+            evaluated_at: string;
+            actions: string[];
+            model_access: {
+                /** @enum {string} */
+                mode: "inherit" | "allow_list" | "deny_all";
+                ids: string[];
+            };
+            group_id: string | null;
+            /** @description Effective provider-qualified exclusions; applies even when model_access inherits. */
+            excluded_models: string[];
+            /** @enum {string} */
+            model_policy_source: "model_access_rules" | "legacy_intersection" | "legacy_only";
+            platform: string;
         };
         IdentityKeyGroup: {
             id: components["schemas"]["IdentityID"];
@@ -3492,7 +3697,14 @@ export interface components {
             status: string;
             version: components["schemas"]["IdentityID"];
         };
-        IdentityMemberGrants: components["schemas"]["IdentityGrantVersion"] & components["schemas"]["IdentityGrantInput"];
+        IdentityMemberGrants: components["schemas"]["IdentityGrantVersion"] & components["schemas"]["IdentityGrantInput"] & {
+            /** @description Authoritative paired project actions; legacy arrays are a lossy projection. */
+            project_grants: {
+                project_id: components["schemas"]["IdentityID"];
+                actions: string[];
+            }[];
+            delegable_actions: string[];
+        };
         IdentityMemberPage: {
             items: components["schemas"]["IdentityMember"][];
             next_cursor: string | null;
@@ -3665,6 +3877,13 @@ export interface components {
             size_bytes: string | null;
         };
         ModelDetail: {
+            price_provenance?: {
+                [key: string]: components["schemas"]["CatalogProvenance"];
+            };
+            /** @description Project-only model diagnostics; requires connections.read. Never included in public responses. */
+            offers?: components["schemas"]["CatalogOfferDiagnostic"][];
+            /** @enum {string} */
+            price_kind?: "sale";
             model: components["schemas"]["ModelSummary"];
             reference_price?: components["schemas"]["CatalogReferencePrice"] | null;
             aliases: string[];
@@ -3683,6 +3902,15 @@ export interface components {
             redactions: string[];
         };
         ModelSummary: {
+            origins?: string[];
+            /** @enum {string} */
+            publication_state?: "draft" | "published" | "withdrawn";
+            /** @enum {string} */
+            billing_state?: "priced" | "scope_required" | "multiple_offers" | "missing" | "partial_rate" | "conflict" | "conditional";
+            billing_reason?: string;
+            price_source?: string;
+            reference_price?: components["schemas"]["CatalogReferencePrice"];
+            metrics?: components["schemas"]["CatalogMetrics"];
             id: string;
             model: string;
             display_name: string;
@@ -3698,7 +3926,7 @@ export interface components {
             /** @enum {string} */
             catalog_state: "listed";
             /** @enum {string} */
-            availability_state?: "live" | "catalog_only";
+            availability_state?: "live" | "catalog_only" | "requires_scope" | "unknown" | "unavailable" | "eligible";
             /** @enum {string} */
             access_state: "allowed" | "denied" | "unknown" | "requires_scope";
             /** @enum {string} */
@@ -3791,6 +4019,8 @@ export interface components {
             options?: components["schemas"]["PlaygroundOptions"];
             /** @constant */
             funding_acknowledged: true;
+            /** @description Optional accepted quote version; a different execution price is rejected before admission. */
+            expected_price_version?: string;
         };
         PlaygroundResult: {
             /** Format: uuid */
@@ -3824,6 +4054,8 @@ export interface components {
             options?: components["schemas"]["PlaygroundOptions"];
             /** @constant */
             funding_acknowledged: true;
+            /** @description Optional accepted quote version; a different execution price is rejected before admission. */
+            expected_price_version?: string;
         };
         PlaygroundSummary: {
             /** Format: uuid */
@@ -3840,6 +4072,25 @@ export interface components {
             detail_url: string;
             payer_user_id: components["schemas"]["IdentityID"];
             settlement_state: string;
+        };
+        PriceContext: {
+            workspace_id?: string;
+            project_id?: string;
+            actor_id?: string;
+            /** @description Credential owner whose personal sale rate applies. */
+            payer_id?: string;
+            key_id?: string;
+            group_id?: string;
+            account_id?: string;
+            provider: string;
+            model: string;
+            model_id?: string;
+            /** @enum {string} */
+            funding: "wallet" | "byok" | "platform_fee";
+            policy_version?: string;
+            catalog_version?: string;
+            /** Format: date-time */
+            pricing_at: string;
         };
         RequestsAttempt: {
             id: string;
@@ -4027,6 +4278,11 @@ export interface components {
                 kind: "input_token" | "output_token";
                 quantity: string;
             }[];
+        };
+        ResetSettingOverridesInput: {
+            expected_version: string;
+            groups: string[];
+            keys: string[];
         };
         RestoreExecuteInput: {
             preview_id: string;
@@ -4298,6 +4554,26 @@ export interface components {
             trace_days: number;
             /** @default 24 */
             content_hours: number;
+        };
+        SettingEffectiveValue: {
+            key: string;
+            group: string;
+            /** @description Typed value; always null for secrets */
+            effective_value: unknown;
+            source: string;
+            override_state: string;
+            /** @description Registry default; always null for secrets */
+            default_value: unknown;
+            default_version: string;
+            setting_version: string;
+            applied_version: string;
+            restart_required: boolean;
+            can_reset: boolean;
+            sensitive: boolean;
+            configured: boolean;
+            key_id?: string;
+            validation_state: string;
+            blocked_by: string[];
         };
         StatusAffectedComponents: components["schemas"]["StatusComponentID"][];
         StatusComponent: {
@@ -4957,6 +5233,99 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getEffectiveSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Effective settings snapshot; sensitive values are always null */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["EffectiveSettings"];
+                    };
+                };
+            };
+            /** @description Administrator authorization, validation, or storage error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: number;
+                        message: string;
+                        reason?: string;
+                        metadata?: {
+                            [key: string]: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    resetSettingOverrides: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetSettingOverridesInput"];
+            };
+        };
+        responses: {
+            /** @description Reset completed; OAuth credentials reset as an entire provider group */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["EffectiveSettings"];
+                    };
+                };
+            };
+            /** @description SETTING_VERSION_CONFLICT; reload and review before submitting again */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Administrator authorization, validation, or storage error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: number;
+                        message: string;
+                        reason?: string;
+                        metadata?: {
+                            [key: string]: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
     workBuddyAdminOAuthPoll: {
         parameters: {
             query?: never;
@@ -5600,7 +5969,8 @@ export interface operations {
                 region?: string[];
                 retention?: string[];
                 stability?: string[];
-                availability_state?: "live" | "catalog_only";
+                publication_state?: "draft" | "published" | "withdrawn";
+                availability_state?: "live" | "catalog_only" | "requires_scope" | "unknown" | "unavailable" | "eligible";
                 sort?: "name" | "price_input" | "context" | "ttft" | "availability";
                 limit?: components["parameters"]["IdentityLimit"];
                 cursor?: components["parameters"]["IdentityCursor"];
@@ -5835,6 +6205,43 @@ export interface operations {
             304: components["responses"]["StatusNotModified"];
             404: components["responses"]["StatusError"];
             default: components["responses"]["StatusError"];
+        };
+    };
+    identityWorkspaceAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["IdentityAccess"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
         };
     };
     workspaceCostActivity: {
@@ -6840,6 +7247,53 @@ export interface operations {
                 headers: {
                     /** @description Quoted updated grant version for If-Match */
                     ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["IdentityGrantVersion"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    identitySetProjectGrants: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    actions: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Updated under the member grant version */
+            200: {
+                headers: {
                     [name: string]: unknown;
                 };
                 content: {
@@ -8501,6 +8955,45 @@ export interface operations {
             };
         };
     };
+    getModelDiagnostics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                model_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authorized model provenance, discovery, groups, sales tariffs and publication */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["AdminModelDiagnostics"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
     listProjectModels: {
         parameters: {
             query?: {
@@ -8512,7 +9005,8 @@ export interface operations {
                 region?: string[];
                 retention?: string[];
                 stability?: string[];
-                availability_state?: "live" | "catalog_only";
+                publication_state?: "draft" | "published" | "withdrawn";
+                availability_state?: "live" | "catalog_only" | "requires_scope" | "unknown" | "unavailable" | "eligible";
                 sort?: "name" | "price_input" | "context" | "ttft" | "availability";
                 limit?: components["parameters"]["IdentityLimit"];
                 cursor?: components["parameters"]["IdentityCursor"];
@@ -8927,6 +9421,41 @@ export interface operations {
         };
         responses: {
             200: components["responses"]["PlaygroundExecution"];
+            default: components["responses"]["RequestsError"];
+        };
+    };
+    playgroundReplayContext: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["RequestsID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Source metadata without retained request content */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: {
+                            request_id: string;
+                            model_id: string;
+                            protocol: components["schemas"]["PlaygroundProtocol"];
+                        };
+                    };
+                };
+            };
             default: components["responses"]["RequestsError"];
         };
     };

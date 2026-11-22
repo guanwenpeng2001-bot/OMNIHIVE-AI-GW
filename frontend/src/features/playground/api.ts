@@ -180,6 +180,10 @@ async function executeStreamingPost(
 }
 
 export const playgroundApi = {
+  async getReplayContext(workspaceId: string, projectId: string, requestId: string): Promise<{ request_id: string; model_id: string; protocol: import('./types').PlaygroundProtocol }> {
+    const { data } = await apiClient.get(v2ProjectUrl(workspaceId, projectId, `/requests/${encodeURIComponent(requestId)}/replay-context`), { baseURL: '' })
+    return data
+  },
   submitRun(
     workspaceId: string,
     projectId: string,

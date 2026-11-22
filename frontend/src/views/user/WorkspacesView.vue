@@ -46,7 +46,7 @@
               type="button"
               data-testid="activate-workspace-scope-btn"
               class="btn btn-secondary btn-sm font-mono text-xs"
-              @click="activateScope(String(selected.id), preferredProject?.id ?? null)"
+              @click="activateScope(String(selected.id), null)"
             >
               {{ t('workspaces.activateScope') }}
             </button>
@@ -87,16 +87,6 @@
           </p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
-          <button
-            v-if="preferredProject && (!isSelectedWorkspaceActive || activeScope.projectId !== preferredProject.id)"
-            type="button"
-            data-testid="activate-default-project-btn"
-            class="btn btn-primary btn-sm font-mono text-xs"
-            @click="activateScope(String(selected.id), preferredProject.id)"
-          >
-            {{ t('workspaces.activateDefaultProject') }}
-            ({{ preferredProject.name }})
-          </button>
           <RouterLink
             v-if="showQuickActionKeys"
             :to="`/workspaces/${selected.id}/keys`"
@@ -315,6 +305,13 @@
                     >
                       {{ t('workspaces.activateScope') }}
                     </button>
+                    <RouterLink
+                      v-if="selected.role === 'admin' || (activeScope.projectId === proj.id && projectAccessLoaded && hasProjectAction('connections.read'))"
+                      to="/catalog-management"
+                      :data-testid="`catalog-operations-${proj.id}`"
+                      class="btn btn-secondary btn-sm px-2 py-1 text-xs"
+                      @click="activateScope(String(selected.id), proj.id)"
+                    >{{ isZh ? '模型运营链路' : 'Model operations' }}</RouterLink>
                     <button
                       v-if="canEditProject && (proj.state ?? 'active') === 'active'"
                       type="button"
@@ -374,9 +371,11 @@
                 {{ member.role === 'admin' ? t('workspaces.admin') : t('workspaces.member') }}
               </span>
             </div>
+            <button type="button" class="btn btn-secondary" :disabled="busy" @click="grantMember = member">{{ isZh ? '项目权限' : 'Project permissions' }}</button>
             <button type="button" class="btn btn-secondary" :disabled="busy" @click="removeMember(member.user_id)">{{ t('workspaces.remove') }}</button>
           </li>
         </ul>
+        <ProjectGrantEditor v-if="grantMember && selected" :workspace-id="String(selected.id)" :member-id="String(grantMember.user_id)" :projects="projects" :inherited-admin="grantMember.role === 'admin'" />
       </section>
       <section class="card space-y-5 p-5 sm:p-6" :aria-busy="policyLoading || policySaving" aria-labelledby="workspace-policy-title">
         <div class="flex flex-wrap items-start justify-between gap-3">
@@ -464,6 +463,7 @@ import { normalizeApiError } from '@/utils/apiError'
 import type { RoutingPolicyConfig } from '@/api/mcp'
 import { classifyConsoleError, type ConsoleAsyncNotice } from '@/features/console/asyncState'
 import ConsoleAsyncBanner from '@/features/console/components/ConsoleAsyncBanner.vue'
+import ProjectGrantEditor from '@/features/console/components/ProjectGrantEditor.vue'
 import {
   identityApi,
   persistConsoleScope,
@@ -481,12 +481,10 @@ const members = ref<WorkspaceMember[]>([])
 const selectedID = ref<number | null>(null)
 const selected = computed(() => workspaces.value.find(workspace => workspace.id === selectedID.value))
 
-const activeScope = ref<ConsoleScopeSelection>(readPersistedConsoleScope())
+const activeScope = computed<ConsoleScopeSelection>(() => app.activeScope ?? readPersistedConsoleScope())
+const grantMember = ref<WorkspaceMember | null>(null)
 const isSelectedWorkspaceActive = computed(
   () => Boolean(selected.value && String(selected.value.id) === activeScope.value.workspaceId)
-)
-const preferredProject = computed(
-  () => projects.value.find((proj) => (proj.state ?? 'active') === 'active') ?? projects.value[0] ?? null
 )
 const activeProject = computed(
   () => projects.value.find((proj) => proj.id === activeScope.value.projectId) ?? null
@@ -517,16 +515,16 @@ const canEditProject = computed(
 const canDeleteProject = computed(
   () => selected.value?.role === 'admin' || (projectAccessLoaded.value && hasProjectAction('projects.delete'))
 )
-const showQuickActionKeys = computed(() => !projectAccessLoaded.value || hasProjectAction('keys.read'))
-const showQuickActionPlayground = computed(() => !projectAccessLoaded.value || hasProjectAction('playground.run'))
+const showQuickActionKeys = computed(() => projectAccessLoaded.value && hasProjectAction('keys.read'))
+const showQuickActionPlayground = computed(() => projectAccessLoaded.value && hasProjectAction('playground.run'))
 const showQuickActionUsage = computed(
   () =>
-    !projectAccessLoaded.value ||
+    projectAccessLoaded.value && (
     hasProjectAction('usage.read') ||
     hasProjectAction('requests.read') ||
-    hasProjectAction('billing.read')
+    hasProjectAction('billing.read'))
 )
-const showQuickActionTasks = computed(() => !projectAccessLoaded.value || hasProjectAction('tasks.read'))
+const showQuickActionTasks = computed(() => projectAccessLoaded.value && hasProjectAction('tasks.read'))
 const workspaceName = ref('')
 const userID = ref<number | null>(null)
 const memberRole = ref<WorkspaceMember['role']>('member')
@@ -678,30 +676,20 @@ async function loadProjects(workspaceID: number | null | undefined, explicit = f
   const hadCached = projects.value.length > 0
   projectsLoading.value = true
   try {
-    const page = await identityApi.listProjects(String(workspaceID), { limit: 100 })
+    const items: IdentityProject[] = []
+    let cursor: string | undefined
+    const seen = new Set<string>()
+    do {
+      const page = await identityApi.listProjects(String(workspaceID), { limit: 100, ...(cursor ? { cursor } : {}) })
+      items.push(...page.items)
+      cursor = page.next_cursor ?? undefined
+      if (cursor && seen.has(cursor)) throw new Error('Repeated project cursor')
+      if (cursor) seen.add(cursor)
+    } while (cursor && seq === projectRequestSeq)
+    const page = { items }
     if (seq === projectRequestSeq) {
       projects.value = page.items ?? []
-      if (
-        selected.value &&
-        String(selected.value.id) === String(workspaceID) &&
-        !activeScope.value.workspaceId
-      ) {
-        const defaultProj =
-          projects.value.find((proj) => (proj.state ?? 'active') === 'active') ??
-          projects.value[0] ??
-          null
-        const initialScope: ConsoleScopeSelection = {
-          mode: 'workspace',
-          workspaceId: String(selected.value.id),
-          projectId: defaultProj?.id ?? null
-        }
-        persistConsoleScope(initialScope)
-        activeScope.value = initialScope
-      }
-      const targetProjectId =
-        activeScope.value.workspaceId === String(workspaceID)
-          ? (activeScope.value.projectId ?? preferredProject.value?.id ?? null)
-          : (preferredProject.value?.id ?? null)
+      const targetProjectId = activeScope.value.workspaceId === String(workspaceID) ? activeScope.value.projectId : null
       void loadActiveProjectAccess(String(workspaceID), targetProjectId)
     }
   } catch (err) {
@@ -720,6 +708,7 @@ async function loadProjects(workspaceID: number | null | undefined, explicit = f
 }
 
 function onWorkspaceSelectionChange() {
+  grantMember.value = null
   projects.value = []
   projectAccessLoaded.value = false
   projectActions.value = []
@@ -735,7 +724,6 @@ function activateScope(workspaceId: string, projectId: string | null) {
     projectId
   }
   persistConsoleScope(next)
-  activeScope.value = next
   void loadActiveProjectAccess(workspaceId, projectId)
   scopeConfirmedNotice.value = {
     kind: 'confirmed',

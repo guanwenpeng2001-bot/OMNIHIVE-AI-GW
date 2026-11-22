@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import { useAppStore } from '@/stores/app'
 import { identityApi } from '@/features/console/scope'
 import TaskCenterView from '../TaskCenterView.vue'
 import type { ImageTaskDetail } from '@/features/tasks/types'
@@ -113,13 +115,23 @@ describe('TaskCenterView BE-15 workflows and honest states', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.resetAllMocks()
+    setActivePinia(createPinia())
+    const app = useAppStore()
+    app.selectScope({ mode: 'workspace', workspaceId: '1', projectId: '5' })
+    vi.spyOn(app, 'fetchScopes').mockImplementation(async () => {
+      const page = await identityApi.listScopes()
+      app.scopes = page.items
+      app.scopesLoaded = true
+      app.scopesNextCursor = page.next_cursor
+      return page
+    })
     vi.spyOn(identityApi, 'listScopes').mockResolvedValue({
       items: [
         {
           workspace_id: '1',
-          workspace_name: 'Studio',
-          workspace_state: 'active',
-          projects: [{ id: '5', name: 'Media Pipeline', state: 'active' }]
+          name: 'Studio',
+          projects_next_cursor: null,
+          projects: [{ id: '5', name: 'Media Pipeline' }]
         }
       ],
       next_cursor: null,
@@ -298,7 +310,7 @@ describe('TaskCenterView BE-15 workflows and honest states', () => {
 
   it('renders no-scope state without falling back to hardcoded workspace/project 1 when scopes are empty', async () => {
     vi.spyOn(identityApi, 'listScopes').mockResolvedValue({
-      items: [{ workspace_id: '9', workspace_name: 'Empty', workspace_state: 'active', projects: [] }],
+      items: [{ workspace_id: '9', name: 'Empty', projects_next_cursor: null, projects: [] }],
       next_cursor: null,
       as_of: '2026-11-19T12:00:00Z'
     })

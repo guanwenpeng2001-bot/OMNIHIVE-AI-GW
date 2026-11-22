@@ -31,7 +31,8 @@ import {
   metricsStateReason,
   modalityLabel,
   modalityTone,
-  publicTokenPrice,
+  salePriceLabel,
+  referencePriceHint,
   publicValue,
   resolveAvailabilityState,
   routeStateLabel,
@@ -457,7 +458,7 @@ const stabilityGovernance = computed<FactRow>(() => {
   const rawMaturity =
     (model.value?.maturity && model.value.maturity !== 'unknown' ? model.value.maturity : null) ||
     (primaryFact.value?.maturity && primaryFact.value.maturity !== 'unknown' ? primaryFact.value.maturity : null) ||
-    detail.value?.compatibility?.find((c) => c.maturity && c.maturity !== 'unknown')?.maturity ||
+    detail.value?.compatibility?.find((c) => c.maturity)?.maturity ||
     null
 
   if (rawMaturity) {
@@ -542,7 +543,6 @@ const detailModalities = computed(() => {
 
 const detailAvailability = computed(() => {
   const state = resolveAvailabilityState(model.value)
-  if (state === 'unknown') return null
   return {
     state,
     label: availabilityStateLabel(state, isZh.value),
@@ -552,47 +552,13 @@ const detailAvailability = computed(() => {
 
 const activeReferencePrice = computed(() => detail.value?.reference_price ?? model.value?.reference_price ?? null)
 
-function hasLiveRate(kind: 'input' | 'output'): boolean {
-  if (model.value?.price_state === 'free') return true
-  return Boolean(kind === 'input' ? model.value?.input_rate : model.value?.output_rate)
-}
-
 function referencePriceSubtitle(kind: 'input' | 'output'): string | null {
-  const refRate =
-    kind === 'input' ? activeReferencePrice.value?.input_rate : activeReferencePrice.value?.output_rate
-  if (!refRate) return null
-  const source = activeReferencePrice.value?.source?.trim()
-  if (hasLiveRate(kind)) {
-    const formatted = publicTokenPrice(refRate, 'adaptive', isZh.value)
-    if (!formatted || formatted === '—') return null
-    if (source) {
-      return isZh.value
-        ? `参考定价 · ${formatted}（${source}）`
-        : `Reference price · ${formatted} (${source})`
-    }
-    return isZh.value ? `参考定价 · ${formatted}` : `Reference price · ${formatted}`
-  }
-  if (source) {
-    return isZh.value
-      ? `参考来源：${source}（非最终结算价）`
-      : `Reference source: ${source} (indicative only)`
-  }
-  return isZh.value ? '公开参考价，非最终结算价' : 'Indicative reference price, not final billing rate'
+  if (!model.value) return null
+  return referencePriceHint({ ...model.value, reference_price: activeReferencePrice.value }, kind, isZh.value)
 }
 
 function displayPrice(kind: 'input' | 'output'): string {
-  if (model.value?.price_state === 'free') return isZh.value ? '免费' : 'Free'
-  const rate = kind === 'input' ? model.value?.input_rate : model.value?.output_rate
-  if (rate) return publicTokenPrice(rate, 'adaptive', isZh.value)
-  const refRate = kind === 'input' ? activeReferencePrice.value?.input_rate : activeReferencePrice.value?.output_rate
-  if (refRate) {
-    const formatted = publicTokenPrice(refRate, 'adaptive', isZh.value)
-    return isZh.value ? `参考 ${formatted}` : `Ref ${formatted}`
-  }
-  if (detailAvailability.value?.state === 'catalog_only') {
-    return isZh.value ? '按需接入' : 'On demand'
-  }
-  return publicTokenPrice(rate, 'adaptive', isZh.value)
+  return salePriceLabel(model.value, kind, isZh.value)
 }
 
 function syncDetailSeo(): void {
@@ -606,7 +572,7 @@ function syncDetailSeo(): void {
     description: isZh.value
       ? `${modelTitle} 的上下文窗口、支持能力、定价与实时延迟指标。`
       : `Context window, capabilities, pricing, and live latency telemetry for ${modelTitle}.`,
-    canonicalPath: `/model-plaza/${encodeURIComponent(loaded.model || loaded.id)}`,
+    canonicalPath: `/model-plaza/${encodeURIComponent(loaded.id)}`,
     siteName: activeSiteName
   })
 }
@@ -851,8 +817,8 @@ onBeforeUnmount(() => {
         >
           {{
             isZh
-              ? '该模型当前为平台目录按需接入状态（Catalog Only），暂未绑定实时上游渠道。以下示例供接入参考，请在控制台联系管理员启用后再发起生产调用。'
-              : 'This model is currently listed as catalog-only (on demand) without an active upstream route. Use the snippet below for reference once an administrator enables routing.'
+              ? '此条目提供模型资料，不代表已接入或承诺开通。实际可用性、Key 权限和销售价格需要在具体项目内确认。'
+              : 'This entry provides model information and does not promise integration. Confirm availability, Key permissions, and sale pricing in a project before running a request.'
           }}
         </div>
         <div class="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-oh-default px-4 py-2.5">

@@ -8,7 +8,7 @@ import { useAppStore, useAuthStore } from '@/stores'
 import { useAdminSettingsStore } from '@/stores/adminSettings'
 import { useThemeDirection } from '@/composables/useThemeDirection'
 import { resolveVisibleTierNavItems, type ShellNavItemSpec } from '@/router/navigationRegistry'
-import { getModelPlaza } from '@/api/modelPlaza'
+import { listPublicModels } from '@/features/public/api'
 import { isSilentRequestError } from '@/api/client'
 
 const router = useRouter()
@@ -28,10 +28,13 @@ const {
 
 const isZh = computed(() => String(locale?.value || 'zh').toLowerCase().startsWith('zh'))
 
-const liveModelNames = ref<Array<{ name: string; platform: string }>>([])
+const catalogModels = ref<Array<{ id: string; name: string; platform: string }>>([])
 const modelsLoaded = ref(false)
 const modelsLoading = ref(false)
 let modelAbortController: AbortController | null = null
+let modelLoadGeneration = 0
+const modelQuery = ref('')
+let modelQueryTimer: ReturnType<typeof setTimeout> | undefined
 
 const isOpen = computed({
   get: () => Boolean(appStore.commandPaletteOpen || cmdkOpen.value),
@@ -73,9 +76,9 @@ function flattenNavItems(entries: ShellNavItemSpec[]): ShellNavItemSpec[] {
   )
 }
 
-async function loadLiveModelsIfPermitted(): Promise<void> {
+async function loadCatalogModelsIfPermitted(): Promise<void> {
   if (modelsLoaded.value || modelsLoading.value) return
-  if (appStore.cachedPublicSettings?.model_plaza_enabled === false) return
+  if (appStore.cachedPublicSettings?.model_plaza_enabled !== true) return
   if (
     appStore.cachedPublicSettings?.model_plaza_require_auth === true &&
     !authStore.isAuthenticated
@@ -85,36 +88,71 @@ async function loadLiveModelsIfPermitted(): Promise<void> {
 
   modelAbortController?.abort()
   modelAbortController = new AbortController()
+  const controller = modelAbortController
+  const generation = ++modelLoadGeneration
   modelsLoading.value = true
   try {
-    const response = await getModelPlaza({ signal: modelAbortController.signal })
+    const response = await listPublicModels({ limit: 24, sort: 'name', q: modelQuery.value || undefined }, { signal: controller.signal })
+    if (controller.signal.aborted || generation !== modelLoadGeneration) return
     const seen = new Set<string>()
-    const collected: Array<{ name: string; platform: string }> = []
-    for (const group of response?.groups ?? []) {
-      for (const model of group.models ?? []) {
-        if (!model.name || seen.has(model.name)) continue
-        seen.add(model.name)
-        collected.push({ name: model.name, platform: model.platform || group.platform || '' })
-        if (collected.length >= 24) break
-      }
+    const collected: Array<{ id: string; name: string; platform: string }> = []
+    for (const model of response.items ?? []) {
+      if (!model.id || seen.has(model.id)) continue
+      seen.add(model.id)
+      collected.push({ id: model.id, name: model.display_name || model.model, platform: model.provider || '' })
       if (collected.length >= 24) break
     }
-    liveModelNames.value = collected
+    catalogModels.value = collected
     modelsLoaded.value = true
   } catch (err) {
-    if (!isSilentRequestError(err)) {
-      liveModelNames.value = []
+    if (generation === modelLoadGeneration && !isSilentRequestError(err)) {
+      catalogModels.value = []
     }
   } finally {
+    if (generation === modelLoadGeneration) modelsLoading.value = false
+  }
+}
+
+watch(
+  () => [authStore.isAuthenticated, appStore.cachedPublicSettings?.model_plaza_enabled, appStore.cachedPublicSettings?.model_plaza_require_auth],
+  () => {
+    modelAbortController?.abort()
+    modelLoadGeneration++
+    catalogModels.value = []
+    modelsLoaded.value = false
     modelsLoading.value = false
+    if (isOpen.value) void loadCatalogModelsIfPermitted()
+  }
+)
+
+function resetModelSearch() {
+  if (modelQueryTimer) clearTimeout(modelQueryTimer)
+  modelQueryTimer = undefined
+  modelAbortController?.abort()
+  modelLoadGeneration++
+  catalogModels.value = []
+  modelsLoaded.value = false
+  modelsLoading.value = false
+}
+
+function handleQueryChange(query: string) {
+  const normalized = query.trim()
+  if (normalized === modelQuery.value) return
+  modelQuery.value = normalized
+  resetModelSearch()
+  if (isOpen.value) {
+    modelQueryTimer = setTimeout(() => {
+      modelQueryTimer = undefined
+      void loadCatalogModelsIfPermitted()
+    }, 180)
   }
 }
 
 watch(isOpen, (open) => {
+  resetModelSearch()
   if (open) {
-    void loadLiveModelsIfPermitted()
-  } else {
-    modelAbortController?.abort()
+    modelQuery.value = ''
+    void loadCatalogModelsIfPermitted()
   }
 })
 
@@ -211,18 +249,18 @@ const groups = computed<UiCommandGroup[]>(() => {
     })
   }
 
-  if (liveModelNames.value.length > 0) {
+  if (catalogModels.value.length > 0) {
     result.push({
       id: 'live-models',
-      label: isZh.value ? '实时目录模型' : 'CATALOG MODELS',
-      items: liveModelNames.value.map(
+      label: isZh.value ? '目录模型（最多 24 项）' : 'CATALOG MODELS (UP TO 24)',
+      items: catalogModels.value.map(
         (model): UiCommandItem => ({
-          id: `mdl-${model.name}`,
+          id: `mdl-${model.id}`,
           label: model.name,
           badge: model.platform ? model.platform.toUpperCase() : 'MODEL',
           keywords: ['model', model.name, model.platform],
           onSelect: () => {
-            void router.push({ path: '/model-plaza', query: { q: model.name } })
+            void router.push({ path: `/model-plaza/${encodeURIComponent(model.id)}` })
           }
         })
       )
@@ -305,7 +343,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  modelAbortController?.abort()
+  resetModelSearch()
   if (typeof window !== 'undefined') {
     window.removeEventListener('omnihive:open-cmdk', handleOpenCustomEvent)
   }
@@ -319,12 +357,13 @@ onBeforeUnmount(() => {
     :loading="modelsLoading"
     :placeholder="
       isZh
-        ? '搜索页面、实时模型、工作空间或外观命令…'
-        : 'Search routes, live models, workspaces, or preferences…'
+        ? '搜索页面、目录模型、工作空间或外观命令…'
+        : 'Search routes, catalog models, workspaces, or preferences…'
     "
     :empty-text="
       isZh ? '没有匹配的页面、模型或操作。' : 'No matching routes, models, or commands.'
     "
     register-shortcut
+    @query-change="handleQueryChange"
   />
 </template>

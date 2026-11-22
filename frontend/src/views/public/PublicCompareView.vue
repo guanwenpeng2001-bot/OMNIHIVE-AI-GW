@@ -17,7 +17,8 @@ import {
   formatMetricsWindow,
   formatPublicTimestamp,
   formatShortVersion,
-  publicTokenPrice,
+  salePriceLabel,
+  referencePriceHint,
   publicValue,
   resolveAvailabilityState
 } from '@/features/public/format'
@@ -257,7 +258,10 @@ const normalizedScenario = computed(() => {
   }
 })
 
-const canCompare = computed(() => selected.value.length >= 2 && selected.value.length <= 3)
+const stableModelId = /^m_[0-9a-f]{32}$/
+const canCompare = computed(() => !loadingOptions.value && !optionsError.value &&
+  selected.value.length >= 2 && selected.value.length <= 3 &&
+  selected.value.every(id => stableModelId.test(id)))
 
 const filteredOptions = computed(() => {
   const q = filterQuery.value.trim().toLowerCase()
@@ -279,12 +283,7 @@ function normalizeSelectedWithCatalog(): void {
   if (!selected.value.length || !options.value.length) return
   const resolved = selected.value
     .map((token) => {
-      const exact = options.value.find(
-        (opt) =>
-          opt.id === token ||
-          opt.model === token ||
-          Boolean(opt.provider && `${opt.provider}/${opt.model}` === token)
-      )
+      const exact = options.value.find((opt) => opt.id === token)
       return exact ? exact.id : token
     })
     .filter((id, idx, arr) => Boolean(id) && arr.indexOf(id) === idx)
@@ -344,12 +343,7 @@ async function run(): Promise<void> {
 }
 
 function findSummary(modelId: string): PublicModelSummary | undefined {
-  return options.value.find(
-    (item) =>
-      item.id === modelId ||
-      item.model === modelId ||
-      Boolean(item.provider && `${item.provider}/${item.model}` === modelId)
-  )
+  return options.value.find((item) => item.id === modelId)
 }
 
 function formatMetric(value?: number | string | null, suffix = ''): string {
@@ -374,7 +368,7 @@ function buildClientScenarioBreakdown(row: PublicCompareRow) {
   return calculateExactScenarioBreakdown({
     inputRate: summary?.input_rate,
     outputRate: summary?.output_rate,
-    priceState: summary?.price_state,
+    priceState: summary?.billing_state && summary.billing_state !== 'priced' ? 'unpriced' : summary?.price_state,
     inputTokens: normalizedScenario.value.input_tokens,
     cachedInputTokens: normalizedScenario.value.cached_input_tokens,
     outputTokens: normalizedScenario.value.output_tokens,
@@ -385,11 +379,8 @@ function buildClientScenarioBreakdown(row: PublicCompareRow) {
 
 function formatQuoteCell(row: PublicCompareRow): string {
   if (row.quote) {
-    if (row.quote.state === 'unpriced' || row.quote.state === 'error') {
+    if (row.quote.state !== 'estimated') {
       return tr('unpriced')
-    }
-    if (row.quote.state === 'free') {
-      return tr('free')
     }
     const charge = row.quote.estimated_charge
     if (charge) {
@@ -407,7 +398,7 @@ function formatQuoteCell(row: PublicCompareRow): string {
     return tr('unpriced')
   }
   const summary = findSummary(row.model_id)
-  if (summary?.price_state === 'free') return tr('free')
+  if (summary?.price_state === 'free' && (!summary.billing_state || summary.billing_state === 'priced')) return tr('free')
   const local = buildClientScenarioBreakdown(row)
   if (local.state === 'estimated' || local.state === 'free') {
     return local.totalDisplay
@@ -417,11 +408,8 @@ function formatQuoteCell(row: PublicCompareRow): string {
 
 function formatBreakdownDetailCell(row: PublicCompareRow): string {
   if (row.quote) {
-    if (row.quote.state === 'unpriced' || row.quote.state === 'error') {
+    if (row.quote.state !== 'estimated') {
       return '—'
-    }
-    if (row.quote.state === 'free') {
-      return tr('free')
     }
     const components = row.quote.components
     if (components?.length) {
@@ -465,21 +453,7 @@ function formatCompareRateCell(
   summary: PublicModelSummary | undefined,
   kind: 'input' | 'output'
 ): string {
-  if (summary?.price_state === 'free') return tr('free')
-  const rate = kind === 'input' ? summary?.input_rate : summary?.output_rate
-  if (rate) return publicTokenPrice(rate, 'adaptive', zhFlag.value)
-  const refRate =
-    kind === 'input' ? summary?.reference_price?.input_rate : summary?.reference_price?.output_rate
-  if (refRate) {
-    const formatted = publicTokenPrice(refRate, 'adaptive', zhFlag.value)
-    if (formatted && formatted !== '—') {
-      return `${tr('refPrefix')}${formatted}`
-    }
-  }
-  if (summary && resolveAvailabilityState(summary) === 'catalog_only') {
-    return tr('onDemand')
-  }
-  return publicTokenPrice(rate, 'adaptive', zhFlag.value)
+  return salePriceLabel(summary, kind, zhFlag.value)
 }
 
 const comparisonSections = computed<CompareSection[]>(() => {
@@ -539,6 +513,16 @@ const comparisonSections = computed<CompareSection[]>(() => {
           key: 'output-rate',
           label: tr('rowOutputRate'),
           values: rows.map((row) => formatCompareRateCell(findSummary(row.model_id), 'output'))
+        },
+        {
+          key: 'reference-input',
+          label: zhFlag.value ? '外部参考输入价（仅比较）' : 'External reference input (comparison only)',
+          values: rows.map((row) => referencePriceHint(findSummary(row.model_id), 'input', zhFlag.value) || '—')
+        },
+        {
+          key: 'reference-output',
+          label: zhFlag.value ? '外部参考输出价（仅比较）' : 'External reference output (comparison only)',
+          values: rows.map((row) => referencePriceHint(findSummary(row.model_id), 'output', zhFlag.value) || '—')
         },
         {
           key: 'scenario-quote',
@@ -611,21 +595,24 @@ function mergeCatalogOptions(items: PublicModelSummary[]): void {
 }
 
 async function hydrateMissingSelectedOptions(): Promise<void> {
-  const missing = selected.value.filter((token) => !findSummary(token))
+  const missing = selected.value.filter((token) => !stableModelId.test(token) || !findSummary(token))
   if (!missing.length) return
-  const results = await Promise.allSettled(missing.map((token) => getPublicModel(token)))
-  const hydrated: PublicModelSummary[] = []
-  for (const settled of results) {
-    if (settled.status !== 'fulfilled' || !settled.value?.model) continue
-    const summary: PublicModelSummary = {
-      ...settled.value.model,
-      reference_price: settled.value.reference_price ?? settled.value.model.reference_price
+  // Legacy names must use the complete, provider-aware resolver. A match on
+  // the current page cannot prove that another provider lacks the same name.
+  const resolved = await Promise.all(missing.map(async token => {
+    const detail = await getPublicModel(token)
+    if (!detail.model || !stableModelId.test(detail.model.id)) {
+      throw new Error('Model identity could not be resolved to a stable catalog ID.')
     }
-    hydrated.push(summary)
-  }
-  if (hydrated.length) {
-    mergeCatalogOptions(hydrated)
-  }
+    const summary: PublicModelSummary = {
+      ...detail.model,
+      reference_price: detail.reference_price ?? detail.model.reference_price
+    }
+    return { token, summary }
+  }))
+  mergeCatalogOptions(resolved.map(item => item.summary))
+  const identities = new Map(resolved.map(item => [item.token, item.summary.id]))
+  selected.value = selected.value.map(token => identities.get(token) ?? token)
 }
 
 async function loadMoreOptions(): Promise<void> {
@@ -654,14 +641,14 @@ async function loadOptions(): Promise<void> {
     const page = await listPublicModels({ limit: 100, sort: 'availability' })
     options.value = page.items ?? []
     optionsNextCursor.value = page.next_cursor ?? null
+    await hydrateMissingSelectedOptions()
+    normalizeSelectedWithCatalog()
   } catch (err) {
     optionsError.value = err
     return
   } finally {
     loadingOptions.value = false
   }
-  await hydrateMissingSelectedOptions()
-  normalizeSelectedWithCatalog()
   if (canCompare.value) void run()
 }
 
@@ -918,7 +905,8 @@ onMounted(() => {
               <td
                 v-for="(value, index) in metric.values"
                 :key="index"
-                class="break-words px-4 py-2.5 text-right font-mono text-xs tabular-nums text-oh-primary"
+                class="break-words px-4 py-2.5 text-right font-mono tabular-nums"
+                :class="metric.key.startsWith('reference-') ? 'text-[11px] text-oh-muted' : 'text-xs text-oh-primary'"
               >
                 {{ value }}
               </td>

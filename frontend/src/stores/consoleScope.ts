@@ -9,6 +9,7 @@ const USER_SCOPED_PREFIXES = [
   '/keys',
   '/byok',
   '/playground',
+  '/catalog-management',
   '/requests',
   '/tasks',
   '/billing',
@@ -54,6 +55,7 @@ export function routeUsesConsoleScope(rawPath: string | null | undefined): boole
  */
 export function readPersistedGlobalScope(): ScopeSelection {
   const versioned = scopeSelectionStorage.getJSON<Partial<ScopeSelection> | null>(null)
+  if (versioned?.mode === 'personal') return { mode: 'personal', workspaceId: null, projectId: null }
   if (
     versioned &&
     versioned.mode === 'workspace' &&

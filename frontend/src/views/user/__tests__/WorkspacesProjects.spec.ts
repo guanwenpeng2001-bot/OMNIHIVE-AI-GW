@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { reactive } from 'vue'
 import WorkspacesView from '../WorkspacesView.vue'
 
 const mocks = vi.hoisted(() => ({
@@ -12,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   getProjectAccess: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn(),
+  activeScope: { mode: 'personal', workspaceId: null, projectId: null } as { mode: string; workspaceId: string | null; projectId: string | null },
+  selectScope: vi.fn(),
   auth: { isAdmin: false, user: { id: 9 } }
 }))
 
@@ -62,6 +65,13 @@ describe('WorkspacesView BE-01 projects and scope switching', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.resetAllMocks()
+    mocks.activeScope = reactive({ mode: 'personal', workspaceId: null, projectId: null })
+    mocks.selectScope.mockImplementation(next => {
+      Object.assign(mocks.activeScope, next)
+      localStorage.setItem('omnihive.scope_selection.v1', JSON.stringify(next))
+      if (next.workspaceId) localStorage.setItem('omnihive.workspace_id.v1', next.workspaceId)
+      if (next.projectId) localStorage.setItem('omnihive.project_id.v1', next.projectId)
+    })
     mocks.list.mockResolvedValue([{ id: 7, name: 'Platform Team', role: 'admin', is_default: false }])
     mocks.members.mockResolvedValue([{ user_id: 9, role: 'admin' }])
     mocks.listProjects.mockResolvedValue({
@@ -120,40 +130,21 @@ describe('WorkspacesView BE-01 projects and scope switching', () => {
     wrapper.unmount()
   })
 
-  it('surfaces active scope banner, default workspace/role badges, and all 4 project quick actions on default onboarding', async () => {
-    mocks.list.mockResolvedValue([
-      { id: 1, name: 'Default', role: 'member', is_default: true }
-    ])
-    mocks.listProjects.mockResolvedValue({
-      items: [{ id: '101', workspace_id: '1', name: 'Default Project', state: 'active', version: '1' }],
-      next_cursor: null,
-      as_of: '2026-11-22T04:00:00Z'
-    })
-
-    const wrapper = mount(WorkspacesView, {
-      global: {
-        stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } }
-      }
-    })
+  it('keeps a zero-grant Default member in Personal and hides project quick actions', async () => {
+    mocks.list.mockResolvedValue([{ id: 1, name: 'Default', role: 'member', is_default: true }])
+    mocks.listProjects.mockResolvedValue({ items: [], next_cursor: null, as_of: '2026-11-22T04:00:00Z' })
+    const wrapper = mount(WorkspacesView, { global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } } } })
     await flushPromises()
-
     expect(wrapper.get('[data-testid="default-workspace-badge"]').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="workspace-role-badge"]').text()).toContain('workspaces.member')
-    const banner = wrapper.get('[data-testid="workspace-active-scope-banner"]')
-    expect(banner.text()).toContain('Default (#1)')
-    expect(banner.text()).toContain('Default Project (#101)')
-
-    expect(wrapper.get('[data-testid="quick-action-keys"]').attributes('href')).toBe('/workspaces/1/keys')
-    expect(wrapper.get('[data-testid="quick-action-playground"]').attributes('href')).toBe('/playground')
-    expect(wrapper.get('[data-testid="quick-action-usage"]').attributes('href')).toBe('/usage')
-    expect(wrapper.get('[data-testid="quick-action-tasks"]').attributes('href')).toBe('/tasks')
-
-    expect(localStorage.getItem('omnihive.workspace_id.v1')).toBe('1')
-    expect(localStorage.getItem('omnihive.project_id.v1')).toBe('101')
+    expect(mocks.activeScope.mode).toBe('personal')
+    expect(mocks.getProjectAccess).not.toHaveBeenCalled()
+    for (const name of ['keys', 'playground', 'usage', 'tasks']) expect(wrapper.find(`[data-testid="quick-action-${name}"]`).exists()).toBe(false)
+    expect(localStorage.getItem('omnihive.project_id.v1')).toBeNull()
     wrapper.unmount()
   })
 
   it('gates create, rename, and archive buttons for non-admin members using exact projects.create/edit/delete grants', async () => {
+    Object.assign(mocks.activeScope, { mode: 'workspace', workspaceId: '7', projectId: '12' })
     mocks.list.mockResolvedValue([
       { id: 7, name: 'Platform Team', role: 'member', is_default: false }
     ])

@@ -119,17 +119,6 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     keywords: ['key', 'quota', 'inspector', 'balance', '额度查询']
   },
   {
-    id: 'public-pricing',
-    path: '/pricing',
-    tier: 'public',
-    section: 'public',
-    fallbackLabelEn: 'Pricing',
-    fallbackLabelZh: '定价方案',
-    icon: 'dollar',
-    order: 40,
-    keywords: ['pricing', 'plans', 'rates', '定价', '价格']
-  },
-  {
     id: 'public-status',
     path: '/status',
     tier: 'public',
@@ -429,6 +418,17 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     hideInSimpleMode: true,
     order: 28,
     keywords: ['catalog', 'models', 'mapping', 'pricing', '渠道定价', '模型目录']
+  },
+  {
+    id: 'admin-model-catalog',
+    path: '/catalog-management',
+    tier: 'admin',
+    section: 'connections',
+    fallbackLabelEn: 'Model Operations',
+    fallbackLabelZh: '模型运营链路',
+    icon: 'grid',
+    order: 27,
+    keywords: ['models', 'provenance', 'discovery', 'pricing', '模型来源', '目录诊断']
   },
   {
     id: 'admin-accounts',

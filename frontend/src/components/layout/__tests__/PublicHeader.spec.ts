@@ -133,7 +133,6 @@ describe('PublicHeader responsive navigation', () => {
     expect(links.map((node) => ({ href: node.attributes('href'), text: node.text() }))).toEqual([
       { href: '/model-plaza', text: '模型广场' },
       { href: '/key-usage', text: '额度查询' },
-      { href: '/pricing', text: '定价' },
       { href: '/status', text: '服务状态' },
       { href: '/docs', text: '文档' },
       { href: '/compatibility', text: '更新与兼容' }
@@ -159,13 +158,12 @@ describe('PublicHeader responsive navigation', () => {
     expect(mobileLinks.map((node) => ({ href: node.attributes('href'), text: node.text() }))).toEqual([
       { href: '/model-plaza', text: 'MODELS' },
       { href: '/key-usage', text: 'QUOTA' },
-      { href: '/pricing', text: 'PRICING' },
       { href: '/status', text: 'STATUS' },
       { href: 'https://docs.example.com/guide', text: 'DOCS ↗' },
       { href: '/compatibility', text: 'COMPATIBILITY' }
     ])
-    expect(mobileLinks[4].attributes('target')).toBe('_blank')
-    expect(mobileLinks[4].attributes('rel')).toBe('noopener noreferrer')
+    expect(mobileLinks[3].attributes('target')).toBe('_blank')
+    expect(mobileLinks[3].attributes('rel')).toBe('noopener noreferrer')
     expect(wrapper.find('a[href="/register"]').exists()).toBe(false)
 
     storeState.docUrl = 'javascript:alert(1)'
@@ -173,7 +171,7 @@ describe('PublicHeader responsive navigation', () => {
 
     const sanitizedDocsLink = wrapper
       .get('[data-testid="public-mobile-nav-list"]')
-      .findAll('a')[4]
+      .findAll('a')[3]
     expect(sanitizedDocsLink.attributes('href')).toBe('/docs')
   })
 
@@ -221,7 +219,7 @@ describe('PublicHeader responsive navigation', () => {
     await toggle.trigger('click')
     const pricingLink = wrapper
       .get('[data-testid="public-mobile-nav-list"]')
-      .find('a[href="/pricing"]')
+      .find('a[href="/model-plaza"]')
 
     await pricingLink.trigger('click')
     expect(wrapper.find('#public-mobile-nav').exists()).toBe(false)

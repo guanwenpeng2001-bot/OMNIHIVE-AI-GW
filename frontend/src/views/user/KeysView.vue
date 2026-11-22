@@ -107,6 +107,7 @@
         data-testid="issued-project-key-scope-banner"
         class="card space-y-2 border-[var(--oh-accent-border,rgba(245,158,11,0.35))] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.06))] p-3 sm:px-4"
       >
+        <p data-testid="issued-project-key-origin" class="text-xs font-semibold">{{ lastIssuedProjectKeyScope.scopeLabel }}</p>
         <div class="flex items-center justify-between gap-2">
           <span class="text-xs font-semibold text-[var(--foreground)]">
             {{ t('keys.issuedProjectKeyScopeTitle', { name: lastIssuedProjectKeyScope.name }) }}
@@ -240,7 +241,18 @@
         </details>
       </section>
 
-      <TablePageLayout>
+      <section v-if="activeConsoleScope.mode === 'workspace'" class="card space-y-3 p-4" data-testid="project-key-surface">
+        <p v-if="!activeConsoleScope.projectId">{{ isZh ? '请选择具体项目，或返回个人空间创建个人 Key。' : 'Select a project, or return to Personal to create a personal key.' }}</p>
+        <ConsoleAsyncBanner v-if="keysAccessNotice" :notice="keysAccessNotice" :retry-label="t('common.refresh')" @retry="refreshKeysSurface" />
+        <button v-if="canWriteKeys && issueProjectPolicyCredential" class="btn btn-primary" data-tour="keys-create-btn" data-testid="keys-create-btn" @click="showCreateModal = true">{{ isZh ? '创建项目 Key' : 'Create Project Key' }}</button>
+        <ul v-if="canReadKeys" class="space-y-2">
+          <li v-for="key in projectScopedKeys" :key="key.id" class="flex flex-wrap justify-between gap-2">
+            <span>{{ key.name }} · #{{ key.id }}</span><span>{{ key.status ?? 'unknown' }} · {{ key.expires_at || (isZh ? '无到期时间' : 'No expiry') }}</span>
+          </li>
+        </ul>
+        <button class="btn btn-secondary" @click="appStore.selectPersonalScope(); navigateConsole('/keys')">{{ isZh ? '返回个人空间' : 'Return to Personal' }}</button>
+      </section>
+      <TablePageLayout v-if="activeConsoleScope.mode === 'personal'">
         <template #filters>
           <div class="flex flex-col gap-2.5">
             <div class="oh-filter-bar card flex flex-wrap items-center justify-between gap-3 p-3">
@@ -875,23 +887,9 @@
               }}
             </span>
           </div>
-          <label
-            v-if="activeConsoleScope.workspaceId && activeConsoleScope.projectId"
-            class="mt-2 flex cursor-pointer items-start gap-2 text-[var(--muted-foreground)]"
-          >
-            <input
-              v-model="issueProjectPolicyCredential"
-              type="checkbox"
-              class="mt-0.5 h-3.5 w-3.5 rounded border-[var(--border)]"
-            />
-            <span>
-              {{
-                isZh
-                  ? `签发受限项目专属凭证（直接绑定至项目 #${activeConsoleScope.projectId} 的目录模型与计费审计策略）`
-                  : `Issue restricted project-scoped credential (bound directly to Project #${activeConsoleScope.projectId} catalog & billing policy)`
-              }}
-            </span>
-          </label>
+          <p v-if="issueProjectPolicyCredential" class="text-sm" data-testid="project-key-kind">
+            {{ isZh ? '此凭证仅属于当前项目。项目 Key 支持权限、模型规则与到期时间；此表单不提供个人 Key 的 IP、额度、周期预算或自定义密钥设置。' : 'This key belongs to the selected project. Project issuance supports actions, model policy and expiry; personal-key IP, quota, period budget and custom-secret settings are not available here.' }}
+          </p>
           <div
             v-if="issueProjectPolicyCredential"
             data-testid="project-key-scope-preview"
@@ -1083,7 +1081,7 @@
         </div>
 
         <!-- Custom Key Section (only for create) -->
-        <div v-if="!showEditModal" class="space-y-3">
+        <div v-if="!showEditModal && !issueProjectPolicyCredential" class="space-y-3">
           <div class="flex items-center justify-between">
             <label class="input-label mb-0">{{ t('keys.customKeyLabel') }}</label>
             <button
@@ -1129,7 +1127,7 @@
         </div>
 
         <!-- IP Restriction Section -->
-        <div class="space-y-3">
+        <div v-if="!issueProjectPolicyCredential" class="space-y-3">
           <div class="flex items-center justify-between">
             <label class="input-label mb-0">{{ t('keys.ipRestriction') }}</label>
             <button
@@ -1175,7 +1173,7 @@
         </div>
 
         <!-- Quota Limit Section -->
-        <div class="space-y-3">
+        <div v-if="!issueProjectPolicyCredential" class="space-y-3">
           <label class="input-label">{{ t('keys.quotaLimit') }}</label>
           <!-- Switch commented out - always show input, 0 = unlimited
           <div class="flex items-center justify-between">
@@ -1234,7 +1232,7 @@
         </div>
 
         <!-- Rate Limit Section -->
-        <div class="space-y-3">
+        <div v-if="!issueProjectPolicyCredential" class="space-y-3">
           <div class="flex items-center justify-between">
             <label class="input-label mb-0">{{ t('keys.rateLimitSection') }}</label>
             <button
@@ -1398,7 +1396,7 @@
         </div>
 
         <!-- Period Budget Section (USD, separate from RPM/TPM) -->
-        <div class="space-y-3">
+        <div v-if="!issueProjectPolicyCredential" class="space-y-3">
           <div class="flex items-center justify-between">
             <label class="input-label mb-0">{{ t('keys.budgetSection') }}</label>
             <button
@@ -1603,7 +1601,7 @@
           <button
             form="key-form"
             type="submit"
-            :disabled="submitting || (!showEditModal && (groupsLoading || groupsLoadFailed || (issueProjectPolicyCredential ? resolvedProjectGroupId === null : (!formData.group_id || !groups.some(group => group.id === formData.group_id)))))"
+            :disabled="submitting || !canWriteKeys || (issueProjectPolicyCredential && selectedProjectKeyActions.length === 0) || (!showEditModal && (groupsLoading || groupsLoadFailed || (issueProjectPolicyCredential ? resolvedProjectGroupId === null : (!formData.group_id || !groups.some(group => group.id === formData.group_id)))))"
             class="btn btn-primary"
             data-tour="key-form-submit"
           >
@@ -1680,9 +1678,11 @@
 
     <!-- One-time secret dialog -->
     <KeySecretDialog
+      :key="issuedSecretSequence"
       :show="showSecretDialog"
       :secret="issuedSecret"
       :grace-until="issuedGraceUntil"
+      :scope-label="issuedScopeLabel"
       @close="closeSecretDialog"
     />
 
@@ -1812,6 +1812,7 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 	import { ref, reactive, computed, getCurrentInstance, watch, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 	import { useI18n } from 'vue-i18n'
 	import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 	import { useOnboardingStore } from '@/stores/onboarding'
 	import { useClipboard } from '@/composables/useClipboard'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
@@ -1830,13 +1831,18 @@ const { t, locale } = useI18n()
 const isZh = computed(() => String(locale?.value || '').startsWith('zh'))
 const instance = getCurrentInstance()
 
-const activeConsoleScope = ref<ConsoleScopeSelection>(readPersistedConsoleScope())
+const activeConsoleScope = computed<ConsoleScopeSelection>(() => appStore.activeScope ?? readPersistedConsoleScope())
 const projectScopedKeys = ref<IdentityKey[]>([])
-const canReadKeys = ref(true)
-const canWriteKeys = ref(true)
+const canReadKeys = ref(false)
+const canWriteKeys = ref(false)
 const grantedProjectActions = ref<string[] | null>(null)
 const keysAccessNotice = ref<ConsoleAsyncNotice | null>(null)
-const issueProjectPolicyCredential = ref(false)
+const issueProjectPolicyCredential = computed(() => activeConsoleScope.value.mode === 'workspace' && Boolean(activeConsoleScope.value.workspaceId && activeConsoleScope.value.projectId))
+let accessGeneration = 0
+let keysGeneration = 0
+let scopeFormGeneration = 0
+let submissionGeneration = 0
+let actorGeneration = 0
 const projectKeyAllowModelsRead = ref(false)
 const PROJECT_KEY_GRANTED_ACTIONS = [
   'text.chat',
@@ -1852,7 +1858,7 @@ const availableProjectKeyBaseActions = computed<string[]>(() => {
   const allowed = PROJECT_KEY_GRANTED_ACTIONS.filter((act) =>
     grantedProjectActions.value!.includes(act)
   )
-  return allowed.length > 0 ? allowed : [...PROJECT_KEY_GRANTED_ACTIONS]
+  return allowed
 })
 const selectedProjectKeyActions = computed<string[]>(() =>
   projectKeyAllowModelsRead.value &&
@@ -1863,6 +1869,7 @@ const selectedProjectKeyActions = computed<string[]>(() =>
 const lastIssuedProjectKeyScope = ref<{
   name: string
   actions: string[]
+  scopeLabel: string
 } | null>(null)
 
 const scopedBillingHref = computed(() => {
@@ -1887,6 +1894,7 @@ function navigateConsole(path: string): void {
 }
 
 async function loadProjectScopedKeys(): Promise<void> {
+  const gen = ++keysGeneration
   const ws = activeConsoleScope.value.workspaceId
   const proj = activeConsoleScope.value.projectId
   if (!canReadKeys.value || !ws || !proj || typeof identityApi.listProjectKeys !== 'function') {
@@ -1894,29 +1902,45 @@ async function loadProjectScopedKeys(): Promise<void> {
     return
   }
   try {
-    const page = await identityApi.listProjectKeys(ws, proj, { limit: 50 })
-    if (!disposed) {
-      projectScopedKeys.value = page?.items ?? []
-    }
+    const items: IdentityKey[] = []
+    let cursor: string | undefined
+    const seen = new Set<string>()
+    do {
+      const page = await identityApi.listProjectKeys(ws, proj, { limit: 100, ...(cursor ? { cursor } : {}) })
+      items.push(...page.items)
+      cursor = page.next_cursor ?? undefined
+      if (cursor && seen.has(cursor)) throw new Error('Repeated key cursor')
+      if (cursor) seen.add(cursor)
+    } while (cursor && gen === keysGeneration && !disposed)
+    if (!disposed && gen === keysGeneration) projectScopedKeys.value = items
   } catch {
-    if (!disposed) {
+    if (!disposed && gen === keysGeneration) {
       projectScopedKeys.value = []
     }
   }
 }
 
 async function refreshKeyAccess(): Promise<{ canRead: boolean; canWrite: boolean }> {
+  const gen = ++accessGeneration
+  canReadKeys.value = false
+  canWriteKeys.value = false
+  grantedProjectActions.value = []
   const ws = activeConsoleScope.value.workspaceId
   const proj = activeConsoleScope.value.projectId
-  if (!ws || !proj || typeof identityApi.getProjectAccess !== 'function') {
+  if (activeConsoleScope.value.mode === 'personal') {
     canReadKeys.value = true
     canWriteKeys.value = true
     grantedProjectActions.value = null
     keysAccessNotice.value = null
     return { canRead: true, canWrite: true }
   }
+  if (!ws || !proj) {
+    keysAccessNotice.value = classifyConsoleError({ status: 403, message: 'Select a project or return to Personal.' }, { isZh: isZh.value })
+    return { canRead: false, canWrite: false }
+  }
   try {
     const access = await identityApi.getProjectAccess(ws, proj)
+    if (disposed || gen !== accessGeneration) return { canRead: false, canWrite: false }
     const actions = Array.isArray(access?.actions) ? access.actions : []
     const allowAll = actions.includes('*')
     const canRead = allowAll || actions.includes('keys.read')
@@ -1938,27 +1962,14 @@ async function refreshKeyAccess(): Promise<{ canRead: boolean; canWrite: boolean
     }
     return { canRead, canWrite }
   } catch (err) {
-    const status = (err as { status?: number; response?: { status?: number } })?.status ??
-      (err as { response?: { status?: number } })?.response?.status
-    if (status === 403) {
-      canReadKeys.value = false
-      canWriteKeys.value = false
-      grantedProjectActions.value = []
-      keysAccessNotice.value = classifyConsoleError(err, {
-        requiredGrantFallback: 'keys.read',
-        isZh: isZh.value
-      })
-      apiKeys.value = []
-      projectScopedKeys.value = []
-      pagination.value.total = 0
-      pagination.value.pages = 0
-      return { canRead: false, canWrite: false }
-    }
-    canReadKeys.value = true
-    canWriteKeys.value = true
-    grantedProjectActions.value = null
-    keysAccessNotice.value = null
-    return { canRead: true, canWrite: true }
+    if (disposed || gen !== accessGeneration) return { canRead: false, canWrite: false }
+    canReadKeys.value = false
+    canWriteKeys.value = false
+    grantedProjectActions.value = []
+    keysAccessNotice.value = classifyConsoleError(err, { requiredGrantFallback: 'keys.read', isZh: isZh.value })
+    apiKeys.value = []
+    projectScopedKeys.value = []
+    return { canRead: false, canWrite: false }
   }
 }
 
@@ -1969,9 +1980,33 @@ async function refreshKeysSurface(): Promise<void> {
   void loadProjectScopedKeys()
 }
 
+function invalidateKeyContext(): void {
+  accessGeneration++
+  keysGeneration++
+  scopeFormGeneration++
+  canReadKeys.value = false
+  canWriteKeys.value = false
+  grantedProjectActions.value = []
+  apiKeys.value = []
+  projectScopedKeys.value = []
+  groups.value = []
+  userGroupRates.value = {}
+  abortController?.abort()
+  auxiliaryControllers.forEach(controller => controller.abort())
+  auxiliaryControllers.clear()
+  loading.value = false
+  groupsLoading.value = false
+  showCreateModal.value = false
+  showEditModal.value = false
+  closeModals()
+  showDeleteDialog.value = false
+}
+
 function handleConsoleScopeSync(): void {
-  activeConsoleScope.value = readPersistedConsoleScope()
+  invalidateKeyContext()
   void refreshKeysSurface()
+  void loadGroups()
+  void loadUserGroupRates()
 }
 import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
 import { buildGatewayUrl } from '@/api/url'
@@ -2029,6 +2064,7 @@ interface GroupOption {
 }
 
 const appStore = useAppStore()
+const authStore = useAuthStore()
 const onboardingStore = useOnboardingStore()
 const { copyToClipboard: clipboardCopy } = useClipboard()
 const copiedEndpoint = ref('')
@@ -2269,6 +2305,10 @@ const rotateTarget = ref<ApiKey | null>(null)
 const showSecretDialog = ref(false)
 const issuedSecret = ref('')
 const issuedGraceUntil = ref<string | null>(null)
+const issuedScopeLabel = ref('')
+const issuedSecretSequence = ref(0)
+const queuedSecrets: Array<{ secret: string; graceUntil: string | null; scopeLabel: string }> = []
+let rotationContext: { actor: string; generation: number; scopeLabel: string; keyId: number } | null = null
 const showCcsClientSelect = ref(false)
 const showColumnDropdown = ref(false)
 const pendingCcsRow = ref<ApiKey | null>(null)
@@ -2286,6 +2326,46 @@ const groupButtonRefs = ref<Map<number, HTMLElement>>(new Map())
 let abortController: AbortController | null = null
 const auxiliaryControllers = new Map<string, AbortController>()
 let disposed = false
+
+function keyScopeLabel(selection: ConsoleScopeSelection): string {
+  return selection.mode === 'workspace'
+    ? `${isZh.value ? '工作空间' : 'Workspace'} #${selection.workspaceId} / ${isZh.value ? '项目' : 'Project'} #${selection.projectId}`
+    : (isZh.value ? '个人空间 · 个人 Key' : 'Personal space · Personal key')
+}
+
+function presentIssuedSecret(item: { secret: string; graceUntil: string | null; scopeLabel: string }): void {
+  issuedSecretSequence.value++
+  issuedSecret.value = item.secret
+  issuedGraceUntil.value = item.graceUntil
+  issuedScopeLabel.value = item.scopeLabel
+  showSecretDialog.value = true
+}
+
+function enqueueIssuedSecret(secret: string, graceUntil: string | null, scopeLabel: string): void {
+  const item = { secret, graceUntil, scopeLabel }
+  if (showSecretDialog.value) queuedSecrets.push(item)
+  else presentIssuedSecret(item)
+}
+
+watch(() => [authStore?.user?.id, authStore?.sessionRevision], () => {
+  actorGeneration++
+  if (submitting.value) appStore.showInfo(isZh.value
+    ? '登录账号或会话已变化。若刚才提交了创建请求，请回原账号检查并撤销或重建 Key。'
+    : 'The signed-in account or session changed. Check the original account and revoke or recreate any key you just requested.')
+  issuedSecret.value = ''
+  issuedGraceUntil.value = null
+  issuedScopeLabel.value = ''
+  showSecretDialog.value = false
+  queuedSecrets.length = 0
+  sessionSecrets.clear()
+  lastIssuedProjectKeyScope.value = null
+  submissionGeneration++
+  submitting.value = false
+  showRotateModal.value = false
+  rotateTarget.value = null
+  rotationContext = null
+  invalidateKeyContext()
+}, { flush: 'sync' })
 
 // Get the currently selected key for group change
 const selectedKeyForGroup = computed(() => {
@@ -2458,15 +2538,6 @@ const resolvedProjectGroupId = computed<number | string | null>(() => {
   ) {
     return formData.value.group_id
   }
-  const recommended = recommendedDefaultGroup.value?.value ?? null
-  if (recommended !== null && groups.value.some((group) => String(group.id) === String(recommended))) {
-    return recommended
-  }
-  const fallback = resolveDefaultRoutingGroupId(groups.value)
-  if (fallback !== null) {
-    const matched = groups.value.find((group) => String(group.id) === String(fallback))
-    if (matched) return matched.id
-  }
   return null
 })
 
@@ -2527,6 +2598,7 @@ const isAbortError = (error: unknown) => {
 
 const loadApiKeys = async () => {
   if (disposed) return
+  if (activeConsoleScope.value.mode !== 'personal') { apiKeys.value = []; loading.value = false; return }
   if (!canReadKeys.value) {
     loading.value = false
     return
@@ -2652,21 +2724,27 @@ function isGroupInSelectedScope(group: Group, workspaceId: string, projectId: st
 }
 
 const loadGroups = async () => {
-  const scopedWorkspaceId = isProjectKeyCreateMode.value ? activeConsoleScope.value.workspaceId : null
-  const scopedProjectId = isProjectKeyCreateMode.value ? activeConsoleScope.value.projectId : null
+  const scopedWorkspaceId = issueProjectPolicyCredential.value ? activeConsoleScope.value.workspaceId : null
+  const scopedProjectId = issueProjectPolicyCredential.value ? activeConsoleScope.value.projectId : null
   groupsLoading.value = true
   groupsLoadFailed.value = false
   await loadAuxiliary('groups', async options => {
     try {
-      const requestOptions =
-        scopedWorkspaceId && scopedProjectId
-          ? { ...options, workspaceId: scopedWorkspaceId, projectId: scopedProjectId }
-          : options
-      const result = await userGroupsAPI.getAvailable(requestOptions)
       if (scopedWorkspaceId && scopedProjectId) {
-        return result.filter(group => isGroupInSelectedScope(group, scopedWorkspaceId, scopedProjectId))
+        const items: Group[] = []
+        let cursor: string | undefined
+        const seen = new Set<string>()
+        do {
+          const page = await identityApi.listKeyGroups(scopedWorkspaceId, scopedProjectId, { limit: 100, ...(cursor ? { cursor } : {}) })
+          items.push(...page.items.map(group => ({ ...group, id: Number(group.id) } as Group)).filter(group => isGroupInSelectedScope(group, scopedWorkspaceId, scopedProjectId)))
+          cursor = page.next_cursor ?? undefined
+          if (cursor && seen.has(cursor)) throw new Error('Project group pagination did not advance.')
+          if (cursor) seen.add(cursor)
+        } while (cursor && !options.signal.aborted)
+        return items
       }
-      return result
+      if (activeConsoleScope.value.mode !== 'personal') return []
+      return await userGroupsAPI.getAvailable(options)
     } catch (error) {
       if (!options.signal.aborted && !disposed) groupsLoadFailed.value = true
       throw error
@@ -2852,17 +2930,17 @@ const changeGroup = async (key: ApiKey, newGroupId: number | null) => {
 const displayCredential = (value: string) => (value?.startsWith('****') ? value : maskApiKey(value))
 
 const openRotateModal = (key: ApiKey) => {
+  rotationContext = { actor: String(authStore?.user?.id ?? ''), generation: actorGeneration, scopeLabel: keyScopeLabel(activeConsoleScope.value), keyId: key.id }
   rotateTarget.value = key
   showRotateModal.value = true
 }
 
 const onCredentialIssued = (payload: { secret: string; graceUntil: string | null }) => {
-  if (rotateTarget.value && payload.secret) {
-    sessionSecrets.set(rotateTarget.value.id, payload.secret)
+  if (!rotationContext || disposed || rotationContext.generation !== actorGeneration || rotationContext.actor !== String(authStore?.user?.id ?? '')) return
+  if (payload.secret) {
+    sessionSecrets.set(rotationContext.keyId, payload.secret)
   }
-  issuedSecret.value = payload.secret
-  issuedGraceUntil.value = payload.graceUntil
-  showSecretDialog.value = true
+  enqueueIssuedSecret(payload.secret, payload.graceUntil, rotationContext.scopeLabel)
   loadApiKeys()
 }
 
@@ -2870,6 +2948,9 @@ const closeSecretDialog = () => {
   showSecretDialog.value = false
   issuedSecret.value = ''
   issuedGraceUntil.value = null
+  issuedScopeLabel.value = ''
+  const next = queuedSecrets.shift()
+  if (next) presentIssuedSecret(next)
 }
 
 const closeGroupSelector = (event: MouseEvent) => {
@@ -2971,6 +3052,11 @@ const buildBudgetPayload = (): ApiKeyPeriodBudgetRequest | null => {
 }
 
 const handleSubmit = async () => {
+  if (submitting.value) return
+  if (!canWriteKeys.value || (issueProjectPolicyCredential.value && selectedProjectKeyActions.value.length === 0)) {
+    appStore.showError(isZh.value ? '无法确认创建权限，或可授予 action 为空。' : 'Key creation is unavailable or no actions can be granted.')
+    return
+  }
   if (!showEditModal.value && issueProjectPolicyCredential.value) {
     if (groupsLoading.value || groupsLoadFailed.value) {
       appStore.showError(t(groupsLoadFailed.value ? 'keys.groupsLoadFailed' : 'keys.projectGroupRequired'))
@@ -3041,6 +3127,16 @@ const handleSubmit = async () => {
     rate_limit_7d: formData.value.rate_limit_7d && formData.value.rate_limit_7d > 0 ? formData.value.rate_limit_7d : 0,
   } : { rate_limit_5h: 0, rate_limit_1d: 0, rate_limit_7d: 0 }
 
+  const issuingScope = { ...activeConsoleScope.value }
+  const issuingActor = String(authStore?.user?.id ?? '')
+  const issuingActorGeneration = actorGeneration
+  const issuingFormGeneration = scopeFormGeneration
+  const issuingSubmission = ++submissionGeneration
+  const issuingName = formData.value.name.trim()
+  const issuingActions = [...selectedProjectKeyActions.value]
+  const issuedTo = keyScopeLabel(issuingScope)
+  const sameActor = () => !disposed && issuingActorGeneration === actorGeneration && issuingActor === String(authStore?.user?.id ?? '')
+  const sameForm = () => sameActor() && issuingFormGeneration === scopeFormGeneration
   submitting.value = true
   try {
     if (showEditModal.value && selectedKey.value) {
@@ -3063,11 +3159,12 @@ const handleSubmit = async () => {
         updates.status = formData.value.status
       }
       await keysAPI.update(selectedKey.value.id, updates)
+      if (!sameActor()) return
       appStore.showSuccess(t('keys.keyUpdatedSuccess'))
     } else if (
-      issueProjectPolicyCredential.value &&
-      activeConsoleScope.value.workspaceId &&
-      activeConsoleScope.value.projectId
+      issuingScope.mode === 'workspace' &&
+      issuingScope.workspaceId &&
+      issuingScope.projectId
     ) {
       const projectGroupId = resolvedProjectGroupId.value
       if (projectGroupId === null) {
@@ -3075,33 +3172,33 @@ const handleSubmit = async () => {
         return
       }
       const created = await identityApi.createProjectKey(
-        activeConsoleScope.value.workspaceId,
-        activeConsoleScope.value.projectId,
+        issuingScope.workspaceId,
+        issuingScope.projectId,
         {
           group_id: String(projectGroupId),
-          name: formData.value.name.trim(),
+          name: issuingName,
           model_access: { mode: 'inherit', ids: [] },
-          actions: [...selectedProjectKeyActions.value] as Parameters<
+          actions: issuingActions as Parameters<
             typeof identityApi.createProjectKey
           >[2]['actions'],
           expires_at: expiresAt || null
         }
       )
+      if (!sameActor()) return
       const createdActions = (created as { actions?: string[] } | undefined)?.actions
       lastIssuedProjectKeyScope.value = {
-        name: created?.name || formData.value.name.trim(),
+        name: created?.name || issuingName,
+        scopeLabel: issuedTo,
         actions:
           Array.isArray(createdActions) && createdActions.length > 0
             ? createdActions
-            : [...selectedProjectKeyActions.value]
+            : issuingActions
       }
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       if (created?.credential) {
-        issuedSecret.value = created.credential
-        issuedGraceUntil.value = null
-        showSecretDialog.value = true
+        enqueueIssuedSecret(created.credential, null, issuedTo)
       }
-      void loadProjectScopedKeys()
+      if (sameForm()) void loadProjectScopedKeys()
     } else {
       const customKey = formData.value.use_custom_key ? formData.value.custom_key : undefined
       const issue = await keysAPI.create(
@@ -3115,26 +3212,28 @@ const handleSubmit = async () => {
         rateLimitData,
         buildBudgetPayload() ?? undefined
       )
+      if (!sameActor()) return
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       if (issue?.secret) {
         sessionSecrets.set(issue.api_key.id, issue.secret)
-        issuedSecret.value = issue.secret
-        issuedGraceUntil.value = issue.grace_until ?? null
-        showSecretDialog.value = true
+        enqueueIssuedSecret(issue.secret, issue.grace_until ?? null, issuedTo)
       }
       // Only advance tour if active, on submit step, and creation succeeded
-      if (onboardingStore.isCurrentStep('[data-tour="key-form-submit"]')) {
+      if (sameForm() && onboardingStore.isCurrentStep('[data-tour="key-form-submit"]')) {
         onboardingStore.nextStep(500)
       }
     }
-    closeModals()
-    loadApiKeys()
+    if (sameForm()) {
+      closeModals()
+      void loadApiKeys()
+    }
   } catch (error: any) {
+    if (!sameForm()) return
     const errorMsg = extractApiErrorMessage(error, '') || t('keys.failedToSave')
     appStore.showError(errorMsg)
     // Don't advance tour on error
   } finally {
-    submitting.value = false
+    if (issuingSubmission === submissionGeneration) submitting.value = false
   }
 }
 
@@ -3163,7 +3262,6 @@ const closeModals = () => {
   showCreateModal.value = false
   showEditModal.value = false
   selectedKey.value = null
-  issueProjectPolicyCredential.value = false
   projectKeyAllowModelsRead.value = false
   formData.value = {
     name: '',
@@ -3316,20 +3414,15 @@ function formatResetTime(resetAt: string | null): string {
   return `${mins}m`
 }
 
-onMounted(async () => {
-  loadSavedColumns()
-  const { canRead } = await refreshKeyAccess()
-  if (disposed) return
-  if (canRead) {
-    void loadApiKeys()
-    void loadProjectScopedKeys()
-  }
-  loadGroups()
-  loadUserGroupRates()
-  loadPublicSettings()
+onMounted(() => {
   if (typeof window !== 'undefined') {
     window.addEventListener(CONSOLE_SCOPE_CHANGED_EVENT, handleConsoleScopeSync)
   }
+  loadSavedColumns()
+  void refreshKeysSurface()
+  loadGroups()
+  loadUserGroupRates()
+  loadPublicSettings()
   document.addEventListener('click', closeGroupSelector)
   resetTimer = setInterval(() => { now.value = new Date() }, 60000)
 })
@@ -3339,8 +3432,11 @@ onUnmounted(() => {
   clearTimeout(endpointCopyTimer)
   issuedSecret.value = ''
   issuedGraceUntil.value = null
+  queuedSecrets.length = 0
   sessionSecrets.clear()
   disposed = true
+  accessGeneration++
+  keysGeneration++
   auxiliaryControllers.forEach(controller => controller.abort())
   auxiliaryControllers.clear()
   abortController?.abort()

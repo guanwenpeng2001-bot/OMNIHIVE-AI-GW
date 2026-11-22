@@ -437,6 +437,58 @@ describe('IP group account configuration', () => {
 })
 
 describe('model selection saves preserve unrelated account drafts', () => {
+  it.each([
+    ['workbuddy', 'oauth'],
+    ['workbuddy', 'apikey'],
+    ['gemini', 'oauth'],
+    ['anthropic', 'oauth'],
+    ['anthropic', 'setup-token'],
+    ['kilo', 'apikey'],
+    ['opencode_go', 'apikey']
+  ])('preserves saved %s %s models and aliases through an unrelated edit and reopen', async (platform, type) => {
+    const mapping = { 'saved-native': 'saved-native', 'saved-alias': 'private-target' }
+    const account = {
+      ...buildAccount(), platform, type,
+      credentials: { site: 'cn', account_mode: platform === 'kilo' ? 'free' : 'payg', model_mapping: mapping },
+      credentials_status: { has_api_key: true, has_access_token: true }
+    }
+    catalogRead.mockResolvedValue({ synced: false, warnings: [], state: { rules_revision: '7' } })
+    updateAccountMock.mockReset().mockImplementation(async (_id, payload) => ({ ...account, ...payload }))
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account, false, true)
+    await flushPromises()
+    const selector = wrapper.getComponent(ModelWhitelistSelector)
+    expect(selector.props('modelValue')).toEqual(['saved-native'])
+    expect(selector.props('modelMappings')).toEqual([{ from: 'saved-alias', to: 'private-target' }])
+    await wrapper.get('[data-tour="edit-account-form-name"]').setValue('Renamed without changing models')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledOnce()
+    const payload = updateAccountMock.mock.calls[0][1]
+    expect(payload.credentials.model_mapping).toEqual(mapping)
+    expect(account.credentials.model_mapping).toEqual(mapping)
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true, account: { ...account, ...payload } })
+    await flushPromises()
+    expect(wrapper.getComponent(ModelWhitelistSelector).props('modelValue')).toEqual(['saved-native'])
+    expect(wrapper.getComponent(ModelWhitelistSelector).props('modelMappings')).toEqual([{ from: 'saved-alias', to: 'private-target' }])
+    wrapper.unmount()
+  })
+
+  it.each(['workbuddySite', 'workbuddyOAuthCredentials'])('invalidates a WorkBuddy discovery draft when %s changes', async field => {
+    const account = { ...buildAccount(), platform: 'workbuddy', type: 'oauth', credentials: { site: 'cn', uid: 'saved-user', model_mapping: { Native: 'Native' } } }
+    const wrapper = mountModal(account, false, true)
+    await flushPromises()
+    const selector = wrapper.getComponent(ModelWhitelistSelector)
+    expect(selector.props('configurationDirty')).toBe(false)
+    const vm = wrapper.vm as unknown as Record<string, unknown>
+    vm[field] = field === 'workbuddySite' ? 'global' : { ...(vm[field] as Record<string, unknown>), uid: 'different-user' }
+    await flushPromises()
+    expect(selector.props('configurationDirty')).toBe(true)
+    expect(selector.props('modelValue')).toEqual(['Native'])
+    wrapper.unmount()
+  })
+
   it('retains the Antigravity legacy whitelist fallback in shared state', async () => {
     const account = { ...buildAntigravityAccount(), credentials: { model_whitelist: [' LegacyExact '] } }
     updateAccountMock.mockReset().mockResolvedValue(account)

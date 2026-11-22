@@ -1,4 +1,5 @@
-import { reactive } from 'vue'
+import { reactive, watch } from 'vue'
+import { rememberRecovery, forgetRecovery, type PlaygroundRecovery } from './recovery'
 import { classifyConsoleError } from '@/features/console/asyncState'
 import { generateIdempotencyKey } from '@/features/console/scope'
 import { playgroundApi } from './api'
@@ -72,12 +73,15 @@ export function createPlaygroundRunController(
     now?: () => number
     isZh?: () => boolean
     isKeyOwned?: (apiKeyId: string) => boolean
+    principalId?: () => string
+    slot?: string
   }
 ) {
   const api = options?.api ?? playgroundApi
   const now = options?.now ?? (() => Date.now())
   const isZh = options?.isZh ?? (() => false)
   const isKeyOwned = options?.isKeyOwned ?? (() => true)
+  const principalId = options?.principalId ?? (() => '')
 
   const state = reactive<PlaygroundSessionSnapshot>(createInitialSnapshot())
   const toolCallIndexMap = new Map<string, PlaygroundToolCallView>()
@@ -89,12 +93,40 @@ export function createPlaygroundRunController(
   let stopRequestedByUser = false
   let lastWorkspaceId = ''
   let lastProjectId = ''
+  let lastPrincipalId = ''
+  let replacingSnapshot = false
+
+  function persistRecovery(): void {
+    if (replacingSnapshot || !lastPrincipalId || !state.idempotencyKey) return
+    if (['succeeded', 'failed', 'canceled'].includes(state.status) && state.settlementState === 'settled') {
+      forgetRecovery(lastPrincipalId, state.idempotencyKey)
+      return
+    }
+    rememberRecovery({ principalId: lastPrincipalId, workspaceId: lastWorkspaceId, projectId: lastProjectId, idempotencyKey: state.idempotencyKey, runId: state.runId, slot: options?.slot ?? 'A', savedAt: now() })
+  }
+  watch(() => [state.runId, state.idempotencyKey, state.status, state.settlementState], persistRecovery, { flush: 'sync' })
+
+  function restoreRecovery(handle: PlaygroundRecovery): boolean {
+    if (!options?.principalId || handle.principalId !== options.principalId()) return false
+    reset()
+    lastPrincipalId = handle.principalId
+    lastWorkspaceId = handle.workspaceId
+    lastProjectId = handle.projectId
+    replacingSnapshot = true
+    Object.assign(state, createInitialSnapshot(), { status: 'disconnected_recoverable', idempotencyKey: handle.idempotencyKey, runId: handle.runId })
+    replacingSnapshot = false
+    persistRecovery()
+    return true
+  }
 
   function reset(): void {
+    persistRecovery()
     abortActiveLocalStream()
     activeGeneration++
     toolCallIndexMap.clear()
+    replacingSnapshot = true
     Object.assign(state, createInitialSnapshot())
+    replacingSnapshot = false
     terminalEventSeen = false
     stopRequestedByUser = false
   }
@@ -107,13 +139,16 @@ export function createPlaygroundRunController(
   }
 
   function markConsentPending(payload: PlaygroundSubmit | PlaygroundReplay): void {
+    persistRecovery()
     abortActiveLocalStream()
     activeGeneration++
     toolCallIndexMap.clear()
+    replacingSnapshot = true
     Object.assign(state, createInitialSnapshot(), {
       status: 'awaiting_consent',
       submittedPayload: payload
     })
+    replacingSnapshot = false
   }
 
   function cancelConsent(): void {
@@ -333,24 +368,29 @@ export function createPlaygroundRunController(
       }) => ReturnType<typeof api.submitRun>
     }
   ): Promise<void> {
+    persistRecovery()
     abortActiveLocalStream()
     const generation = ++activeGeneration
     const controller = new AbortController()
     activeAbortController = controller
     lastWorkspaceId = workspaceId
     lastProjectId = projectId
+    lastPrincipalId = principalId()
     terminalEventSeen = false
     stopRequestedByUser = false
     toolCallIndexMap.clear()
     startedTimestampMs = now()
 
     const idemKey = options.explicitIdempotencyKey || generateIdempotencyKey()
+    replacingSnapshot = true
     Object.assign(state, createInitialSnapshot(), {
       status: 'submitting',
       idempotencyKey: idemKey,
       protocol: options.protocol,
       submittedPayload: payload
     })
+    replacingSnapshot = false
+    persistRecovery()
 
     try {
       const result = await options.dispatch({
@@ -537,6 +577,7 @@ export function createPlaygroundRunController(
   return {
     state,
     reset,
+    restoreRecovery,
     markConsentPending,
     cancelConsent,
     executeApprovedRun,
