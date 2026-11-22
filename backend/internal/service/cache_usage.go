@@ -44,8 +44,11 @@ func (s *UsageSettlementService) RecordCacheHit(ctx context.Context, source *Usa
 	if source.Usage.BillingEvidence != nil && source.Usage.BillingEvidence.CacheSourceID > 0 {
 		sourceID = source.Usage.BillingEvidence.CacheSourceID
 	}
+	upstreamCost := 0.0
+	usage.AccountStatsCost = &upstreamCost
 	usage.BillingEvidence = &UsageBillingEvidence{CacheHit: true, CacheSourceID: sourceID}
 	command := source.Command
+	command.AccountQuotaCost = 0
 	command.RequestID, command.UserID, command.APIKeyID = key.RequestID, key.UserID, key.APIKeyID
 	command.RequestFingerprint = ""
 	command.BudgetReservationID = 0

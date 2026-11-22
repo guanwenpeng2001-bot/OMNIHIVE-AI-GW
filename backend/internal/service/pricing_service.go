@@ -141,6 +141,7 @@ type LiteLLMModelPricing struct {
 	// sourceQuotes retain missing versus explicit zero for comparisons and billing.
 	// Billing reads field presence only; capability approval never uses them.
 	sourceQuotes                        map[string]PricingQuote
+	exactTokenRates                     map[string]string
 	InputCostPerToken                   float64 `json:"input_cost_per_token"`
 	InputCostPerTokenPriority           float64 `json:"input_cost_per_token_priority"`
 	OutputCostPerToken                  float64 `json:"output_cost_per_token"`
@@ -658,6 +659,7 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 
 		pricing := &LiteLLMModelPricing{
 			sourceQuotes:          pricingEntryQuotes(modelName, rawEntry),
+			exactTokenRates:       readExactTokenRates(rawEntry),
 			PriceVariants:         cloneModelPriceVariants(entry.PriceVariants),
 			LiteLLMProvider:       entry.LiteLLMProvider,
 			Mode:                  entry.Mode,

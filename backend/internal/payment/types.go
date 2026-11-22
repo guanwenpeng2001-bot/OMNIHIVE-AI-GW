@@ -160,11 +160,14 @@ type CreatePaymentResponse struct {
 
 // QueryOrderResponse describes the payment status from the upstream provider.
 type QueryOrderResponse struct {
-	TradeNo  string
-	Status   string  // "pending", "paid", "failed", "refunded"
-	Amount   float64 // 按服务商返回币种解释的金额
-	PaidAt   string  // RFC3339 timestamp or empty
-	Metadata map[string]string
+	InstanceID string
+	Currency   string
+	Minor      int64
+	TradeNo    string
+	Status     string  // "pending", "paid", "failed", "refunded"
+	Amount     float64 // 按服务商返回币种解释的金额
+	PaidAt     string  // RFC3339 timestamp or empty
+	Metadata   map[string]string
 }
 
 // PaymentNotification is the parsed result of a webhook/notify callback.
@@ -185,10 +188,11 @@ type PaymentNotification struct {
 
 // RefundRequest contains the parameters for requesting a refund.
 type RefundRequest struct {
-	TradeNo string
-	OrderID string
-	Amount  string // Refund amount formatted to 2 decimal places
-	Reason  string
+	RequestID string
+	TradeNo   string
+	OrderID   string
+	Amount    string // Refund amount formatted to 2 decimal places
+	Reason    string
 }
 
 // RefundQueryRequest contains identifiers needed to query a previously

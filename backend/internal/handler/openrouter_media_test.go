@@ -149,7 +149,7 @@ func TestOpenRouterVideoActualHandlerLifecycle(t *testing.T) {
 			upstream := &openRouterMediaUpstream{response: `{"id":"gen-vid-fixture","status":"pending","polling_url":"/api/v1/videos/gen-vid-fixture"}`, responseType: "application/json", status: 202}
 			handler, group, _, _ := openRouterMediaHandler(t, upstream)
 			group.RateMultiplier = 1
-			if scenario == "priced" || scenario == "free" {
+			if scenario != "unpriced" && scenario != "duration_tariff" {
 				price := 0.25
 				if scenario == "free" {
 					price = 0
@@ -165,6 +165,14 @@ func TestOpenRouterVideoActualHandlerLifecycle(t *testing.T) {
 			payload := `{"model":"vendor/future:variant","prompt":"waves","seconds":"8","resolution":"720p"}`
 			request, recorder := requestPlanHTTPContext("/v1/videos", payload, group)
 			handler.OpenRouterVideoGeneration(request)
+			if scenario == "unpriced" || scenario == "duration_tariff" {
+				require.Equal(t, http.StatusUnprocessableEntity, recorder.Code, recorder.Body.String())
+				require.Equal(t, "model_pricing_unavailable", gjson.Get(recorder.Body.String(), "error.code").String())
+				require.Zero(t, upstream.calls)
+				require.Empty(t, repository.jobs)
+				require.Zero(t, repository.charges)
+				return
+			}
 			require.Equal(t, 200, recorder.Code, recorder.Body.String())
 			identifier := gjson.Get(recorder.Body.String(), "id").String()
 			require.NotEmpty(t, identifier)
@@ -202,29 +210,20 @@ func TestOpenRouterVideoActualHandlerLifecycle(t *testing.T) {
 			require.Equal(t, "succeeded", job.Status)
 			require.Equal(t, "gen-vid-fixture", job.ResultRef)
 			require.NotContains(t, string(job.UsageJSON), "foreign.example")
-			if scenario == "priced" || scenario == "free" {
-				require.Equal(t, 1, repository.charges)
-				require.NotNil(t, job.ChargedUsageLogID)
-				if scenario == "free" {
-					require.Equal(t, service.PricingStateFree, job.Billing.PricingState)
-				} else {
-					require.Equal(t, service.PricingStatePriced, job.Billing.PricingState)
-				}
-				log, command, chargeErr := service.OpenRouterVideoJobCharge(job)
-				require.NoError(t, chargeErr)
-				amount := 0.25
-				if scenario == "free" {
-					amount = 0
-				}
-				require.InDelta(t, amount, log.ActualCost, 0.0000001)
-				require.InDelta(t, amount, command.BalanceCost, 0.0000001)
-				require.NotEqual(t, float64(99), command.BalanceCost)
+			require.Equal(t, 1, repository.charges)
+			require.NotNil(t, job.ChargedUsageLogID)
+			amount := 0.25
+			if scenario == "free" {
+				require.Equal(t, service.PricingStateFree, job.Billing.PricingState)
+				amount = 0
 			} else {
-				require.Zero(t, repository.charges)
-				require.Nil(t, job.ChargedUsageLogID)
-				require.Equal(t, "settlement_needs_review", job.ErrorCode)
-				require.Equal(t, service.PricingStateUnpriced, job.Billing.PricingState)
+				require.Equal(t, service.PricingStatePriced, job.Billing.PricingState)
 			}
+			log, command, chargeErr := service.OpenRouterVideoJobCharge(job)
+			require.NoError(t, chargeErr)
+			require.InDelta(t, amount, log.ActualCost, 0.0000001)
+			require.InDelta(t, amount, command.BalanceCost, 0.0000001)
+			require.NotEqual(t, float64(99), command.BalanceCost)
 			calls := upstream.calls
 			_, err = jobs.Poll(context.Background(), identifier)
 			require.NoError(t, err)

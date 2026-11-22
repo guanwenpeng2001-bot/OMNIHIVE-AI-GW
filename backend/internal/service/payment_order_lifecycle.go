@@ -2,7 +2,11 @@ package service
 
 import (
 	"context"
+
+	"entgo.io/ent/dialect"
+	entsql "entgo.io/ent/dialect/sql"
 	"fmt"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/payments"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -25,6 +29,7 @@ const (
 	rateLimitUnitHour          = "hour"
 	rateLimitModeFixed         = "fixed"
 	checkPaidResultAlreadyPaid = "already_paid"
+	checkPaidResultUnaccepted  = "paid_unaccepted"
 	checkPaidResultCancelled   = "cancelled"
 
 	pendingPaymentReconcileLimit = 20
@@ -123,8 +128,11 @@ func (s *PaymentService) AdminCancelOrder(ctx context.Context, orderID int64) (s
 
 func (s *PaymentService) cancelCore(ctx context.Context, o *dbent.PaymentOrder, fs, op, ad string) (string, error) {
 	if o.PaymentTradeNo != "" || o.PaymentType != "" {
-		if s.checkPaid(ctx, o) == checkPaidResultAlreadyPaid {
+		switch s.checkPaid(ctx, o) {
+		case checkPaidResultAlreadyPaid:
 			return checkPaidResultAlreadyPaid, nil
+		case checkPaidResultUnaccepted:
+			return "", infraerrors.Conflict("PAYMENT_RECONCILIATION_REQUIRED", "provider reports payment pending local acceptance")
 		}
 	}
 	c, err := s.entClient.PaymentOrder.Update().Where(paymentorder.IDEQ(o.ID), paymentorder.StatusEQ(OrderStatusPending)).SetStatus(fs).Save(ctx)
@@ -165,7 +173,29 @@ func (s *PaymentService) checkPaidWithOptions(ctx context.Context, o *dbent.Paym
 		slog.Warn("query upstream failed", "orderID", o.ID, "error", err)
 		return ""
 	}
+	if resp == nil {
+		return ""
+	}
 	if resp.Status == payment.ProviderStatusPaid {
+		if s.entClient != nil && s.entClient.Driver().Dialect() == dialect.Postgres {
+			driver, ok := s.entClient.Driver().(*entsql.Driver)
+			if !ok {
+				return checkPaidResultUnaccepted
+			}
+			store := payments.Store{DB: driver.DB(), Fulfillment: s}
+			n := queriedPaymentNotification(o.OutTradeNo, resp)
+			exact, err := store.ExactWebhook(ctx, prov.ProviderKey(), n)
+			if err == nil && exact {
+				err = store.HandleVerified(ctx, prov.ProviderKey(), n)
+				if err == nil {
+					return checkPaidResultAlreadyPaid
+				}
+			}
+			if err != nil {
+				slog.Warn("queried payment could not be accepted", "orderID", o.ID, "error", err)
+				return checkPaidResultUnaccepted
+			}
+		}
 		if !isValidProviderAmount(resp.Amount) {
 			s.writeAuditLog(ctx, o.ID, "PAYMENT_INVALID_AMOUNT", prov.ProviderKey(), map[string]any{
 				"expected": o.PayAmount,
@@ -176,25 +206,17 @@ func (s *PaymentService) checkPaidWithOptions(ctx context.Context, o *dbent.Paym
 			slog.Warn("query upstream returned invalid paid amount", "orderID", o.ID, "queryRef", queryRef, "paid", resp.Amount)
 			retriedResp, retryOK := requeryPaidOrderOnce(ctx, prov, queryRef)
 			if !retryOK {
-				return ""
+				return checkPaidResultUnaccepted
 			}
 			resp = retriedResp
 		}
 		notificationTradeNo := o.PaymentTradeNo
 		if upstreamTradeNo := strings.TrimSpace(resp.TradeNo); paymentOrderShouldPersistUpstreamTradeNo(queryRef, upstreamTradeNo, notificationTradeNo) {
-			if _, updateErr := s.entClient.PaymentOrder.Update().
-				Where(paymentorder.IDEQ(o.ID)).
-				SetPaymentTradeNo(upstreamTradeNo).
-				Save(ctx); updateErr != nil {
-				slog.Error("persist upstream trade no during checkPaid failed", "orderID", o.ID, "tradeNo", upstreamTradeNo, "error", updateErr)
-			} else {
-				o.PaymentTradeNo = upstreamTradeNo
-			}
 			notificationTradeNo = upstreamTradeNo
 		}
 		if err := s.HandlePaymentNotification(ctx, &payment.PaymentNotification{TradeNo: notificationTradeNo, OrderID: o.OutTradeNo, Amount: resp.Amount, Status: payment.ProviderStatusSuccess, Metadata: resp.Metadata}, prov.ProviderKey()); err != nil {
 			slog.Error("fulfillment failed during checkPaid", "orderID", o.ID, "error", err)
-			// Still return already_paid — order was paid, fulfillment can be retried
+			return checkPaidResultUnaccepted
 		}
 		return checkPaidResultAlreadyPaid
 	}
@@ -207,6 +229,19 @@ func (s *PaymentService) checkPaidWithOptions(ctx context.Context, o *dbent.Paym
 		finishProviderCall()
 	}
 	return ""
+}
+
+func queriedPaymentNotification(orderID string, r *payment.QueryOrderResponse) *payment.PaymentNotification {
+	trade := strings.TrimSpace(r.TradeNo)
+	if trade == orderID {
+		// A merchant query handle cannot serve as a verified rail transaction.
+		trade = ""
+	}
+	return &payment.PaymentNotification{
+		EventID: "query/" + orderID + "/" + trade, EffectID: trade, InstanceID: r.InstanceID,
+		Currency: r.Currency, Minor: r.Minor, TradeNo: trade, OrderID: orderID,
+		Amount: r.Amount, Status: payment.ProviderStatusSuccess, Metadata: r.Metadata,
+	}
 }
 
 func requeryPaidOrderOnce(ctx context.Context, prov payment.Provider, queryRef string) (*payment.QueryOrderResponse, bool) {

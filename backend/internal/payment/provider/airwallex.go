@@ -211,7 +211,10 @@ func (a *Airwallex) QueryOrder(ctx context.Context, tradeNo string) (*payment.Qu
 	if err := a.doJSON(ctx, http.MethodGet, "/pa/payment_intents/"+url.PathEscape(intentID), token, nil, &intent); err != nil {
 		return nil, fmt.Errorf("airwallex query order: %w", err)
 	}
+	currency := strings.ToUpper(strings.TrimSpace(intent.Currency))
+	minor, _ := payment.AmountToMinorUnit(intent.Amount.String(), currency)
 	return &payment.QueryOrderResponse{
+		InstanceID: a.instanceID, Currency: currency, Minor: minor,
 		TradeNo:  intent.ID,
 		Status:   airwallexProviderStatus(intent.Status),
 		Amount:   intent.Amount.InexactFloat64(),

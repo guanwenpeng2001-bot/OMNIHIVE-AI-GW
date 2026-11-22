@@ -138,17 +138,7 @@ func (s Store) HandleVerified(ctx context.Context, provider string, n *payment.P
 		if !knownRefund {
 			return ErrPending
 		}
-		var same bool
-		err = tx.QueryRowContext(ctx, `SELECT $2::bigint=CASE WHEN t.currency IN ('ISK','UGX')
- THEN round(t.provider_minor*p.refund_amount/nullif(t.source_amount,0)/100,0)*100
- ELSE round(t.provider_minor*p.refund_amount/nullif(t.source_amount,0),0) END
-			FROM payment_order_terms t JOIN payment_orders p ON p.id=t.order_id WHERE t.order_id=$1`, o.id, n.Minor).Scan(&same)
-		if err != nil {
-			return err
-		}
-		if !same {
-			return ErrMismatch
-		}
+
 	} else if reversal {
 		if err = reverse(ctx, tx, provider, n, o, canonical); err != nil {
 			return err
@@ -241,11 +231,29 @@ func reverse(ctx context.Context, tx *sql.Tx, provider string, n *payment.Paymen
 	var full bool
 	// Cumulative allocation conserves the original wallet amount even across
 	// several partial refunds. Compare the v1 refunded amount inside the lock.
-	err = tx.QueryRowContext(ctx, `WITH used AS (SELECT coalesce(sum(minor),0) minor,coalesce(sum(source_amount),0) source FROM payment_reversals WHERE order_id=$1),
- totals AS (SELECT t.*,u.minor prior,(u.minor+$2) cumulative,u.source used FROM payment_order_terms t CROSS JOIN used u WHERE t.order_id=$1)
+	err = tx.QueryRowContext(ctx, `WITH local_evidence AS (
+ SELECT id,CASE WHEN detail IS JSON OBJECT THEN detail::jsonb END AS proof
+ FROM payment_audit_logs WHERE order_id=$1::bigint::text AND action='REFUND_SUCCESS'
+ ), local_refunds AS (
+ SELECT DISTINCT ON (proof->>'refundID') (proof->>'providerMinor')::bigint AS minor,
+   (proof->>'refundAmount')::numeric AS source_amount
+ FROM local_evidence JOIN payment_order_terms t ON t.order_id=$1
+ WHERE proof->>'refundID'<>'' AND proof->>'providerCurrency'=t.currency
+ AND jsonb_typeof(proof->'providerMinor')='number' AND jsonb_typeof(proof->'refundAmount')='number'
+ AND NOT EXISTS (SELECT 1 FROM payment_reversals r WHERE r.order_id=$1 AND r.effect_key=proof->>'refundID')
+ ORDER BY proof->>'refundID',id DESC
+ ), effects AS (
+ SELECT minor,source_amount FROM payment_reversals WHERE order_id=$1
+ UNION ALL SELECT minor,source_amount FROM local_refunds
+ ), used AS (
+ SELECT coalesce(sum(minor),0) minor,coalesce(sum(source_amount),0) source FROM effects
+ ), totals AS (
+ SELECT t.*,u.minor prior,(u.minor+$2) cumulative,u.source used FROM payment_order_terms t CROSS JOIN used u WHERE t.order_id=$1
+ )
  SELECT round(source_amount*cumulative/provider_minor,8)-used,round(source_amount*cumulative/provider_minor,8),
  (trunc(coalesce(days,0)*cumulative/provider_minor)-trunc(coalesce(days,0)*prior/provider_minor))::int,cumulative=provider_minor
- FROM totals WHERE cumulative<=provider_minor AND used=(SELECT refund_amount FROM payment_orders WHERE id=$1)`, o.id, n.Minor).Scan(&delta, &total, &days, &full)
+ FROM totals WHERE cumulative<=provider_minor AND round(source_amount*cumulative/provider_minor,8)>=used
+ AND used=(SELECT refund_amount FROM payment_orders WHERE id=$1)`, o.id, n.Minor).Scan(&delta, &total, &days, &full)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrConflict
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"unicode/utf8"
 
@@ -27,7 +28,11 @@ func reserveGatewayRequestBudget(c *gin.Context, key *service.APIKey, model stri
 	if c == nil || key == nil {
 		return true
 	}
-	if err := reserveRequestBudget(c.Request.Context(), key, model, body, c.GetHeader("Content-Type")); err != nil {
+	return reserveGatewayRequestBudgetInContext(c, c.Request.Context(), key, model, body)
+}
+
+func reserveGatewayRequestBudgetInContext(c *gin.Context, ctx context.Context, key *service.APIKey, model string, body []byte) bool {
+	if err := reserveRequestBudget(ctx, key, model, body, c.GetHeader("Content-Type")); err != nil {
 		abortGatewayRequestBudget(c, err)
 		return false
 	}
@@ -45,7 +50,7 @@ func reserveRequestBudget(ctx context.Context, key *service.APIKey, model string
 	if err := validateMediaRequestAliases(plan.Snapshot(), body, contentType...); err != nil {
 		return &fault.Fault{Status: http.StatusBadRequest, Reason: "invalid_request_error", Message: err.Error()}
 	}
-	if !key.HasPeriodBudget() && !plan.HasProjectBudgetCoordinator() {
+	if !key.HasPeriodBudget() && !plan.HasProjectBudgetCoordinator() && !plan.HasBalanceBudgetCheck() && !plan.RequiresLanePricing() {
 		return nil
 	}
 	if plan == nil {
@@ -72,27 +77,40 @@ func gatewayRequestBudgetEstimate(plan *service.GatewayRequestPlan, key *service
 	}
 	estimate.ServiceTier = gjson.GetBytes(body, "service_tier").String()
 	estimate.ReasoningEffort = gjson.GetBytes(body, "reasoning.effort").String()
-	if plan != nil && budgetEstimateIgnoresBody(plan.Snapshot().Protocol) {
+	if plan != nil && (budgetEstimateIgnoresBody(plan.Snapshot().Protocol) || geminiImageBudgetSize(plan.Snapshot(), body) != "") {
 		estimate.Meter = requestMediaMeter(plan.Snapshot(), body, contentType...)
 		return estimate
 	}
 	estimate.InputTokens = estimateGatewayRequestInputTokens(body)
-	estimate.OutputTokens = declaredGatewayMaxOutputTokens(body)
-	estimate.OutputTokens = gatewayCandidateCount(body) * (estimate.OutputTokens + declaredGatewayReasoningTokens(body))
-	if estimate.OutputTokens == 0 {
-		estimate.OutputTokens = service.GatewayModelOutputBudgetLimit(plan, model)
+	if plan.Snapshot().Protocol == "embeddings" {
+		estimate.InputOnly = true
+		return estimate
 	}
+	output := declaredGatewayMaxOutputTokens(body)
+	if output == 0 {
+		output = service.GatewayModelOutputBudgetLimit(plan, model)
+		if output == 0 {
+			_, output, _ = service.NormalizeBudgetEstimateBounds(estimate)
+		}
+	}
+	reasoning, candidates := declaredGatewayReasoningTokens(body), gatewayCandidateCount(body)
+	if output > math.MaxInt-reasoning || output+reasoning > math.MaxInt/candidates {
+		estimate.InvalidBounds = true
+		return estimate
+	}
+	estimate.OutputTokens = candidates * (output + reasoning)
 	estimate.CacheCreationTokens = estimateGatewayCacheCreationTokens(body, estimate.InputTokens)
 	return estimate
 }
 
 func gatewayCandidateCount(body []byte) int {
+	count := 1
 	for _, name := range []string{"n", "best_of", "generationConfig.candidateCount", "generation_config.candidate_count"} {
-		if count := gjson.GetBytes(body, name); count.Exists() && count.Type == gjson.Number && count.Int() > 1 {
-			return int(count.Int())
+		if value := gjson.GetBytes(body, name); value.Type == gjson.Number && value.Int() > 1 {
+			count = max(count, int(min(value.Int(), int64(math.MaxInt))))
 		}
 	}
-	return 1
+	return count
 }
 
 func declaredGatewayReasoningTokens(body []byte) int {
@@ -140,6 +158,9 @@ func abortGatewayRequestBudget(c *gin.Context, err error) {
 }
 
 func gatewayBudgetErrorResponse(err error) (status int, reason, message string) {
+	if errors.Is(err, service.ErrModelPricingUnavailable) {
+		return http.StatusUnprocessableEntity, "model_pricing_unavailable", "No applicable pricing is available for this model"
+	}
 	if errors.Is(err, service.ErrGatewayBudgetModelNotFound) {
 		return http.StatusNotFound, "model_not_found", "Model does not exist or is not available for this group"
 	}
@@ -174,6 +195,7 @@ func declaredGatewayMaxOutputTokens(body []byte) int {
 	if len(body) == 0 {
 		return 0
 	}
+	bound := 0
 	for _, path := range []string{
 		"max_tokens",
 		"max_completion_tokens",
@@ -182,10 +204,10 @@ func declaredGatewayMaxOutputTokens(body []byte) int {
 		"generationConfig.maxOutputTokens",
 	} {
 		if value := gjson.GetBytes(body, path); value.Exists() && value.Int() > 0 {
-			return int(value.Int())
+			bound = max(bound, int(min(value.Int(), int64(math.MaxInt))))
 		}
 	}
-	return 0
+	return bound
 }
 
 func gatewayRequestRateMultiplier(key *service.APIKey) float64 {

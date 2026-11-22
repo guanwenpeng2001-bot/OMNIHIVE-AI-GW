@@ -96,7 +96,7 @@ func TestKaggleVideoHandlerLifecycle(t *testing.T) {
 			upstream := &kaggleMediaUpstream{response: `{"id":"vid_aaaaaaaaaaaaaaaaaaaa","object":"video","model":"wan2.2-ti2v-5b","status":"queued","progress":0}`, responseType: "application/json", status: 202}
 			handler, group := kaggleMediaHandler(t, upstream, map[string]any{"wan2.2-ti2v-5b": "wan2.2-ti2v-5b"})
 			group.RateMultiplier = 1
-			if scenario == "priced" {
+			if scenario != "unpriced" {
 				price := 0.5
 				group.ModelPricing = []service.ChannelModelPricing{{Models: []string{"wan2.2-ti2v-5b"}, BillingMode: service.BillingModePerRequest, PerRequestPrice: &price}}
 			}
@@ -106,6 +106,14 @@ func TestKaggleVideoHandlerLifecycle(t *testing.T) {
 			payload := `{"model":"wan2.2-ti2v-5b","prompt":"a cat walking on a beach","width":832,"height":480,"num_frames":49}`
 			request, recorder := requestPlanHTTPContext("/v1/videos", payload, group)
 			handler.KaggleVideoGeneration(request)
+			if scenario == "unpriced" {
+				require.Equal(t, http.StatusUnprocessableEntity, recorder.Code, recorder.Body.String())
+				require.Equal(t, "model_pricing_unavailable", gjson.Get(recorder.Body.String(), "error.code").String())
+				require.Zero(t, upstream.calls)
+				require.Empty(t, repository.jobs)
+				require.Zero(t, repository.charges)
+				return
+			}
 			require.Equal(t, 200, recorder.Code, recorder.Body.String())
 			identifier := gjson.Get(recorder.Body.String(), "id").String()
 			require.NotEmpty(t, identifier)
@@ -139,15 +147,8 @@ func TestKaggleVideoHandlerLifecycle(t *testing.T) {
 			}
 			require.Equal(t, "succeeded", job.Status)
 			require.Equal(t, "vid_aaaaaaaaaaaaaaaaaaaa", job.ResultRef)
-			if scenario == "priced" {
-				require.Equal(t, 1, repository.charges)
-				require.NotNil(t, job.ChargedUsageLogID)
-			} else {
-				require.Zero(t, repository.charges)
-				require.Nil(t, job.ChargedUsageLogID)
-				require.Equal(t, "settlement_needs_review", job.ErrorCode)
-				require.Equal(t, service.PricingStateUnpriced, job.Billing.PricingState)
-			}
+			require.Equal(t, 1, repository.charges)
+			require.NotNil(t, job.ChargedUsageLogID)
 			status, statusResult := requestPlanHTTPContext("/v1/videos/"+identifier, `{}`, group)
 			status.Request.Method = "GET"
 			status.Params = gin.Params{{Key: "request_id", Value: identifier}}

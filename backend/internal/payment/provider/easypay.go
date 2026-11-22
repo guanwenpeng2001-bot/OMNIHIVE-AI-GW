@@ -360,7 +360,9 @@ func (e *EasyPay) QueryOrder(ctx context.Context, tradeNo string) (*payment.Quer
 	}
 
 	amount, _ := strconv.ParseFloat(money, 64)
+	minor, _ := payment.AmountToMinorUnit(money, payment.DefaultPaymentCurrency)
 	return &payment.QueryOrderResponse{
+		InstanceID: e.instanceID, Currency: payment.DefaultPaymentCurrency, Minor: minor,
 		TradeNo:  responseTradeNo,
 		Status:   status,
 		Amount:   amount,
