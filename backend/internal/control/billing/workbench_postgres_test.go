@@ -88,7 +88,6 @@ func TestCostWorkbenchPostgres(t *testing.T) {
 	require.NoError(t, tx.Commit())
 	ev := number("SELECT event_id FROM billing_movement_links WHERE receipt_id=$1", receipt)
 	dbStore := rm.Store{DB: db}
-	scope := rm.Scope{Workspace: w, Project: p, Actor: user}
 	gin.SetMode(gin.TestMode)
 	api := gin.New()
 	step := &gate{}
@@ -191,12 +190,18 @@ func TestCostWorkbenchPostgres(t *testing.T) {
 	require.Equal(t, "0.12000000", legacy["estimate"].(map[string]any)["amount"])
 	require.NotContains(t, call(user, "GET", download, "", "", "", 200).Body.String(), "historical")
 
-	checkBudget := func(currency, mode string, want int) {
+	call(user, "PUT", base+"/budgets/project-EUR",
+		`{"mode":"hard","limit":{"currency":"EUR","amount":"1"},"timezone":"America/New_York","window":"calendar_day","include_byok_external_estimates":false}`,
+		"budget-EUR", `"0"`, 422)
+	softProject := number("INSERT INTO projects(workspace_id,name) VALUES ($1,'soft') RETURNING id", w)
+	checkBudget := func(project int64, mode string, want int) {
 		t.Helper()
-		b := fmt.Sprintf(`{"mode":%q,"limit":{"currency":%q,"amount":"1"},"timezone":"America/New_York","window":"calendar_day","include_byok_external_estimates":false}`, mode, currency)
-		call(user, "PUT", base+"/budgets/project-"+currency, b, "budget-"+currency, `"0"`, 200)
-		call(user, "PUT", base+"/budgets/project-"+currency, b, "stale-"+currency, `"0"`, 412)
-		unit, err := money.NewMoney(money.Currency(currency), "0.25")
+		projectBase := fmt.Sprintf("/api/v2/workspaces/%d/projects/%d/billing", w, project)
+		projectScope := rm.Scope{Workspace: w, Project: project, Actor: user}
+		b := fmt.Sprintf(`{"mode":%q,"limit":{"currency":"USD","amount":"1"},"timezone":"America/New_York","window":"calendar_day","include_byok_external_estimates":false}`, mode)
+		call(user, "PUT", projectBase+"/budgets/project-USD", b, "budget-"+mode, `"0"`, 200)
+		call(user, "PUT", projectBase+"/budgets/project-USD", b, "stale-"+mode, `"0"`, 412)
+		unit, err := money.NewMoney("USD", "0.25")
 		require.NoError(t, err)
 		errs := make(chan error, 8)
 		for range 8 {
@@ -204,7 +209,7 @@ func TestCostWorkbenchPostgres(t *testing.T) {
 				tx, e := db.BeginTx(ctx, nil)
 				if e == nil {
 					defer tx.Rollback()
-					e = rm.Reserve(ctx, tx, scope, uuid.NewString(), unit)
+					e = rm.Reserve(ctx, tx, projectScope, uuid.NewString(), unit)
 					if e == nil {
 						e = tx.Commit()
 					}
@@ -222,18 +227,18 @@ func TestCostWorkbenchPostgres(t *testing.T) {
 			}
 		}
 		require.Equal(t, want, ok)
-		quotas, e := dbStore.Quotas(ctx, scope, rm.QuotaFilter{}, true)
+		quotas, e := dbStore.Quotas(ctx, projectScope, rm.QuotaFilter{}, true)
 		require.NoError(t, e)
 		for _, r := range quotas.Rules {
-			if r.ID == "project-"+currency {
+			if r.ID == "project-USD" {
 				require.Equal(t, map[bool]string{true: "1.00000000", false: "2.00000000"}[mode == "hard"], *r.Reserved)
 				return
 			}
 		}
 		t.Fatal("missing budget")
 	}
-	checkBudget("EUR", "hard", 4)
-	checkBudget("JPY", "soft", 8)
+	checkBudget(other, "hard", 4)
+	checkBudget(softProject, "soft", 8)
 	// Drop only the derived cache record to exercise live fallback while a
 	// historical backfill is interrupted and resumed.
 	exec("DELETE FROM billing_movement_links WHERE event_id=$1", ev)

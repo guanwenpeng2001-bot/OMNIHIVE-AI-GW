@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	catalogpg "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog/postgres"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
@@ -27,6 +28,15 @@ type configuredSettings struct{ service.SettingRepository }
 
 func (configuredSettings) GetMultiple(context.Context, []string) (map[string]string, error) {
 	return map[string]string{service.SettingKeyModelPlazaEnabled: "true"}, nil
+}
+
+type authRequiredSettings struct{ service.SettingRepository }
+
+func (authRequiredSettings) GetMultiple(context.Context, []string) (map[string]string, error) {
+	return map[string]string{
+		service.SettingKeyModelPlazaEnabled:     "true",
+		service.SettingKeyModelPlazaRequireAuth: "true",
+	}, nil
 }
 
 func TestConfiguredCatalogSourceIncludesFullPlatformWithoutLiveAccounts(t *testing.T) {
@@ -74,4 +84,26 @@ func TestConfiguredCatalogSourceIncludesFullPlatformWithoutLiveAccounts(t *testi
 		}
 		require.NoError(t, mock.ExpectationsWereMet())
 	}
+}
+
+func TestConfiguredCatalogSourceHonorsRequireAuthForAuthenticatedPublicViewer(t *testing.T) {
+	now := time.Now()
+	registry := service.NewModelRegistry().Snapshot()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	plaza := service.NewModelPlazaService(configuredChannels{}, configuredGroups{}, nil, nil, nil)
+	source := NewSource(catalogpg.New(db), plaza, service.NewSettingService(authRequiredSettings{}, nil), nil, nil)
+	ctx := service.WithModelRegistrySnapshot(context.Background(), registry)
+
+	_, err = source.Load(ctx, catalog.Perspective{Workspace: 1}, catalog.Window{}, now)
+	require.ErrorIs(t, err, fault.Unauthenticated)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("INSERT INTO catalog_registry_versions").WithArgs(registry.Version()).WillReturnRows(sqlmock.NewRows([]string{"version"}))
+	mock.ExpectRollback()
+	_, err = source.Load(catalog.WithPublicViewerAuthenticated(ctx), catalog.Perspective{Workspace: 1}, catalog.Window{}, now)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
 }

@@ -11,8 +11,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
+	"time"
 )
 
 type w05PlazaSettings struct{ enabled, auth bool }
@@ -20,10 +24,23 @@ type w05PlazaSettings struct{ enabled, auth bool }
 func (s *w05PlazaSettings) GetModelPlazaRuntime(context.Context) service.ModelPlazaRuntime {
 	return service.ModelPlazaRuntime{Enabled: s.enabled, RequireAuth: s.auth}
 }
+
+type authCheckingCatalog struct {
+	base     *fixtureCatalog
+	settings *w05PlazaSettings
+}
+
+func (a authCheckingCatalog) Snapshot(ctx context.Context, p catalog.Perspective, at time.Time) (catalog.Snapshot, error) {
+	if p.Public() && a.settings.auth && !catalog.PublicViewerAuthenticated(ctx) {
+		return catalog.Snapshot{}, fault.Unauthenticated
+	}
+	return a.base.Snapshot(ctx, p, at)
+}
+
 func TestW05PublicCatalogSettingsGuard(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	settings := &w05PlazaSettings{enabled: true}
-	h := New(&fixtureCatalog{revision: "guard"}, nil, &config.Config{})
+	h := New(authCheckingCatalog{base: &fixtureCatalog{revision: "guard"}, settings: settings}, nil, &config.Config{})
 	h.settings = settings
 	r := gin.New()
 	strict := func(c *gin.Context) {
@@ -31,6 +48,7 @@ func TestW05PublicCatalogSettingsGuard(t *testing.T) {
 			c.AbortWithStatus(401)
 			return
 		}
+		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 7})
 		c.Next()
 	}
 	Register(r.Group("/api/v2"), h, nil, []gin.HandlerFunc{strict})

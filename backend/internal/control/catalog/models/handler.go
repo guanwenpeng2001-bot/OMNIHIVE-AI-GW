@@ -211,6 +211,9 @@ type endpoint func(context.Context, catalog.Perspective, *gin.Context) (any, err
 func (h *Handler) serve(fn endpoint) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
+		if subject, ok := middleware.GetAuthSubjectFromContext(c); ok && subject.UserID > 0 {
+			ctx = catalog.WithPublicViewerAuthenticated(ctx)
+		}
 		p, err := h.perspective(ctx, c)
 		if err == nil {
 			var data any

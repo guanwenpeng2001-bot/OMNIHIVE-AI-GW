@@ -17,6 +17,17 @@ type Perspective struct {
 
 func (p Perspective) Public() bool { return p.Project == 0 }
 
+type publicViewerAuthKey struct{}
+
+func WithPublicViewerAuthenticated(ctx context.Context) context.Context {
+	return context.WithValue(ctx, publicViewerAuthKey{}, true)
+}
+
+func PublicViewerAuthenticated(ctx context.Context) bool {
+	ok, _ := ctx.Value(publicViewerAuthKey{}).(bool)
+	return ok
+}
+
 type EffectiveScope struct {
 	Workspace int64 `json:"workspace_id,string"`
 	Project   int64 `json:"project_id,string"`

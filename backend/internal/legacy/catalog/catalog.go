@@ -33,7 +33,7 @@ func (s *Source) Load(ctx context.Context, p catalog.Perspective, window catalog
 	if !runtime.Enabled {
 		return catalog.Input{}, fault.NotFound
 	}
-	if p.Public() && runtime.RequireAuth {
+	if p.Public() && runtime.RequireAuth && !catalog.PublicViewerAuthenticated(ctx) {
 		return catalog.Input{}, fault.Unauthenticated
 	}
 	ctx = domain.WithWorkspaceScope(ctx, p.Workspace)
