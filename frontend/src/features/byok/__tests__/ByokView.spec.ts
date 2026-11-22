@@ -128,6 +128,14 @@ describe('ByokView & If-Match contract', () => {
       ],
       next_cursor: null
     })
+    vi.spyOn(identityApi, 'getProjectAccess').mockResolvedValue({
+      actor_id: '1',
+      workspace_id: '1',
+      project_id: '10',
+      actions: ['credentials.byok.manage', 'keys.read'],
+      scope_version: '1',
+      expires_at: '2026-11-20T00:00:00Z'
+    })
     listWorkspaceClasses.mockResolvedValue({
       items: [{ provider: 'openai', auth_type: 'api_key', supported: true, enabled: true }]
     })
@@ -207,5 +215,28 @@ describe('ByokView & If-Match contract', () => {
     await flushPromises()
 
     expect(listWorkspaceCredentials).toHaveBeenCalledTimes(1)
+  })
+
+  it('disables enroll button and hides project service account panel when credentials.byok.manage is absent', async () => {
+    vi.spyOn(identityApi, 'getProjectAccess').mockResolvedValue({
+      actor_id: '1',
+      workspace_id: '1',
+      project_id: '10',
+      actions: ['projects.read', 'models.read'],
+      scope_version: '1',
+      expires_at: '2026-11-20T00:00:00Z'
+    })
+
+    const wrapper = mountByok()
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="byok-enroll-btn"]').attributes('disabled')).toBeDefined()
+
+    const projectTab = wrapper.findAll('button[role="tab"]')[1]
+    await projectTab.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="console-state-permission"]').exists()).toBe(true)
+    expect(wrapper.find('byok-service-accounts-panel-stub').exists()).toBe(false)
   })
 })

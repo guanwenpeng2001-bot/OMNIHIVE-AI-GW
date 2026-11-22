@@ -272,19 +272,29 @@
           />
         </template>
 
-        <UserErrorRequestsTable
-          v-else-if="errorViewEnabled"
-          :rows="errorRows"
-          :total="errorTotal"
-          :loading="errorLoading"
-          :page="errorPage"
-          :page-size="errorPageSize"
-          :visible-column-keys="errVisibleColumnKeys"
-          @sort="onErrorSort"
-          @update:page="onErrorPage"
-          @update:pageSize="onErrorPageSize"
-          @ipGeoBatchFailed="handleIpGeoBatchFailed"
-        />
+        <template v-else-if="errorViewEnabled">
+          <ConsoleAsyncBanner
+            v-if="errorNotice"
+            data-testid="usage-errors-notice"
+            :notice="errorNotice"
+            :retry-label="t('common.refresh')"
+            class="mb-3"
+            @retry="loadErrors"
+          />
+          <UserErrorRequestsTable
+            v-if="!errorNotice || errorNotice.kind !== 'permission'"
+            :rows="errorRows"
+            :total="errorTotal"
+            :loading="errorLoading"
+            :page="errorPage"
+            :page-size="errorPageSize"
+            :visible-column-keys="errVisibleColumnKeys"
+            @sort="onErrorSort"
+            @update:page="onErrorPage"
+            @update:pageSize="onErrorPageSize"
+            @ipGeoBatchFailed="handleIpGeoBatchFailed"
+          />
+        </template>
       </div>
     </div>
   </AppLayout>
@@ -319,6 +329,8 @@ import EndpointDistributionChart from '@/components/charts/EndpointDistributionC
 import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import Icon from '@/components/icons/Icon.vue'
 import UserErrorRequestsTable from '@/components/user/UserErrorRequestsTable.vue'
+import ConsoleAsyncBanner from '@/features/console/components/ConsoleAsyncBanner.vue'
+import { classifyConsoleError, type ConsoleAsyncNotice } from '@/features/console/asyncState'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import UsageFilters from '@/components/admin/usage/UsageFilters.vue'
 import { USER_USAGE_EXPORT_ENDPOINT, downloadUsageCsv, usageExportFileName } from '@/utils/usageExport'
@@ -373,6 +385,7 @@ const endpointStatsLoading = ref(false)
 const exporting = ref(false)
 const errorRows = ref<UserErrorRequest[]>([])
 const errorLoading = ref(false)
+const errorNotice = ref<ConsoleAsyncNotice | null>(null)
 const errorPage = ref(1)
 const errorPageSize = ref(20)
 const errorSortBy = ref('created_at')
@@ -859,15 +872,29 @@ const loadApiKeys = async () => {
 }
 
 const loadFilterOptions = async () => {
-  try {
-    const [keys, availableGroups] = await Promise.all([
-      loadApiKeys(),
-      userGroupsAPI.getAvailable(),
-    ])
-    apiKeys.value = keys
-    groups.value = availableGroups
-  } catch (error) {
-    console.error('Failed to load usage filter options:', error)
+  const [keysResult, groupsResult] = await Promise.allSettled([
+    loadApiKeys(),
+    userGroupsAPI.getAvailable(),
+  ])
+  if (keysResult.status === 'fulfilled') {
+    apiKeys.value = keysResult.value
+  } else {
+    apiKeys.value = []
+    const status = (keysResult.reason as { status?: number; response?: { status?: number } })?.status ??
+      (keysResult.reason as { response?: { status?: number } })?.response?.status
+    if (status !== 403) {
+      console.error('Failed to load usage API key filters:', keysResult.reason)
+    }
+  }
+  if (groupsResult.status === 'fulfilled') {
+    groups.value = groupsResult.value
+  } else {
+    groups.value = []
+    const status = (groupsResult.reason as { status?: number; response?: { status?: number } })?.status ??
+      (groupsResult.reason as { response?: { status?: number } })?.response?.status
+    if (status !== 403) {
+      console.error('Failed to load usage group filters:', groupsResult.reason)
+    }
   }
 }
 
@@ -883,6 +910,7 @@ const resetErrorRows = () => {
 
 const loadErrors = async () => {
   errorLoading.value = true
+  errorNotice.value = null
   try {
     const resp = await usageAPI.listMyErrorRequests({
       page: errorPage.value,
@@ -899,8 +927,11 @@ const loadErrors = async () => {
     errorRows.value = resp.items
     errorTotal.value = resp.total
   } catch (error) {
-    console.error('[UsageView] loadErrors failed:', error)
-    appStore.showError(t('usage.errors.failedToLoad'))
+    errorNotice.value = classifyConsoleError(error, {
+      hasCachedData: errorRows.value.length > 0,
+      requiredGrantFallback: 'usage.read',
+      isZh: isZh.value,
+    })
   } finally {
     errorLoading.value = false
   }

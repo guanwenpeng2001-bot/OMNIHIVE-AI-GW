@@ -1,5 +1,12 @@
 import type { components } from '@/api/generated/openapi'
 import { apiClient, buildGatewayUrl } from '@/api/client'
+import {
+  authSessionChangedError,
+  authStorage,
+  captureAuthSession,
+  isAuthSessionCurrent,
+  refreshAuthTokens
+} from '@/api/tokenRefresh'
 import { getLocale } from '@/i18n'
 import { PlaygroundSseParser, type ParsedSseRecord } from './sseParser'
 import type {
@@ -17,6 +24,8 @@ function v2ProjectUrl(workspaceId: string, projectId: string, suffix: string): s
 
 function readAccessToken(): string | null {
   if (typeof window === 'undefined') return null
+  const stored = authStorage.token.get()
+  if (stored) return stored
   try {
     const v1Token = window.localStorage.getItem('omnihive.auth.token.v1')
     if (v1Token) {
@@ -55,28 +64,46 @@ async function executeStreamingPost(
   }
 ): Promise<PlaygroundExecutionResponse> {
   const fetcher = options.fetchImpl ?? globalThis.fetch
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    Accept: options.stream ? 'text/event-stream' : 'application/json',
-    'Idempotency-Key': options.idempotencyKey
-  }
-  try {
-    headers['Accept-Language'] = getLocale()
-  } catch {
-    headers['Accept-Language'] = 'en'
-  }
-  const token = readAccessToken()
-  if (token) {
-    headers.Authorization = `Bearer ${token}`
+  const performFetch = (authToken: string | null) => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: options.stream ? 'text/event-stream' : 'application/json',
+      'Idempotency-Key': options.idempotencyKey
+    }
+    try {
+      headers['Accept-Language'] = getLocale()
+    } catch {
+      headers['Accept-Language'] = 'en'
+    }
+    if (authToken) {
+      headers.Authorization = `Bearer ${authToken}`
+    }
+    return fetcher(url, {
+      method: 'POST',
+      credentials: 'include',
+      headers,
+      body: JSON.stringify(body),
+      signal: options.signal
+    })
   }
 
-  const response = await fetcher(url, {
-    method: 'POST',
-    credentials: 'include',
-    headers,
-    body: JSON.stringify(body),
-    signal: options.signal
-  })
+  const token = readAccessToken()
+  const session = captureAuthSession()
+  let response = await performFetch(token)
+
+  if (response.status === 401 && !options.signal?.aborted && authStorage.refreshToken.get()) {
+    try {
+      const tokens = await refreshAuthTokens({ failedAccessToken: token, session })
+      if (!isAuthSessionCurrent(session)) {
+        throw authSessionChangedError()
+      }
+      response = await performFetch(tokens.access_token)
+    } catch (refreshError) {
+      if ((refreshError as { code?: string })?.code === 'AUTH_SESSION_CHANGED') {
+        throw refreshError
+      }
+    }
+  }
 
   const contentType = (response.headers.get('content-type') || '').toLowerCase()
 
@@ -235,12 +262,13 @@ export const playgroundApi = {
   async cancelRun(
     workspaceId: string,
     projectId: string,
-    runId: string
+    runId: string,
+    signal?: AbortSignal
   ): Promise<PlaygroundSummary> {
     const { data } = await apiClient.post<PlaygroundSummary>(
       v2ProjectUrl(workspaceId, projectId, `/playground/runs/${encodeURIComponent(runId)}/cancel`),
       {},
-      { baseURL: '' }
+      { baseURL: '', signal }
     )
     return data
   },

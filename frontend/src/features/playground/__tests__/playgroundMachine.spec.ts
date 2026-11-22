@@ -439,3 +439,78 @@ describe('Playground error normalization (PG-1)', () => {
     expect(zhNotice.message).toContain('已发布模型')
   })
 })
+
+describe('Playground replay abort, generation guards, and 401 refresh', () => {
+  it('supports stop and disconnected_recoverable on executeApprovedReplay without misclassifying as failed', async () => {
+    let abortSeen = false
+    const api = createMockAdapter({
+      replayRequest: vi.fn((_ws, _proj, _reqId, _payload, opts) => {
+        return new Promise((_resolve, reject) => {
+          opts.signal?.addEventListener('abort', () => {
+            abortSeen = true
+            reject(new DOMException('Aborted', 'AbortError'))
+          })
+        })
+      })
+    })
+
+    const controller = createPlaygroundRunController({ api })
+    const replayPromise = controller.executeApprovedReplay(
+      '2',
+      '9',
+      'req-src-1',
+      { funding_acknowledged: true },
+      'idem-replay-1',
+      'openai_chat'
+    )
+
+    expect(controller.state.protocol).toBe('openai_chat')
+    await controller.stop('2', '9')
+    await replayPromise
+
+    expect(abortSeen).toBe(true)
+    expect(controller.state.status).toBe('disconnected_recoverable')
+  })
+
+  it('ignores stale stop() or queryRunStatus() responses when reset() advances activeGeneration', async () => {
+    let resolveCancel!: (value: PlaygroundSummary) => void
+    const cancelPromise = new Promise<PlaygroundSummary>((resolve) => {
+      resolveCancel = resolve
+    })
+    const api = createMockAdapter({
+      submitRun: vi.fn((_ws, _proj, _payload, opts) => {
+        opts.onFrame({
+          id: '1',
+          event: 'started',
+          data: JSON.stringify({ seq: 1, run_id: 'run-stale-1', request_id: 'req-stale-1' })
+        })
+        return new Promise(() => {})
+      }),
+      cancelRun: vi.fn(() => cancelPromise)
+    })
+
+    const controller = createPlaygroundRunController({ api })
+    const payload = buildPlaygroundSubmitPayload(makeSideConfig(), { messages: [{ role: 'user', content: 'Hi' }] })
+    void controller.executeApprovedRun('2', '9', payload, 'idem-gen-1')
+
+    const stopPromise = controller.stop('2', '9')
+    controller.reset()
+
+    resolveCancel({
+      run_id: 'run-stale-1',
+      request_id: 'req-stale-1',
+      protocol: 'openai_chat',
+      state: 'canceled',
+      last_seq: 1,
+      content_retained: false,
+      status_url: '/status',
+      detail_url: '/detail',
+      payer_user_id: '1',
+      settlement_state: 'settled'
+    })
+    await stopPromise
+
+    expect(controller.state.status).toBe('idle')
+    expect(controller.state.runId).toBeNull()
+  })
+})

@@ -164,6 +164,7 @@
             }}
           </span>
           <div v-if="selectedIds.length" class="flex flex-wrap items-center gap-3 text-sm">
+            <template v-if="canWriteKeys">
             <span class="text-[var(--muted-foreground)]">
               {{ t('keys.bulkEdit.selectedCount', { count: selectedIds.length }) }}
             </span>
@@ -178,6 +179,7 @@
             <button class="btn btn-secondary btn-sm" @click="selectedIds = []">
               {{ t('keys.bulkEdit.clearSelection') }}
             </button>
+            </template>
           </div>
         </div>
         <p class="sr-only">{{ t('keys.payAsYouGo.description') }}</p>
@@ -384,7 +386,13 @@
                   </button>
                 </div>
               </div>
-              <button @click="showCreateModal = true" class="btn btn-primary" data-tour="keys-create-btn">
+              <button
+                v-if="canWriteKeys"
+                @click="showCreateModal = true"
+                class="btn btn-primary"
+                data-tour="keys-create-btn"
+                data-testid="keys-create-btn"
+              >
                 <Icon name="plus" size="md" class="mr-1.5" />
                 {{ t('keys.createKey') }}
               </button>
@@ -393,11 +401,19 @@
         </template>
 
       <template #table>
+        <ConsoleAsyncBanner
+          v-if="keysAccessNotice"
+          :notice="keysAccessNotice"
+          :retry-label="t('common.refresh')"
+          class="mb-3"
+          @retry="refreshKeysSurface"
+        />
         <DataTable
+          v-if="!keysAccessNotice || apiKeys.length > 0"
           :columns="columns"
           :data="apiKeys"
           :loading="loading"
-          selectable
+          :selectable="canWriteKeys"
           row-key="id"
           :selected-keys="selectedIds"
           :selection-label="(key: ApiKey) => t('keys.bulkEdit.selectKey', { name: key.name })"
@@ -420,6 +436,7 @@
           <template #cell-name="{ value, row }">
             <div class="flex items-center gap-2">
               <input
+                v-if="canWriteKeys"
                 type="checkbox"
                 class="h-3.5 w-3.5 rounded border-[var(--border)] text-amber-600 focus:ring-amber-500"
                 :checked="selectedKeyIds.has(row.id)"
@@ -441,9 +458,11 @@
             <div class="group/dropdown relative min-w-0 max-w-full">
               <button
                 :ref="(el) => setGroupButtonRef(row.id, el)"
-                @click="openGroupSelector(row)"
-                class="oh-focus-ring -my-1 flex max-w-full min-w-0 cursor-pointer flex-wrap items-center gap-1.5 rounded-lg px-2 py-1 transition-all duration-200 hover:bg-[var(--surface-2)] sm:-mx-2 sm:gap-2"
-                :title="t('keys.clickToChangeGroup')"
+                :disabled="!canWriteKeys"
+                @click="canWriteKeys && openGroupSelector(row)"
+                class="oh-focus-ring -my-1 flex max-w-full min-w-0 flex-wrap items-center gap-1.5 rounded-lg px-2 py-1 transition-all duration-200 sm:-mx-2 sm:gap-2"
+                :class="canWriteKeys ? 'cursor-pointer hover:bg-[var(--surface-2)]' : 'cursor-default'"
+                :title="canWriteKeys ? t('keys.clickToChangeGroup') : undefined"
               >
                 <GroupBadge
                   v-if="row.group"
@@ -460,8 +479,9 @@
                 <span v-else class="text-sm text-[var(--muted-foreground)]">{{
                   t('keys.noGroup')
                 }}</span>
-                <span class="text-xs text-[var(--muted-foreground)]">{{ t('keys.selectGroup') }}</span>
+                <span v-if="canWriteKeys" class="text-xs text-[var(--muted-foreground)]">{{ t('keys.selectGroup') }}</span>
                 <svg
+                  v-if="canWriteKeys"
                   class="h-3.5 w-3.5 text-[var(--muted-foreground)] opacity-60 transition-opacity group-hover/dropdown:opacity-100"
                   fill="none"
                   stroke="currentColor"
@@ -753,7 +773,7 @@
               </button>
               <!-- Import to CC Switch Button -->
               <button
-                v-if="!publicSettings?.hide_ccs_import_button"
+                v-if="canWriteKeys && !publicSettings?.hide_ccs_import_button"
                 @click="importToCcswitch(row)"
                 class="flex flex-col items-center gap-0.5 rounded-[var(--oh-r-sm,6px)] p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
               >
@@ -762,6 +782,7 @@
               </button>
               <!-- Toggle Status Button -->
               <button
+                v-if="canWriteKeys"
                 @click="toggleKeyStatus(row)"
                 :class="[
                   'flex flex-col items-center gap-0.5 rounded-[var(--oh-r-sm,6px)] p-1.5 transition-colors',
@@ -776,6 +797,7 @@
               </button>
               <!-- Rotate Button -->
               <button
+                v-if="canWriteKeys"
                 @click="openRotateModal(row)"
                 class="flex flex-col items-center gap-0.5 rounded-[var(--oh-r-sm,6px)] p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--brand-text)]"
               >
@@ -784,6 +806,7 @@
               </button>
               <!-- Edit Button -->
               <button
+                v-if="canWriteKeys"
                 @click="editKey(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--brand-text)]"
               >
@@ -792,6 +815,7 @@
               </button>
               <!-- Delete Button -->
               <button
+                v-if="canWriteKeys"
                 @click="confirmDelete(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
               >
@@ -804,9 +828,9 @@
           <template #empty>
             <EmptyState
               :title="t('keys.noKeysYet')"
-              :description="t('keys.createFirstKey')"
-              :action-text="t('keys.createKey')"
-              @action="showCreateModal = true"
+              :description="canWriteKeys ? t('keys.createFirstKey') : (isZh ? '当前项目内暂无可查看的 API 密钥' : 'No readable API keys in this project')"
+              :action-text="canWriteKeys ? t('keys.createKey') : undefined"
+              @action="canWriteKeys && (showCreateModal = true)"
             />
           </template>
         </DataTable>
@@ -1799,6 +1823,8 @@ import {
   type ConsoleScopeSelection,
   type IdentityKey
 } from '@/features/console/scope'
+import ConsoleAsyncBanner from '@/features/console/components/ConsoleAsyncBanner.vue'
+import { classifyConsoleError, type ConsoleAsyncNotice } from '@/features/console/asyncState'
 
 const { t, locale } = useI18n()
 const isZh = computed(() => String(locale?.value || '').startsWith('zh'))
@@ -1806,6 +1832,9 @@ const instance = getCurrentInstance()
 
 const activeConsoleScope = ref<ConsoleScopeSelection>(readPersistedConsoleScope())
 const projectScopedKeys = ref<IdentityKey[]>([])
+const canReadKeys = ref(true)
+const canWriteKeys = ref(true)
+const keysAccessNotice = ref<ConsoleAsyncNotice | null>(null)
 const issueProjectPolicyCredential = ref(false)
 const projectKeyAllowModelsRead = ref(false)
 const PROJECT_KEY_GRANTED_ACTIONS = [
@@ -1828,13 +1857,13 @@ const lastIssuedProjectKeyScope = ref<{
 const scopedBillingHref = computed(() => {
   const ws = activeConsoleScope.value.workspaceId
   const proj = activeConsoleScope.value.projectId
-  return ws && proj ? `/billing?workspace=${encodeURIComponent(ws)}&project=${encodeURIComponent(proj)}` : '/billing'
+  return ws && proj ? `/billing?workspace_id=${encodeURIComponent(ws)}&project_id=${encodeURIComponent(proj)}` : '/billing'
 })
 
 const scopedRequestsHref = computed(() => {
   const ws = activeConsoleScope.value.workspaceId
   const proj = activeConsoleScope.value.projectId
-  return ws && proj ? `/requests?workspace=${encodeURIComponent(ws)}&project=${encodeURIComponent(proj)}` : '/requests'
+  return ws && proj ? `/requests?workspace_id=${encodeURIComponent(ws)}&project_id=${encodeURIComponent(proj)}` : '/requests'
 })
 
 function navigateConsole(path: string): void {
@@ -1849,7 +1878,7 @@ function navigateConsole(path: string): void {
 async function loadProjectScopedKeys(): Promise<void> {
   const ws = activeConsoleScope.value.workspaceId
   const proj = activeConsoleScope.value.projectId
-  if (!ws || !proj || typeof identityApi.listProjectKeys !== 'function') {
+  if (!canReadKeys.value || !ws || !proj || typeof identityApi.listProjectKeys !== 'function') {
     projectScopedKeys.value = []
     return
   }
@@ -1865,9 +1894,68 @@ async function loadProjectScopedKeys(): Promise<void> {
   }
 }
 
+async function refreshKeyAccess(): Promise<{ canRead: boolean; canWrite: boolean }> {
+  const ws = activeConsoleScope.value.workspaceId
+  const proj = activeConsoleScope.value.projectId
+  if (!ws || !proj || typeof identityApi.getProjectAccess !== 'function') {
+    canReadKeys.value = true
+    canWriteKeys.value = true
+    keysAccessNotice.value = null
+    return { canRead: true, canWrite: true }
+  }
+  try {
+    const access = await identityApi.getProjectAccess(ws, proj)
+    const actions = Array.isArray(access?.actions) ? access.actions : []
+    const canRead = actions.includes('*') || actions.includes('keys.read')
+    const canWrite = actions.includes('*') || actions.includes('keys.write')
+    canReadKeys.value = canRead
+    canWriteKeys.value = canWrite
+    if (!canRead) {
+      keysAccessNotice.value = classifyConsoleError(
+        { status: 403, reason: 'INSUFFICIENT_GRANT' },
+        { requiredGrantFallback: 'keys.read', isZh: isZh.value }
+      )
+      apiKeys.value = []
+      projectScopedKeys.value = []
+      pagination.value.total = 0
+      pagination.value.pages = 0
+    } else {
+      keysAccessNotice.value = null
+    }
+    return { canRead, canWrite }
+  } catch (err) {
+    const status = (err as { status?: number; response?: { status?: number } })?.status ??
+      (err as { response?: { status?: number } })?.response?.status
+    if (status === 403) {
+      canReadKeys.value = false
+      canWriteKeys.value = false
+      keysAccessNotice.value = classifyConsoleError(err, {
+        requiredGrantFallback: 'keys.read',
+        isZh: isZh.value
+      })
+      apiKeys.value = []
+      projectScopedKeys.value = []
+      pagination.value.total = 0
+      pagination.value.pages = 0
+      return { canRead: false, canWrite: false }
+    }
+    canReadKeys.value = true
+    canWriteKeys.value = true
+    keysAccessNotice.value = null
+    return { canRead: true, canWrite: true }
+  }
+}
+
+async function refreshKeysSurface(): Promise<void> {
+  const { canRead } = await refreshKeyAccess()
+  if (!canRead) return
+  void loadApiKeys()
+  void loadProjectScopedKeys()
+}
+
 function handleConsoleScopeSync(): void {
   activeConsoleScope.value = readPersistedConsoleScope()
-  void loadProjectScopedKeys()
+  void refreshKeysSurface()
 }
 import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
 import { buildGatewayUrl } from '@/api/url'
@@ -2423,6 +2511,10 @@ const isAbortError = (error: unknown) => {
 
 const loadApiKeys = async () => {
   if (disposed) return
+  if (!canReadKeys.value) {
+    loading.value = false
+    return
+  }
   abortController?.abort()
   const controller = new AbortController()
   abortController = controller
@@ -2476,6 +2568,20 @@ const loadApiKeys = async () => {
     }
   } catch (error) {
     if (!isCurrentRequest() || isAbortError(error)) {
+      return
+    }
+    const status = (error as { status?: number; response?: { status?: number } })?.status ??
+      (error as { response?: { status?: number } })?.response?.status
+    if (status === 403) {
+      canReadKeys.value = false
+      canWriteKeys.value = false
+      keysAccessNotice.value = classifyConsoleError(error, {
+        requiredGrantFallback: 'keys.read',
+        isZh: isZh.value
+      })
+      apiKeys.value = []
+      pagination.value.total = 0
+      pagination.value.pages = 0
       return
     }
     appStore.showError(t('keys.failedToLoad'))
@@ -2748,7 +2854,6 @@ const closeSecretDialog = () => {
   showSecretDialog.value = false
   issuedSecret.value = ''
   issuedGraceUntil.value = null
-  sessionSecrets.clear()
 }
 
 const closeGroupSelector = (event: MouseEvent) => {
@@ -2859,16 +2964,14 @@ const handleSubmit = async () => {
       appStore.showError(t('keys.projectGroupRequired'))
       return
     }
-    const numericProjectGroupId = Number(resolvedProjectGroupId.value)
-    formData.value.group_id = Number.isSafeInteger(numericProjectGroupId) ? numericProjectGroupId : null
   }
   if (!showEditModal.value && !issueProjectPolicyCredential.value && (groupsLoading.value || groupsLoadFailed.value || !groups.value.some(group => group.id === formData.value.group_id))) {
     appStore.showError(t(groupsLoadFailed.value ? 'keys.groupsLoadFailed' : 'keys.groupRequired'))
     return
   }
   // Validate group_id is required
-  if (!showEditModal.value && formData.value.group_id === null) {
-    appStore.showError(t(issueProjectPolicyCredential.value ? 'keys.projectGroupRequired' : 'keys.groupRequired'))
+  if (!showEditModal.value && !issueProjectPolicyCredential.value && formData.value.group_id === null) {
+    appStore.showError(t('keys.groupRequired'))
     return
   }
 
@@ -3194,13 +3297,17 @@ function formatResetTime(resetAt: string | null): string {
   return `${mins}m`
 }
 
-onMounted(() => {
+onMounted(async () => {
   loadSavedColumns()
-  loadApiKeys()
+  const { canRead } = await refreshKeyAccess()
+  if (disposed) return
+  if (canRead) {
+    void loadApiKeys()
+    void loadProjectScopedKeys()
+  }
   loadGroups()
   loadUserGroupRates()
   loadPublicSettings()
-  void loadProjectScopedKeys()
   if (typeof window !== 'undefined') {
     window.addEventListener(CONSOLE_SCOPE_CHANGED_EVENT, handleConsoleScopeSync)
   }

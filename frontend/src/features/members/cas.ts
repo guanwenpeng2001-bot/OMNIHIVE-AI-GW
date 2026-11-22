@@ -33,8 +33,7 @@ export function projectMemberPermissions(
       isAdminFallback ||
       hasAction('members.grants') ||
       hasAction('members.read') ||
-      hasAction('workspace.read') ||
-      actions.length > 0,
+      hasAction('workspace.read'),
     canManageGrants:
       isAdminFallback ||
       hasAction('members.grants') ||

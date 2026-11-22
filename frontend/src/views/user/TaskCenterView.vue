@@ -63,6 +63,15 @@ const asOf = ref('')
 
 const pageNotice = ref<ConsoleAsyncNotice | null>(null)
 const confirmedNotice = ref<ConsoleAsyncNotice | null>(null)
+const canReadTasks = ref(true)
+const canCreateTasks = ref(true)
+const canReadKeys = ref(true)
+
+const activeScopeIds = computed<{ wsId: string; projId: string } | null>(() => {
+  const wsId = scope.activeWorkspaceId.value
+  const projId = scope.activeProjectId.value
+  return wsId && projId ? { wsId, projId } : null
+})
 
 const filters = reactive({
   kind: '',
@@ -135,6 +144,37 @@ function navigateTo(path: string): void {
   }
 }
 
+async function refreshTaskAccess(wsId: string, projId: string): Promise<boolean> {
+  if (typeof identityApi.getProjectAccess !== 'function') {
+    canReadTasks.value = true
+    canCreateTasks.value = true
+    canReadKeys.value = true
+    return true
+  }
+  try {
+    const access = await identityApi.getProjectAccess(wsId, projId)
+    const actions = Array.isArray(access?.actions) ? access.actions : []
+    const allowAll = actions.includes('*')
+    canReadTasks.value = allowAll || actions.includes('tasks.read')
+    canCreateTasks.value = allowAll || actions.includes('tasks.create')
+    canReadKeys.value = allowAll || actions.includes('keys.read')
+    return canReadTasks.value
+  } catch (err) {
+    const status = (err as { status?: number; response?: { status?: number } })?.status ??
+      (err as { response?: { status?: number } })?.response?.status
+    if (status === 403) {
+      canReadTasks.value = false
+      canCreateTasks.value = false
+      canReadKeys.value = false
+      return false
+    }
+    canReadTasks.value = true
+    canCreateTasks.value = true
+    canReadKeys.value = true
+    return true
+  }
+}
+
 async function loadTasks(options?: { refresh?: boolean; cursor?: string }): Promise<void> {
   const isRefresh = Boolean(options?.refresh)
   if (isRefresh && tasks.value.length > 0) {
@@ -147,8 +187,26 @@ async function loadTasks(options?: { refresh?: boolean; cursor?: string }): Prom
 
   try {
     await scope.refreshScopes(false)
-    const wsId = scope.activeWorkspaceId.value || '1'
-    const projId = scope.activeProjectId.value || '1'
+    const ids = activeScopeIds.value
+    if (!ids) {
+      tasks.value = []
+      nextCursor.value = null
+      canReadTasks.value = false
+      canCreateTasks.value = false
+      canReadKeys.value = false
+      return
+    }
+    const { wsId, projId } = ids
+    const canRead = await refreshTaskAccess(wsId, projId)
+    if (!canRead) {
+      tasks.value = []
+      nextCursor.value = null
+      pageNotice.value = classifyConsoleError(
+        { status: 403, reason: 'INSUFFICIENT_GRANT' },
+        { requiredGrantFallback: 'tasks.read', isZh: isZh.value }
+      )
+      return
+    }
     const page = await tasksApi.listTasks(wsId, projId, {
       cursor: options?.cursor,
       limit: 25,
@@ -162,6 +220,13 @@ async function loadTasks(options?: { refresh?: boolean; cursor?: string }): Prom
     nextCursor.value = page.next_cursor ?? null
     asOf.value = page.as_of || new Date().toISOString()
   } catch (err) {
+    const status = (err as { status?: number; response?: { status?: number } })?.status ??
+      (err as { response?: { status?: number } })?.response?.status
+    if (status === 403) {
+      canReadTasks.value = false
+      canCreateTasks.value = false
+      tasks.value = []
+    }
     pageNotice.value = classifyConsoleError(err, {
       hasCachedData: hadCached,
       lastSyncedAt: asOf.value,
@@ -204,14 +269,15 @@ function goPrevPage(): void {
 }
 
 async function openTaskDetail(taskId: string): Promise<void> {
+  const ids = activeScopeIds.value
+  if (!ids || !canReadTasks.value) return
   if (selectedDetail.value?.id !== taskId) {
     revokeAllArtifactPreviews()
   }
   drawerOpen.value = true
   drawerLoading.value = true
   drawerNotice.value = null
-  const wsId = scope.activeWorkspaceId.value || '1'
-  const projId = scope.activeProjectId.value || '1'
+  const { wsId, projId } = ids
 
   try {
     const [detail, itemPage] = await Promise.all([
@@ -236,10 +302,11 @@ async function openTaskDetail(taskId: string): Promise<void> {
 }
 
 async function handleCancelTask(taskId: string): Promise<void> {
+  const ids = activeScopeIds.value
+  if (!ids) return
   actionBusyId.value = `cancel:${taskId}`
   drawerNotice.value = null
-  const wsId = scope.activeWorkspaceId.value || '1'
-  const projId = scope.activeProjectId.value || '1'
+  const { wsId, projId } = ids
   try {
     const res = await tasksApi.cancelTask(wsId, projId, taskId)
     confirmedNotice.value = {
@@ -265,11 +332,11 @@ function handleOpenPaidRetry(payload: { taskId: string; preselectedItemIds: stri
 }
 
 async function handleConfirmPaidRetry(payload: { itemIds: string[] }): Promise<void> {
-  if (!selectedDetail.value) return
+  const ids = activeScopeIds.value
+  if (!selectedDetail.value || !ids) return
   retrySubmitting.value = true
   drawerNotice.value = null
-  const wsId = scope.activeWorkspaceId.value || '1'
-  const projId = scope.activeProjectId.value || '1'
+  const { wsId, projId } = ids
   try {
     const result = await tasksApi.retryTask(wsId, projId, selectedDetail.value.id, {
       item_ids: payload.itemIds.length > 0 ? payload.itemIds : undefined,
@@ -299,11 +366,11 @@ async function handleConfirmPaidRetry(payload: { itemIds: string[] }): Promise<v
 }
 
 async function handleDownloadArtifact(artifact: ImageTaskArtifact): Promise<void> {
-  if (!selectedDetail.value) return
+  const ids = activeScopeIds.value
+  if (!selectedDetail.value || !ids) return
   actionBusyId.value = `download:${artifact.id}`
   drawerNotice.value = null
-  const wsId = scope.activeWorkspaceId.value || '1'
-  const projId = scope.activeProjectId.value || '1'
+  const { wsId, projId } = ids
   const taskId = selectedDetail.value.id
 
   try {
@@ -341,11 +408,11 @@ async function handleDownloadArtifact(artifact: ImageTaskArtifact): Promise<void
 }
 
 async function handlePreviewArtifact(artifact: ImageTaskArtifact): Promise<void> {
-  if (!selectedDetail.value) return
+  const ids = activeScopeIds.value
+  if (!selectedDetail.value || !ids) return
   actionBusyId.value = `preview:${artifact.id}`
   drawerNotice.value = null
-  const wsId = scope.activeWorkspaceId.value || '1'
-  const projId = scope.activeProjectId.value || '1'
+  const { wsId, projId } = ids
   const taskId = selectedDetail.value.id
   const taskKind = selectedDetail.value.kind
 
@@ -377,8 +444,12 @@ async function handlePreviewArtifact(artifact: ImageTaskArtifact): Promise<void>
 }
 
 async function loadModelsForKind(kind: AsyncTaskKind): Promise<void> {
-  const wsId = scope.activeWorkspaceId.value || '1'
-  const projId = scope.activeProjectId.value || '1'
+  const ids = activeScopeIds.value
+  if (!ids) {
+    createModels.value = []
+    return
+  }
+  const { wsId, projId } = ids
   createModelsLoading.value = true
   try {
     const scopedModels = await catalogApi.listScopedModels(wsId, projId, {
@@ -405,11 +476,11 @@ function handleCreateKindChange(kind: AsyncTaskKind): void {
 }
 
 async function handleRevokeArtifact(artifact: ImageTaskArtifact): Promise<void> {
-  if (!selectedDetail.value) return
+  const ids = activeScopeIds.value
+  if (!selectedDetail.value || !ids) return
   actionBusyId.value = `revoke:${artifact.id}`
   drawerNotice.value = null
-  const wsId = scope.activeWorkspaceId.value || '1'
-  const projId = scope.activeProjectId.value || '1'
+  const { wsId, projId } = ids
   const taskId = selectedDetail.value.id
 
   try {
@@ -432,19 +503,16 @@ async function handleRevokeArtifact(artifact: ImageTaskArtifact): Promise<void> 
 }
 
 async function openCreateModal(): Promise<void> {
+  const ids = activeScopeIds.value
+  if (!ids || !canCreateTasks.value) return
   createModalOpen.value = true
-  const wsId = scope.activeWorkspaceId.value || '1'
-  const projId = scope.activeProjectId.value || '1'
+  const { wsId, projId } = ids
   createModelsLoading.value = true
   const [projKeysRes, userKeysRes, mRes] = await Promise.allSettled([
-    scope.activeWorkspaceId.value &&
-    scope.activeProjectId.value &&
-    typeof identityApi.listProjectKeys === 'function'
-      ? identityApi.listProjectKeys(scope.activeWorkspaceId.value, scope.activeProjectId.value, {
-          limit: 100
-        })
+    canReadKeys.value && typeof identityApi.listProjectKeys === 'function'
+      ? identityApi.listProjectKeys(wsId, projId, { limit: 100 })
       : Promise.resolve({ items: [] }),
-    keysAPI.list(1, 50, { status: 'active' }),
+    canReadKeys.value ? keysAPI.list(1, 50, { status: 'active' }) : Promise.resolve({ items: [] }),
     catalogApi.listScopedModels(wsId, projId, { modality: [createActiveKind.value], limit: 50 })
   ])
   createModelsLoading.value = false
@@ -488,9 +556,10 @@ function handleNavigateToKeysFromCreate(): void {
 }
 
 async function handleCreateTask(payload: ImageTaskCreateInput): Promise<void> {
+  const ids = activeScopeIds.value
+  if (!ids || !canCreateTasks.value) return
   createSubmitting.value = true
-  const wsId = scope.activeWorkspaceId.value || '1'
-  const projId = scope.activeProjectId.value || '1'
+  const { wsId, projId } = ids
   try {
     const created = await tasksApi.createTask(wsId, projId, payload)
     createModalOpen.value = false
@@ -567,6 +636,7 @@ onMounted(() => {
 
         <div class="flex items-center gap-2">
           <Button
+            v-if="canCreateTasks && canReadTasks && activeScopeIds"
             data-testid="open-create-task-btn"
             variant="primary"
             size="sm"
@@ -701,6 +771,23 @@ onMounted(() => {
         <Skeleton height="52px" />
       </div>
 
+      <!-- Missing Scope State -->
+      <div
+        v-else-if="!activeScopeIds"
+        data-testid="console-state-no-scope"
+      >
+        <EmptyState
+          :title="isZh ? '请先选择工作空间与项目' : 'Select Workspace and Project First'"
+          :description="
+            isZh
+              ? '异步任务列表、创建及产物下载均按工作空间与项目作用域隔离，请先在上方作用域栏选择或前往工作空间页面配置项目。'
+              : 'Asynchronous tasks and artifacts are scoped to a workspace and project. Choose a workspace and project above or manage scopes in Workspaces.'
+          "
+          :action-label="isZh ? '前往工作空间管理' : 'Manage Workspaces'"
+          @action="navigateTo('/workspaces')"
+        />
+      </div>
+
       <!-- Zero-Filter State -->
       <div
         v-else-if="tasks.length === 0 && hasActiveFilters"
@@ -734,7 +821,7 @@ onMounted(() => {
           "
         >
           <template #actions>
-            <Button variant="primary" size="sm" @click="openCreateModal">
+            <Button v-if="canCreateTasks && canReadTasks" variant="primary" size="sm" @click="openCreateModal">
               {{ isZh ? '创建首个异步任务' : 'Create First Async Task' }}
             </Button>
           </template>

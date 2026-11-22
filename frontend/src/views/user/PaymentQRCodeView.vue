@@ -20,7 +20,7 @@
         <p class="mt-1 text-2xl font-bold tabular-nums text-gray-900 dark:text-white">{{ countdownDisplay }}</p>
         <p class="mt-2 text-sm text-gray-400 dark:text-gray-500">{{ t('payment.qr.waitingPayment') }}</p>
       </div>
-      <a v-if="payUrl && !qrUrl && !expired" :href="payUrl" target="_blank" rel="noopener noreferrer"
+      <a v-if="safePayUrl && !qrUrl && !expired" :href="safePayUrl" target="_blank" rel="noopener noreferrer"
         class="btn btn-primary w-full py-3">
         {{ t('payment.qr.openPayWindow') }}
       </a>
@@ -42,6 +42,8 @@ import { paymentAPI } from '@/api/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
 import { useAppStore } from '@/stores'
 import { isBuiltInAlipayMethod, isBuiltInWxpayMethod } from '@/components/payment/providerConfig'
+import { PAYMENT_RECOVERY_STORAGE_KEY, readOwnedPaymentRecoverySnapshot } from '@/components/payment/paymentFlow'
+import { sanitizeUrl } from '@/utils/url'
 import QRCode from 'qrcode'
 import alipayIcon from '@/assets/icons/alipay.svg'
 import wxpayIcon from '@/assets/icons/wxpay.svg'
@@ -52,6 +54,25 @@ const router = useRouter()
 const paymentStore = usePaymentStore()
 const appStore = useAppStore()
 
+const TRUSTED_PAYMENT_PROTOCOLS = new Set(['weixin:', 'alipays:'])
+
+function sanitizePaymentUrl(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed || /[\u0000-\u001F\u007F]/.test(trimmed)) return ''
+  const httpSafe = sanitizeUrl(trimmed)
+  if (httpSafe) return httpSafe
+  try {
+    const parsed = new URL(trimmed)
+    const protocol = parsed.protocol.toLowerCase()
+    if (TRUSTED_PAYMENT_PROTOCOLS.has(protocol) && (parsed.host || parsed.pathname)) {
+      return parsed.toString()
+    }
+  } catch {
+    return ''
+  }
+  return ''
+}
+
 const qrCanvas = ref<HTMLCanvasElement | null>(null)
 const qrUrl = ref('')
 const payUrl = ref('')
@@ -60,9 +81,11 @@ const remainingSeconds = ref(0)
 const expired = ref(false)
 const cancelling = ref(false)
 const paymentType = ref('')
+const safePayUrl = computed(() => sanitizePaymentUrl(payUrl.value))
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let countdownTimer: ReturnType<typeof setInterval> | null = null
+let disposed = false
 
 const countdownDisplay = computed(() => {
   const m = Math.floor(remainingSeconds.value / 60)
@@ -93,11 +116,12 @@ function getLogoForType(): string | null {
 
 async function renderQR() {
   await nextTick()
-  if (!qrCanvas.value || !qrUrl.value) return
+  const safeQr = sanitizePaymentUrl(qrUrl.value)
+  if (!qrCanvas.value || !safeQr) return
 
   // Use medium error correction to support logo overlay while keeping QR code scannable
   const logoSrc = getLogoForType()
-  await QRCode.toCanvas(qrCanvas.value, qrUrl.value, {
+  await QRCode.toCanvas(qrCanvas.value, safeQr, {
     width: 256,
     margin: 2,
     errorCorrectionLevel: logoSrc ? 'M' : 'L',
@@ -191,24 +215,73 @@ function cleanup() {
 
 watch(qrUrl, () => renderQR())
 
-onMounted(() => {
-  orderId.value = Number(route.query.order_id) || 0
-  qrUrl.value = String(route.query.qr || '')
-  payUrl.value = String(route.query.pay_url || '')
-  paymentType.value = String(route.query.payment_type || '')
+function resolveCountdownSeconds(expiresAtStr?: string | null): number {
+  if (!expiresAtStr) return 30 * 60
+  const expiresAt = new Date(expiresAtStr)
+  if (Number.isNaN(expiresAt.getTime())) return 30 * 60
+  return Math.floor((expiresAt.getTime() - Date.now()) / 1000)
+}
 
-  // Calculate countdown from expiresAt
-  const expiresAtStr = String(route.query.expires_at || '')
-  let seconds = 30 * 60 // fallback: 30 minutes
-  if (expiresAtStr) {
-    const expiresAt = new Date(expiresAtStr)
-    const now = new Date()
-    seconds = Math.floor((expiresAt.getTime() - now.getTime()) / 1000)
+onMounted(async () => {
+  orderId.value = Number(route.query.order_id) || 0
+  const queryPaymentType = String(route.query.payment_type || '')
+  const queryExpiresAt = String(route.query.expires_at || '')
+
+  if (orderId.value <= 0) {
+    qrUrl.value = ''
+    payUrl.value = ''
+    expired.value = true
+    return
   }
-  startCountdown(seconds)
-  pollTimer = setInterval(pollStatus, 3000)
-  renderQR()
+
+  const ownedSnapshot =
+    typeof window !== 'undefined'
+      ? readOwnedPaymentRecoverySnapshot(window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY))
+      : null
+  const matchesOwnedSnapshot = Boolean(ownedSnapshot && ownedSnapshot.orderId === orderId.value)
+  if (matchesOwnedSnapshot && ownedSnapshot) {
+    qrUrl.value = sanitizePaymentUrl(ownedSnapshot.qrCode || '')
+    payUrl.value = sanitizePaymentUrl(ownedSnapshot.payUrl || '')
+    paymentType.value = ownedSnapshot.paymentType || queryPaymentType
+    startCountdown(resolveCountdownSeconds(ownedSnapshot.expiresAt || queryExpiresAt))
+  }
+
+  try {
+    const res = await paymentAPI.getOrder(orderId.value)
+    if (disposed) return
+    const order = res.data
+    if (!order || (order.id && order.id !== orderId.value)) {
+      throw new Error('Order mismatch')
+    }
+    if (order.status === 'COMPLETED' || order.status === 'PAID') {
+      cleanup()
+      router.push({ path: '/payment/result', query: { order_id: String(orderId.value), status: 'success' } })
+      return
+    }
+    if (order.status === 'EXPIRED' || order.status === 'CANCELLED' || order.status === 'FAILED') {
+      cleanup()
+      qrUrl.value = ''
+      payUrl.value = ''
+      expired.value = true
+      return
+    }
+    paymentType.value = order.payment_type || paymentType.value || queryPaymentType
+    if (!countdownTimer && !expired.value) {
+      startCountdown(resolveCountdownSeconds(order.expires_at || queryExpiresAt))
+    }
+    pollTimer = setInterval(pollStatus, 3000)
+    renderQR()
+  } catch {
+    if (disposed) return
+    cleanup()
+    qrUrl.value = ''
+    payUrl.value = ''
+    expired.value = true
+  }
 })
 
-onUnmounted(() => cleanup())
+onUnmounted(() => {
+  disposed = true
+  cleanup()
+})
 </script>

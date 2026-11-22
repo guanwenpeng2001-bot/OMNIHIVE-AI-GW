@@ -89,7 +89,7 @@ export function useProjectScope() {
   function can(action: string): boolean {
     const result = access.data.value
     return Boolean(result && !access.error.value && Date.parse(result.expires_at) > now.value &&
-      result.actions.includes(action))
+      (result.actions.includes('*') || result.actions.includes(action)))
   }
 
   return { scope, scopeKey, identityKey, admin, access, choose, can }

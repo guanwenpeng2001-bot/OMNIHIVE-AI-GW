@@ -125,6 +125,14 @@ describe('TaskCenterView BE-15 workflows and honest states', () => {
       next_cursor: null,
       as_of: '2026-11-19T12:00:00Z'
     })
+    vi.spyOn(identityApi, 'getProjectAccess').mockResolvedValue({
+      actor_id: '1',
+      workspace_id: '1',
+      project_id: '5',
+      actions: ['tasks.read', 'tasks.create', 'tasks.cancel', 'tasks.retry', 'tasks.artifacts.read', 'tasks.artifacts.revoke', 'keys.read'],
+      scope_version: '1',
+      expires_at: '2026-11-20T00:00:00Z'
+    })
   })
 
   it('never fabricates a numeric progress bar when progress is null and renders explicit available/expired/revoked artifact states', async () => {
@@ -285,6 +293,39 @@ describe('TaskCenterView BE-15 workflows and honest states', () => {
     await flushPromises()
     expect(wrapper.find('[data-testid="console-state-permission"]').exists()).toBe(true)
 
+    wrapper.unmount()
+  })
+
+  it('renders no-scope state without falling back to hardcoded workspace/project 1 when scopes are empty', async () => {
+    vi.spyOn(identityApi, 'listScopes').mockResolvedValue({
+      items: [{ workspace_id: '9', workspace_name: 'Empty', workspace_state: 'active', projects: [] }],
+      next_cursor: null,
+      as_of: '2026-11-19T12:00:00Z'
+    })
+    const wrapper = mount(TaskCenterView, { props: { teleportDisabled: true } })
+    await flushPromises()
+
+    expect(mocks.listTasks).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="console-state-no-scope"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="open-create-task-btn"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('hides create button and skips listTasks when getProjectAccess denies tasks.read (403)', async () => {
+    vi.spyOn(identityApi, 'getProjectAccess').mockResolvedValue({
+      actor_id: '1',
+      workspace_id: '1',
+      project_id: '5',
+      actions: ['projects.read', 'models.read'],
+      scope_version: '1',
+      expires_at: '2026-11-20T00:00:00Z'
+    })
+    const wrapper = mount(TaskCenterView, { props: { teleportDisabled: true } })
+    await flushPromises()
+
+    expect(mocks.listTasks).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="open-create-task-btn"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="console-state-permission"]').exists()).toBe(true)
     wrapper.unmount()
   })
 })

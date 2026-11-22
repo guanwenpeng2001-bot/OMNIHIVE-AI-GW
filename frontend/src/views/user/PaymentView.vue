@@ -69,7 +69,7 @@
             <div class="card p-5">
               <p class="text-xs font-medium text-[var(--muted-foreground)]">{{ t('payment.rechargeAccount') }}</p>
               <p class="mt-1 text-base font-semibold text-[var(--foreground)]">{{ user?.username || '' }}</p>
-              <p class="mt-0.5 text-sm font-medium text-green-600 dark:text-green-400">{{ t('payment.currentBalance') }}: {{ user?.balance?.toFixed(2) || '0.00' }}</p>
+              <p class="mt-0.5 text-sm font-medium text-green-600 dark:text-green-400">{{ t('payment.currentBalance') }}: {{ formatBalanceAmount(user?.balance ?? 0) }}</p>
             </div>
             <div v-if="enabledMethods.length === 0" class="card py-16 text-center">
               <p class="text-[var(--muted-foreground)]">{{ t('payment.notAvailable') }}</p>
@@ -81,6 +81,7 @@
                 :amounts="[10, 20, 50, 100, 200, 500, 1000, 2000, 5000]"
                 :min="globalMinAmount"
                 :max="globalMaxAmount"
+                :currency="selectedCurrency"
               />
               <p v-if="amountError" class="mt-2 text-xs text-amber-600 dark:text-amber-300">{{ amountError }}</p>
             </div>
@@ -326,6 +327,7 @@ import SubscriptionPlanCard from '@/components/payment/SubscriptionPlanCard.vue'
 import PaymentStatusPanel from '@/components/payment/PaymentStatusPanel.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { DEFAULT_PAYMENT_CURRENCY, formatPaymentAmount, normalizePaymentCurrency } from '@/components/payment/currency'
+import { formatBalanceAmount } from '@/utils/money'
 import { planValiditySuffix as validitySuffixOf } from '@/components/payment/validity'
 import type { PaymentMethodOption } from '@/components/payment/PaymentMethodSelector.vue'
 import { buildPaymentErrorToastMessage, describePaymentScenarioError } from './paymentUx'
@@ -686,12 +688,12 @@ const methodOptions = computed<PaymentMethodOption[]>(() =>
 const feeRate = computed(() => checkout.value?.recharge_fee_rate ?? 0)
 const feeAmount = computed(() =>
   feeRate.value > 0 && validAmount.value > 0
-    ? Math.ceil(((validAmount.value * feeRate.value) / 100) * 100) / 100
+    ? ceilPaymentAmount((validAmount.value * feeRate.value) / 100, selectedCurrency.value)
     : 0
 )
 const totalAmount = computed(() =>
   feeRate.value > 0 && validAmount.value > 0
-    ? Math.round((validAmount.value + feeAmount.value) * 100) / 100
+    ? roundPaymentAmount(validAmount.value + feeAmount.value, selectedCurrency.value)
     : validAmount.value
 )
 
