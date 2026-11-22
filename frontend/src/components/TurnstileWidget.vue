@@ -12,13 +12,6 @@
 </template>
 
 <script lang="ts">
-let sharedTurnstileScriptPromise: Promise<void> | null = null
-</script>
-
-<script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
-
 interface TurnstileRenderOptions {
   sitekey: string
   callback: (token: string) => void
@@ -40,6 +33,13 @@ declare global {
     onTurnstileLoad?: () => void
   }
 }
+
+let sharedTurnstileScriptPromise: Promise<void> | null = null
+</script>
+
+<script setup lang="ts">
+import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 const props = withDefaults(
   defineProps<{

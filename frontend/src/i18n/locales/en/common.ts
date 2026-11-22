@@ -463,7 +463,8 @@ export default {
     invalidResetLink: 'Invalid Reset Link',
     invalidResetLinkHint: 'This password reset link is invalid or has expired. Please request a new one.',
     requestNewResetLink: 'Request New Reset Link',
-    invalidOrExpiredToken: 'The password reset link is invalid or has expired. Please request a new one.'
+    invalidOrExpiredToken: 'The password reset link is invalid or has expired. Please request a new one.',
+    passwordResetDisabled: 'Password reset is currently disabled. Please contact your administrator.'
   },
 
   // Step-up (sudo) 2FA prompt

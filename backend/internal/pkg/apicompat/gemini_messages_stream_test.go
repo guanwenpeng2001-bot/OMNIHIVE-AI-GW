@@ -71,20 +71,29 @@ func TestGeminiMessagesThinkingBlocks(t *testing.T) {
 	}
 	id := func(map[string]any) string { return "call" }
 	syncReply := GeminiToMessages(reply(parts[1:]), "model", "id", false, id, nil)
-	blocks := syncReply["content"].([]any)
+	blocks, ok := syncReply["content"].([]any)
+	require.True(t, ok)
 	require.Equal(t, map[string]any{"type": "thinking", "thinking": "abc", "signature": "signed"}, blocks[0])
 	require.Equal(t, map[string]any{"type": "text", "text": "abc"}, blocks[1])
 	history, err := convertClaudeMessagesToGeminiContents([]any{map[string]any{"role": "assistant", "content": blocks}}, map[string]string{})
 	require.NoError(t, err)
-	require.Equal(t, parts[1], history[0].(map[string]any)["parts"].([]any)[0])
+	firstHistoryItem, ok := history[0].(map[string]any)
+	require.True(t, ok)
+	firstHistoryParts, ok := firstHistoryItem["parts"].([]any)
+	require.True(t, ok)
+	require.Equal(t, parts[1], firstHistoryParts[0])
 	var got []string
 	stream := NewGeminiMessagesStream(func(event string, raw any) {
-		e := raw.(map[string]any)
+		e, ok := raw.(map[string]any)
+		require.True(t, ok)
 		switch event {
 		case "content_block_start":
-			got = append(got, fmt.Sprintf("start %d %s", e["index"], e["content_block"].(map[string]any)["type"]))
+			block, ok := e["content_block"].(map[string]any)
+			require.True(t, ok)
+			got = append(got, fmt.Sprintf("start %d %s", e["index"], block["type"]))
 		case "content_block_delta":
-			d := e["delta"].(map[string]any)
+			d, ok := e["delta"].(map[string]any)
+			require.True(t, ok)
 			for _, field := range []string{"thinking", "signature", "text", "partial_json"} {
 				if value, ok := d[field]; ok {
 					got = append(got, fmt.Sprintf("%d %s %s", e["index"], d["type"], value))

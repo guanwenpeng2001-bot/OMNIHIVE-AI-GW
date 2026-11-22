@@ -26,7 +26,7 @@
           :to="isAuthenticated ? dashboardPath : '/login'"
           class="btn btn-primary flex-shrink-0"
         >
-          {{ isAuthenticated ? t('landing.dashboard') : t('home.login') }}
+          {{ isAuthenticated ? t('home.dashboard') : t('home.login') }}
         </RouterLink>
       </div>
     </header>

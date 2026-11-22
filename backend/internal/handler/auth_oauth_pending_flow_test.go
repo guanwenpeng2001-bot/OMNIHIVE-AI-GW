@@ -3710,7 +3710,8 @@ func TestOIDCPendingAndTicketExchangeRequireLocalTOTP(t *testing.T) {
 			code, err := totp.GenerateCode(secret, time.Now())
 			require.NoError(t, err)
 			verify := func(code string) *httptest.ResponseRecorder {
-				body, err := json.Marshal(Login2FARequest{TempToken: challenge["temp_token"].(string), TotpCode: code})
+				tempToken, _ := challenge["temp_token"].(string)
+				body, err := json.Marshal(Login2FARequest{TempToken: tempToken, TotpCode: code})
 				require.NoError(t, err)
 				rec := httptest.NewRecorder()
 				c, _ := gin.CreateTestContext(rec)

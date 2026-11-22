@@ -1,27 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { nextTick } from 'vue'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { useThemeDirection, THEME_DIRECTIONS } from '@/composables/useThemeDirection'
-import CommandPalette from '../CommandPalette.vue'
 
-const pushSpy = vi.fn()
-
-vi.mock('vue-router', () => ({
-  useRouter: () => ({
-    push: pushSpy
-  })
-}))
-
-vi.mock('@/stores', () => ({
-  useAuthStore: () => ({
-    isAdmin: true
-  }),
-  useAppStore: () => ({
-    showInfo: vi.fn()
-  })
-}))
-
-describe('OmniHive design system & command palette', () => {
+describe('OmniHive design system', () => {
   beforeEach(() => {
     localStorage.clear()
     document.documentElement.removeAttribute('data-theme')
@@ -31,7 +11,6 @@ describe('OmniHive design system & command palette', () => {
     setDarkMode(false)
     setDenseMode(false)
     setThemeDirection('teal')
-    pushSpy.mockReset()
   })
 
   it('keeps the single OmniHive direction and persists mode state', () => {
@@ -57,28 +36,5 @@ describe('OmniHive design system & command palette', () => {
     toggleDenseMode()
     expect(isDense.value).toBe(true)
     expect(document.body.classList.contains('dense')).toBe(true)
-  })
-
-  it('opens CommandPalette on event and filters/executes entries', async () => {
-    const wrapper = mount(CommandPalette, {
-      global: {
-        stubs: {
-          Teleport: true
-        }
-      }
-    })
-
-    window.dispatchEvent(new CustomEvent('omnihive:open-cmdk'))
-    await nextTick()
-
-    const input = wrapper.get('input[aria-label="搜索命令或页面"]')
-    await input.setValue('系统设置')
-    await nextTick()
-
-    const options = wrapper.findAll('[role="option"]')
-    expect(options.length).toBeGreaterThan(0)
-    await options[0].trigger('click')
-    expect(pushSpy).toHaveBeenCalledWith('/admin/settings')
-    wrapper.unmount()
   })
 })

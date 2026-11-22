@@ -234,7 +234,7 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 
 	result := func(disconnect bool) *antigravityStreamResult {
 		return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: disconnect,
-			usageIncomplete: sawError || !(sawStart && sawFinalUsage && sawStop)}
+			usageIncomplete: sawError || !sawStart || !sawFinalUsage || !sawStop}
 	}
 	writeIncomplete := func() {
 		cw.Fprintf("\nevent: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Incomplete upstream stream\"}}\n\n")

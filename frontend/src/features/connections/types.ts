@@ -4,6 +4,7 @@ export type ConnectionField = components['schemas']['ConnectionField']
 export type ConnectionSchema = components['schemas']['ConnectionSchema']
 export type ConnectionLimits = components['schemas']['ConnectionLimits']
 export type ConnectionMetadata = components['schemas']['ConnectionMetadata']
+export type ConnectionAccountMode = components['schemas']['ConnectionAccountMode']
 export type ConnectionCheck = components['schemas']['ConnectionCheck'] & {
   detail?: string | null
 }
@@ -13,11 +14,9 @@ export type ConnectionVerification = Omit<components['schemas']['ConnectionVerif
 export type ConnectionQuota = components['schemas']['ConnectionQuota']
 export type ConnectionCreate = components['schemas']['ConnectionCreate'] & {
   header_overrides?: Record<string, string>
-  account_mode?: string
 }
 export type ConnectionPatch = components['schemas']['ConnectionPatch'] & {
   header_overrides?: Record<string, string>
-  account_mode?: string
 }
 export type ConnectionAssignments = components['schemas']['ConnectionAssignments']
 export interface ConnectionResourceMetadata {

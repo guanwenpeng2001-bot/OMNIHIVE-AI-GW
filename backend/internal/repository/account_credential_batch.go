@@ -170,7 +170,8 @@ func (r *accountRepository) resolveStoredCredentialSecret(ctx context.Context, m
 	if err != nil {
 		return nil, err
 	}
-	return cloneCredentialMap(value.(map[string]any)), nil
+	creds, _ := value.(map[string]any)
+	return cloneCredentialMap(creds), nil
 }
 
 type storedCredentialSecret struct {

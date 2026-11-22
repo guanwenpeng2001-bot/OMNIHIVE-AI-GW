@@ -181,7 +181,7 @@ describe('Free Models (OpenCode Zen Free + Kilo) frontend support', () => {
     expect(buildCredentialInputPayload(kiloState)).toEqual({
       operation: 'set',
       type: 'api_key',
-      secret: 'public'
+      secret: ''
     })
 
     kiloState.kiloMode = 'apikey'

@@ -72,7 +72,7 @@ func (s *GeminiMessagesStream) Observe(geminiResp map[string]any, onText func())
 			}
 			delta, updated := GeminiTextDelta(*seen, text)
 			*seen = updated
-			if delta == "" && !(thought && signature != "") {
+			if delta == "" && (!thought || signature == "") {
 				continue
 			}
 			if s.openToolIndex >= 0 {

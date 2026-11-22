@@ -56,9 +56,19 @@ const appStore = useAppStore()
 
 const TRUSTED_PAYMENT_PROTOCOLS = new Set(['weixin:', 'alipays:'])
 
+function hasAsciiControlChar(value: string): boolean {
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i)
+    if (code <= 0x1f || code === 0x7f) {
+      return true
+    }
+  }
+  return false
+}
+
 function sanitizePaymentUrl(raw: string): string {
   const trimmed = raw.trim()
-  if (!trimmed || /[\u0000-\u001F\u007F]/.test(trimmed)) return ''
+  if (!trimmed || hasAsciiControlChar(trimmed)) return ''
   const httpSafe = sanitizeUrl(trimmed)
   if (httpSafe) return httpSafe
   try {

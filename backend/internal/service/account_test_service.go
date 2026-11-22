@@ -3493,7 +3493,7 @@ func (s *AccountTestService) probeNativeOAuth(ctx context.Context, a *Account, p
 			return FailedConnectionProbe("URL_NOT_ALLOWED")
 		}
 		if s.cursorGatewayService == nil || s.cursorGatewayService.native == nil {
-			return connectionProbeBuildFailure(errors.New("Cursor service unavailable"))
+			return connectionProbeBuildFailure(errors.New("cursor service unavailable"))
 		}
 		ctx = cursor.WithAccountProxy(ctx, proxy, false)
 		models, err := s.cursorGatewayService.native.AvailableModels(ctx, s.cursorGatewayService.credentials(ctx, a, a.GetCredential("access_token")))
@@ -3541,14 +3541,14 @@ func (s *AccountTestService) probeNativeOAuth(ctx context.Context, a *Account, p
 				return ConnectionProbeHTTPStatus(resp.StatusCode)
 			}
 			if readErr != nil || len(raw) > 1<<20 {
-				return connectionProbeBuildFailure(errors.New("Native catalog read failed"))
+				return connectionProbeBuildFailure(errors.New("native catalog read failed"))
 			}
 			var catalog antigravity.FetchAvailableModelsResponse
 			if json.Unmarshal(raw, &catalog) != nil || catalog.Models == nil {
-				return connectionProbeBuildFailure(errors.New("Invalid native catalog"))
+				return connectionProbeBuildFailure(errors.New("invalid native catalog"))
 			}
 			var rawCatalog map[string]any
-			json.Unmarshal(raw, &rawCatalog)
+			_ = json.Unmarshal(raw, &rawCatalog)
 			ids, _, err = normalizeAntigravityUpstreamModels(catalog.Models, rawCatalog)
 			if err != nil {
 				return connectionProbeBuildFailure(err)
@@ -3562,7 +3562,7 @@ func (s *AccountTestService) probeNativeOAuth(ctx context.Context, a *Account, p
 	result := ConnectionProbe{Network: "passed", Authorization: "passed", Discovery: "passed", Models: []string{}}
 	for _, id := range dedupeAndSortModelIDs(ids) {
 		if id == "" || len(id) > 256 || strings.ContainsAny(id, "\r\n\t?#") || containsConnectionSecret(id, a.Credentials) {
-			return connectionProbeBuildFailure(errors.New("Invalid native model identity"))
+			return connectionProbeBuildFailure(errors.New("invalid native model identity"))
 		}
 		result.Models = append(result.Models, id)
 	}

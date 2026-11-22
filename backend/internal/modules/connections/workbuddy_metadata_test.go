@@ -68,7 +68,9 @@ func TestW05WorkBuddyMetadataOnlyPatch(t *testing.T) {
 	mock.ExpectQuery("SELECT c.account_id").WithArgs(2, 3).WillReturnRows(w05WorkBuddyRows(5, `{"domain":"new.domain","site":"global","uid":"u"}`))
 	result, err := session.Patch(Patch{Metadata: map[string]any{"domain": "new.domain"}})
 	require.NoError(t, err)
-	require.Equal(t, "new.domain", result.(Connection).Metadata["domain"])
+	conn, ok := result.(Connection)
+	require.True(t, ok)
+	require.Equal(t, "new.domain", conn.Metadata["domain"])
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 func TestW05WorkBuddyKeepMetadataDoesNotRotateTokens(t *testing.T) {
@@ -83,7 +85,9 @@ func TestW05WorkBuddyKeepMetadataDoesNotRotateTokens(t *testing.T) {
 	mock.ExpectExec("INSERT INTO connection_events").WithArgs(2, 3, 1, "connection.edited", 5).WillReturnResult(sqlmock.NewResult(0, 1))
 	result, err := session.Credential(credentials.Change{Operation: "keep", Metadata: map[string]any{"uid": "new-u"}})
 	require.NoError(t, err)
-	require.Equal(t, "5", result.(map[string]any)["version"])
+	resMap, ok := result.(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "5", resMap["version"])
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

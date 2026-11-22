@@ -172,7 +172,8 @@ func parsePreviewInputs(reader io.Reader, assumeEnabled bool) ([]service.ProfitP
 		if err != nil {
 			return nil, err
 		}
-		if !strings.EqualFold(key.(string), "groups") {
+		keyName, ok := key.(string)
+		if !ok || !strings.EqualFold(keyName, "groups") {
 			var ignored json.RawMessage
 			if err := decoder.Decode(&ignored); err != nil {
 				return nil, err

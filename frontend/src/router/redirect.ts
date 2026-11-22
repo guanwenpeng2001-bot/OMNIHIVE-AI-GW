@@ -1,4 +1,12 @@
-const CONTROL_CHAR_RE = /[\u0000-\u001f\u007f]/
+function hasAsciiControlChar(value: string): boolean {
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i)
+    if (code <= 0x1f || code === 0x7f) {
+      return true
+    }
+  }
+  return false
+}
 
 /**
  * Sanitizes an untrusted redirect target so it can only navigate to an internal
@@ -14,7 +22,7 @@ export function sanitizeInternalRedirect(raw: unknown, fallback = '/dashboard'):
     return fallback
   }
 
-  if (CONTROL_CHAR_RE.test(trimmed)) {
+  if (hasAsciiControlChar(trimmed)) {
     return fallback
   }
 

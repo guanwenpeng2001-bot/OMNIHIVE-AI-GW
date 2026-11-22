@@ -800,6 +800,9 @@ export const useAppStore = defineStore('app', () => {
    * Clear public settings cache
    */
   function clearPublicSettingsCache(): void {
+    if (typeof window !== 'undefined') {
+      delete window.__APP_CONFIG__
+    }
     publicSettingsLoaded.value = false
     cachedPublicSettings.value = null
   }

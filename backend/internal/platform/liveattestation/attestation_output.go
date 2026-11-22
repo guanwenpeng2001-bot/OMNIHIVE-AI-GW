@@ -10,7 +10,7 @@ type attestationOutput struct {
 
 func (b *attestationOutput) Write(p []byte) (int, error) {
 	n := min(len(p), b.limit-b.buffer.Len())
-	b.buffer.Write(p[:n])
+	_, _ = b.buffer.Write(p[:n])
 	b.overflow = b.overflow || n < len(p)
 	return len(p), nil
 }

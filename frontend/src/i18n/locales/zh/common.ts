@@ -462,7 +462,8 @@ export default {
     invalidResetLink: '无效的重置链接',
     invalidResetLinkHint: '此密码重置链接无效或已过期。请重新请求一个新链接。',
     requestNewResetLink: '请求新的重置链接',
-    invalidOrExpiredToken: '密码重置链接无效或已过期。请重新请求一个新链接。'
+    invalidOrExpiredToken: '密码重置链接无效或已过期。请重新请求一个新链接。',
+    passwordResetDisabled: '站点暂未开启密码重置功能，请联系管理员协助处理。'
   },
 
   // Step-up（敏感操作二次验证）

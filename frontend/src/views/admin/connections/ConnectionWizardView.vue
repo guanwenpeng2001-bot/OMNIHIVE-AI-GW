@@ -797,7 +797,10 @@ async function ensureConnectionPersisted(
   const shouldMutateCredential = hasPendingCredentialMutation(state)
   const pendingCredentialPayload = buildCredentialInputPayload(state)
   if (isSwitchingFromPublicToPaidMode(state)) {
-    const nextSecret = typeof pendingCredentialPayload.secret === 'string' ? pendingCredentialPayload.secret.trim() : ''
+    const nextSecret =
+      pendingCredentialPayload.operation === 'set' && typeof pendingCredentialPayload.secret === 'string'
+        ? pendingCredentialPayload.secret.trim()
+        : ''
     if (
       pendingCredentialPayload.operation !== 'set' ||
       !nextSecret ||

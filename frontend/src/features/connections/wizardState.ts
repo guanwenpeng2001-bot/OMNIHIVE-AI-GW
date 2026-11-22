@@ -21,6 +21,7 @@ import {
 } from './rules'
 import type {
   AsyncErrorContext,
+  ConnectionAccountMode,
   ConnectionCredentialInput,
   ConnectionItem,
   ConnectionPatch,
@@ -193,7 +194,7 @@ export function requiresCredentialClearBeforeModePatch(
 
 export function resolveWizardAccountMode(
   state: Pick<ConnectionWizardState, 'provider' | 'authType' | 'kiloMode' | 'openCodeMode'>
-): string | undefined {
+): ConnectionAccountMode | undefined {
   const provider = state.provider.trim().toLowerCase()
   const authType = state.authType.trim().toLowerCase()
   if (authType !== 'api_key' && authType !== 'apikey') {
@@ -255,7 +256,7 @@ export function buildMinimalConnectionPatch(
   const nextName = state.name.trim()
   const nextEndpoint = normalizeSnapshotEndpoint(state.endpoint)
   const nextPolicyId = normalizeSnapshotPolicyId(state.networkPolicyId)
-  const nextAccountMode = resolveWizardAccountMode(state) ?? ''
+  const nextAccountMode = resolveWizardAccountMode(state)
   const nextHeaders = buildHeaderOverridesMap(state.headerOverrides)
 
   if (!baseline) {

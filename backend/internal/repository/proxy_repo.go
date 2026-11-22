@@ -767,8 +767,7 @@ func (r *proxyRepository) loadProxyFallbackChain(ctx context.Context, start serv
 		if current.BackupProxyID == nil {
 			return nil
 		}
-		next, known := byID[*current.BackupProxyID]
-		if known {
+		if _, known := byID[*current.BackupProxyID]; known {
 			return nil
 		}
 		loaded, err := r.GetByID(ctx, *current.BackupProxyID)
@@ -778,8 +777,7 @@ func (r *proxyRepository) loadProxyFallbackChain(ctx context.Context, start serv
 		if err != nil {
 			return err
 		}
-		next = *loaded
-		current = next
+		current = *loaded
 	}
 	return nil
 }

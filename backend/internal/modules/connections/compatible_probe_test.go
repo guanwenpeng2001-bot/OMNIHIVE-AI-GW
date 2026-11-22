@@ -79,7 +79,7 @@ func TestW05CompatibleProbeReportsIncompleteCatalog(t *testing.T) {
 		`{"data":[{"id":"one"}],"nextPageToken":"second"}`,
 		`{"data":[{"id":"one"}],"next_cursor":"second"}`,
 	} {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, body) }))
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, body) }))
 		req, _ := http.NewRequest("GET", server.URL, nil)
 		result, tryNext := probeCompatibleModels(server.Client(), req, "bearer", "secret")
 		require.False(t, tryNext)
