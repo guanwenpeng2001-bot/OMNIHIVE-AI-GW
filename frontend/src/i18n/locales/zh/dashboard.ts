@@ -1243,7 +1243,9 @@ export default {
     serverError: '服务器错误',
     networkError: '网络错误',
     timeout: '请求超时',
-    tryAgain: '请重试'
+    tryAgain: '请重试',
+    restoreMaintenance: '系统正在执行生产数据恢复维护，请待恢复完成后重试。',
+    restoreStatusUnavailable: '恢复状态暂时不可用，请稍后重试。'
   },
 
   // Dates

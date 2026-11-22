@@ -4,7 +4,7 @@ import Checkbox from './Checkbox.vue'
 import EmptyState from './EmptyState.vue'
 import ErrorState from './ErrorState.vue'
 import type { UiSortOrder, UiTableColumn } from './types'
-import { cn } from './utils'
+import { cn, useUiI18n } from './utils'
 
 export interface TableProps {
   columns: UiTableColumn[]
@@ -40,17 +40,26 @@ const props = withDefaults(defineProps<TableProps>(), {
   selectable: false,
   selectedKeys: () => [],
   filtered: false,
-  emptyTitle: 'No records yet',
+  emptyTitle: undefined,
   emptyDescription: undefined,
   emptyActionLabel: undefined,
-  filteredEmptyTitle: 'No matching results',
-  filteredEmptyDescription: 'Adjust or clear active filters to restore rows.',
+  filteredEmptyTitle: undefined,
+  filteredEmptyDescription: undefined,
   errorTitle: undefined,
   errorMessage: undefined,
   errorRequestId: undefined,
   stickyHeader: false,
   caption: undefined
 })
+
+const { t } = useUiI18n()
+const resolvedEmptyTitle = computed(() => props.emptyTitle ?? t('ui.table.emptyTitle'))
+const resolvedFilteredEmptyTitle = computed(
+  () => props.filteredEmptyTitle ?? t('ui.table.filteredEmptyTitle')
+)
+const resolvedFilteredEmptyDescription = computed(
+  () => props.filteredEmptyDescription ?? t('ui.table.filteredEmptyDescription')
+)
 
 const emit = defineEmits<{
   sort: [payload: { key: string; order: 'asc' | 'desc' }]
@@ -144,7 +153,7 @@ const totalColSpan = computed(() => props.columns.length + (props.selectable ? 1
     <div
       v-if="refreshing"
       role="status"
-      aria-label="Refreshing table data"
+      :aria-label="t('ui.table.refreshing')"
       class="absolute inset-x-0 top-0 z-10 h-0.5 bg-oh-accent oh-skeleton-pulse"
     />
 
@@ -182,7 +191,7 @@ const totalColSpan = computed(() => props.columns.length + (props.selectable ? 1
                 :model-value="allSelected"
                 :indeterminate="someSelected"
                 :disabled="loading || rows.length === 0"
-                aria-label="Select all rows"
+                :aria-label="t('ui.table.selectAllRows')"
                 @update:model-value="toggleSelectAll"
               />
             </th>
@@ -274,8 +283,8 @@ const totalColSpan = computed(() => props.columns.length + (props.selectable ? 1
               <slot name="empty">
                 <EmptyState
                   :variant="filtered ? 'filtered' : 'empty'"
-                  :title="filtered ? filteredEmptyTitle : emptyTitle"
-                  :description="filtered ? filteredEmptyDescription : emptyDescription"
+                  :title="filtered ? resolvedFilteredEmptyTitle : resolvedEmptyTitle"
+                  :description="filtered ? resolvedFilteredEmptyDescription : emptyDescription"
                   :action-label="emptyActionLabel"
                   compact
                   @action="emit('emptyAction')"
@@ -307,7 +316,7 @@ const totalColSpan = computed(() => props.columns.length + (props.selectable ? 1
             >
               <Checkbox
                 :model-value="selectedKeySet.has(resolveRowKey(row, rowIndex))"
-                :aria-label="`Select row ${rowIndex + 1}`"
+                :aria-label="t('ui.table.selectRow', { index: rowIndex + 1 })"
                 @update:model-value="toggleRowSelection(resolveRowKey(row, rowIndex), $event)"
               />
             </td>

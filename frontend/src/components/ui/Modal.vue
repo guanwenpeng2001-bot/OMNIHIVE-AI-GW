@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, toRef } from 'vue'
 import IconButton from './IconButton.vue'
-import { cn, useOverlayDialog, useUiId } from './utils'
+import { cn, useOverlayDialog, useUiI18n, useUiId } from './utils'
 
 export interface ModalProps {
   open: boolean
@@ -33,6 +33,7 @@ const panelRef = ref<HTMLElement | null>(null)
 const dialogId = useUiId('oh-modal')
 const titleId = computed(() => `${dialogId}-title`)
 const descriptionId = computed(() => `${dialogId}-desc`)
+const { t } = useUiI18n()
 
 function requestClose(): void {
   emit('update:open', false)
@@ -82,8 +83,8 @@ function handleBackdropClick(): void {
         ref="panelRef"
         role="dialog"
         aria-modal="true"
-        :aria-labelledby="title || $slots.header ? titleId : undefined"
-        :aria-describedby="description ? descriptionId : undefined"
+        :aria-labelledby="title && !$slots.header ? titleId : undefined"
+        :aria-describedby="description && !$slots.header ? descriptionId : undefined"
         tabindex="-1"
         :class="
           cn(
@@ -117,8 +118,8 @@ function handleBackdropClick(): void {
 
           <IconButton
             v-if="!hideCloseButton"
-            ariaLabel="Close dialog"
-            aria-label="Close dialog"
+            :ariaLabel="t('ui.modal.close')"
+            :aria-label="t('ui.modal.close')"
             size="sm"
             @click="requestClose"
           >

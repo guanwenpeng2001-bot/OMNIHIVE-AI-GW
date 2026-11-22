@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import CopyButton from './CopyButton.vue'
 import { useUiToast, type UiToastItem } from './useToast'
-import { cn } from './utils'
+import { cn, useUiI18n } from './utils'
 
 export interface ToastProps {
   items?: readonly UiToastItem[]
@@ -18,6 +18,7 @@ const emit = defineEmits<{
 }>()
 
 const toastStore = useUiToast()
+const { t } = useUiI18n()
 
 function handleDismiss(id: string): void {
   toastStore.dismiss(id)
@@ -29,7 +30,7 @@ function handleDismiss(id: string): void {
   <Teleport to="body" :disabled="teleportDisabled">
     <div
       role="region"
-      aria-label="Notifications"
+      :aria-label="t('ui.toast.notifications')"
       class="pointer-events-none fixed bottom-4 right-4 z-50 flex w-full max-w-sm flex-col gap-2 px-4 sm:px-0"
     >
       <div
@@ -80,7 +81,7 @@ function handleDismiss(id: string): void {
               <span>{{ toast.requestId }}</span>
               <CopyButton
                 :value="toast.requestId"
-                aria-label="Copy request ID"
+                :aria-label="t('ui.toast.copyRequestId')"
                 variant="inline"
                 size="xs"
                 icon-only
@@ -100,7 +101,7 @@ function handleDismiss(id: string): void {
 
         <button
           type="button"
-          aria-label="Dismiss notification"
+          :aria-label="t('ui.toast.dismiss')"
           class="oh-focus-ring -mr-1 -mt-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-oh-xs text-oh-muted hover:bg-oh-hover hover:text-oh-primary"
           @click="handleDismiss(toast.id)"
         >

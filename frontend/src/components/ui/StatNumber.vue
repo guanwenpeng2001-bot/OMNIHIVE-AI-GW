@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import Badge from './Badge.vue'
 import Skeleton from './Skeleton.vue'
 import type { UiSettlementState } from './types'
-import { cn } from './utils'
+import { cn, useUiI18n } from './utils'
 
 export interface StatNumberProps {
   value: number | string | null | undefined
@@ -34,8 +34,8 @@ const props = withDefaults(defineProps<StatNumberProps>(), {
   compact: false,
   maximumFractionDigits: 4,
   freeWhenZero: false,
-  freeLabel: 'Free',
-  unknownLabel: 'No verified data',
+  freeLabel: undefined,
+  unknownLabel: undefined,
   settlementState: undefined,
   delta: undefined,
   deltaTone: 'neutral',
@@ -43,6 +43,10 @@ const props = withDefaults(defineProps<StatNumberProps>(), {
   loading: false,
   accent: false
 })
+
+const { t } = useUiI18n()
+const resolvedFreeLabel = computed(() => props.freeLabel ?? t('ui.stat.free'))
+const resolvedUnknownLabel = computed(() => props.unknownLabel ?? t('ui.stat.noVerifiedData'))
 
 const isUnknown = computed(() => {
   if (props.value === null || props.value === undefined) return true
@@ -59,7 +63,7 @@ const isExplicitZero = computed(() => {
 
 const formattedValue = computed(() => {
   if (isUnknown.value) return '—'
-  if (props.freeWhenZero && isExplicitZero.value) return props.freeLabel
+  if (props.freeWhenZero && isExplicitZero.value) return resolvedFreeLabel.value
 
   if (typeof props.value === 'string') {
     return `${props.currency ?? ''}${props.prefix ?? ''}${props.value}`
@@ -80,7 +84,7 @@ const formattedValue = computed(() => {
 
 const fullValueTitle = computed(() => {
   if (props.exactTooltip) return props.exactTooltip
-  if (isUnknown.value) return props.unknownLabel
+  if (isUnknown.value) return resolvedUnknownLabel.value
   if (typeof props.value === 'number' && props.compact) {
     return `${props.currency ?? ''}${props.prefix ?? ''}${props.value.toLocaleString('en-US')}${
       props.unit ? ` ${props.unit}` : ''
@@ -92,13 +96,13 @@ const fullValueTitle = computed(() => {
 const settlementMeta = computed(() => {
   switch (props.settlementState) {
     case 'settled':
-      return { label: 'Settled', tone: 'success' as const }
+      return { label: t('ui.stat.settled'), tone: 'success' as const }
     case 'estimated':
-      return { label: 'Estimated', tone: 'warning' as const }
+      return { label: t('ui.stat.estimated'), tone: 'warning' as const }
     case 'reserved':
-      return { label: 'Reserved', tone: 'info' as const }
+      return { label: t('ui.stat.reserved'), tone: 'info' as const }
     case 'pending':
-      return { label: 'Pending Check', tone: 'unknown' as const }
+      return { label: t('ui.stat.pendingCheck'), tone: 'unknown' as const }
     default:
       return null
   }
@@ -125,7 +129,7 @@ const valueSizeClasses = computed(() => {
     <div class="flex flex-wrap items-baseline gap-1.5">
       <span
         :title="fullValueTitle"
-        :aria-label="isUnknown ? unknownLabel : undefined"
+        :aria-label="isUnknown ? resolvedUnknownLabel : undefined"
         :class="
           cn(
             'oh-tabular',

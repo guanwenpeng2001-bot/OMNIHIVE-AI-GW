@@ -742,4 +742,98 @@ describe('API Client', () => {
       await expect(apiClient.get('/admin/usage/export', { responseType: 'blob' })).rejects.toMatchObject({ status: 502 })
     })
   })
+
+  // --- /api/v2 重入幂等性与恢复维护 503 ---
+
+  describe('/api/v2 路径重入幂等性', () => {
+    it('当 baseURL 已指向 /api/v2（如 controlClient 或 401 重入）时，在工作空间路由下保持路径幂等', async () => {
+      window.history.replaceState({}, '', '/workspaces/ws-1/keys')
+      const seenConfigs: Array<{ baseURL?: string; url?: string }> = []
+      apiClient.defaults.adapter = async config => {
+        seenConfigs.push({ baseURL: config.baseURL, url: config.url })
+        return {
+          status: 200,
+          data: { code: 0, data: { ok: true } },
+          headers: {},
+          config,
+          statusText: 'OK',
+        }
+      }
+
+      await apiClient.get('/keys', { baseURL: '/api/v2' })
+      await apiClient.get('/api/v2/keys')
+      await apiClient.request({ method: 'get', baseURL: seenConfigs[1]?.baseURL, url: seenConfigs[1]?.url })
+
+      expect(seenConfigs[0]).toEqual({
+        baseURL: '/api/v2',
+        url: '/keys',
+      })
+      expect(seenConfigs[1]).toEqual({
+        baseURL: expect.stringMatching(/\/api\/v2$/),
+        url: '/keys',
+      })
+      expect(seenConfigs[2]).toEqual({
+        baseURL: seenConfigs[1]?.baseURL,
+        url: '/keys',
+      })
+    })
+  })
+
+  describe('恢复维护模式 503 拦截', () => {
+    it('识别 503 RESTORE_MAINTENANCE 与 RESTORE_STATUS_UNAVAILABLE 并注入友好提示与续轮询结构化标记', async () => {
+      const mod = await import('@/api/client')
+      const events: CustomEvent[] = []
+      const onMaintenance = (event: Event) => events.push(event as CustomEvent)
+      window.addEventListener('restore-maintenance', onMaintenance)
+
+      try {
+        apiClient.defaults.adapter = async config => {
+          throw {
+            config,
+            message: 'Request failed with status code 503',
+            response: {
+              status: 503,
+              headers: { 'retry-after': '2' },
+              data: {
+                code: 503,
+                reason: 'RESTORE_MAINTENANCE',
+                message: 'Production restore maintenance. Retry after recovery.',
+              },
+            },
+          }
+        }
+
+        let maintenanceErr: unknown
+        try {
+          await apiClient.get('/admin/operations/op-1')
+        } catch (err) {
+          maintenanceErr = err
+        }
+
+        expect(mod.isRestoreMaintenanceError(maintenanceErr)).toBe(true)
+        expect(maintenanceErr).toMatchObject({
+          status: 503,
+          reason: 'RESTORE_MAINTENANCE',
+          message: '系统正在执行生产数据恢复维护，请待恢复完成后重试。',
+          restoreMaintenance: true,
+          retryable: true,
+          shouldContinuePolling: true,
+          retryAfterSeconds: 2,
+          metadata: expect.objectContaining({
+            restore_maintenance: true,
+            should_continue_polling: true,
+            retry_after_seconds: 2,
+            i18n_key: 'errors.restoreMaintenance',
+          }),
+        })
+        expect(events).toHaveLength(1)
+        expect(events[0].detail).toMatchObject({
+          reason: 'RESTORE_MAINTENANCE',
+          retryAfterSeconds: 2,
+        })
+      } finally {
+        window.removeEventListener('restore-maintenance', onMaintenance)
+      }
+    })
+  })
 })
