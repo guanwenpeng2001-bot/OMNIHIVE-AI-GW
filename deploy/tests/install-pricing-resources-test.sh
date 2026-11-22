@@ -10,6 +10,9 @@ source <(sed '$d' "$ROOT_DIR/deploy/install.sh")
 LATEST_VERSION=v0.2.5
 OS=linux
 ARCH=amd64
+if ! command -v sha256sum >/dev/null 2>&1; then
+    sha256sum() { shasum -a 256 "$@"; }
+fi
 print_info() { :; }
 print_success() { :; }
 print_warning() { :; }

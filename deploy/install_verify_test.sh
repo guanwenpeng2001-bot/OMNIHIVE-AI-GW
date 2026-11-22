@@ -9,6 +9,9 @@ trap 'rm -rf -- "$scratch"' EXIT
 source <(sed '$d' "$script_dir/install.sh")
 OS=linux
 ARCH=amd64
+if ! command -v sha256sum >/dev/null 2>&1; then
+    sha256sum() { shasum -a 256 "$@"; }
+fi
 
 curl() {
     local name="${2##*/}"

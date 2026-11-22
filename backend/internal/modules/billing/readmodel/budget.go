@@ -223,9 +223,11 @@ func reserve(ctx context.Context, tx *sql.Tx, sc Scope, request string, currency
 	return err == nil, err
 }
 
+const uuidTextPattern = `^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})$`
+
 func recoverProjectHolds(ctx context.Context, tx *sql.Tx, sc Scope, currency money.Currency) error {
 	rows, err := tx.QueryContext(ctx, `SELECT e.request_id::text
- FROM billing_project_holds h JOIN gateway_executions e ON e.request_id=CASE WHEN pg_input_is_valid(h.request_id, 'uuid') THEN h.request_id::uuid END
+ FROM billing_project_holds h JOIN gateway_executions e ON e.request_id=CASE WHEN h.request_id ~* '`+uuidTextPattern+`' THEN h.request_id::uuid END
  WHERE h.workspace_id=$1 AND h.project_id=$2 AND h.currency=$3 AND h.released_at IS NULL
  AND (e.finished_at IS NOT NULL OR e.deadline<=clock_timestamp())
  AND NOT EXISTS (SELECT 1 FROM gateway_execution_attempts a
@@ -255,7 +257,7 @@ func recoverProjectHolds(ctx context.Context, tx *sql.Tx, sc Scope, currency mon
  WHERE workspace_id=$1 AND project_id=$2 AND currency=$3 AND released_at IS NULL
  AND request_id IN (SELECT jsonb_array_elements_text($4::jsonb))
  AND NOT EXISTS (SELECT 1 FROM gateway_execution_attempts a
-   WHERE a.request_id=CASE WHEN pg_input_is_valid(billing_project_holds.request_id, 'uuid') THEN billing_project_holds.request_id::uuid END
+   WHERE a.request_id=CASE WHEN billing_project_holds.request_id ~* '`+uuidTextPattern+`' THEN billing_project_holds.request_id::uuid END
    AND a.dispatched_at IS NOT NULL
    AND a.acceptance<>'not_sent' AND a.outcome<>'rejected')
  AND NOT EXISTS (SELECT 1 FROM usage_settlement_receipts r
