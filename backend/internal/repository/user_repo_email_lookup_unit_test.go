@@ -33,8 +33,6 @@ func newUserEntRepo(t *testing.T) (*userRepository, *dbent.Client) {
 	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(drv)))
 	t.Cleanup(func() { _ = client.Close() })
 
-	_, err = client.ExecContext(t.Context(), "ALTER TABLE workspace_members ADD COLUMN inherits_global_role boolean NOT NULL DEFAULT false")
-	require.NoError(t, err)
 	_, err = client.Workspace.Create().SetName("Default").SetIsDefault(true).Save(t.Context())
 	require.NoError(t, err)
 	return newUserRepositoryWithSQL(client, db), client
