@@ -233,18 +233,25 @@ func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group
 					if !isConcreteRequestPlatform(m.Platform) {
 						continue
 					}
-				} else if !domain.MatchesPlatformIdentity(m.Platform, domain.HostedAccountType(m.Platform), groupEnt[gid].Platform, groupEnt[gid].RequiredAccountType()) {
+				} else if domain.CanonicalPlatform(m.Platform) != domain.CanonicalPlatform(groupEnt[gid].Platform) {
 					continue
 				}
 				var catalogBindings []PlazaCatalogBinding
-				if selection != nil {
+				if visibility != nil {
 					for _, binding := range bindings[gid][m.Name] {
-						if domain.MatchesPlatformIdentity(binding.Identity.Platform, binding.Identity.HostedAccountType, m.Platform, domain.HostedAccountType(m.Platform)) {
+						if domain.MatchesPlatformIdentity(binding.Identity.Platform, binding.Identity.HostedAccountType, m.Platform, domain.HostedAccountType(m.Platform)) && (pg.Platform == PlatformComposite || domain.MatchesPlatformIdentity(binding.Identity.Platform, binding.Identity.HostedAccountType, groupEnt[gid].Platform, groupEnt[gid].RequiredAccountType())) {
 							catalogBindings = append(catalogBindings, binding)
 						}
 					}
 					if len(catalogBindings) == 0 {
 						continue
+					}
+				}
+				capabilities := observations[gid][m.Name]
+				if visibility != nil {
+					capabilities = nil
+					for _, binding := range catalogBindings {
+						capabilities = append(capabilities, binding.Metadata)
 					}
 				}
 				key := modelKey{platform: m.Platform, name: m.Name}
@@ -260,7 +267,7 @@ func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group
 					Name:            m.Name,
 					Platform:        m.Platform,
 					Pricing:         m.Pricing,
-					Capabilities:    observations[gid][m.Name],
+					Capabilities:    capabilities,
 					CatalogBindings: catalogBindings,
 				})
 			}
@@ -336,17 +343,36 @@ func plazaVisibleModelsForGroups(ctx context.Context, resolver *VisibleModelReso
 		}
 		visible[group.ID] = members
 		observations[group.ID] = metadata
-		if selection == nil {
-			continue
+		identities := map[int64]domain.ActionIdentity{}
+		if batch, ok := frozen.Value(catalogGroupSnapshotKey{}).(*catalogGroupSnapshot); ok {
+			for _, account := range batch.accounts[group.ID] {
+				identities[account.ID] = domain.ActionIdentity{Platform: account.Platform, HostedAccountType: account.Type}
+			}
 		}
 		groupBindings := make(map[string][]PlazaCatalogBinding)
 		for model, resolved := range view.Bindings {
 			for i, binding := range resolved {
-				identity, allowed := selection.Accounts[binding.AccountID]
+				identity, allowed := identities[binding.AccountID]
+				if !allowed && selection == nil {
+					if reader, ok := resolver.gateway.accountRepo.(ModelCatalogAccountRepository); ok {
+						account, readErr := reader.GetModelCatalogAccount(frozen, binding.AccountID)
+						if readErr != nil {
+							return ctx, nil, nil, nil, readErr
+						}
+						if account != nil {
+							identity = domain.ActionIdentity{Platform: account.Platform, HostedAccountType: account.Type}
+							allowed = true
+							identities[binding.AccountID] = identity
+						}
+					}
+				}
+				if selection != nil {
+					identity, allowed = selection.Accounts[binding.AccountID]
+				}
 				if !allowed {
 					continue
 				}
-				if binding.CredentialAccountID != 0 && binding.CredentialAccountID != binding.AccountID {
+				if selection != nil && binding.CredentialAccountID != 0 && binding.CredentialAccountID != binding.AccountID {
 					if _, allowed := selection.Accounts[binding.CredentialAccountID]; !allowed {
 						continue
 					}

@@ -149,6 +149,9 @@ func applyZenFreeHeaders(c *gin.Context, h http.Header, anthropic bool, bodies .
 // Discovery is authoritative for this identity. Configuration and availability
 // may select a model, but cannot expand the free lane's discovered membership.
 func zenFreeModelAllowed(account *Account, model string) bool {
+	if account.IsKiloFree() {
+		return kiloFreeModelAllowed(account, model)
+	}
 	if !account.IsOpenCodeZenFree() {
 		return true
 	}

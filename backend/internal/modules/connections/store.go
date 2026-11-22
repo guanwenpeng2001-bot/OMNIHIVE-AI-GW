@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -223,7 +224,7 @@ const selection = `SELECT c.account_id,c.workspace_id,c.provider,c.auth_type,c.n
  c.model_ids,c.pool_ids,c.concurrency,c.state,c.version,coalesce(k.version,0),k.revoked_at,k.reference,v.snapshot,CASE WHEN k.revoked_at IS NULL THEN substr(md5(k.ciphertext),1,16) END,h.last_four,
  a.extra#>>'{ollama_cloud_usage_snapshot,fetched_at}',a.extra#>>'{ollama_cloud_usage_snapshot,next_refresh_at}',
  a.extra#>>'{ollama_cloud_usage_snapshot,status}',a.extra#>>'{ollama_cloud_usage_snapshot,data,five_hour,used_percent}',
- a.extra->'header_overrides', coalesce(a.credentials->>'account_mode','')
+ a.extra->'header_overrides', coalesce(a.credentials->>'account_mode',''), jsonb_strip_nulls(jsonb_build_object('site',a.credentials->'site','uid',a.credentials->'uid','domain',a.credentials->'domain','enterprise_id',a.credentials->'enterprise_id','expires_at',a.credentials->'expires_at','refresh_expires_at',a.credentials->'refresh_expires_at'))
  FROM provider_connections c JOIN accounts a ON a.id=c.account_id AND a.workspace_id=c.workspace_id AND a.deleted_at IS NULL AND NOT c.legacy_dirty
  LEFT JOIN credential_secrets k ON k.account_id=c.account_id AND k.workspace_id=c.workspace_id LEFT JOIN connection_credential_versions h ON h.account_id=k.account_id AND h.version=k.version LEFT JOIN connection_verifications v ON v.id=c.verified_id`
 
@@ -236,14 +237,20 @@ func scanConnection(row scanner) (Connection, error) {
 	var reference *string
 	var fetched, nextRefresh, quotaStatus, used *string
 	var fingerprint, lastFour *string
-	var snapshot, headers []byte
+	var snapshot, headers, metadata []byte
 	var pools []int64
-	err := row.Scan(&c.ID, &c.Workspace, &c.Provider, &c.AuthType, &c.Name, &c.Endpoint, &c.NetworkPolicyID, pq.Array(&c.Models), pq.Array(&pools), &c.Limits.Concurrency, &c.State, &c.Version, &version, &revoked, &reference, &snapshot, &fingerprint, &lastFour, &fetched, &nextRefresh, &quotaStatus, &used, &headers, &c.AccountMode)
+	err := row.Scan(&c.ID, &c.Workspace, &c.Provider, &c.AuthType, &c.Name, &c.Endpoint, &c.NetworkPolicyID, pq.Array(&c.Models), pq.Array(&pools), &c.Limits.Concurrency, &c.State, &c.Version, &version, &revoked, &reference, &snapshot, &fingerprint, &lastFour, &fetched, &nextRefresh, &quotaStatus, &used, &headers, &c.AccountMode, &metadata)
 	if err == sql.ErrNoRows {
 		return c, fault.NotFound
 	}
 	if err != nil {
 		return c, err
+	}
+	if metadata != nil {
+		if err = json.Unmarshal(metadata, &c.Metadata); err != nil {
+			return c, err
+		}
+		c.Metadata = safeWorkBuddyMetadata(c.Provider, c.Metadata)
 	}
 	if headers != nil {
 		if err = json.Unmarshal(headers, &c.HeaderOverrides); err != nil {
@@ -373,6 +380,21 @@ func (r *Session) Credential(change credentials.Change) (any, error) {
 	if e != nil {
 		return nil, e
 	}
+	if change.Operation == "keep" && change.Metadata != nil {
+		if e = r.require("credentials.write"); e != nil {
+			return nil, e
+		}
+		if e = r.saveWorkBuddyMetadata(c, values); e != nil {
+			return nil, e
+		}
+		if e = r.save(c, c.State, true); e != nil {
+			return nil, e
+		}
+		if e = r.event(c.ID, "connection.edited", c.Version+1); e != nil {
+			return nil, e
+		}
+		c.Version++
+	}
 	if change.Operation != "keep" {
 		if e = r.require("credentials.write"); e != nil {
 			return nil, e
@@ -478,6 +500,14 @@ func (r *Session) checkPools(ids []string) error {
 	return nil
 }
 func (r *Session) checkPatch(c Connection, p Patch) error {
+	if p.Metadata != nil {
+		if c.Provider != service.PlatformWorkBuddy {
+			return fault.Invalid("/metadata")
+		}
+		if err := c.workBuddyMetadata(map[string]any{}, p.Metadata); err != nil {
+			return err
+		}
+	}
 	if e := c.validateModePatch(p); e != nil {
 		return e
 	}
@@ -573,6 +603,15 @@ func (r *Session) Patch(p Patch) (any, error) {
 			return nil, e
 		}
 	}
+	if p.Metadata != nil {
+		values := map[string]any{}
+		if e = c.workBuddyMetadata(values, p.Metadata); e != nil {
+			return nil, e
+		}
+		if e = r.saveWorkBuddyMetadata(c, values); e != nil {
+			return nil, e
+		}
+	}
 	if c.modeChanged(p) {
 		if e = r.saveAccountMode(c.ID, *p.AccountMode); e != nil {
 			return nil, e
@@ -582,7 +621,7 @@ func (r *Session) Patch(p Patch) (any, error) {
 		}
 	}
 	clearVerification := c.modeChanged(p) || endpointChanged(c.Endpoint, p.Endpoint) ||
-		(p.NetworkPolicyID != nil && *p.NetworkPolicyID != c.NetworkPolicyID) || headersChanged
+		(p.NetworkPolicyID != nil && *p.NetworkPolicyID != c.NetworkPolicyID) || headersChanged || p.Metadata != nil
 	applyPatch(&c, p)
 	if e = r.save(c, c.State, clearVerification); e != nil {
 		return nil, e
@@ -640,13 +679,35 @@ func (r *Session) changeSecret(c Connection, values map[string]any, disable bool
 	if c.Provider != service.PlatformWorkBuddy {
 		return nil
 	}
-	if safe == nil {
+	if values == nil {
 		safe = map[string]any{}
+	} else {
+		merged := safeWorkBuddyMetadata(c.Provider, c.Metadata)
+		for key, value := range safe {
+			if slices.Contains(workBuddyMetadataFields, key) {
+				merged[key] = value
+			}
+		}
+		safe = merged
+	}
+	return r.saveWorkBuddyMetadata(c, safe)
+}
+
+func (r *Session) saveWorkBuddyMetadata(c Connection, values map[string]any) error {
+	safe := safeWorkBuddyMetadata(c.Provider, values)
+	if safe == nil {
+		return fault.Invalid("/metadata")
 	}
 	data, err := json.Marshal(safe)
 	if err != nil {
 		return err
 	}
+	if _, err = r.tx.ExecContext(r.ctx, "SELECT set_config('omnihive.connection_writer','v2',true)"); err != nil {
+		return err
+	}
 	_, err = r.tx.ExecContext(r.ctx, `UPDATE accounts SET credentials=(coalesce(credentials,'{}'::jsonb)-ARRAY['site','uid','domain','enterprise_id','expires_at','refresh_expires_at'])||$3::jsonb,updated_at=now() WHERE workspace_id=$1 AND id=$2`, r.Workspace, c.ID, string(data))
-	return err
+	if err != nil {
+		return err
+	}
+	return legacy.Notify(r.ctx, r.tx, c.ID)
 }

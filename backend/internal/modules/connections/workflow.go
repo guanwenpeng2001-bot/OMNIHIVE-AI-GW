@@ -85,9 +85,11 @@ func (r *Session) verify(in Verify, replacement *credentials.Change) (any, error
 	if e != nil {
 		return nil, e
 	}
-	if c.Provider == service.PlatformWorkBuddy && replacement != nil {
+	if c.Provider == service.PlatformWorkBuddy && replacement == nil {
+		// Current non-sensitive account metadata overrides legacy metadata that may
+		// still be embedded in an older encrypted credential payload.
 		for _, key := range workBuddyMetadataFields {
-			delete(fields, key)
+			delete(secret, key)
 		}
 	}
 	maps.Copy(fields, secret)
@@ -134,7 +136,7 @@ func (r *Session) verify(in Verify, replacement *credentials.Change) (any, error
 	}
 	now := time.Now().UTC()
 	v := Verification{ID: uuid.NewString(), Models: []string{}, Checks: []Check{}, VerifiedAt: now, Expires: now.Add(24 * time.Hour)}
-	eligible := result.Network == "passed" && result.Authorization == "passed"
+	eligible := result.Network == "passed" && result.Authorization == "passed" && result.Discovery == "passed"
 	for _, s := range in.Checks {
 		check := connectionProbeCheck(s, result)
 		v.Checks = append(v.Checks, check)
@@ -142,7 +144,7 @@ func (r *Session) verify(in Verify, replacement *credentials.Change) (any, error
 			v.Models = result.Models
 		}
 	}
-	if replacement != nil && eligible && c.State == "active" && len(difference(c.Models, result.Models)) > 0 {
+	if replacement != nil && result.Discovery == "passed" && eligible && c.State == "active" && len(difference(c.Models, result.Models)) > 0 {
 		eligible = false
 		reason := "ACTIVE_MODEL_MISSING"
 		for i := range v.Checks {
@@ -233,6 +235,9 @@ func (r *Session) fresh(c Connection, verification string) error {
 	return nil
 }
 func (r *Session) applicable(c Connection, p Patch) error {
+	if p.Metadata != nil {
+		return conflict("EDIT_METADATA_BEFORE_VERIFICATION")
+	}
 	if e := r.checkPatch(c, p); e != nil {
 		return e
 	}

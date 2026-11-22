@@ -40,24 +40,37 @@ func kiloFreeModelAllowed(a *Account, model string) bool {
 	if !a.IsKiloFree() {
 		return true
 	}
-	// Persisted, identity-bound availability takes precedence over bootstrap IDs.
-	if catalog := a.GetUpstreamModelCatalog(); catalog != nil && catalog.Complete && catalog.IdentityRevision == a.ModelCatalogBaseline().IdentityRevision {
-		if !slices.Contains(catalog.DiscoveredModels, model) {
+	if !safeFreeModelID(model) || a.ModelCatalogState().Result == "credentials_invalid" {
+		return false
+	}
+	// A suffix or detached metadata cannot prove account-scoped free access.
+	if catalog := a.GetUpstreamModelCatalog(); catalog != nil {
+		if catalog.SourceKind != "live" || !modelCatalogIdentityMatches(a, nil, catalog) || !slices.Contains(catalog.DiscoveredModels, model) {
 			return false
 		}
-		if m, ok := a.GetUpstreamModelMetadata(model); ok && m.Free != nil {
-			return *m.Free
+		metadata, found := a.GetUpstreamModelMetadata(model)
+		if !found || metadata.Free == nil || !*metadata.Free {
+			return false
 		}
-		// Discovery on this identity admits only rows whose isFree is true.
+		if len(metadata.Pricing) > 0 {
+			raw, err := json.Marshal(metadata.Pricing)
+			if err != nil {
+				return false
+			}
+			var pricing any
+			decoder := json.NewDecoder(strings.NewReader(string(raw)))
+			decoder.UseNumber()
+			if decoder.Decode(&pricing) != nil {
+				return false
+			}
+			if _, zero := zenCostVerdict(pricing, 0); !zero {
+				return false
+			}
+		}
 		return true
 	}
-	if m, ok := a.GetUpstreamModelMetadata(model); ok && m.Free != nil {
-		return *m.Free
-	}
-	if slices.Contains(kiloFreeModelIDs, model) {
-		return true
-	}
-	return strings.HasSuffix(model, ":free") || strings.HasSuffix(model, "/free")
+	// Before discovery only the finite reviewed bootstrap inventory is admitted.
+	return slices.Contains(kiloFreeModelIDs, model)
 }
 func prepareKiloChat(a *Account, body []byte) ([]byte, string, error) {
 	b, err := decodeFreeModelObject(body)

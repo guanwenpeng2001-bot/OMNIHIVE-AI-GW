@@ -42,7 +42,7 @@ func (p compatibleEndpointProber) ProbeConnection(ctx context.Context, account *
 	}
 	if mode.Discovery == "openai_models" {
 		native := p.native.ProbeConnection(ctx, account, proxy)
-		if native.Discovery == "passed" || native.Network == "failed" || native.Authorization == "failed" || native.DiscoveryReason == "UPSTREAM_RATE_LIMITED" {
+		if native.Discovery == "failed" || native.Discovery == "passed" || native.Network == "failed" || native.Authorization == "failed" || native.DiscoveryReason == "UPSTREAM_RATE_LIMITED" {
 			return native
 		}
 	}
@@ -142,6 +142,9 @@ func probeCompatibleModels(client *http.Client, anon *http.Request, auth, key st
 		result.Detail = "Upstream returned an invalid model catalog."
 		return result, true
 	}
+	if service.ConnectionCatalogIncomplete(body, len(catalog.Data)) {
+		return service.IncompleteConnectionCatalog(), false
+	}
 	seen := map[string]bool{}
 	for _, entry := range catalog.Data {
 		id := strings.TrimSpace(entry.ID)
@@ -157,15 +160,5 @@ func probeCompatibleModels(client *http.Client, anon *http.Request, auth, key st
 
 	// A public catalog alone does not establish that the supplied key works.
 	control, err := client.Do(anon)
-	if err == nil {
-		control.Body.Close()
-		switch control.StatusCode {
-		case http.StatusUnauthorized, http.StatusForbidden:
-			result.Authorization = "passed"
-		case http.StatusTooManyRequests:
-			result.AuthorizationReason = "UPSTREAM_RATE_LIMITED"
-			result.Detail = "Upstream rate-limited the authorization control (HTTP 429). Wait and retry."
-		}
-	}
-	return result, false
+	return service.ApplyConnectionAuthorizationControl(result, control, err), false
 }
