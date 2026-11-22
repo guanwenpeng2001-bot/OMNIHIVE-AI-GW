@@ -109,11 +109,6 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		return
 	}
 
-	// Period budget hold: insufficient budget is rejected before the upstream.
-	if !reserveGatewayRequestBudget(c, apiKey, reqModel, body) {
-		return
-	}
-
 	profitVetoCount := 0
 	failoverState := NewFailoverState(h.maxAccountSwitches, false)
 	routingStart := time.Now()
@@ -191,6 +186,20 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		if channelMapping.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
+		forwardCtx, pricingErr := h.gatewayService.WithEmbeddingsPricing(c.Request.Context(), apiKey, account, forwardBody)
+		if pricingErr != nil {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			abortGatewayRequestBudget(c, pricingErr)
+			return
+		}
+		if !reserveGatewayRequestBudgetInContext(c, forwardCtx, apiKey, reqModel, body) {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			return
+		}
 		writerSizeBeforeForward := c.Writer.Size()
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
@@ -198,7 +207,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.ForwardEmbeddings(c.Request.Context(), c, account, forwardBody, "")
+			return h.gatewayService.ForwardEmbeddings(forwardCtx, c, account, forwardBody, "")
 		}()
 
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
@@ -258,7 +267,8 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 		sessionID := service.ExtractClientSessionID(c)
 
-		h.submitOpenAIUsageRecordTask(c.Request.Context(), result, func(ctx context.Context) {
+		h.submitOpenAIUsageRecordTask(forwardCtx, result, func(ctx context.Context) {
+			ctx = service.EmbeddingsUsagePricingContext(ctx, forwardCtx)
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 				Result:             result,
 				APIKey:             apiKey,

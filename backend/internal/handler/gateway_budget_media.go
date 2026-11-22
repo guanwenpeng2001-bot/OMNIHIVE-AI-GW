@@ -24,7 +24,7 @@ func validateMediaRequestAliases(spec service.GatewayRequestSpec, body []byte, c
 			return err
 		}
 	}
-	if spec.Protocol == "images" || spec.Protocol == "media" && strings.Contains(route, "image") || strings.Contains(route, "image") {
+	if spec.Protocol == "images" || strings.Contains(route, "image") {
 		aliases := body
 		if len(contentType) > 0 {
 			mediaType, params, _ := mime.ParseMediaType(contentType[0])
@@ -37,15 +37,37 @@ func validateMediaRequestAliases(spec service.GatewayRequestSpec, body []byte, c
 						break
 					}
 					if name := part.FormName(); name == "size" || name == "resolution" {
-						value, _ := io.ReadAll(io.LimitReader(part, 128))
+						if _, exists := fields[name]; exists {
+							return fmt.Errorf("duplicate image %s", name)
+						}
+						value, err := io.ReadAll(io.LimitReader(part, 129))
+						if err != nil || len(value) > 128 {
+							return fmt.Errorf("invalid image %s", name)
+						}
 						fields[name] = string(value)
 					}
 				}
 				aliases, _ = json.Marshal(fields)
 			}
 		}
+		seen := map[string]bool{}
+		duplicate := false
+		gjson.ParseBytes(aliases).ForEach(func(key, value gjson.Result) bool {
+			name := key.String()
+			if name == "size" || name == "resolution" {
+				duplicate = seen[name] || value.Type != gjson.String
+				seen[name] = true
+			}
+			return !duplicate
+		})
+		if duplicate {
+			return fmt.Errorf("invalid or duplicate image size or resolution")
+		}
 		size := strings.TrimSpace(gjson.GetBytes(aliases, "size").String())
 		resolution := strings.TrimSpace(gjson.GetBytes(aliases, "resolution").String())
+		if spec.Protocol == "images" && size == "" && resolution != "" {
+			return fmt.Errorf("image resolution requires a matching size")
+		}
 		if !imageSizeAliasesAgree(size, resolution) {
 			return fmt.Errorf("image size and resolution disagree")
 		}
@@ -148,6 +170,10 @@ func requestMediaMeter(spec service.GatewayRequestSpec, body []byte, contentType
 		meter.Unit = "video_second"
 		meter.Size = field("resolution", "size", "parameters.resolution")
 		meter.Numerator = upperInt(int64(service.NormalizeVideoBillingDurationSecondsOrDefault(0)), "seconds", "duration", "duration_seconds", "parameters.duration")
+	case geminiImageBudgetSize(spec, body) != "":
+		meter.Unit = "image"
+		meter.Size = geminiImageBudgetSize(spec, body)
+		meter.Count = upperInt(1, "generationConfig.candidateCount", "generation_config.candidate_count")
 	case spec.Protocol == "images" || strings.Contains(route, "image"):
 		meter.Unit = "image"
 		meter.Size = field("size", "resolution", "parameters.size")
@@ -165,7 +191,33 @@ func requestMediaMeter(spec service.GatewayRequestSpec, body []byte, contentType
 func imageSizeAliasesAgree(size, resolution string) bool {
 	sizeTier, sizeKnown := service.ClassifyImageBillingTier(size)
 	resolutionTier, resolutionKnown := service.ClassifyImageBillingTier(resolution)
-	return !sizeKnown || !resolutionKnown || sizeTier == resolutionTier
+	if strings.TrimSpace(size) == "" || strings.TrimSpace(resolution) == "" {
+		return true
+	}
+	return sizeKnown && resolutionKnown && sizeTier == resolutionTier ||
+		strings.EqualFold(strings.TrimSpace(size), "auto") && strings.EqualFold(strings.TrimSpace(resolution), "auto")
+}
+
+func geminiImageBudgetSize(spec service.GatewayRequestSpec, body []byte) string {
+	if spec.Protocol != "gemini" {
+		return ""
+	}
+	for _, name := range []string{"generationConfig.imageConfig.imageSize", "generation_config.image_config.image_size"} {
+		if value := gjson.GetBytes(body, name); value.Exists() {
+			if tier, ok := service.ClassifyImageBillingTier(value.String()); ok {
+				return tier
+			}
+			return service.ImageBillingSize4K
+		}
+	}
+	for _, name := range []string{"generationConfig.responseModalities", "generation_config.response_modalities"} {
+		for _, modality := range gjson.GetBytes(body, name).Array() {
+			if strings.EqualFold(modality.String(), "IMAGE") {
+				return service.ImageBillingSize4K
+			}
+		}
+	}
+	return ""
 }
 
 // A PCM WAV has an exact byte-to-frame conversion. A compressed upload or a

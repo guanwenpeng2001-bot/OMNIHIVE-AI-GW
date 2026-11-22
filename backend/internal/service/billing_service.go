@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/timezone"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/xai"
@@ -123,7 +124,8 @@ type ModelPricing struct {
 	// Non-nil for complete variant cards; absence is distinct from a zero rate.
 	TokenDimensions map[string]bool `json:"token_dimensions,omitempty"`
 	// Do not omit an empty map: it means all token tariffs are missing.
-	TokenPricePresence map[string]bool `json:"token_price_presence"`
+	TokenPricePresence map[string]bool   `json:"token_price_presence"`
+	ExactTokenRates    map[string]string `json:"exact_token_rates,omitempty"`
 }
 
 func normalizeBillingServiceTier(serviceTier string) string {
@@ -215,6 +217,7 @@ type CostBreakdown struct {
 	ActualCost                float64 // 应用倍率后的实际费用
 	BillingMode               string  // 计费模式（"token"/"per_request"/"image"），由 CalculateCostUnified 填充
 	LongContextBillingApplied bool
+	exactTotal, exactActual   *money.Exact
 }
 
 func applyCostBreakdownMultiplier(cost *CostBreakdown, multiplier float64) {
@@ -229,6 +232,7 @@ func applyCostBreakdownMultiplier(cost *CostBreakdown, multiplier float64) {
 	cost.CacheReadCost *= multiplier
 	cost.TotalCost *= multiplier
 	cost.ActualCost *= multiplier
+	applyExactTokenMultiplier(cost, multiplier)
 	refreshPricingMultiplier(cost, multiplier)
 }
 
@@ -1297,6 +1301,7 @@ func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*
 			enableBreakdown := price1h > 0 && price1h > price5m || presence["cache_write_1h"] && price1h == 0
 			pricing := &ModelPricing{
 				TokenPricePresence:                 presence,
+				ExactTokenRates:                    litellmPricing.exactTokenRates,
 				CacheCreationPriceExplicit:         presence["cache_write"] && price5m == 0,
 				ImageOutputPriceExplicit:           presence["image_output"],
 				Source:                             PricingSourceLiteLLM,
@@ -1391,6 +1396,11 @@ func applyChannelTokenPriceOverrides(pricing *ModelPricing, channelPricing *Chan
 	if pricing == nil || channelPricing == nil {
 		return
 	}
+	// Do not inherit decimal literals from superseded rates.
+	if channelPricing.InputPrice != nil || channelPricing.OutputPrice != nil || channelPricing.CacheReadPrice != nil ||
+		channelPricing.CacheWritePrice != nil || channelPricing.CacheWrite1hPrice != nil {
+		pricing.ExactTokenRates = nil
+	}
 	if channelPricing.InputPrice != nil {
 		pricing.markTokenPrices("input")
 		priority := channelTierOverridePrice(pricing.InputPricePerToken, pricing.InputPricePerTokenPriority, *channelPricing.InputPrice)
@@ -1468,6 +1478,24 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (cost *CostBreakd
 			cost = pricingFailure(calculationErr)
 		}
 	}()
+	if !input.displayProbe && (input.Mode == "" || input.Mode == BillingModeToken) {
+		if lane := selectedRequestLanePricing(input.Ctx); lane != nil {
+			input.Model, input.Resolved, input.Resolver = lane.model, lane.resolved, lane.resolver
+		}
+	}
+	if input.Ctx != nil {
+		pinned, available := input.Ctx.Value(embeddingsPricingKey{}).(embeddingsPricing)
+		if !available {
+			if plan := GatewayRequestPlanFromContext(input.Ctx); plan != nil && plan.usage.Load() {
+				if stored := plan.embeddingsPrice.Load(); stored != nil {
+					pinned, available = *stored, true
+				}
+			}
+		}
+		if available && (input.Mode == "" || input.Mode == BillingModeToken) {
+			input.Model, input.Resolved, input.Resolver = pinned.model, pinned.resolved, pinned.resolver
+		}
+	}
 	if err := validateCostInput(input); err != nil {
 		return nil, err
 	}
@@ -1728,6 +1756,7 @@ func (s *BillingService) computeTokenBreakdown(
 		bd.CacheCreationCost + bd.CacheReadCost
 	bd.ActualCost = bd.TotalCost * rateMultiplier
 	bd.LongContextBillingApplied = baselineCost != nil && bd.ActualCost > baselineCost.ActualCost
+	applyExactTokenCosts(bd, pricing, tokens, rateMultiplier, serviceTier, bd.LongContextBillingApplied)
 
 	return bd
 }
@@ -2402,5 +2431,5 @@ func (s *BillingService) FreezeExactCost(input CostInput) (pricing.Frozen, error
 	if err := json.Unmarshal([]byte(cost.PricingSnapshot), &snapshot); err != nil {
 		return pricing.Frozen{}, err
 	}
-	return snapshot.exactLeaf()
+	return exactFrozenTokenPricing(snapshot)
 }

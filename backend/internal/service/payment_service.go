@@ -134,6 +134,8 @@ type RefundPlan struct {
 	SubDaysToDeduct int
 	SubscriptionID  int64
 	verifiedRefund  *payment.RefundResponse
+	requestID       string
+	claimedAt       time.Time
 }
 
 type RefundResult struct {

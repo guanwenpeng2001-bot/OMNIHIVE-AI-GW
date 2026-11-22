@@ -97,7 +97,12 @@ func (p *GatewayRequestPlan) estimateBudgetHold(ctx context.Context, e RequestBu
 	if e.Meter != nil {
 		return p.mediaBudgetAmount(ctx, resolver, in, key, e.Meter, base)
 	}
-	resolved := resolver.Resolve(ctx, in)
+	var resolved *ResolvedPricing
+	if pinned, ok := ctx.Value(embeddingsPricingKey{}).(embeddingsPricing); ok && e.InputOnly {
+		e.Model, resolver, resolved = pinned.model, pinned.resolver, pinned.resolved
+	} else {
+		resolved = resolver.Resolve(ctx, in)
+	}
 	if resolved.pricingErr != nil || (!p.billing.HasIdentifiedTokenPricing(e.Model) && resolved.descriptor == nil && resolved.Source != PricingSourceChannel && resolved.Source != PricingSourceGroup && !strings.HasPrefix(resolved.Source, "official_free:")) {
 		return nil
 	}
@@ -112,6 +117,13 @@ func (p *GatewayRequestPlan) estimateBudgetHold(ctx context.Context, e RequestBu
 		return nil
 	}
 	bound := decimal.NewFromFloat(cost.ActualCost)
+	if cost.exactActual != nil {
+		exact, err := cost.exactActual.ReserveCeil()
+		if err != nil {
+			return nil
+		}
+		bound = decimal.Max(bound, decimal.RequireFromString(exact.String()))
+	}
 	if rate := snap.TokenPrices; rate != nil {
 		// Use the largest applicable rate if the request spans a priority or
 		// long-context tier. Discounts cannot reduce the admission upper bound.

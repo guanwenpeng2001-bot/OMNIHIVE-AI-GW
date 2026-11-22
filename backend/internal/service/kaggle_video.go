@@ -41,6 +41,8 @@ func ValidateKaggleVideoRequest(body []byte) error {
 	return nil
 }
 
+// kaggleVideoAllowsUnpricedAdmission identifies the legacy video adapter
+// family. Every member now passes the same frozen per-request tariff check.
 func kaggleVideoAllowsUnpricedAdmission(job *UpstreamJob) bool {
 	return job != nil && job.Family == "video" && (job.Platform == PlatformOpenRouter || job.Platform == PlatformKaggle)
 }
@@ -231,8 +233,11 @@ func (gateway *OpenAIGatewayService) OpenKaggleVideoContent(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	if job.Status != "succeeded" || job.ResultRef != job.UpstreamTaskID {
+	if job.Status != "succeeded" || job.ResultRef != job.UpstreamTaskID || job.ChargedUsageLogID == nil {
 		return nil, ErrUpstreamJobNotFound
+	}
+	if _, err := frozenPerRequestVideoCost(job.Billing); err != nil {
+		return nil, err
 	}
 	response, err := gateway.kaggleVideoRequest(ctx, account, http.MethodGet, "/videos/"+url.PathEscape(job.UpstreamTaskID)+"/content", nil)
 	if err != nil {
@@ -259,16 +264,12 @@ func KaggleVideoJobCharge(job *UpstreamJob) (*UsageLog, *UsageBillingCommand, er
 	if usage.Get("provider_status").String() != "completed" {
 		return nil, nil, ErrUpstreamJobUnsupportedUsage
 	}
-	var snapshot PricingSnapshot
-	if json.Unmarshal([]byte(job.Billing.PricingSnapshot), &snapshot) != nil || snapshot.Mode != string(BillingModePerRequest) || (job.Billing.PricingState != PricingStatePriced && job.Billing.PricingState != PricingStateFree) {
-		return nil, nil, ErrUpstreamJobTariff
-	}
-	cost, err := RecalculatePricingSnapshot(job.Billing.PricingSnapshot)
+	cost, err := frozenPerRequestVideoCost(job.Billing)
 	if err != nil {
 		return nil, nil, err
 	}
 	mode := string(BillingModePerRequest)
-	source := snapshot.Source
+	source := cost.PriceSource
 	log := &UsageLog{UserID: job.UserID, APIKeyID: job.APIKeyID, AccountID: job.AccountID, RequestID: job.PublicRequestID, Model: job.Billing.Model, RequestedModel: job.Billing.RequestedModel, UpstreamModel: &job.Billing.Model, GroupID: job.GroupID, SubscriptionID: job.Billing.SubscriptionID, TotalCost: cost.TotalCost, ActualCost: cost.ActualCost, RateMultiplier: job.Billing.RateMultiplier, AccountRateMultiplier: &job.Billing.AccountRateMultiplier, VideoCount: 1, BillingMode: &mode, PriceSource: &source, PricingState: cost.PricingState, PricingSnapshot: cost.PricingSnapshot, RequestType: RequestTypeSync, CreatedAt: time.Now().UTC()}
 	log.AccountStatsCost = &cost.TotalCost
 	command := gatewayResourceBillingCommand(job, job.Billing, cost.ActualCost, cost.TotalCost*job.Billing.AccountRateMultiplier)

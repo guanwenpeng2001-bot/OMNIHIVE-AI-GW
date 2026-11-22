@@ -325,7 +325,12 @@ func (r *redeemCodeRepository) Use(ctx context.Context, id, userID int64) error 
 	now := time.Now()
 	client := clientFromContext(ctx, r.client)
 	affected, err := client.RedeemCode.Update().
-		Where(redeemcode.IDEQ(id), redeemcode.StatusEQ(service.StatusUnused)).
+		Where(redeemcode.IDEQ(id), redeemcode.StatusEQ(service.StatusUnused), func(s *entsql.Selector) {
+			s.Where(entsql.P(func(b *entsql.Builder) {
+				b.WriteString("(").Ident(redeemcode.FieldExpiresAt).WriteString(" IS NULL OR ").
+					Ident(redeemcode.FieldExpiresAt).WriteString(" > clock_timestamp())")
+			}))
+		}).
 		SetStatus(service.StatusUsed).
 		SetUsedBy(userID).
 		SetUsedAt(now).

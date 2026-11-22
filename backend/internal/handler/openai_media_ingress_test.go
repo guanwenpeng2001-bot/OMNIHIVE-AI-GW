@@ -600,3 +600,26 @@ func TestTranslationUnresolvedResponseRetainsReview(t *testing.T) {
 		require.Equal(t, "interrupted", receipts.stored()[0].CompletionState)
 	})
 }
+
+func TestOpenAIVideoRejectsUnpricedProviderAdapters(t *testing.T) {
+	t.Run("OpenRouter", func(t *testing.T) {
+		upstream := &openRouterMediaUpstream{}
+		handler, group, _, _ := openRouterMediaHandler(t, upstream)
+		handler.upstreamJobs = service.NewUpstreamJobService(newGatewayResourceWiringRepo(), nil, nil)
+		c, recorder := requestPlanHTTPContext("/v1/videos", `{"model":"vendor/future:variant","prompt":"waves"}`, group)
+		handler.OpenRouterVideoGeneration(c)
+		require.Equal(t, http.StatusUnprocessableEntity, recorder.Code, recorder.Body.String())
+		require.Contains(t, recorder.Body.String(), "model_pricing_unavailable")
+		require.Zero(t, upstream.calls)
+	})
+	t.Run("Kaggle", func(t *testing.T) {
+		upstream := &kaggleMediaUpstream{}
+		handler, group := kaggleMediaHandler(t, upstream, nil)
+		handler.upstreamJobs = service.NewUpstreamJobService(newGatewayResourceWiringRepo(), nil, nil)
+		c, recorder := requestPlanHTTPContext("/v1/videos", `{"model":"wan2.2-ti2v-5b","prompt":"waves"}`, group)
+		handler.KaggleVideoGeneration(c)
+		require.Equal(t, http.StatusUnprocessableEntity, recorder.Code, recorder.Body.String())
+		require.Contains(t, recorder.Body.String(), "model_pricing_unavailable")
+		require.Zero(t, upstream.calls)
+	})
+}
