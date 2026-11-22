@@ -196,6 +196,8 @@ describe('GroupsView pricing HTTP payload', () => {
   it('deletes only the selected provider card even when model names match', async () => {
     const wrapper = await openEditor()
     await wrapper.get('[data-testid="remove-pricing-card"]').trigger('click')
+    expect(wrapper.findAll('[data-testid="group-pricing-card"]')).toHaveLength(2)
+    await wrapper.get('[data-testid="confirm-remove-pricing-card"]').trigger('click')
     await save(wrapper)
     expect(payloads[0].model_pricing).toEqual([simpleCard])
     wrapper.unmount()
@@ -204,6 +206,8 @@ describe('GroupsView pricing HTTP payload', () => {
   it('sends an explicit empty array when the final card is deleted', async () => {
     const wrapper = await openEditor([complexCard])
     await wrapper.get('[data-testid="remove-pricing-card"]').trigger('click')
+    expect(wrapper.findAll('[data-testid="group-pricing-card"]')).toHaveLength(1)
+    await wrapper.get('[data-testid="confirm-remove-pricing-card"]').trigger('click')
     await save(wrapper)
     expect(payloads[0]).toHaveProperty('model_pricing', [])
     wrapper.unmount()

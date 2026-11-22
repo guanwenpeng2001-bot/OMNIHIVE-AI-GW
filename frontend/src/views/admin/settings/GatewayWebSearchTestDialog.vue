@@ -52,10 +52,17 @@
           class="mt-2 border-t border-[var(--border)] pt-2 first:mt-0 first:border-0 first:pt-0"
         >
           <a
-            :href="r.url"
+            v-if="sanitizeUrl(r.url)"
+            :href="sanitizeUrl(r.url)"
             target="_blank"
+            rel="noopener noreferrer"
             class="text-sm font-medium text-[var(--info-text)] hover:underline"
             >{{ r.title }}</a
+          >
+          <span
+            v-else
+            class="text-sm font-medium text-[var(--foreground)]"
+            >{{ r.title }}</span
           >
           <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{ r.snippet }}
@@ -77,6 +84,7 @@
 
 <script setup lang="ts">
 import { useSettingsContext } from "./settingsContext";
+import { sanitizeUrl } from "@/utils/url";
 const {
   t,
   wsTestQuery,

@@ -18,6 +18,7 @@ import {
   isVerificationFresh,
   mapApiErrorToAsyncContext,
   normalizeConnectionEndpointInput,
+  sanitizeDiagnosticDetail,
   parsePoolModeRetryStatusCodes,
   parseValidationFieldIssues,
   splitTempUnschedKeywords,
@@ -319,5 +320,36 @@ describe('connections/rules (UIR01)', () => {
     )
     expect(primary?.reason).toBe('URL_NOT_ALLOWED')
     expect(primary?.detail).toContain('custom.internal.example')
+  })
+
+  it('redacts leaked credential tokens in diagnostic details', () => {
+    const raw =
+      'upstream 401 Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.secret.sig api_key=sk-test1234567890abcd access_token=tok_abcdef123456 x-api-key: my-secret-header'
+    const sanitized = sanitizeDiagnosticDetail(raw)
+    expect(sanitized).not.toContain('eyJhbGciOiJIUzI1NiJ9')
+    expect(sanitized).not.toContain('sk-test1234567890abcd')
+    expect(sanitized).not.toContain('tok_abcdef123456')
+    expect(sanitized).not.toContain('my-secret-header')
+    expect(sanitized).toContain('[REDACTED]')
+
+    const primary = getPrimaryVerificationDiagnostic(
+      {
+        verification_id: 'ver_secret',
+        models: [],
+        verified_at: '2026-11-22T00:00:00Z',
+        expires_at: '2026-11-22T02:00:00Z',
+        checks: [
+          {
+            name: 'authorization',
+            state: 'failed',
+            reason: 'AUTH_REJECTED',
+            detail: 'rejected key sk-live-9876543210abcdef'
+          }
+        ]
+      },
+      false
+    )
+    expect(primary?.detail).not.toContain('sk-live-9876543210abcdef')
+    expect(primary?.detail).toContain('[REDACTED]')
   })
 })

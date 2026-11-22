@@ -51,6 +51,7 @@ export interface PersistedConnectionSnapshot {
   modelIds: string[]
   poolIds: string[]
   concurrency: number
+  workbuddyMetadata?: Record<string, string>
 }
 
 export interface ConnectionWizardState {
@@ -92,9 +93,102 @@ function normalizeSnapshotEndpoint(endpoint: string): string {
   return endpoint.trim().replace(/\/+$/, '')
 }
 
-function normalizeSnapshotPolicyId(policyId: string): string {
-  const trimmed = policyId.trim()
+function normalizeSnapshotPolicyId(policyId?: string | null): string {
+  const trimmed = (policyId ?? '').trim()
   return trimmed.toLowerCase() === 'default' ? '' : trimmed
+}
+
+function normalizeWorkBuddySiteValue(raw?: string | null): WorkBuddySite | null {
+  const value = String(raw ?? '').trim().toLowerCase()
+  if (!value) return null
+  if (
+    value === 'global' ||
+    value === 'intl' ||
+    value === 'international' ||
+    value === 'workbuddy-ai' ||
+    value === 'workbuddy_ai'
+  ) {
+    return 'global'
+  }
+  if (value === 'cn' || value === 'china' || value === 'workbuddy') {
+    return 'cn'
+  }
+  return null
+}
+
+function normalizeMetadataTimestamp(value?: string | number | null): string {
+  if (value === null || value === undefined) return ''
+  return String(value).trim()
+}
+
+export function buildWorkBuddyMetadataSnapshot(
+  state: Pick<ConnectionWizardState, 'provider' | 'authType'> &
+    Partial<Pick<ConnectionWizardState, 'workbuddySite' | 'workbuddyOAuth'>>
+): Record<string, string> {
+  const provider = state.provider.trim().toLowerCase()
+  if (provider !== 'workbuddy') return {}
+  const authType = state.authType.trim().toLowerCase()
+  const site: WorkBuddySite = state.workbuddySite ?? 'cn'
+  if (authType === 'api_key' || authType === 'apikey') {
+    return { site }
+  }
+  if (authType === 'oauth') {
+    const snapshot: Record<string, string> = { site }
+    const oauth = state.workbuddyOAuth
+    const uid = (oauth?.uid ?? '').trim()
+    if (uid) snapshot.uid = uid
+    const domain = (oauth?.domain ?? '').trim() || defaultWorkBuddyDomain(site)
+    if (domain) snapshot.domain = domain
+    const enterpriseId = (oauth?.enterprise_id ?? '').trim()
+    if (enterpriseId) snapshot.enterprise_id = enterpriseId
+    const expiresAt = (oauth?.expires_at ?? '').trim()
+    if (expiresAt) snapshot.expires_at = expiresAt
+    const refreshExpiresAt = (oauth?.refresh_expires_at ?? '').trim()
+    if (refreshExpiresAt) snapshot.refresh_expires_at = refreshExpiresAt
+    return snapshot
+  }
+  return {}
+}
+
+export function isPublicAccountMode(provider: string, accountMode: string): boolean {
+  const normalizedProvider = provider.trim().toLowerCase()
+  const normalizedMode = accountMode.trim().toLowerCase()
+  if (normalizedProvider === 'kilo') return normalizedMode === 'free'
+  if (normalizedProvider === 'opencode_go') return normalizedMode === 'zen_free'
+  return false
+}
+
+export function isCrossingPublicPaidModeBoundary(
+  state: Pick<ConnectionWizardState, 'provider' | 'authType' | 'kiloMode' | 'openCodeMode' | 'persistedSnapshot'>
+): boolean {
+  const persistedMode = state.persistedSnapshot?.accountMode?.trim() ?? ''
+  const nextMode = resolveWizardAccountMode(state) ?? ''
+  if (!persistedMode || !nextMode || persistedMode === nextMode) {
+    return false
+  }
+  return isPublicAccountMode(state.provider, persistedMode) !== isPublicAccountMode(state.provider, nextMode)
+}
+
+export function isSwitchingFromPublicToPaidMode(
+  state: Pick<ConnectionWizardState, 'provider' | 'authType' | 'kiloMode' | 'openCodeMode' | 'persistedSnapshot'>
+): boolean {
+  const persistedMode = state.persistedSnapshot?.accountMode?.trim() ?? ''
+  const nextMode = resolveWizardAccountMode(state) ?? ''
+  if (!persistedMode || !nextMode || persistedMode === nextMode) {
+    return false
+  }
+  return isPublicAccountMode(state.provider, persistedMode) && !isPublicAccountMode(state.provider, nextMode)
+}
+
+export function requiresCredentialClearBeforeModePatch(
+  state: Pick<
+    ConnectionWizardState,
+    'connectionId' | 'provider' | 'authType' | 'kiloMode' | 'openCodeMode' | 'credentialState' | 'persistedSnapshot'
+  >
+): boolean {
+  if (!state.connectionId) return false
+  if (!isCrossingPublicPaidModeBoundary(state)) return false
+  return state.credentialState !== 'unset' && state.credentialState !== 'revoked'
 }
 
 export function resolveWizardAccountMode(
@@ -114,8 +208,10 @@ export function createPersistedSnapshotFromState(
   state: Pick<
     ConnectionWizardState,
     'provider' | 'authType' | 'kiloMode' | 'openCodeMode' | 'name' | 'endpoint' | 'networkPolicyId' | 'headerOverrides' | 'modelIds' | 'poolIds' | 'concurrency'
-  >
+  > &
+    Partial<Pick<ConnectionWizardState, 'workbuddySite' | 'workbuddyOAuth'>>
 ): PersistedConnectionSnapshot {
+  const workbuddyMetadata = buildWorkBuddyMetadataSnapshot(state)
   return {
     name: state.name.trim(),
     endpoint: normalizeSnapshotEndpoint(state.endpoint),
@@ -124,7 +220,8 @@ export function createPersistedSnapshotFromState(
     headerOverrides: buildHeaderOverridesMap(state.headerOverrides),
     modelIds: [...state.modelIds],
     poolIds: [...state.poolIds],
-    concurrency: state.concurrency
+    concurrency: state.concurrency,
+    ...(Object.keys(workbuddyMetadata).length > 0 ? { workbuddyMetadata } : {})
   }
 }
 
@@ -278,10 +375,41 @@ export function hydrateWizardFromResource(
     : state.headerOverrides
   const normalizedPolicyId = normalizeSnapshotPolicyId(resource.network_policy_id)
   const concurrency = resource.limits?.concurrency ?? 4
-  const inferredSite: WorkBuddySite =
+  const rawMeta = resource.metadata
+  const hydratedSite: WorkBuddySite =
     resource.provider === 'workbuddy'
-      ? inferWorkBuddySiteFromEndpoint(resource.endpoint || '')
+      ? (normalizeWorkBuddySiteValue(rawMeta?.site) ?? inferWorkBuddySiteFromEndpoint(resource.endpoint || ''))
       : 'cn'
+  const hydratedWorkbuddyOAuth: WorkBuddyOAuthDraft =
+    resource.provider === 'workbuddy'
+      ? {
+          access_token: '',
+          refresh_token: '',
+          uid: typeof rawMeta?.uid === 'string' ? rawMeta.uid.trim() : '',
+          domain:
+            (typeof rawMeta?.domain === 'string' ? rawMeta.domain.trim() : '') ||
+            defaultWorkBuddyDomain(hydratedSite),
+          ...(typeof rawMeta?.enterprise_id === 'string' && rawMeta.enterprise_id.trim()
+            ? { enterprise_id: rawMeta.enterprise_id.trim() }
+            : {}),
+          expires_at: normalizeMetadataTimestamp(rawMeta?.expires_at),
+          ...(normalizeMetadataTimestamp(rawMeta?.refresh_expires_at)
+            ? { refresh_expires_at: normalizeMetadataTimestamp(rawMeta?.refresh_expires_at) }
+            : {})
+        }
+      : {
+          access_token: '',
+          refresh_token: '',
+          uid: '',
+          domain: defaultWorkBuddyDomain('cn'),
+          expires_at: ''
+        }
+  const hydratedWorkbuddyMetadata = buildWorkBuddyMetadataSnapshot({
+    provider: resource.provider,
+    authType: resource.auth_type,
+    workbuddySite: hydratedSite,
+    workbuddyOAuth: hydratedWorkbuddyOAuth
+  })
   const rawAccountMode = typeof resource.account_mode === 'string' ? resource.account_mode.trim() : ''
   const hydratedKiloMode: KiloAccountMode =
     resource.provider === 'kilo' && rawAccountMode ? resolveKiloAccountMode(rawAccountMode) : (state.kiloMode ?? 'free')
@@ -308,14 +436,8 @@ export function hydrateWizardFromResource(
     credentialMode: nextCredentialState === 'unset' ? 'set' : 'keep',
     credentialSecret: '',
     credentialRefreshToken: '',
-    workbuddySite: inferredSite,
-    workbuddyOAuth: {
-      access_token: '',
-      refresh_token: '',
-      uid: '',
-      domain: defaultWorkBuddyDomain(inferredSite),
-      expires_at: ''
-    },
+    workbuddySite: hydratedSite,
+    workbuddyOAuth: hydratedWorkbuddyOAuth,
     kiloMode: hydratedKiloMode,
     openCodeMode: hydratedOpenCodeMode,
     verification: resource.last_verification ?? null,
@@ -337,7 +459,10 @@ export function hydrateWizardFromResource(
         : buildHeaderOverridesMap(headerOverrides),
       modelIds: [...resource.model_ids],
       poolIds: [...resource.pool_ids],
-      concurrency
+      concurrency,
+      ...(Object.keys(hydratedWorkbuddyMetadata).length > 0
+        ? { workbuddyMetadata: hydratedWorkbuddyMetadata }
+        : {})
     }
   }
 }
@@ -399,14 +524,35 @@ export function isWizardKeylessPublicLane(state: Pick<ConnectionWizardState, 'pr
   return false
 }
 
+export function hasWorkBuddyMetadataChanged(state: ConnectionWizardState): boolean {
+  if (state.provider.trim().toLowerCase() !== 'workbuddy') return false
+  const baseline = state.persistedSnapshot?.workbuddyMetadata
+  if (!baseline) return false
+  const current = buildWorkBuddyMetadataSnapshot(state)
+  return !stringMapsEqual(current, baseline)
+}
+
+function canMutateExistingWorkBuddyMetadata(state: ConnectionWizardState): boolean {
+  return (
+    state.provider.trim().toLowerCase() === 'workbuddy' &&
+    state.credentialState !== 'unset' &&
+    state.credentialState !== 'revoked' &&
+    hasWorkBuddyMetadataChanged(state)
+  )
+}
+
 export function hasPendingCredentialMutation(state: ConnectionWizardState): boolean {
   if (state.credentialMode === 'clear') {
     return true
   }
   if (state.credentialMode === 'set') {
-    return state.credentialSecret.trim().length > 0 || isWizardKeylessPublicLane(state)
+    return (
+      state.credentialSecret.trim().length > 0 ||
+      isWizardKeylessPublicLane(state) ||
+      canMutateExistingWorkBuddyMetadata(state)
+    )
   }
-  return false
+  return canMutateExistingWorkBuddyMetadata(state)
 }
 
 function buildWorkBuddyCredentialMetadata(
@@ -442,17 +588,26 @@ export function buildCredentialInputPayload(state: ConnectionWizardState): Conne
     return { operation: 'clear' }
   }
   if (state.credentialMode === 'keep') {
+    if (canMutateExistingWorkBuddyMetadata(state)) {
+      const metadata = buildWorkBuddyCredentialMetadata(state)
+      return metadata ? { operation: 'keep', metadata } : { operation: 'keep' }
+    }
     return { operation: 'keep' }
   }
   if (isWizardKeylessPublicLane(state)) {
+    const provider = state.provider.trim().toLowerCase()
     return {
       operation: 'set',
       type: state.authType,
-      secret: 'public'
+      secret: provider === 'kilo' ? '' : 'public'
     }
   }
   const trimmedSecret = state.credentialSecret.trim()
   if (trimmedSecret === '') {
+    if (canMutateExistingWorkBuddyMetadata(state)) {
+      const metadata = buildWorkBuddyCredentialMetadata(state)
+      return metadata ? { operation: 'keep', metadata } : { operation: 'keep' }
+    }
     return { operation: 'keep' }
   }
   const trimmedRefresh = state.credentialRefreshToken.trim()
@@ -515,6 +670,31 @@ export function canProceedFromStep(
           : 'Cleared credentials cannot be verified until a replacement secret is set.'
       }
     }
+    if (isSwitchingFromPublicToPaidMode(state)) {
+      const secret = state.credentialSecret.trim()
+      if (state.credentialMode !== 'set' || !secret || secret.toLowerCase() === 'public') {
+        return {
+          valid: false,
+          reason: isZh
+            ? '从免费模式切换至付费模式必须填写有效的付费 API Key（不能使用 public 占位密钥）。'
+            : 'Switching from a free lane to a paid lane requires a valid API key (cannot use the "public" placeholder).'
+        }
+      }
+    }
+    const normalizedProvider = state.provider.trim().toLowerCase()
+    if (
+      state.credentialMode === 'set' &&
+      !isWizardKeylessPublicLane(state) &&
+      (normalizedProvider === 'kilo' || normalizedProvider === 'opencode_go') &&
+      state.credentialSecret.trim().toLowerCase() === 'public'
+    ) {
+      return {
+        valid: false,
+        reason: isZh
+          ? '付费模式不能使用 "public" 占位密钥，请输入真实的 API Key。'
+          : 'Paid mode cannot use the "public" placeholder secret. Enter a real API key.'
+      }
+    }
     if (state.credentialMode === 'keep' && state.credentialState === 'revoked') {
       return {
         valid: false,
@@ -539,7 +719,12 @@ export function canProceedFromStep(
             : 'No credential is configured yet. Enter a valid API key / secret before continuing.'
       }
     }
-    if (state.credentialMode === 'set' && !state.credentialSecret.trim() && !isWizardKeylessPublicLane(state)) {
+    if (
+      state.credentialMode === 'set' &&
+      !state.credentialSecret.trim() &&
+      !isWizardKeylessPublicLane(state) &&
+      !canMutateExistingWorkBuddyMetadata(state)
+    ) {
       return {
         valid: false,
         reason: isZh

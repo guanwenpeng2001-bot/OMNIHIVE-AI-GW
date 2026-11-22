@@ -478,6 +478,13 @@ describe('ConnectionWizardView state machine & truth invariants (FE-F09-01)', ()
       return { version: '6', redactions: [] }
     })
     mockConnectionsApi.changeCredential.mockImplementation(async (_id: string, version: string, payload: Record<string, unknown>) => {
+      if (payload.operation === 'clear') {
+        callOrder.push(`cred@v${version}:clear`)
+        return {
+          version: '8',
+          credential: { version: '2', type: 'api_key', state: 'revoked', last_four: null, updated_at: '' }
+        }
+      }
       callOrder.push(`cred@v${version}:${String(payload.secret)}`)
       return {
         version: '7',
@@ -512,18 +519,27 @@ describe('ConnectionWizardView state machine & truth invariants (FE-F09-01)', ()
     )
     expect(callOrder).toEqual(['create:apikey', 'cred@v5:sk-kilo-real-key-1234'])
 
-    // Switch existing connection back to free -> patches account_mode='free' BEFORE setting secret='public'
+    // Switch existing connection back to free directly from keep mode:
+    // clears credential BEFORE patching account_mode='free' (avoiding CLEAR_CREDENTIAL_BEFORE_MODE_CHANGE), then sets empty keyless secret
     callOrder.length = 0
-    const setSegmentBtn = wrapper.findAll('button').find((btn) => btn.text().includes('Replace Secret') || btn.text().includes('Set'))
-    if (setSegmentBtn) {
-      await setSegmentBtn.trigger('click')
-      await flushPromises()
-    }
     await wrapper.get('[data-testid="wizard-kilo-mode-free"]').trigger('click')
     await flushPromises()
     await saveDraftBtn.trigger('click')
     await flushPromises()
-    expect(callOrder).toEqual(['patch@v7:free', 'cred@v6:public'])
+    expect(callOrder).toEqual(['cred@v7:clear', 'patch@v8:free', 'cred@v6:'])
+
+    // Switching back from free to apikey in edit mode shows selector without toggling Replace Secret first and blocks missing key
+    callOrder.length = 0
+    await wrapper.get('[data-testid="wizard-kilo-mode-apikey"]').trigger('click')
+    await flushPromises()
+    await saveDraftBtn.trigger('click')
+    await flushPromises()
+    expect(callOrder).toEqual([])
+    const paidInputAfterSwitch = wrapper.findAll('input').find((el) => el.attributes('type') === 'password')!
+    await paidInputAfterSwitch.setValue('kilo-paid-key-999')
+    await saveDraftBtn.trigger('click')
+    await flushPromises()
+    expect(callOrder).toEqual(['cred@v7:clear', 'patch@v8:apikey', 'cred@v6:kilo-paid-key-999'])
 
     // Also verify OpenCode Go <-> Zen Free endpoint auto-switching
     mockRoute.params = { id: 'conn_oc_edit' }

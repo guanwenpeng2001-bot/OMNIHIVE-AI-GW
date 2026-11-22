@@ -9,7 +9,10 @@ import {
   hasPendingCredentialMutation,
   hydrateWizardFromResource,
   invalidatePreview,
-  invalidateVerification
+  invalidateVerification,
+  isCrossingPublicPaidModeBoundary,
+  isSwitchingFromPublicToPaidMode,
+  requiresCredentialClearBeforeModePatch
 } from '../wizardState'
 import type { ConnectionResource } from '../types'
 
@@ -322,7 +325,7 @@ describe('connections/wizardState', () => {
     expect(buildCredentialInputPayload(kiloHydrated)).toEqual({
       operation: 'set',
       type: 'api_key',
-      secret: 'public'
+      secret: ''
     })
 
     const opencodeResource: ConnectionResource = {
@@ -383,5 +386,125 @@ describe('connections/wizardState', () => {
       secret: 'wb-api-key-1',
       metadata: { site: 'cn' }
     })
+  })
+
+  it('hydrates WorkBuddy metadata on edit and emits keep+metadata when only site or OAuth metadata changes', () => {
+    const wbResource: ConnectionResource = {
+      id: 'conn_wb_1',
+      workspace_id: 'ws_1',
+      name: 'WorkBuddy Global OAuth',
+      provider: 'workbuddy',
+      schema_version: '1',
+      auth_type: 'oauth',
+      state: 'active',
+      version: '3',
+      endpoint: 'https://copilot.tencent.com',
+      network_policy_id: '',
+      metadata: {
+        site: 'global',
+        uid: 'uid-42',
+        domain: 'www.workbuddy.ai',
+        enterprise_id: 'ent-7',
+        expires_at: 1798761599,
+        refresh_expires_at: '2027-01-31T00:00:00Z'
+      },
+      credential: {
+        version: '2',
+        type: 'oauth',
+        state: 'verified',
+        last_four: null,
+        updated_at: '2026-11-20T00:00:00Z'
+      },
+      last_verification: null,
+      model_ids: [],
+      pool_ids: [],
+      limits: { concurrency: 4 },
+      quota: { state: 'unknown', remaining: null, last_success_at: null },
+      allowed_actions: ['connections.edit'],
+      redactions: []
+    }
+
+    const hydrated = hydrateWizardFromResource(createInitialWizardState('edit'), wbResource)
+    expect(hydrated.workbuddySite).toBe('global')
+    expect(hydrated.workbuddyOAuth).toMatchObject({
+      uid: 'uid-42',
+      domain: 'www.workbuddy.ai',
+      enterprise_id: 'ent-7',
+      expires_at: '1798761599',
+      refresh_expires_at: '2027-01-31T00:00:00Z'
+    })
+    expect(hasPendingCredentialMutation(hydrated)).toBe(false)
+    expect(buildCredentialInputPayload(hydrated)).toEqual({ operation: 'keep' })
+
+    hydrated.workbuddyOAuth.uid = 'uid-99'
+    expect(hasPendingCredentialMutation(hydrated)).toBe(true)
+    expect(buildCredentialInputPayload(hydrated)).toEqual({
+      operation: 'keep',
+      metadata: {
+        site: 'global',
+        uid: 'uid-99',
+        domain: 'www.workbuddy.ai',
+        enterprise_id: 'ent-7',
+        expires_at: '1798761599',
+        refresh_expires_at: '2027-01-31T00:00:00Z'
+      }
+    })
+
+    hydrated.credentialMode = 'set'
+    hydrated.credentialSecret = 'new-access-token'
+    expect(buildCredentialInputPayload(hydrated)).toEqual({
+      operation: 'set',
+      type: 'oauth',
+      secret: 'new-access-token',
+      metadata: {
+        site: 'global',
+        uid: 'uid-99',
+        domain: 'www.workbuddy.ai',
+        enterprise_id: 'ent-7',
+        expires_at: '1798761599',
+        refresh_expires_at: '2027-01-31T00:00:00Z'
+      }
+    })
+  })
+
+  it('enforces safe credential clearing and real API key when crossing Kilo/OpenCode free<->paid modes', () => {
+    const kiloFreeResource: ConnectionResource = {
+      id: 'conn_kilo_free',
+      workspace_id: 'ws_1',
+      name: 'Kilo Free',
+      provider: 'kilo',
+      schema_version: '1',
+      auth_type: 'api_key',
+      account_mode: 'free',
+      state: 'active',
+      version: '2',
+      endpoint: 'https://api.kilo.ai/api/gateway',
+      network_policy_id: '',
+      credential: { version: '1', type: 'api_key', state: 'verified', last_four: null, updated_at: '' },
+      last_verification: null,
+      model_ids: [],
+      pool_ids: [],
+      limits: { concurrency: 4 },
+      quota: { state: 'unknown', remaining: null, last_success_at: null },
+      allowed_actions: ['connections.edit'],
+      redactions: []
+    }
+
+    const state = hydrateWizardFromResource(createInitialWizardState('edit'), kiloFreeResource)
+    expect(isCrossingPublicPaidModeBoundary(state)).toBe(false)
+    expect(requiresCredentialClearBeforeModePatch(state)).toBe(false)
+
+    state.kiloMode = 'apikey'
+    expect(isCrossingPublicPaidModeBoundary(state)).toBe(true)
+    expect(isSwitchingFromPublicToPaidMode(state)).toBe(true)
+    expect(requiresCredentialClearBeforeModePatch(state)).toBe(true)
+    expect(canProceedFromStep(state, 'credentials', false).valid).toBe(false)
+
+    state.credentialMode = 'set'
+    state.credentialSecret = 'public'
+    expect(canProceedFromStep(state, 'credentials', false).valid).toBe(false)
+
+    state.credentialSecret = 'kilo-live-key-123'
+    expect(canProceedFromStep(state, 'credentials', false).valid).toBe(true)
   })
 })
