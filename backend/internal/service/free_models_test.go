@@ -109,11 +109,18 @@ func TestKiloCatalogModesAndDispatch(t *testing.T) {
 	_, _, err = prepareKiloChat(a, []byte(`{"model":"paid/model"}`))
 	require.ErrorIs(t, err, ErrAccountModelUnsupported)
 	a.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{Models: m})
+	require.True(t, kiloFreeModelAllowed(a, ids[0]), "the reviewed bootstrap entry remains available before discovery")
+	a.Extra[UpstreamModelCatalogExtraKey] = &AccountModelCatalogSnapshot{Complete: true, SourceKind: "live", DiscoveredModels: ids}
 	require.True(t, kiloFreeModelAllowed(a, ids[0]))
 	no := false
 	m[ids[0]] = UpstreamModelMetadata{ID: ids[0], Free: &no}
 	require.False(t, kiloFreeModelAllowed(a, ids[0]))
 	for _, model := range []string{"kilo-auto/free", "openrouter/free", "stepfun/foo:free", "liquid/lfm-3-1.7b:free", "thinkingmachines/foo:free"} {
+		// Reasoning normalization is independent of free admission: install explicit
+		// current native discovery instead of relying on the model-name suffix.
+		a.Extra[UpstreamModelCatalogExtraKey] = &AccountModelCatalogSnapshot{Complete: true, SourceKind: "live", DiscoveredModels: []string{model}}
+		yes := true
+		a.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{Models: map[string]UpstreamModelMetadata{model: {ID: model, Free: &yes}}})
 		out, _, err := prepareKiloChat(a, []byte(fmt.Sprintf(`{"model":%q,"stream":true,"stream_options":{"extra":true},"reasoning_effort":"none","reasoning":{"effort":"disabled","enabled":false}}`, model)))
 		require.NoError(t, err)
 		require.True(t, gjson.GetBytes(out, "stream_options.include_usage").Bool())

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
 	"net/http"
+	"strings"
 )
 
 type groupAccountUpstream struct {
@@ -14,8 +15,13 @@ type groupAccountUpstream struct {
 
 // Keep the legacy transport exactly as supplied for unbound/single-node accounts.
 func accountHTTPUpstream(base HTTPUpstream, account *Account) HTTPUpstream {
-	if account != nil && (account.IsOpenCodeZenFree() || account.Platform == PlatformKilo) {
-		base = &freeModelUpstream{base: base, account: account}
+	if account != nil {
+		key := strings.TrimSpace(account.GetCredential("api_key"))
+		invalidPaidOpenCode := account.Platform == PlatformOpenCodeGo && !account.IsOpenCodeZenFree() && (key == "" || key == "public")
+		if account.IsOpenCodeZenFree() || account.Platform == PlatformKilo || invalidPaidOpenCode {
+			// Historical paid rows must pass the same credential guard as writes.
+			base = &freeModelUpstream{base: base, account: account}
+		}
 	}
 	if isCopilotNous(account) {
 		base = &compatibleSpecialUpstream{base: base, account: account}
