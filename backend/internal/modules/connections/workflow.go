@@ -85,6 +85,11 @@ func (r *Session) verify(in Verify, replacement *credentials.Change) (any, error
 	if e != nil {
 		return nil, e
 	}
+	if c.Provider == service.PlatformWorkBuddy && replacement != nil {
+		for _, key := range workBuddyMetadataFields {
+			delete(fields, key)
+		}
+	}
 	maps.Copy(fields, secret)
 	if c.Endpoint != "" {
 		fields["base_url"] = c.Endpoint
@@ -155,7 +160,7 @@ func (r *Session) verify(in Verify, replacement *credentials.Change) (any, error
 		if e = record("switching", c.Credential.Version); e != nil {
 			return nil, e
 		}
-		if e = legacy.ChangeSecret(r.ctx, r.tx, r.store.enc, r.Workspace, c.ID, c.Credential.Version, secret, false); e != nil {
+		if e = r.changeSecret(c, secret, false); e != nil {
 			return nil, e
 		}
 		if e = record("draining", c.Credential.Version); e != nil {
@@ -230,6 +235,9 @@ func (r *Session) fresh(c Connection, verification string) error {
 func (r *Session) applicable(c Connection, p Patch) error {
 	if e := r.checkPatch(c, p); e != nil {
 		return e
+	}
+	if c.modeChanged(p) {
+		return conflict("VERIFICATION_REQUIRED")
 	}
 	if c.Verification == nil {
 		return r.verificationBlock(c)

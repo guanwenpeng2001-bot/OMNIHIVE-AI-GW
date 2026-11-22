@@ -168,7 +168,9 @@ type LiteLLMModelPricing struct {
 	TokenPricingAbsent bool `json:"-"`
 }
 
-// PricingRemoteClient 远程价格数据获取接口
+// PricingRemoteClient fetches only the URL validated by PricingService.
+// Implementations must reject redirects, including for hash requests, without
+// mutating a shared HTTP client.
 type PricingRemoteClient interface {
 	FetchPricingJSON(ctx context.Context, url string) ([]byte, error)
 	FetchHashText(ctx context.Context, url string) (string, error)

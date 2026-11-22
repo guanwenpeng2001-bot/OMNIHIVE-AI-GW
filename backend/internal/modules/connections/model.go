@@ -129,11 +129,8 @@ func (in Create) validateSchema() error {
 	if !slices.Contains(schemas[0].AuthTypes, in.AuthType) {
 		return fault.Invalid("/auth_type")
 	}
-	if in.AccountMode != "" {
-		valid := in.AuthType == "api_key" && ((in.Provider == domain.PlatformKilo && slices.Contains([]string{"free", "apikey"}, in.AccountMode)) || (in.Provider == domain.PlatformOpenCodeGo && slices.Contains([]string{"go", "zen", "zen_free"}, in.AccountMode)))
-		if !valid {
-			return fault.Invalid("/account_mode")
-		}
+	if in.AccountMode != "" && !validAccountMode(in.Provider, in.AuthType, in.AccountMode) {
+		return fault.Invalid("/account_mode")
 	}
 	if in.SchemaVersion != schemas[0].Version {
 		return fault.Invalid("/schema_version")
@@ -142,6 +139,7 @@ func (in Create) validateSchema() error {
 }
 
 type Patch struct {
+	AccountMode     *string           `json:"account_mode,omitempty"`
 	Name            *string           `json:"name,omitempty"`
 	Endpoint        *string           `json:"endpoint,omitempty"`
 	NetworkPolicyID *string           `json:"network_policy_id,omitempty"`
@@ -175,6 +173,9 @@ func (p *Patch) UnmarshalJSON(data []byte) error {
 // Preserve explicit empty maps and lists so patches can clear existing values.
 func (p Patch) Snapshot() map[string]any {
 	m := map[string]any{}
+	if p.AccountMode != nil {
+		m["account_mode"] = *p.AccountMode
+	}
 	if p.Name != nil {
 		m["name"] = *p.Name
 	}
@@ -365,8 +366,17 @@ type Event struct {
 
 // Public lanes use the same versioned secret lifecycle with an empty/public key.
 func (c Connection) credentialPayload(change credentials.Change) (map[string]any, error) {
+	if change.Operation != "set" {
+		return change.Payload(c.AuthType)
+	}
+	if len(change.Metadata) > 0 && c.Provider != service.PlatformWorkBuddy {
+		return nil, fault.Invalid("/metadata")
+	}
+	if c.AuthType == "api_key" && (c.Provider == service.PlatformKilo && c.AccountMode == "apikey" || c.Provider == service.PlatformOpenCodeGo && c.AccountMode != "zen_free") && strings.TrimSpace(change.Secret) == "public" {
+		return nil, fault.Invalid("/secret")
+	}
 	a := &service.Account{Platform: c.Provider, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"account_mode": c.AccountMode, "api_key": strings.TrimSpace(change.Secret)}}
-	if change.Operation == "set" && c.AuthType == "api_key" && (a.IsKiloFree() || a.IsOpenCodeZenFree()) {
+	if c.AuthType == "api_key" && (a.IsKiloFree() || a.IsOpenCodeZenFree()) {
 		if change.Type != c.AuthType || change.RefreshToken != "" {
 			return nil, fault.Invalid("/type")
 		}
@@ -382,5 +392,93 @@ func (c Connection) credentialPayload(change credentials.Change) (map[string]any
 			return nil, err
 		}
 	}
-	return values, err
+	if err != nil || values == nil {
+		return values, err
+	}
+	if c.Provider == service.PlatformWorkBuddy {
+		if err := c.workBuddyMetadata(values, change.Metadata); err != nil {
+			return nil, err
+		}
+	}
+	return values, nil
+}
+
+func validAccountMode(provider, auth, mode string) bool {
+	return auth == "api_key" && ((provider == service.PlatformKilo && slices.Contains([]string{"free", "apikey"}, mode)) || (provider == service.PlatformOpenCodeGo && slices.Contains([]string{"go", "zen", "zen_free"}, mode)))
+}
+
+func (c Connection) modeChanged(p Patch) bool {
+	return p.AccountMode != nil && *p.AccountMode != c.AccountMode
+}
+
+func (c Connection) validateModePatch(p Patch) error {
+	if p.AccountMode == nil {
+		return nil
+	}
+	if !validAccountMode(c.Provider, c.AuthType, *p.AccountMode) {
+		return fault.Invalid("/account_mode")
+	}
+	// A mode selects a different authorization lane. Explicitly clear the current
+	// version first so a public credential cannot become a paid credential.
+	wasPublic := c.AccountMode == "free" || c.AccountMode == "zen_free"
+	willBePublic := *p.AccountMode == "free" || *p.AccountMode == "zen_free"
+	if wasPublic != willBePublic && c.Credential != nil && c.Credential.Version > 0 && c.Credential.State != "revoked" {
+		return conflict("CLEAR_CREDENTIAL_BEFORE_MODE_CHANGE")
+	}
+	return nil
+}
+
+var workBuddyMetadataFields = []string{"site", "uid", "domain", "enterprise_id", "expires_at", "refresh_expires_at"}
+
+func (c Connection) workBuddyMetadata(values, metadata map[string]any) error {
+	allowed := []string{"site"}
+	if c.AuthType == "oauth" {
+		allowed = workBuddyMetadataFields
+	}
+	for key, value := range metadata {
+		if !slices.Contains(allowed, key) || value == nil {
+			return fault.Invalid("/metadata")
+		}
+		switch key {
+		case "expires_at", "refresh_expires_at":
+			switch value.(type) {
+			case string, float64, int, int64, json.Number:
+			default:
+				return fault.Invalid("/metadata")
+			}
+			if value == "" {
+				return fault.Invalid("/metadata")
+			}
+		default:
+			text, ok := value.(string)
+			if !ok || !ValidText(strings.TrimSpace(text), 2048) {
+				return fault.Invalid("/metadata")
+			}
+			value = strings.TrimSpace(text)
+			if key == "site" {
+				site := strings.ToLower(strings.TrimSpace(text))
+				sites := []string{"cn", "global"}
+				if c.AuthType == "oauth" {
+					sites = append(sites, "china", "workbuddy", "intl", "international", "workbuddy-ai", "workbuddy_ai")
+				}
+				if !slices.Contains(sites, site) {
+					return fault.Invalid("/metadata")
+				}
+				value = service.NormalizeWorkBuddySite(site, "", "")
+			}
+		}
+		values[key] = value
+	}
+	kind := service.AccountTypeAPIKey
+	if c.AuthType == "oauth" {
+		kind = service.AccountTypeOAuth
+	}
+	a := &service.Account{Platform: c.Provider, Type: kind, Credentials: values}
+	if err := service.NormalizeConnectionCredentialMetadata(a); err != nil {
+		return fault.Invalid("/metadata")
+	}
+	for key, value := range a.Credentials {
+		values[key] = value
+	}
+	return nil
 }

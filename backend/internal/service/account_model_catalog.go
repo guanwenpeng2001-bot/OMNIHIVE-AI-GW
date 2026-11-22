@@ -1061,7 +1061,7 @@ func (s *AccountTestService) fetchAntigravityCatalog(ctx context.Context, accoun
 	accessToken := account.GetCredential("access_token")
 	accessToken = strings.TrimSpace(accessToken)
 	if accessToken == "" {
-		return nil, nil, newUpstreamModelSyncConfigError("No Antigravity access token is available", nil)
+		return nil, nil, newUpstreamModelSyncCredentialError("No Antigravity access token is available", nil)
 	}
 
 	accountProxyURL, egressErr := account.EgressProxyURL(ctx)

@@ -34,3 +34,14 @@ func TestExplicitMutations(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "key", m["api_key"])
 }
+
+func TestMetadataRequiresSet(t *testing.T) {
+	for _, operation := range []string{"keep", "clear"} {
+		for _, metadata := range []map[string]any{{}, {"site": "global"}} {
+			_, err := (Change{Operation: operation, Metadata: metadata}).Payload("oauth")
+			var f *fault.Fault
+			require.ErrorAs(t, err, &f)
+			require.Equal(t, "/operation", f.Field)
+		}
+	}
+}

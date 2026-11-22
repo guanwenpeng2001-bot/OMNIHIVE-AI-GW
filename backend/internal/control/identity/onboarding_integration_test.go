@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/workspacemember"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	domain "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	identitydb "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
@@ -57,6 +59,26 @@ func TestDefaultWorkspaceOnboardingAccess(t *testing.T) {
 			} else {
 				require.NoError(t, a.Require("connections.edit"))
 				require.NoError(t, a.Require("billing.read"))
+				before := a.Version
+				user.Role = service.RoleUser
+				require.NoError(t, repo.Update(t.Context(), user, service.UserUpdateFields{Role: true}))
+				for _, action := range []string{"connections.edit", "pools.assign", "members.grants.write", "billing.adjust"} {
+					_, err = access.Evaluate(t.Context(), user.ID, 1, project, action)
+					require.ErrorIs(t, err, fault.Forbidden, action)
+				}
+				demoted, err := access.Evaluate(t.Context(), user.ID, 1, project, "models.read")
+				require.NoError(t, err)
+				require.Greater(t, demoted.Version, before)
+				user.Role = service.RoleAdmin
+				require.NoError(t, repo.Update(t.Context(), user, service.UserUpdateFields{Role: true}))
+				_, err = access.Evaluate(t.Context(), user.ID, 1, project, "connections.edit")
+				require.NoError(t, err)
+				// Explicitly delegating the same role takes ownership of the grant.
+				require.NoError(t, repository.NewWorkspaceRepository(db).SetMember(t.Context(), 1, user.ID, "admin"))
+				user.Role = service.RoleUser
+				require.NoError(t, repo.Update(t.Context(), user, service.UserUpdateFields{Role: true}))
+				_, err = access.Evaluate(t.Context(), user.ID, 1, project, "connections.edit")
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -109,4 +131,52 @@ func TestDefaultWorkspaceMembershipBackfill(t *testing.T) {
 	var grants int
 	require.NoError(t, tx.QueryRowContext(t.Context(), "SELECT count(*) FROM project_grants WHERE user_id IN ($1,$2,$3,$4)", member, admin, existingAdmin, existingMember).Scan(&grants))
 	require.Zero(t, grants)
+}
+
+func TestHistoricalDefaultRoleSourceRepair(t *testing.T) {
+	db, client, _ := testutil.NewCapabilityPostgres(t)
+	tx, err := client.Tx(t.Context())
+	require.NoError(t, err)
+	defer func() { require.NoError(t, tx.Rollback()) }()
+	ctx := dbent.NewTxContext(t.Context(), tx)
+	store := tx.Client()
+	repo := repository.NewUserRepository(client, db)
+	migration, err := migrations.FS.ReadFile("337_default_workspace_role_source.sql")
+	require.NoError(t, err)
+	// Make fixtures indistinguishable from rows touched by 334. Its migration
+	// runner wrote its receipt with the same transaction timestamp as the upsert.
+	users := make([]*service.User, 0, 3)
+	for _, role := range []string{"admin", "user", "admin"} {
+		u := &service.User{Email: uuid.NewString() + "@legacy.test", Role: role, Status: service.StatusActive, PasswordHash: "fixture"}
+		require.NoError(t, repo.Create(ctx, u))
+		users = append(users, u)
+	}
+	_, err = store.ExecContext(ctx, `UPDATE workspace_members SET inherits_global_role=false,role='admin',
+ updated_at=(SELECT applied_at FROM schema_migrations WHERE filename='334_backfill_default_workspace_members.sql') WHERE user_id IN ($1,$2)`, users[0].ID, users[1].ID)
+	require.NoError(t, err)
+	_, err = store.ExecContext(ctx, `UPDATE workspace_members SET inherits_global_role=false,updated_at=clock_timestamp() WHERE user_id=$1`, users[2].ID)
+	require.NoError(t, err)
+	for range 2 {
+		_, err = store.ExecContext(ctx, string(migration))
+		require.NoError(t, err)
+	}
+	for i, u := range users {
+		u.Role = service.RoleUser
+		require.NoError(t, repo.Update(ctx, u, service.UserUpdateFields{Role: true}))
+		member, err := store.WorkspaceMember.Query().Where(workspacemember.UserIDEQ(u.ID)).Only(ctx)
+		require.NoError(t, err)
+		if i == 2 {
+			require.EqualValues(t, "admin", member.Role)
+		} else {
+			require.EqualValues(t, "member", member.Role)
+		}
+	}
+	// A restored non-1 default gets the missing backfill as well.
+	_, err = store.ExecContext(ctx, "UPDATE workspaces SET is_default=false WHERE is_default")
+	require.NoError(t, err)
+	restored, err := store.Workspace.Create().SetName("Restored").SetIsDefault(true).Save(ctx)
+	require.NoError(t, err)
+	_, err = store.ExecContext(ctx, string(migration))
+	require.NoError(t, err)
+	require.Equal(t, 1, store.WorkspaceMember.Query().Where(workspacemember.WorkspaceIDEQ(restored.ID), workspacemember.UserIDEQ(users[0].ID)).CountX(ctx))
 }

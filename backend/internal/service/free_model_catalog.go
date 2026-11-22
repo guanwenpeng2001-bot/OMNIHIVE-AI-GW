@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 	"github.com/tidwall/gjson"
 )
 
@@ -67,13 +68,8 @@ func zenFreeRow(raw json.RawMessage) bool {
 	}
 	base := normalizeOpenCodeGoModelID(id)
 	base = regexp.MustCompile(`\([^()]+\)\s*$`).ReplaceAllString(base, "")
-	if b["deprecated"] == true || b["deprecated_at"] != nil || b["retirement_date"] != nil {
+	if !activeFreeRow(b) {
 		return false
-	}
-	for _, key := range []string{"status", "lifecycle"} {
-		if slices.Contains([]string{"deprecated", "retired", "disabled"}, strings.ToLower(freeString(b[key]))) {
-			return false
-		}
 	}
 	if strings.EqualFold(freeString(b["recommended_api"]), "systemone") || zenDecisionName.MatchString(base) {
 		return false
@@ -123,7 +119,7 @@ func extractAccountModelCatalog(body []byte, a *Account) ([]string, map[string]U
 	// Contradictory duplicate rows fail closed, independent of listing order.
 	for _, raw := range entries {
 		id := gjson.GetBytes(raw, "id").String()
-		if a.IsOpenCodeZenFree() && !zenFreeRow(raw) || a.IsKiloFree() && gjson.GetBytes(raw, "isFree").Type != gjson.True {
+		if a.IsOpenCodeZenFree() && !zenFreeRow(raw) || a.IsKiloFree() && !kiloFreeRow(raw) {
 			rejected[id] = true
 		}
 	}
@@ -210,7 +206,10 @@ func extractAccountModelCatalog(body []byte, a *Account) ([]string, map[string]U
 func buildZenFreeModelsRequest(ctx context.Context, a *Account, validate func(string) (string, error)) (*http.Request, error) {
 	candidate := *a
 	if err := NormalizeFreeModelCredentials(&candidate); err != nil {
-		return nil, err
+		if infraerrors.Reason(err) == "INVALID_PUBLIC_CREDENTIAL" {
+			return nil, newUpstreamModelSyncCredentialError("Invalid Zen Free credential", err)
+		}
+		return nil, newUpstreamModelSyncConfigError("Invalid Zen Free configuration", err)
 	}
 	base, err := validate(a.GetOpenAIFormatBaseURL())
 	if err != nil {
@@ -227,7 +226,10 @@ func buildZenFreeModelsRequest(ctx context.Context, a *Account, validate func(st
 func (s *AccountTestService) buildKiloModelsRequest(ctx context.Context, a *Account) (*http.Request, error) {
 	candidate := *a
 	if err := NormalizeFreeModelCredentials(&candidate); err != nil {
-		return nil, newUpstreamModelSyncConfigError("Invalid Kilo credentials", err)
+		if infraerrors.Reason(err) == "INVALID_KILO_CREDENTIAL" {
+			return nil, newUpstreamModelSyncCredentialError("Invalid Kilo credentials", err)
+		}
+		return nil, newUpstreamModelSyncConfigError("Invalid Kilo configuration", err)
 	}
 	endpoint, err := kiloEndpoint(a, "/models", s.validateUpstreamBaseURL)
 	if err != nil {
@@ -241,4 +243,30 @@ func (s *AccountTestService) buildKiloModelsRequest(ctx context.Context, a *Acco
 	applyKiloHeaders(req.Header, a)
 	req.Header.Set("Accept", "application/json")
 	return req, nil
+}
+
+func activeFreeRow(row map[string]any) bool {
+	if row["isFree"] == false || row["deprecated"] == true || row["deprecated_at"] != nil || row["retirement_date"] != nil {
+		return false
+	}
+	for _, key := range []string{"status", "lifecycle"} {
+		if slices.Contains([]string{"deprecated", "retired", "disabled"}, strings.ToLower(freeString(row[key]))) {
+			return false
+		}
+	}
+	return true
+}
+
+func kiloFreeRow(raw json.RawMessage) bool {
+	row, err := decodeFreeModelObject(raw)
+	if err != nil || row["isFree"] != true || !activeFreeRow(row) {
+		return false
+	}
+	// Explicit nonzero or malformed price evidence overrides the free flag.
+	for _, key := range []string{"pricing", "cost"} {
+		if _, zero := zenCostVerdict(row[key], 0); !zero {
+			return false
+		}
+	}
+	return true
 }

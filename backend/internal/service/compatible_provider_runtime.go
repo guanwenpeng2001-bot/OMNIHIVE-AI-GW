@@ -345,7 +345,7 @@ func buildCompatibleModelsRequest(ctx context.Context, account *Account, validat
 	}
 	key := strings.TrimSpace(account.GetCredential("api_key"))
 	if key == "" {
-		return nil, newUpstreamModelSyncConfigError("Missing API key", nil)
+		return nil, newUpstreamModelSyncCredentialError("Missing API key", nil)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(base, "/")+"/models", nil)
 	if err != nil {

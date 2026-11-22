@@ -507,9 +507,7 @@ func createAdminUser(cfg *SetupConfig) (bool, string, error) {
 	if err != nil {
 		return false, "", err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workspace_members(workspace_id,user_id,role)
- SELECT id,$1,'admin' FROM workspaces WHERE id=1 AND is_default=true
- ON CONFLICT(workspace_id,user_id) DO NOTHING`, adminID); err != nil {
+	if err := provisionAdminWorkspace(ctx, tx, adminID); err != nil {
 		return false, "", fmt.Errorf("failed to provision admin workspace: %w", err)
 	}
 	// Seed public features only after the initial administrator is created.
@@ -739,4 +737,12 @@ func AutoSetupFromEnv() error {
 
 	logger.LegacyPrintf("setup", "%s", "Auto setup completed successfully!")
 	return nil
+}
+
+// Keep installer membership in the same transaction as the initial user.
+func provisionAdminWorkspace(ctx context.Context, tx *sql.Tx, adminID int64) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO workspace_members(workspace_id,user_id,role,inherits_global_role)
+ VALUES((SELECT id FROM workspaces WHERE is_default ORDER BY CASE WHEN id=1 THEN 0 ELSE 1 END,id LIMIT 1),$1,'admin',true)
+ ON CONFLICT(workspace_id,user_id) DO NOTHING`, adminID)
+	return err
 }

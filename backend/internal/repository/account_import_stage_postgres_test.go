@@ -58,6 +58,7 @@ func TestStagedImportPostgresAtomicEncryptedStorage(t *testing.T) {
 	active := f.createAccount(t, f.ctx, "legacy-refresh-control", service.PlatformOpenAI, service.AccountTypeOAuth, map[string]any{"access_token": "test-legacy-access", "refresh_token": "test-legacy-refresh"})
 	proxy, err := f.client.Proxy.Create().SetName("target-local-proxy").SetProtocol("http").SetHost("127.0.0.1").SetPort(18080).SetPassword("test-local-proxy-secret").SetStatus("inactive").Save(f.ctx)
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, f.client.Proxy.DeleteOneID(proxy.ID).Exec(f.ctx)) })
 	proxy = f.client.Proxy.GetX(f.ctx, proxy.ID) // compare persisted timestamp precision
 	// A real default group exists. The service has no group/proxy dependency
 	// injected: any accidental lookup would fail this test instead of succeeding.

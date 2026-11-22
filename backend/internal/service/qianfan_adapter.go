@@ -48,7 +48,7 @@ func buildQianfanRequest(ctx context.Context, account *Account, endpoint string,
 	}
 	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
 	if apiKey == "" || strings.ContainsAny(apiKey, "\r\n") {
-		return nil, newUpstreamModelSyncConfigError("Qianfan API key is missing or invalid", nil)
+		return nil, newUpstreamModelSyncCredentialError("Qianfan API key is missing or invalid", nil)
 	}
 	baseURL := strings.TrimSpace(account.GetCredential("base_url"))
 	if base, configured := nativeConfiguredProtocolBase(account, APIProtocolChatCompletions); configured {

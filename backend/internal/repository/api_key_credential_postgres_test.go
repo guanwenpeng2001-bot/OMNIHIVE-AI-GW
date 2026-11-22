@@ -112,6 +112,16 @@ func (f *apiKeyCredentialFixture) createUser(t *testing.T, email string) int64 {
 	return user.ID
 }
 
+// An upgrade fixture seeds a historical schema before the current onboarding
+// repository and its default-workspace membership columns are available.
+func (f *apiKeyCredentialFixture) createLegacyUser(t *testing.T, email string) int64 {
+	t.Helper()
+	var id int64
+	require.NoError(t, f.db.QueryRowContext(f.ctx,
+		`INSERT INTO users(email,password_hash) VALUES ($1,'fixture') RETURNING id`, email).Scan(&id))
+	return id
+}
+
 func (f *apiKeyCredentialFixture) seedKeys(t *testing.T, userID int64, name string, secret string, deleted bool) int64 {
 	t.Helper()
 	var id int64
@@ -260,7 +270,7 @@ func TestAPIKeyCredentialMigrationBackfillsLegacyPlaintextAndClearsIt(t *testing
 	require.NoError(t, applyMigrationsFS(ctx, db, migrationsThrough(t, "271_add_api_key_credentials.sql")))
 
 	setup := newAPIKeyCredentialFixture(t, db)
-	userID := setup.createUser(t, "legacy@example.invalid")
+	userID := setup.createLegacyUser(t, "legacy@example.invalid")
 	liveSecret := "sk-legacy-live-0001"
 	liveID := setup.seedKeys(t, userID, "legacy-live", liveSecret, false)
 	prefixedSecret := "__deleted__audit_live_key"
@@ -317,7 +327,7 @@ func TestAPIKeyCredentialMigrationRefusesDigestOwnedByAnotherKey(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, applyMigrationsFS(ctx, database, migrationsThrough(t, "271_add_api_key_credentials.sql")))
 	fixture := newAPIKeyCredentialFixture(t, database)
-	userID := fixture.createUser(t, "digest-owner@example.invalid")
+	userID := fixture.createLegacyUser(t, "digest-owner@example.invalid")
 	secret := "__deleted__still_live_custom_key"
 	keyID := fixture.seedKeys(t, userID, "expected-owner", secret, false)
 	otherID := fixture.seedKeys(t, userID, "wrong-owner", "sk-other-legacy-owner", false)

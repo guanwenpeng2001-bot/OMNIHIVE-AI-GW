@@ -494,3 +494,67 @@ func TestKiloProtocolBridgesAndUsage(t *testing.T) {
 		}
 	}
 }
+
+func TestFreeModelPaginationRetainsCounterEvidence(t *testing.T) {
+	for _, provider := range []string{PlatformKilo, PlatformOpenCodeGo} {
+		for _, evidence := range []string{`"cost":{"input":1}`, `"status":"retired"`, `"isFree":false`} {
+			for _, crossPage := range []bool{false, true} {
+				for _, reversed := range []bool{false, true} {
+					t.Run(fmt.Sprintf("%s/%s/pages=%v/reversed=%v", provider, evidence, crossPage, reversed), func(t *testing.T) {
+						good := `{"id":"candidate-free","isFree":true,"cost":{"input":0}}`
+						bad := `{"id":"candidate-free",` + evidence + `}`
+						if evidence != `"isFree":false` {
+							bad = `{"id":"candidate-free","isFree":true,` + evidence + `}`
+						}
+						if reversed {
+							good, bad = bad, good
+						}
+						pages := []*http.Response{catalogFixtureResponse(`{"data":[` + good + `,` + bad + `,{"id":"safe-free","isFree":true}]}`)}
+						if crossPage {
+							pages = []*http.Response{catalogFixtureResponse(`{"data":[` + good + `],"next_cursor":"two"}`), catalogFixtureResponse(`{"data":[` + bad + `,{"id":"safe-free","isFree":true}]}`)}
+						}
+						upstream := &httpUpstreamRecorder{responses: pages}
+						svc := &AccountTestService{httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}
+						mode := "free"
+						if provider == PlatformOpenCodeGo {
+							mode = AccountModeZenFree
+						}
+						account := freeAccount(provider, mode)
+						req, err := http.NewRequest(http.MethodGet, "https://api.example.test/models", nil)
+						require.NoError(t, err)
+						ids, raw, err := svc.fetchCompleteModelPages(req, account)
+						require.NoError(t, err)
+						require.Equal(t, []string{"safe-free"}, ids)
+						entries, err := extractUpstreamModelRawEntries(raw)
+						require.NoError(t, err)
+						require.Len(t, entries, 3)
+						parsed, _, err := extractAccountModelCatalog(raw, account)
+						require.NoError(t, err)
+						require.Equal(t, ids, parsed)
+					})
+				}
+			}
+		}
+	}
+}
+
+func TestFreeModelPaginationFailurePreservesPartialStatus(t *testing.T) {
+	for _, a := range []*Account{freeAccount(PlatformKilo, "free"), freeAccount(PlatformOpenCodeGo, AccountModeZenFree)} {
+		t.Run(a.Platform, func(t *testing.T) {
+			second := catalogFixtureResponse("{}")
+			second.StatusCode = http.StatusServiceUnavailable
+			svc := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: &httpUpstreamRecorder{responses: []*http.Response{
+				catalogFixtureResponse(`{"data":[{"id":"candidate-free","isFree":true},{"id":"candidate-free","isFree":false},{"id":"safe-free","isFree":true}],"next_cursor":"two"}`), second,
+			}}}
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://catalog.test/models", nil)
+			require.NoError(t, err)
+			ids, _, err := svc.fetchCompleteModelPages(req, a)
+			var partial *UpstreamModelSyncError
+			require.ErrorAs(t, err, &partial)
+			require.NotNil(t, partial.PartialCatalog)
+			require.Equal(t, "partial", partial.PartialCatalog.CatalogSource)
+			require.Empty(t, partial.PartialCatalog.Models)
+			require.Equal(t, []string{"safe-free"}, ids)
+		})
+	}
+}

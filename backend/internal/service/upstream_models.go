@@ -272,6 +272,10 @@ func (e *UpstreamModelSyncError) SafeMessage() string {
 	return e.Message
 }
 
+func newUpstreamModelSyncCredentialError(message string, err error) error {
+	return &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorCredentials, Message: message, Err: err}
+}
+
 func newUpstreamModelSyncConfigError(message string, err error) error {
 	return &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorConfiguration, Message: message, Err: err}
 }
@@ -1263,7 +1267,7 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 			key = "access_token"
 		}
 		if strings.TrimSpace(account.GetCredential(key)) == "" {
-			return nil, nil, newUpstreamModelSyncConfigError("Cursor credentials are required", nil)
+			return nil, nil, newUpstreamModelSyncCredentialError("Cursor credentials are required", nil)
 		}
 		if catalogDiscovery, _ := ctx.Value(catalogDiscoveryKey{}).(bool); catalogDiscovery && account.Type == AccountTypeOAuth {
 			return s.fetchCursorOAuthCatalog(ctx, account)
@@ -1296,7 +1300,7 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 			return nil, nil, newUpstreamModelSyncAccountTypeError("Model discovery requires an API key account", nil)
 		}
 		if strings.TrimSpace(account.GetCredential("api_key")) == "" {
-			return nil, nil, newUpstreamModelSyncConfigError("API key is required", nil)
+			return nil, nil, newUpstreamModelSyncCredentialError("API key is required", nil)
 		}
 		baseURL := strings.TrimSpace(account.GetCredential("base_url"))
 		if baseURL != "" {
@@ -1366,6 +1370,9 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 		return s.buildKiloModelsRequest(ctx, account)
 	}
 	if account.Platform == PlatformWorkBuddy {
+		if workBuddyToken(account) == "" {
+			return nil, newUpstreamModelSyncCredentialError("WorkBuddy credential is missing", nil)
+		}
 		return s.buildWorkBuddyModelsRequest(ctx, account)
 	}
 	if err := nativeProfileDiscoveryError(account); err != nil {
@@ -1421,7 +1428,7 @@ func (s *AccountTestService) buildGrokUpstreamModelsRequest(ctx context.Context,
 	case AccountTypeAPIKey:
 		authToken = strings.TrimSpace(account.GetCredential("api_key"))
 		if authToken == "" {
-			return nil, newUpstreamModelSyncConfigError("No Grok API key is available", nil)
+			return nil, newUpstreamModelSyncCredentialError("No Grok API key is available", nil)
 		}
 
 		baseURL := strings.TrimSpace(account.GetCredential("base_url"))
@@ -1448,7 +1455,7 @@ func (s *AccountTestService) buildGrokUpstreamModelsRequest(ctx context.Context,
 		}
 		authToken = strings.TrimSpace(accessToken)
 		if authToken == "" {
-			return nil, newUpstreamModelSyncConfigError("No Grok access token is available", nil)
+			return nil, newUpstreamModelSyncCredentialError("No Grok access token is available", nil)
 		}
 
 		validator, err := grokBaseURLValidator(account, s.cfg)
@@ -1518,7 +1525,7 @@ func (s *AccountTestService) buildAnthropicUpstreamModelsRequest(ctx context.Con
 			accessToken = strings.TrimSpace(token)
 		}
 		if accessToken == "" {
-			return nil, newUpstreamModelSyncConfigError("No Anthropic access token is available", nil)
+			return nil, newUpstreamModelSyncCredentialError("No Anthropic access token is available", nil)
 		}
 		authHeaderName = "Authorization"
 		authHeaderValue = "Bearer " + accessToken
@@ -1526,7 +1533,7 @@ func (s *AccountTestService) buildAnthropicUpstreamModelsRequest(ctx context.Con
 	} else if account.Type == AccountTypeAPIKey {
 		apiKey := strings.TrimSpace(account.GetCredential("api_key"))
 		if apiKey == "" {
-			return nil, newUpstreamModelSyncConfigError("No Anthropic API key is available", nil)
+			return nil, newUpstreamModelSyncCredentialError("No Anthropic API key is available", nil)
 		}
 		baseURL = account.GetBaseURL()
 		if strings.TrimSpace(baseURL) == "" {
@@ -1574,7 +1581,7 @@ func (s *AccountTestService) buildAntigravityAPIKeyModelsRequest(ctx context.Con
 	}
 	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
 	if apiKey == "" {
-		return nil, newUpstreamModelSyncConfigError("No Antigravity API key is available", nil)
+		return nil, newUpstreamModelSyncCredentialError("No Antigravity API key is available", nil)
 	}
 
 	baseURL := strings.TrimRight(strings.TrimSpace(account.GetCredential("base_url")), "/")
@@ -1632,7 +1639,7 @@ func buildOpenAIAPIKeyModelsRequest(ctx context.Context, account *Account, valid
 	}
 	apiKey := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
 	if apiKey == "" {
-		return nil, newUpstreamModelSyncConfigError("No OpenAI API key is available", nil)
+		return nil, newUpstreamModelSyncCredentialError("No OpenAI API key is available", nil)
 	}
 
 	// 协议感知：Anthropic 协议账号的凭证 base_url 指向 /anthropic 端点，模型
@@ -1712,7 +1719,7 @@ func (s *AccountTestService) buildOpenAIOAuthUpstreamModelsRequest(ctx context.C
 	} else {
 		accessToken := strings.TrimSpace(credentialAccount.GetOpenAIAccessToken())
 		if accessToken == "" {
-			return nil, newUpstreamModelSyncConfigError("No OpenAI access token is available", nil)
+			return nil, newUpstreamModelSyncCredentialError("No OpenAI access token is available", nil)
 		}
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 	}
@@ -1748,7 +1755,7 @@ func (s *AccountTestService) buildGeminiUpstreamModelsRequest(ctx context.Contex
 	case AccountTypeAPIKey:
 		apiKey := strings.TrimSpace(account.GetCredential("api_key"))
 		if apiKey == "" {
-			return nil, newUpstreamModelSyncConfigError("No Gemini API key is available", nil)
+			return nil, newUpstreamModelSyncCredentialError("No Gemini API key is available", nil)
 		}
 		req.Header.Set("x-goog-api-key", apiKey)
 	case AccountTypeOAuth:
@@ -1769,7 +1776,7 @@ func (s *AccountTestService) buildGeminiUpstreamModelsRequest(ctx context.Contex
 		}
 		accessToken = strings.TrimSpace(accessToken)
 		if accessToken == "" {
-			return nil, newUpstreamModelSyncConfigError("No Gemini access token is available", nil)
+			return nil, newUpstreamModelSyncCredentialError("No Gemini access token is available", nil)
 		}
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 	default:
@@ -1792,7 +1799,7 @@ func (s *AccountTestService) fetchAntigravityOAuthUpstreamModels(ctx context.Con
 	}
 	accessToken = strings.TrimSpace(accessToken)
 	if accessToken == "" {
-		return nil, newUpstreamModelSyncConfigError("No Antigravity access token is available", nil)
+		return nil, newUpstreamModelSyncCredentialError("No Antigravity access token is available", nil)
 	}
 
 	accountProxyURL, egressErr := account.EgressProxyURL(ctx)
@@ -2721,13 +2728,17 @@ func (service *AccountTestService) fetchCompleteModelPages(request *http.Request
 			return assemble(newUpstreamModelSyncUpstreamError("Invalid model page", err))
 		}
 		validatedPages++
-		for _, entry := range pageEntries {
-			var identity upstreamModelEntry
-			_ = json.Unmarshal(entry, &identity)
-			modelID := selector(identity)
-			if !seenModels[modelID] {
-				entries = append(entries, entry)
-				seenModels[modelID] = true
+		if publicModelLane(account) {
+			entries = append(entries, pageEntries...)
+		} else {
+			for _, entry := range pageEntries {
+				var identity upstreamModelEntry
+				_ = json.Unmarshal(entry, &identity)
+				modelID := selector(identity)
+				if !seenModels[modelID] {
+					entries = append(entries, entry)
+					seenModels[modelID] = true
+				}
 			}
 		}
 		var paging struct {
@@ -2790,4 +2801,13 @@ func (service *AccountTestService) fetchCompleteModelPages(request *http.Request
 		request = next
 	}
 	return assemble(newUpstreamModelSyncUpstreamError("Model pagination exceeded page limit", nil))
+}
+
+// NormalizeConnectionCredentialMetadata applies the native provider normalizer
+// to credentials installed through the versioned connections API.
+func NormalizeConnectionCredentialMetadata(account *Account) error {
+	if account.Platform == PlatformWorkBuddy {
+		return normalizeWorkBuddyAccount(account)
+	}
+	return nil
 }

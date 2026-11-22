@@ -152,7 +152,8 @@ func TestPublicLaneConnectionCreatesCredentialVersion(t *testing.T) {
 			if mode == "" {
 				mode = "free"
 			}
-			mock.ExpectExec("UPDATE accounts SET credentials=coalesce").WithArgs(2, 3, mode).WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectExec("SELECT set_config").WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectExec("UPDATE accounts SET credentials=").WithArgs(2, 3, mode).WillReturnResult(sqlmock.NewResult(0, 1))
 			mock.ExpectExec("INSERT INTO connection_events").WithArgs(2, 3, 1, "connection.created", 1).WillReturnResult(sqlmock.NewResult(0, 1))
 			mock.ExpectQuery("SELECT c.account_id").WithArgs(2, 3).WillReturnRows(connectionWorkflowRows("draft", "free", 1, nil))
 			_, err := session.Create(Create{Provider: lane.provider, AccountMode: lane.mode, AuthType: "api_key", SchemaVersion: SchemaVersion, Name: "free"})

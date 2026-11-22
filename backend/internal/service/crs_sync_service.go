@@ -1335,7 +1335,7 @@ func crsLogin(ctx context.Context, client *http.Client, baseURL, username, passw
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := client.Do(req)
+	resp, err := crsClientWithoutRedirects(client).Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -1370,7 +1370,7 @@ func crsExportAccounts(ctx context.Context, client *http.Client, baseURL, adminT
 	}
 	req.Header.Set("Authorization", "Bearer "+adminToken)
 
-	resp, err := client.Do(req)
+	resp, err := crsClientWithoutRedirects(client).Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -1575,4 +1575,12 @@ func (s *CRSSyncService) PreviewFromCRS(ctx context.Context, input SyncFromCRSIn
 	}
 
 	return result, nil
+}
+
+// Keep the shared pool client immutable; login bodies and bearer tokens must
+// never be replayed to a redirect destination.
+func crsClientWithoutRedirects(shared *http.Client) *http.Client {
+	client := *shared
+	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return errors.New("CRS redirects are not allowed") }
+	return &client
 }

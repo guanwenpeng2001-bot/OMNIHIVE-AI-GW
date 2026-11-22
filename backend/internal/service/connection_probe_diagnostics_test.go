@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -28,8 +29,8 @@ func TestProbeConnectionBuildDiagnostics(t *testing.T) {
 	s.cfg.Security.URLAllowlist = config.URLAllowlistConfig{}
 	a = &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{}}
 	got := s.ProbeConnection(t.Context(), a, "")
-	require.Equal(t, "failed", got.Discovery)
-	require.Equal(t, "PROBE_FAILED", got.DiscoveryReason)
+	require.Equal(t, "failed", got.Authorization)
+	require.Equal(t, "AUTH_REJECTED", got.AuthorizationReason)
 	require.NotEmpty(t, got.Detail)
 	for _, kind := range []UpstreamModelSyncErrorKind{UpstreamModelSyncErrorNotAdapted, UpstreamModelSyncErrorAccountType, UpstreamModelSyncErrorUnsupported, UpstreamModelSyncErrorDiscoveryUnconfirmed} {
 		got = connectionProbeBuildFailure(fmt.Errorf("wrapped: %w", &UpstreamModelSyncError{Kind: kind, Message: "secret"}))
@@ -93,4 +94,33 @@ func TestProbeConnectionNetworkDiagnostics(t *testing.T) {
 	got = ConnectionProbeTransportFailure(errors.New("resolved ip is not allowed: secret"))
 	require.Equal(t, "URL_NOT_ALLOWED", got.NetworkReason)
 	require.NotContains(t, got.Detail, "secret")
+}
+
+func TestMissingModelDiscoveryCredentials(t *testing.T) {
+	s := &AccountTestService{cfg: &config.Config{}}
+	for _, tc := range []struct{ provider, auth, mode string }{
+		{PlatformOpenAI, AccountTypeAPIKey, ""}, {PlatformOpenAI, AccountTypeOAuth, ""},
+		{PlatformAnthropic, AccountTypeAPIKey, ""}, {PlatformAnthropic, AccountTypeOAuth, ""},
+		{PlatformGrok, AccountTypeAPIKey, ""}, {PlatformGrok, AccountTypeOAuth, ""},
+		{PlatformWorkBuddy, AccountTypeOAuth, ""}, {PlatformKilo, AccountTypeAPIKey, "apikey"},
+		{PlatformKilo, AccountTypeAPIKey, "invalid"},
+	} {
+		t.Run(tc.provider+"/"+tc.auth+"/"+tc.mode, func(t *testing.T) {
+			a := &Account{Platform: tc.provider, Type: tc.auth, Credentials: map[string]any{"account_mode": tc.mode}}
+			_, err := s.buildUpstreamModelsRequest(context.WithValue(t.Context(), catalogDiscoveryKey{}, true), a)
+			var syncErr *UpstreamModelSyncError
+			require.ErrorAs(t, err, &syncErr)
+			got := s.ProbeConnection(t.Context(), a, "")
+			require.NotEmpty(t, got.Detail)
+			if tc.mode == "invalid" {
+				require.Equal(t, UpstreamModelSyncErrorConfiguration, syncErr.Kind)
+				require.Equal(t, "PROBE_FAILED", got.DiscoveryReason)
+				require.Equal(t, "unknown", got.Authorization)
+				return
+			}
+			require.Equal(t, UpstreamModelSyncErrorCredentials, syncErr.Kind)
+			require.Equal(t, "AUTH_REJECTED", got.AuthorizationReason)
+			require.Equal(t, "failed", got.Authorization)
+		})
+	}
 }

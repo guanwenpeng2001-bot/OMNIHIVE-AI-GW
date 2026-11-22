@@ -121,7 +121,7 @@ func (service *AccountTestService) buildMistralModelsRequest(ctx context.Context
 	}
 	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
 	if apiKey == "" {
-		return nil, newUpstreamModelSyncConfigError("Mistral API key is missing", nil)
+		return nil, newUpstreamModelSyncCredentialError("Mistral API key is missing", nil)
 	}
 	baseURL := strings.TrimSpace(account.GetCredential("base_url"))
 	if baseURL == "" {

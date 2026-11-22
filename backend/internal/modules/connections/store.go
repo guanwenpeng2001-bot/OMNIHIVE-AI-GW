@@ -250,6 +250,9 @@ func scanConnection(row scanner) (Connection, error) {
 			return c, err
 		}
 	}
+	if c.Provider == service.PlatformKilo && c.AccountMode == "" {
+		c.AccountMode = service.KiloAccountModeFree
+	}
 	c.Pools = []string{}
 	for _, id := range pools {
 		c.Pools = append(c.Pools, strconv.FormatInt(id, 10))
@@ -342,7 +345,7 @@ func (r *Session) Create(in Create) (any, error) {
 		if mode == "" {
 			mode = service.KiloAccountModeFree
 		}
-		if _, e = r.tx.ExecContext(r.ctx, `UPDATE accounts SET credentials=coalesce(credentials,'{}'::jsonb)||jsonb_build_object('account_mode',$3::text) WHERE workspace_id=$1 AND id=$2`, r.Workspace, id, mode); e != nil {
+		if e = r.saveAccountMode(id, mode); e != nil {
 			return nil, e
 		}
 	}
@@ -377,7 +380,7 @@ func (r *Session) Credential(change credentials.Change) (any, error) {
 		if change.Operation == "set" && c.State == "active" {
 			return nil, conflict("ROTATION_REQUIRED")
 		}
-		if e = legacy.ChangeSecret(r.ctx, r.tx, r.store.enc, r.Workspace, c.ID, c.Credential.Version, values, true); e != nil {
+		if e = r.changeSecret(c, values, true); e != nil {
 			return nil, e
 		}
 		if e = r.event(c.ID, "credential."+change.Operation, c.Credential.Version+1); e != nil {
@@ -475,6 +478,9 @@ func (r *Session) checkPools(ids []string) error {
 	return nil
 }
 func (r *Session) checkPatch(c Connection, p Patch) error {
+	if e := c.validateModePatch(p); e != nil {
+		return e
+	}
 	if e := validatePatch(p); e != nil {
 		return e
 	}
@@ -489,6 +495,9 @@ func (r *Session) checkPatch(c Connection, p Patch) error {
 	return r.checkPools(p.Pools)
 }
 func applyPatch(c *Connection, p Patch) {
+	if p.AccountMode != nil {
+		c.AccountMode = *p.AccountMode
+	}
 	if p.Name != nil {
 		c.Name = *p.Name
 	}
@@ -511,6 +520,19 @@ func applyPatch(c *Connection, p Patch) {
 func (r *Session) save(c Connection, state string, clearVerification bool) error {
 	_, e := r.tx.ExecContext(r.ctx, `UPDATE provider_connections SET name=$3,endpoint=$4,proxy_id=nullif($5,'')::bigint,model_ids=$6,pool_ids=$7,concurrency=$8,state=$9,version=version+1,verified_id=CASE WHEN $10 THEN NULL ELSE verified_id END WHERE workspace_id=$1 AND account_id=$2`, r.Workspace, c.ID, c.Name, c.Endpoint, c.NetworkPolicyID, pq.Array(c.Models), pq.Array(c.Pools), c.Limits.Concurrency, state, clearVerification)
 	return e
+}
+
+// Mode writes must pass the legacy-edit fence even when a new paid connection
+// has no credential version yet.
+func (r *Session) saveAccountMode(id int64, mode string) error {
+	if _, err := r.tx.ExecContext(r.ctx, "SELECT set_config('omnihive.connection_writer','v2',true)"); err != nil {
+		return err
+	}
+	_, err := r.tx.ExecContext(r.ctx, `UPDATE accounts SET credentials=
+ (CASE WHEN credentials->>'api_key'='public' THEN credentials-'api_key' ELSE coalesce(credentials,'{}'::jsonb) END)
+ ||jsonb_build_object('account_mode',$3::text),updated_at=now()
+ WHERE workspace_id=$1 AND id=$2`, r.Workspace, id, mode)
+	return err
 }
 func (r *Session) saveHeaders(id int64, headers map[string]string) error {
 	extra := map[string]any{}
@@ -551,7 +573,15 @@ func (r *Session) Patch(p Patch) (any, error) {
 			return nil, e
 		}
 	}
-	clearVerification := endpointChanged(c.Endpoint, p.Endpoint) ||
+	if c.modeChanged(p) {
+		if e = r.saveAccountMode(c.ID, *p.AccountMode); e != nil {
+			return nil, e
+		}
+		if e = legacy.Notify(r.ctx, r.tx, c.ID); e != nil {
+			return nil, e
+		}
+	}
+	clearVerification := c.modeChanged(p) || endpointChanged(c.Endpoint, p.Endpoint) ||
 		(p.NetworkPolicyID != nil && *p.NetworkPolicyID != c.NetworkPolicyID) || headersChanged
 	applyPatch(&c, p)
 	if e = r.save(c, c.State, clearVerification); e != nil {
@@ -594,4 +624,29 @@ func (r *Session) Attach(in Authorization, binding string) (any, error) {
 	}
 	r.Version = 0
 	return r.Get()
+}
+
+// Keep token material in the existing encrypted version. The non-secret native
+// metadata must also be visible to account readers that resolve provider sites.
+func (r *Session) changeSecret(c Connection, values map[string]any, disable bool) error {
+	var safe map[string]any
+	secrets := values
+	if c.Provider == service.PlatformWorkBuddy && values != nil {
+		safe, secrets = service.SplitCredentialSecrets(values)
+	}
+	if err := legacy.ChangeSecret(r.ctx, r.tx, r.store.enc, r.Workspace, c.ID, c.Credential.Version, secrets, disable); err != nil {
+		return err
+	}
+	if c.Provider != service.PlatformWorkBuddy {
+		return nil
+	}
+	if safe == nil {
+		safe = map[string]any{}
+	}
+	data, err := json.Marshal(safe)
+	if err != nil {
+		return err
+	}
+	_, err = r.tx.ExecContext(r.ctx, `UPDATE accounts SET credentials=(coalesce(credentials,'{}'::jsonb)-ARRAY['site','uid','domain','enterprise_id','expires_at','refresh_expires_at'])||$3::jsonb,updated_at=now() WHERE workspace_id=$1 AND id=$2`, r.Workspace, c.ID, string(data))
+	return err
 }

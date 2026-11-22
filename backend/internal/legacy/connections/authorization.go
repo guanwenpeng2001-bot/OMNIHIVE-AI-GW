@@ -61,7 +61,7 @@ func AttachAuthorization(ctx context.Context, tx *sql.Tx, enc service.SecretEncr
 }
 func NativeIdentityFields(ctx context.Context, tx *sql.Tx, w, id int64) (map[string]any, error) {
 	var b []byte
-	e := tx.QueryRowContext(ctx, `SELECT coalesce((SELECT jsonb_object_agg(k,v) FROM jsonb_each(a.credentials) AS f(k,v) WHERE k=ANY($3::text[])),'{}'::jsonb)
+	e := tx.QueryRowContext(ctx, `SELECT coalesce((SELECT jsonb_object_agg(k,v) FROM jsonb_each(a.credentials) AS f(k,v) WHERE k=ANY($3::text[]) OR (a.platform='workbuddy' AND k IN ('site','uid','domain','enterprise_id','refresh_expires_at'))),'{}'::jsonb)
  FROM accounts a WHERE workspace_id=$1 AND id=$2 AND deleted_at IS NULL`, w, id, pq.Array(identityFields)).Scan(&b)
 	if e != nil {
 		return nil, e

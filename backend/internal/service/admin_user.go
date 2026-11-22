@@ -264,6 +264,8 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 				return nil, err
 			}
 		}
+		// Repository.Update synchronizes default workspace membership and its
+		// identity scope version in the same transaction as this role write.
 		user.Role = role
 		fields.Role = true
 	}

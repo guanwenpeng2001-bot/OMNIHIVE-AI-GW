@@ -14,16 +14,17 @@ type Metadata struct {
 }
 
 type Change struct {
-	Operation    string `json:"operation"`
-	Type         string `json:"type,omitempty"`
-	Secret       string `json:"secret,omitempty"`
-	RefreshToken string `json:"refresh_token,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
+	Operation    string         `json:"operation"`
+	Type         string         `json:"type,omitempty"`
+	Secret       string         `json:"secret,omitempty"`
+	RefreshToken string         `json:"refresh_token,omitempty"`
 }
 
 func (c Change) Payload(auth string) (map[string]any, error) {
 	switch c.Operation {
 	case "keep", "clear":
-		if c.Type != "" || c.Secret != "" || c.RefreshToken != "" {
+		if c.Type != "" || c.Secret != "" || c.RefreshToken != "" || c.Metadata != nil {
 			return nil, fault.Invalid("/operation")
 		}
 		return nil, nil

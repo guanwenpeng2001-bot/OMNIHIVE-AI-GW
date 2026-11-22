@@ -173,3 +173,77 @@ func TestCatalogDescriptiveActionDoesNotInventProtocolCompatibility(t *testing.T
 	delete(f.Values, "protocol")
 	require.True(t, f.matches(detail))
 }
+
+type availabilityCatalog struct{}
+
+func (availabilityCatalog) Snapshot(_ context.Context, _ catalog.Perspective, at time.Time) (catalog.Snapshot, error) {
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	return catalog.Snapshot{Version: "availability-v1", AsOf: at, Details: []catalog.Detail{
+		{Model: catalog.Summary{ID: "a", DisplayName: "A catalog", AvailabilityState: "catalog_only", Actions: []string{" Chat ", "tool.image_generation", "tool.video_generation", "voice.tts", "text.embeddings", "session.realtime"}}},
+		{Model: catalog.Summary{ID: "z", DisplayName: "Z live", AvailabilityState: "live", Actions: []string{" Chat ", "tool.image_generation", "tool.video_generation", "voice.tts", "text.embeddings", "session.realtime"}}},
+		{Model: catalog.Summary{ID: "b", DisplayName: "a catalog", AvailabilityState: "catalog_only", Modalities: []string{"speech", "text"}}},
+	}}, nil
+}
+
+func TestAvailabilityAndModalityPagination(t *testing.T) {
+	engine := gin.New()
+	Register(engine.Group("/api/v2"), New(availabilityCatalog{}, nil, &config.Config{}), nil, nil)
+	read := func(query string, status int) page {
+		t.Helper()
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v2/public/models?"+query, nil))
+		require.Equal(t, status, response.Code, response.Body.String())
+		var result struct{ Data page }
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &result))
+		return result.Data
+	}
+	first := read("sort=availability&limit=1", 200)
+	require.Equal(t, "z", first.Items[0].ID)
+	require.NotNil(t, first.Next)
+	second := read("sort=availability&limit=1&cursor="+url.QueryEscape(*first.Next), 200)
+	require.Equal(t, "a", second.Items[0].ID)
+	third := read("sort=availability&limit=1&cursor="+url.QueryEscape(*second.Next), 200)
+	require.Equal(t, "b", third.Items[0].ID)
+	require.Nil(t, third.Next)
+	require.Equal(t, "a", read("sort=name&limit=1", 200).Items[0].ID)
+	require.Equal(t, "z", read("availability_state=live", 200).Items[0].ID)
+	require.Len(t, read("availability_state=catalog_only", 200).Items, 2)
+	read("sort=availability&availability_state=live&cursor="+url.QueryEscape(*first.Next), 410)
+	for _, query := range []string{"availability_state=invalid", "availability_state=", "availability_state=live&availability_state=catalog_only"} {
+		read(query, 400)
+	}
+	for _, modality := range []string{"text", "image", "video", "audio", "embedding", "realtime"} {
+		query := "modality=" + modality + "&limit=1&sort=availability"
+		ids := []string{}
+		for {
+			result := read(query, 200)
+			for _, item := range result.Items {
+				ids = append(ids, item.ID)
+			}
+			if result.Next == nil {
+				break
+			}
+			query = "modality=" + modality + "&limit=1&sort=availability&cursor=" + url.QueryEscape(*result.Next)
+		}
+		want := []string{"z", "a"}
+		if modality == "audio" || modality == "text" {
+			want = append(want, "b")
+		}
+		require.Equal(t, want, ids, modality)
+	}
+	// Numeric sorts retain their existing ID tie-break; availability and name
+	// must not influence ties for context, price, or latency.
+	a := catalog.Detail{Model: catalog.Summary{ID: "a", DisplayName: "Z", AvailabilityState: "catalog_only"}}
+	b := catalog.Detail{Model: catalog.Summary{ID: "b", DisplayName: "A", AvailabilityState: "live"}}
+	for _, order := range []string{"context", "price_input", "ttft"} {
+		require.Less(t, compareModels(a, b, order), 0, order)
+	}
+	for _, perspective := range []catalog.Perspective{{}, {Workspace: 1, Project: 1}} {
+		f, _, err := filters(url.Values{"availability_state": {"live"}, "sort": {"availability"}}, perspective)
+		require.NoError(t, err)
+		require.True(t, f.matches(b))
+		require.False(t, f.matches(a))
+	}
+}
