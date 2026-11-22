@@ -1808,6 +1808,17 @@ func (s *OpenAIGatewayService) handleBufferedResponsesSSE(resp *http.Response, c
 		return nil, s.writeOpenAINonStreamingProtocolError(resp, c, msg)
 	}
 	result, valid := bufferedResponsesUsage(bodyText)
+	// Legacy OAuth transforms historically accept an empty, explicitly closed
+	// stream. Keep that wire contract, but retain unknown counter presence so
+	// settlement cannot mistake it for a trusted zero. A partial response or a
+	// stream without this terminator must still fail the terminal validation.
+	if !terminalOK && !passthrough && account != nil && account.Platform == PlatformOpenAI && account.IsOAuth() && emptyOpenAISSETerminatedStream(bodyText) {
+		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+		s.relayOpenAICodexTurnState(c, account, resp.Header)
+		c.Writer.Header().Del("Content-Length")
+		c.Data(resp.StatusCode, "text/event-stream", body)
+		return result, nil
+	}
 	if normalized, changed := normalizeCompletedImageGenerationStatus(terminalPayload); changed {
 		terminalPayload = normalized
 	}
@@ -1870,6 +1881,27 @@ func (s *OpenAIGatewayService) handleBufferedResponsesSSE(resp *http.Response, c
 	result.imageCount = countOpenAIImageOutputsFromSSEBody(bodyText)
 	result.imageOutputSizes = collectOpenAIImageOutputSizesFromSSEBody(bodyText)
 	return result, nil
+}
+
+// Only a standalone terminator (with optional SSE comments) is an empty legacy
+// response. In particular, [DONE] cannot complete an earlier partial response.
+func emptyOpenAISSETerminatedStream(body string) bool {
+	var parser openAICompatSSEFrameParser
+	done, valid := false, true
+	observe := func(frame openAICompatSSEFrame, ok bool) {
+		if !ok {
+			return
+		}
+		if done || frame.EventType != "" || strings.TrimSpace(frame.Data) != "[DONE]" {
+			valid = false
+		}
+		done = true
+	}
+	for _, line := range strings.Split(body, "\n") {
+		observe(parser.AddLine(strings.TrimRight(line, "\r")))
+	}
+	observe(parser.Finish())
+	return done && valid
 }
 
 func bufferedResponsesUsage(body string) (*openaiNonStreamingResult, bool) {

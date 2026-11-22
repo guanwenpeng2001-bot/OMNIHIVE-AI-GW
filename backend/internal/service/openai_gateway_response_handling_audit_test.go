@@ -84,6 +84,56 @@ func TestRawChatStrictInterruptedReceipt(t *testing.T) {
 	}
 }
 
+func TestLegacyOAuthEmptyTerminatorNeedsReview(t *testing.T) {
+	c, rec, resp := gatewayAuditContext("data: [DONE]\n\n")
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: &httpUpstreamRecorder{resp: resp}}
+	account := &Account{ID: 3, Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+		Credentials: map[string]any{"access_token": "test"}, Extra: map[string]any{"openai_passthrough": false}}
+	result, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-5.4","input":"hello","stream":false}`))
+	require.NoError(t, err)
+	require.Equal(t, 200, rec.Code)
+	require.NotNil(t, result)
+	require.True(t, result.UsageIncomplete)
+	require.False(t, result.TokenUsageObservation.known())
+
+	repo := &settlementCapture{}
+	billing := newOpenAIRecordUsageServiceForTest(&openAIRecordUsageLogRepoStub{}, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+	billing.usageSettlement = NewUsageSettlementService(repo, nil, nil)
+	err = billing.RecordUsage(context.Background(), &OpenAIRecordUsageInput{Result: result, Account: account, APIKey: &APIKey{ID: 2}, User: &User{ID: 1}})
+	require.ErrorIs(t, err, ErrUsageSettlementNeedsReview)
+	require.Equal(t, "unresolved", repo.receipt.ResolutionState)
+	require.Zero(t, repo.settles)
+}
+
+func TestRawChatHunyuanUnknownUsageErrorReceipt(t *testing.T) {
+	stream := "data: " + `{"choices":[{"index":0,"delta":{"content":"answer"}}],"usage":{"prompt_tokens":7}}` + "\n\ndata: [DONE]\n\n"
+	c, rec, resp := gatewayAuditContext(stream)
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: &httpUpstreamRecorder{resp: resp}}
+	account := &Account{ID: 3, Platform: PlatformHunyuan, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test"}}
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, []byte(`{"model":"hy3","messages":[{"role":"user","content":"hello"}],"stream":true}`), "", "")
+	require.Nil(t, result)
+	var usageErr *RawChatUsageError
+	require.ErrorAs(t, err, &usageErr)
+	result = usageErr.Result
+	require.NotNil(t, result)
+	require.Equal(t, "request-a", result.RequestID)
+	require.Equal(t, 7, result.Usage.InputTokens)
+	require.True(t, result.UsageIncomplete)
+	require.Contains(t, rec.Body.String(), "answer")
+	require.NotContains(t, rec.Body.String(), "[DONE]")
+	_, _, classified := OpenAIUpstreamStreamReadErrorDetails(err)
+	require.True(t, classified, "the receipt wrapper must preserve the public stream error")
+
+	repo := &settlementCapture{}
+	billing := newOpenAIRecordUsageServiceForTest(&openAIRecordUsageLogRepoStub{}, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+	billing.usageSettlement = NewUsageSettlementService(repo, nil, nil)
+	err = billing.RecordUsage(context.Background(), &OpenAIRecordUsageInput{Result: result, Account: account, APIKey: &APIKey{ID: 2}, User: &User{ID: 1}})
+	require.ErrorIs(t, err, ErrUsageSettlementNeedsReview)
+	require.Equal(t, "unresolved", repo.receipt.ResolutionState)
+	require.Equal(t, 7, repo.receipt.Usage.InputTokens)
+	require.Zero(t, repo.settles)
+}
+
 func TestRawChatChoiceCompletionByIndex(t *testing.T) {
 	const start = `{"choices":[{"index":1,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{"}}]}},{"index":0,"delta":{"content":"done"},"finish_reason":"stop"}]}`
 	const finish = `{"choices":[{"index":1,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"}"}}]},"finish_reason":"tool_calls"}]}`

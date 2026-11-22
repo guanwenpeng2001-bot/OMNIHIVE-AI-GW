@@ -329,6 +329,12 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		addOpenAIUsage(&result.Usage, bridgeUsage)
 		result.UpstreamEndpoint = grokChatRawEndpoint
 	}
+	// Keep the public strict-provider contract: unknown usage is an error,
+	// never a successful result. The error retains delivered usage for review.
+	var usageErr *RawChatUsageError
+	if errors.As(forwardErr, &usageErr) {
+		return nil, forwardErr
+	}
 	return result, forwardErr
 }
 
@@ -343,6 +349,17 @@ func (s *OpenAIGatewayService) rawChatCompletionsURL(account *Account) (string, 
 
 	return s.openAIChatCompletionsTargetURL(account)
 }
+
+// RawChatUsageError carries the receipt for a delivered strict-provider stream
+// whose counters are incomplete. Callers must persist Result for review even
+// though the public forwarding method returns a nil result.
+type RawChatUsageError struct {
+	Result *OpenAIForwardResult
+	cause  error
+}
+
+func (e *RawChatUsageError) Error() string { return e.cause.Error() }
+func (e *RawChatUsageError) Unwrap() error { return e.cause }
 
 // streamRawChatCompletions 透传上游 CC SSE 流到客户端，并提取 usage（包括
 // 末尾 [DONE] 之前的 chunk 中的 usage 字段，按 OpenAI CC 协议）。
@@ -538,7 +555,8 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	if strict && !usageKnown() {
 		err := newOpenAIUpstreamStreamReadError(fmt.Errorf("upstream chat usage is unknown"))
 		if clientOutputStarted || c.Writer.Size() > 0 {
-			return resultWithUsage(), err
+			result := resultWithUsage()
+			return result, &RawChatUsageError{Result: result, cause: err}
 		}
 		return nil, err
 	}
@@ -736,11 +754,23 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		}
 		return nil, fmt.Errorf("read upstream body: %w", err)
 	}
+	var usage OpenAIUsage
+	observed := &TokenUsageObservation{}
+	if parsedUsage, ok := extractObservedOpenAIUsage(respBody, observed); ok {
+		usage = parsedUsage
+	}
 	choices := gjson.GetBytes(respBody, "choices")
 	if !choices.Exists() {
 		choices = gjson.GetBytes(respBody, "data.choices")
 	}
-	if !gjson.ValidBytes(respBody) || !choices.IsArray() || !choices.Get("0.message").IsObject() || gjson.GetBytes(respBody, "error").Exists() {
+	// Some upstreams return a usage-only receipt, including a data wrapper.
+	// Empty choices are valid with complete counters; populated choices still
+	// need a Chat message envelope before any bytes are delivered.
+	validEnvelope := choices.IsArray() && choices.Get("0.message").IsObject()
+	if !choices.Exists() || choices.IsArray() && len(choices.Array()) == 0 {
+		validEnvelope = observed.known()
+	}
+	if !gjson.ValidBytes(respBody) || !validEnvelope || gjson.GetBytes(respBody, "error").Exists() || gjson.GetBytes(respBody, "data.error").Exists() {
 		writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Invalid upstream Chat Completions response")
 		return nil, fmt.Errorf("invalid upstream Chat Completions response")
 	}
@@ -750,13 +780,9 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	}
 	observer.ObserveOpenAI(respBody, strings.TrimSpace(gjson.GetBytes(respBody, "type").String()))
 
-	var usage OpenAIUsage
 	var observation *TokenUsageObservation
 	if account.Platform == PlatformOpenAI {
-		observation = &TokenUsageObservation{}
-	}
-	if parsedUsage, ok := extractObservedOpenAIUsage(respBody, observation); ok {
-		usage = parsedUsage
+		observation = observed
 	}
 	if (account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter || (account.Platform == PlatformWorkBuddy || account.Platform == PlatformKilo)) && !mistralChatUsageKnown(respBody) {
 		writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Upstream chat usage is unknown")
