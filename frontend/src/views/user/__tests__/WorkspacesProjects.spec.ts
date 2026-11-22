@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   createProject: vi.fn(),
   renameProject: vi.fn(),
   archiveProject: vi.fn(),
+  getProjectAccess: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn(),
   auth: { isAdmin: false, user: { id: 9 } }
@@ -51,7 +52,8 @@ vi.mock('@/features/console/scope', async () => {
       listProjects: mocks.listProjects,
       createProject: mocks.createProject,
       renameProject: mocks.renameProject,
-      archiveProject: mocks.archiveProject
+      archiveProject: mocks.archiveProject,
+      getProjectAccess: mocks.getProjectAccess
     }
   }
 })
@@ -148,6 +150,38 @@ describe('WorkspacesView BE-01 projects and scope switching', () => {
 
     expect(localStorage.getItem('omnihive.workspace_id.v1')).toBe('1')
     expect(localStorage.getItem('omnihive.project_id.v1')).toBe('101')
+    wrapper.unmount()
+  })
+
+  it('gates create, rename, and archive buttons for non-admin members using exact projects.create/edit/delete grants', async () => {
+    mocks.list.mockResolvedValue([
+      { id: 7, name: 'Platform Team', role: 'member', is_default: false }
+    ])
+    mocks.listProjects.mockResolvedValue({
+      items: [{ id: '12', workspace_id: '7', name: 'Core API', state: 'active', version: '3' }],
+      next_cursor: null,
+      as_of: '2026-11-23T00:00:00Z'
+    })
+    mocks.getProjectAccess.mockResolvedValue({
+      actor_id: '9',
+      workspace_id: '7',
+      project_id: '12',
+      actions: ['projects.read', 'projects.edit', 'requests.read'],
+      scope_version: '1',
+      expires_at: '2026-11-24T00:00:00Z'
+    })
+
+    const wrapper = mount(WorkspacesView, {
+      global: {
+        stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } }
+      }
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="create-project-btn"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="start-rename-project-12"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="archive-project-12"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="quick-action-usage"]').exists()).toBe(true)
     wrapper.unmount()
   })
 })

@@ -340,9 +340,15 @@ const projectAccessLoaded = ref(false)
 const projectActions = ref<string[]>([])
 const hasProjectAction = (action: string) =>
   projectActions.value.includes('*') || projectActions.value.includes(action)
-const canCreateApiKey = computed(() => !projectAccessLoaded.value || hasProjectAction('keys.write'))
+const canCreateApiKey = computed(() => !projectAccessLoaded.value || hasProjectAction('keys.create'))
 const canRunPlayground = computed(() => !projectAccessLoaded.value || hasProjectAction('playground.run'))
-const canViewUsage = computed(() => !projectAccessLoaded.value || hasProjectAction('usage.read'))
+const canViewUsage = computed(
+  () =>
+    !projectAccessLoaded.value ||
+    hasProjectAction('usage.read') ||
+    hasProjectAction('requests.read') ||
+    hasProjectAction('billing.read')
+)
 const tabItems = computed<Array<{ id: 'activity' | 'usage' | 'logs' | 'audit'; label: string }>>(() => [
   { id: 'activity', label: isZh.value ? '活动概览' : 'Overview' },
   { id: 'usage', label: isZh.value ? '我的用量' : 'Usage' },

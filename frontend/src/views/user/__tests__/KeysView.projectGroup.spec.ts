@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   listProjectKeys: vi.fn(),
   createProjectKey: vi.fn(),
   listScopes: vi.fn(),
+  getProjectAccess: vi.fn(),
   consoleScope: { mode: 'workspace' as const, workspaceId: '10', projectId: '20' },
 }))
 
@@ -89,6 +90,7 @@ vi.mock('@/features/console/scope', async (importOriginal) => {
       listScopes: mocks.listScopes,
       listProjectKeys: mocks.listProjectKeys,
       createProjectKey: mocks.createProjectKey,
+      getProjectAccess: mocks.getProjectAccess,
     },
   }
 })
@@ -137,6 +139,23 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
     mocks.getUserGroupRates.mockResolvedValue({})
     mocks.listProjectKeys.mockResolvedValue({ items: [] })
     mocks.listScopes.mockResolvedValue({ items: [] })
+    mocks.getProjectAccess.mockResolvedValue({
+      actor_id: '1',
+      workspace_id: '10',
+      project_id: '20',
+      actions: [
+        'keys.read',
+        'keys.create',
+        'text.chat',
+        'text.embeddings',
+        'image.generate',
+        'usage.read',
+        'tasks.read',
+        'models.read',
+      ],
+      scope_version: '1',
+      expires_at: '2026-11-24T00:00:00Z',
+    })
   })
 
   it('blocks project-scoped key creation and shows explicit validation error when no available group exists', async () => {
@@ -472,5 +491,41 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
     const issuedWithModels = wrapper.get('[data-testid="issued-project-key-scope-banner"]')
     expect(issuedWithModels.findAll('code').map((c) => c.text())).toContain('models.read')
     expect(issuedWithModels.text()).toContain('keys.projectScopeModelsReadIncluded')
+  })
+
+  it('shows create button and row actions when project access grants keys.create (without keys.write) and hides them for keys.read-only', async () => {
+    const withCreate = mount(KeysView, { global: { stubs } })
+    await flushPromises()
+    expect(withCreate.find('[data-testid="keys-create-btn"]').exists()).toBe(true)
+    withCreate.unmount()
+
+    mocks.getProjectAccess.mockResolvedValueOnce({
+      actor_id: '1',
+      workspace_id: '10',
+      project_id: '20',
+      actions: ['keys.read', 'projects.read', 'models.read'],
+      scope_version: '1',
+      expires_at: '2026-11-24T00:00:00Z',
+    })
+    const readOnly = mount(KeysView, { global: { stubs } })
+    await flushPromises()
+    expect(mocks.listKeys).toHaveBeenCalled()
+    expect(readOnly.find('[data-testid="keys-create-btn"]').exists()).toBe(false)
+    readOnly.unmount()
+
+    mocks.listKeys.mockClear()
+    mocks.getProjectAccess.mockResolvedValueOnce({
+      actor_id: '1',
+      workspace_id: '10',
+      project_id: '20',
+      actions: ['projects.read', 'models.read'],
+      scope_version: '1',
+      expires_at: '2026-11-24T00:00:00Z',
+    })
+    const noKeysGrant = mount(KeysView, { global: { stubs } })
+    await flushPromises()
+    expect(mocks.listKeys).not.toHaveBeenCalled()
+    expect(noKeysGrant.find('[data-testid="keys-create-btn"]').exists()).toBe(false)
+    noKeysGrant.unmount()
   })
 })

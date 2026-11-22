@@ -22,7 +22,7 @@ NC='\033[0m' # No Color
 
 # Pin this preparation script to its release; update this tag with the script.
 # Operators may explicitly select another release with OMNIHIVE_RELEASE_TAG.
-DEFAULT_RELEASE_TAG="v0.3.2"
+DEFAULT_RELEASE_TAG="v0.3.3"
 RELEASE_TAG="${OMNIHIVE_RELEASE_TAG:-$DEFAULT_RELEASE_TAG}"
 GITHUB_RAW_URL="https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/${RELEASE_TAG}/deploy"
 

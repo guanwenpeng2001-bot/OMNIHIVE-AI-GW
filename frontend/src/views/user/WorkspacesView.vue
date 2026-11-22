@@ -217,9 +217,9 @@
           @retry="loadProjects(selected.id, true)"
         />
 
-        <!-- Create Project Bar (admin or projects.write grant, div container instead of form) -->
+        <!-- Create Project Bar (admin or projects.create grant, div container instead of form) -->
         <div
-          v-if="canManageProjects"
+          v-if="canCreateProject"
           class="flex flex-wrap items-center gap-2 rounded-[var(--oh-r-md,8px)] border border-[var(--border)] bg-[var(--surface-2)] p-3"
         >
           <input
@@ -316,7 +316,7 @@
                       {{ t('workspaces.activateScope') }}
                     </button>
                     <button
-                      v-if="canManageProjects && (proj.state ?? 'active') === 'active'"
+                      v-if="canEditProject && (proj.state ?? 'active') === 'active'"
                       type="button"
                       :data-testid="`start-rename-project-${proj.id}`"
                       class="btn btn-secondary btn-sm px-2 py-1 text-xs"
@@ -325,7 +325,7 @@
                       {{ t('workspaces.renameProject') }}
                     </button>
                     <button
-                      v-if="canManageProjects && (proj.state ?? 'active') === 'active'"
+                      v-if="canDeleteProject && (proj.state ?? 'active') === 'active'"
                       type="button"
                       :data-testid="`archive-project-${proj.id}`"
                       class="btn btn-secondary btn-sm px-2 py-1 text-xs text-[var(--oh-danger,#dc2626)]"
@@ -508,14 +508,24 @@ function hasProjectAction(action: string): boolean {
   return projectActions.value.includes('*') || projectActions.value.includes(action)
 }
 
-const canManageProjects = computed(
-  () =>
-    selected.value?.role === 'admin' ||
-    (projectAccessLoaded.value && (hasProjectAction('projects.write') || hasProjectAction('projects.create')))
+const canCreateProject = computed(
+  () => selected.value?.role === 'admin' || (projectAccessLoaded.value && hasProjectAction('projects.create'))
+)
+const canEditProject = computed(
+  () => selected.value?.role === 'admin' || (projectAccessLoaded.value && hasProjectAction('projects.edit'))
+)
+const canDeleteProject = computed(
+  () => selected.value?.role === 'admin' || (projectAccessLoaded.value && hasProjectAction('projects.delete'))
 )
 const showQuickActionKeys = computed(() => !projectAccessLoaded.value || hasProjectAction('keys.read'))
 const showQuickActionPlayground = computed(() => !projectAccessLoaded.value || hasProjectAction('playground.run'))
-const showQuickActionUsage = computed(() => !projectAccessLoaded.value || hasProjectAction('usage.read'))
+const showQuickActionUsage = computed(
+  () =>
+    !projectAccessLoaded.value ||
+    hasProjectAction('usage.read') ||
+    hasProjectAction('requests.read') ||
+    hasProjectAction('billing.read')
+)
 const showQuickActionTasks = computed(() => !projectAccessLoaded.value || hasProjectAction('tasks.read'))
 const workspaceName = ref('')
 const userID = ref<number | null>(null)
@@ -757,7 +767,7 @@ async function handleCreateProject() {
     }
   } catch (err) {
     projectsNotice.value = classifyConsoleError(err, {
-      requiredGrantFallback: 'projects.write',
+      requiredGrantFallback: 'projects.create',
       isZh: isZh.value
     })
   } finally {
@@ -791,7 +801,7 @@ async function confirmRenameProject(proj: IdentityProject) {
     }
   } catch (err) {
     projectsNotice.value = classifyConsoleError(err, {
-      requiredGrantFallback: 'projects.write',
+      requiredGrantFallback: 'projects.edit',
       isZh: isZh.value
     })
   } finally {
@@ -818,7 +828,7 @@ async function handleArchiveProject(proj: IdentityProject) {
     }
   } catch (err) {
     projectsNotice.value = classifyConsoleError(err, {
-      requiredGrantFallback: 'projects.write',
+      requiredGrantFallback: 'projects.delete',
       isZh: isZh.value
     })
   } finally {

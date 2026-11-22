@@ -1834,6 +1834,7 @@ const activeConsoleScope = ref<ConsoleScopeSelection>(readPersistedConsoleScope(
 const projectScopedKeys = ref<IdentityKey[]>([])
 const canReadKeys = ref(true)
 const canWriteKeys = ref(true)
+const grantedProjectActions = ref<string[] | null>(null)
 const keysAccessNotice = ref<ConsoleAsyncNotice | null>(null)
 const issueProjectPolicyCredential = ref(false)
 const projectKeyAllowModelsRead = ref(false)
@@ -1844,10 +1845,20 @@ const PROJECT_KEY_GRANTED_ACTIONS = [
   'usage.read',
   'tasks.read'
 ] as const
+const availableProjectKeyBaseActions = computed<string[]>(() => {
+  if (grantedProjectActions.value === null) {
+    return [...PROJECT_KEY_GRANTED_ACTIONS]
+  }
+  const allowed = PROJECT_KEY_GRANTED_ACTIONS.filter((act) =>
+    grantedProjectActions.value!.includes(act)
+  )
+  return allowed.length > 0 ? allowed : [...PROJECT_KEY_GRANTED_ACTIONS]
+})
 const selectedProjectKeyActions = computed<string[]>(() =>
-  projectKeyAllowModelsRead.value
-    ? [...PROJECT_KEY_GRANTED_ACTIONS, 'models.read']
-    : [...PROJECT_KEY_GRANTED_ACTIONS]
+  projectKeyAllowModelsRead.value &&
+  (grantedProjectActions.value === null || grantedProjectActions.value.includes('models.read'))
+    ? [...availableProjectKeyBaseActions.value, 'models.read']
+    : [...availableProjectKeyBaseActions.value]
 )
 const lastIssuedProjectKeyScope = ref<{
   name: string
@@ -1900,16 +1911,19 @@ async function refreshKeyAccess(): Promise<{ canRead: boolean; canWrite: boolean
   if (!ws || !proj || typeof identityApi.getProjectAccess !== 'function') {
     canReadKeys.value = true
     canWriteKeys.value = true
+    grantedProjectActions.value = null
     keysAccessNotice.value = null
     return { canRead: true, canWrite: true }
   }
   try {
     const access = await identityApi.getProjectAccess(ws, proj)
     const actions = Array.isArray(access?.actions) ? access.actions : []
-    const canRead = actions.includes('*') || actions.includes('keys.read')
-    const canWrite = actions.includes('*') || actions.includes('keys.write')
+    const allowAll = actions.includes('*')
+    const canRead = allowAll || actions.includes('keys.read')
+    const canWrite = allowAll || actions.includes('keys.create')
     canReadKeys.value = canRead
     canWriteKeys.value = canWrite
+    grantedProjectActions.value = allowAll ? null : actions
     if (!canRead) {
       keysAccessNotice.value = classifyConsoleError(
         { status: 403, reason: 'INSUFFICIENT_GRANT' },
@@ -1929,6 +1943,7 @@ async function refreshKeyAccess(): Promise<{ canRead: boolean; canWrite: boolean
     if (status === 403) {
       canReadKeys.value = false
       canWriteKeys.value = false
+      grantedProjectActions.value = []
       keysAccessNotice.value = classifyConsoleError(err, {
         requiredGrantFallback: 'keys.read',
         isZh: isZh.value
@@ -1941,6 +1956,7 @@ async function refreshKeyAccess(): Promise<{ canRead: boolean; canWrite: boolean
     }
     canReadKeys.value = true
     canWriteKeys.value = true
+    grantedProjectActions.value = null
     keysAccessNotice.value = null
     return { canRead: true, canWrite: true }
   }
@@ -3006,6 +3022,9 @@ const handleSubmit = async () => {
       const now = new Date()
       const diffDays = Math.ceil((expDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
       expiresInDays = diffDays > 0 ? diffDays : 1
+      if (!Number.isNaN(expDate.getTime())) {
+        expiresAt = expDate.toISOString()
+      }
     } else {
       // Edit mode: use custom date directly
       expiresAt = new Date(formData.value.expiration_date).toISOString()
