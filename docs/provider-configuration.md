@@ -152,6 +152,8 @@
 | PackyCode | [`packycode`](#provider-packycode) | 新增兼容供应商；区域/模式见下方合同。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L177) |
 | FluxA Token Plan | [`fluxa`](#provider-fluxa) | 新增兼容供应商；区域/模式见下方合同。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L382) |
 | OpenCode Go | `opencode_go` | 既有平台配置；不同区域、套餐与鉴权范围独立。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1007) |
+| WorkBuddy | [`workbuddy`](#provider-workbuddy) | v0.3.2 新平台；CN / Global 双站点，原生 OAuth 设备登录或 API Key；见下方合同与[协议矩阵](gateway-platform-protocol-matrix.md)。 | [平台合同](#provider-workbuddy) |
+| Kilo | [`kilo`](#provider-kilo) | v0.3.2 新平台；`free` 免密钥公共通道与 `apikey` 付费通道，按 `account_mode` 隔离；见下方合同与[协议矩阵](gateway-platform-protocol-matrix.md)。 | [平台合同](#provider-kilo) |
 | Astron Coding/Astron Coding Plan | [`astron_coding`](#provider-astron_coding) | 新增兼容供应商；区域/模式见下方合同。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/codexProviderPresets.ts#L2804) |
 | Novita AI | [`novita`](#provider-novita) | 新增兼容供应商；区域/模式见下方合同。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1666) |
 | PPIO | [`ppio`](#provider-ppio) | 新增兼容供应商；区域/模式见下方合同。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L502) |
@@ -1408,6 +1410,51 @@ Invocation base 仅允许 `https://inference-api.nousresearch.com/v1`（或末�
 **编辑凭据：**请使用单账号编辑切换 Nous 认证模式，并显式提交新凭据；切到 keyless proxy 时必须显式清空旧 key，切回 invocation 必须提供非空新 token。省略、掩码或复用旧值不能把 invocation token 变成发往另一运营方的入口 key。同模式修改保留已有密钥及账号绑定的 secret reference；需要清除 proxy key 时使用明确的清除操作。持有密钥引用的账号也应逐个编辑，不依赖批量编辑完成认证模式与密钥轮换。Copilot / Nous 不接受非空逐协议 `api_base_urls` 覆盖，以免与专用目的地址冲突。
 
 这两个 ID 没有余额/额度探测、价格预设或媒体适配器。离线合同测试证明本项目的请求构造、转换和凭据边界，**真实供应商可用性仍需运营方使用已授权 key 独立验证**，不能称为供应商认证。
+
+<a id="provider-workbuddy"></a>
+
+### WorkBuddy — `workbuddy`
+
+默认模式：原生 OAuth 设备登录（`oauth`）或 API Key（`api_key`）。v0.3.2 起为一等平台，平台/协议行为见[协议矩阵](gateway-platform-protocol-matrix.md)。本站凭据与 WorkBuddy 桌面/CLI 凭据分别签发、分别管理；不得把消费者会员等同于 API 额度。
+
+| 站点 | `site` 规范值 | 默认 Chat base | 登录/账号域 | 模型目录 |
+| --- | --- | --- | --- | --- |
+| 中国站 | `cn` | `https://copilot.tencent.com/v2` | `www.workbuddy.cn`（企业 SSO 可为 `*.sso.copilot.tencent.com`、`*.copilot.qq.com`、`*.sso.codebuddy.cn`） | 签名 CLI `/v3/config` 目录；企业 `custom:*` 模型追加在 CLI 列表之后 |
+| 国际站 | `global` | `https://www.workbuddy.ai/v2` | `www.workbuddy.ai` | 同上，绑定 Global 站点身份 |
+
+`site` 归一化：`cn`、`china`、`workbuddy` 归一为 `cn`；`global`、`intl`、`international`、`workbuddy-ai`、`workbuddy_ai` 归一为 `global`。省略站点时按凭据中的 `domain` / `base_url` 推断，无法识别时回落 `cn`。站点、用户、企业与域共同绑定 OAuth 发现结果，切换站点后旧的发现快照和授权材料不得复用。
+
+**原生 OAuth 设备登录。** 管理员作用域为 `POST /api/v1/admin/workbuddy/oauth/start` 与 `POST /api/v1/admin/workbuddy/oauth/poll`；工作空间作用域为 `POST /api/v1/workspaces/{workspace_id}/workbuddy/oauth/start` 与 `.../poll`。`start` 请求体为 `{ "site": "cn" | "global", "proxy_id"?: integer }`，响应 `data` 为 `{ session_id, auth_url, state, site, expires_in }`；`poll` 请求体为 `{ "session_id": string }`，响应 `data` 为 `{ status: "pending" | "completed" | "failed", site, account_name?, credentials?, error? }`。`auth_url` 必须由管理员在浏览器打开并完成设备授权；轮询只在服务端短期会话内有效，会话 TTL 约 5 分钟，过期后重新 `start`。OAuth 路由的 OpenAPI 合同见 `backend/api/openapi/fragments/workbuddy.yaml`。
+
+**API Key 模式。** 选择 `auth_type=api_key`，填写 WorkBuddy 控制台签发的推理 Key；`base_url` 可覆盖为上述站点的 Chat base。OAuth 与 API Key 不共享 token 存储，编辑切换模式时应显式替换或清除凭据。
+
+**非敏感元数据回显。** WorkBuddy 凭据版本允许以下可回显字段；`access_token`、`refresh_token` 等秘密只保存在加密凭据库，绝不通过连接/账号响应返回。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `site` | `cn` / `global` | 归一化站点；OAuth 输入还接受别名，保存后统一为规范值 |
+| `uid` | string | WorkBuddy 用户 ID，绑定账号身份 |
+| `domain` | string | 账号域或企业 SSO 主机，用于站点/企业识别 |
+| `enterprise_id` | string | 企业 ID；个人账号可为空 |
+| `expires_at` | RFC3339 字符串 | access token 到期时间 |
+| `refresh_expires_at` | RFC3339 字符串 | refresh token 到期时间（可省略） |
+
+授权与刷新失败只描述本次操作，不把账号判为永久失效；诊断信息会脱敏。OAuth 登录、账号测试与探测拒绝重定向，并遵循 URL allowlist 与代理绑定。
+
+<a id="provider-kilo"></a>
+
+### Kilo — `kilo`
+
+默认模式：`free`。v0.3.2 起为一等平台，仓库地址 `https://api.kilo.ai/api/gateway`，平台/协议行为见[协议矩阵](gateway-platform-protocol-matrix.md)。`auth_type` 固定为 `api_key`，用 `account_mode` 在免密钥公共通道与付费通道之间切换，不能用同一凭据同时代表两条通道。
+
+| `account_mode` | 凭据要求 | 上游鉴权 | 发现/探测 | 适用范围 |
+| --- | --- | --- | --- | --- |
+| `free` | 省略或 `public`；保存时规范化为空字符串 | 不发送 `Authorization` | 仅接受 `isFree: true` 的公共模型 | 免密钥公共通道 |
+| `apikey` | 非空且不能为 `public` 的私有 API Key | `Authorization: Bearer` | 付费账户目录 | 付费通道 |
+
+**切换围栏。** 从 `free` 切到 `apikey`（或反向）时，必须先显式清除当前凭据版本，再提交新模式；服务端返回 `CLEAR_CREDENTIAL_BEFORE_MODE_CHANGE` 时表示仍有有效的旧通道凭据。这样公共身份不会静默变成付费身份，旧私有 Key 也不会被当成公共凭据继续发送。`free` 模式下显式传入非空私有 Key 会被拒绝并提示切换到 `apikey`。
+
+公共探测省略鉴权头，`free` 发现只保留 `isFree: true` 条目；上游错误经过脱敏后再呈现。Kilo 的 Gemini、媒体与 count 类动作不在本平台默认开放，仍按模型、账号与动作资格逐项判定。
 
 ## 既有平台的区域、套餐和认证配置
 

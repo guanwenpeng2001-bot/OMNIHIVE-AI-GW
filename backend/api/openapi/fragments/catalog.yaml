@@ -343,9 +343,20 @@ components:
       name: id
       in: path
       required: true
+      description: |
+        Stable opaque catalog ID (`m_` followed by 32 lowercase hex characters)
+        or a `provider/model` slug resolved against the same catalog snapshot.
+        The detail handler also accepts a bare model suffix as an unambiguous
+        compatibility fallback; clients should prefer the stable ID or slug and
+        must not assume every accepted value matches the opaque ID pattern.
       schema:
-        type: string
-        pattern: ^m_[0-9a-f]{32}$
+        oneOf:
+        - type: string
+          pattern: ^m_[0-9a-f]{32}$
+          description: Stable opaque model ID.
+        - type: string
+          pattern: ^[^/]+/.+$
+          description: Provider/model slug, for example `openai/gpt-4o`.
   schemas:
     CatalogRate:
       type: object

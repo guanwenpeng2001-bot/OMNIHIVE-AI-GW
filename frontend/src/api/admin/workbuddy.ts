@@ -1,6 +1,6 @@
 import { apiClient } from '../client'
 import type { WorkBuddySite } from '@/types/admin'
-import { oauthProxyPayload, type OAuthProxySelection } from '@/utils/accountProxy'
+import type { OAuthProxySelection } from '@/utils/accountProxy'
 
 export type { WorkBuddySite } from '@/types/admin'
 
@@ -55,7 +55,6 @@ export function defaultWorkBuddyDomain(site: WorkBuddySite): string {
 export interface WorkBuddyOAuthStartRequest {
   site: WorkBuddySite
   proxy_id?: number
-  proxy_group_id?: number
 }
 
 export interface WorkBuddyOAuthStartResponse {
@@ -105,9 +104,10 @@ export function buildStartOAuthPayload(
   site: WorkBuddySite,
   proxySelection?: OAuthProxySelection
 ): WorkBuddyOAuthStartRequest {
+  const proxyId = typeof proxySelection === 'number' ? proxySelection : undefined
   return {
     site,
-    ...oauthProxyPayload(proxySelection)
+    ...(proxyId && proxyId > 0 ? { proxy_id: proxyId } : {})
   }
 }
 

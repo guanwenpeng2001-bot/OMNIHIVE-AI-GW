@@ -66,7 +66,7 @@ OAuth/Setup/Cursor 授权成功后必须仅交付服务端短期 opaque 草稿�
 
 ## 极简模型列表与单模型字段
 
-**当前公开格式校正（2026-10-03，`43e61400d`）**：本节保留历史实施要求的背景，但公开行为以 `backend/internal/handler/model_list_serialization.go` 为准。普通条目已提供顶层已知保证值 `context_window`、`context_length`、`max_input_tokens`、`max_output_tokens`、`supports_reasoning`、`supported_reasoning_levels`、`supports_function_calling` 和输入/输出模态；未知值省略。这些附加事实不授予权限，富目录仍独立提供 `capabilities`、来源、不确定性及端点提示。客户调用示例见 [API 使用手册](usage-guide.md)。
+**截至 v0.3.2 的公开格式快照（2026-11-22，验收 HEAD `8e6e8a67e`）**：本节保留历史实施要求的背景，但公开行为以 `backend/internal/handler/model_list_serialization.go` 为准。普通条目已提供顶层已知保证值 `context_window`、`context_length`、`max_input_tokens`、`max_output_tokens`、`supports_reasoning`、`supported_reasoning_levels`、`supports_function_calling` 和输入/输出模态；未知值省略。这些附加事实不授予权限，富目录仍独立提供 `capabilities`、来源、不确定性及端点提示。客户调用示例见 [API 使用手册](usage-guide.md)。
 
 `GET /v1/models` 和 `GET /v1/models/:id` 必须由请求协议选择 DTO，默认 OpenAI，存在 `anthropic-version` 时选择完整 Anthropic 协议；不得按组平台或 User-Agent 猜测。所有平台来源均可投影为 OpenAI 条目，不能外层 OpenAI、内层 Anthropic。响应必须带相应 `Vary: anthropic-version`，不得跨 Key 复用授权响应。
 
@@ -88,7 +88,26 @@ Anthropic 必须支持 `limit`、`after_id`、`before_id`，按可信创建时�
 
 ## 富目录字段与能力聚合
 
-公共富目录固定为 `GET /v1/models/catalog`，按 ID 查询为同资源 `GET /v1/models/catalog/:id`。静态 catalog 路由必须先于 `/v1/models/:id` 注册，不新增 `/v1/model-info` 或 `/api/v1/model-catalog` 同义入口。`catalog` 是保留路径；包含 `/` 等字符的模型 ID 必须按单个路径参数转义，路由测试必须证明不会变成另一个端点或绕过授权。
+v1 富目录为 `GET /v1/models/catalog`，按 ID 查询为同资源 `GET /v1/models/catalog/:id`。静态 catalog 路由必须先于 `/v1/models/:id` 注册，不新增 `/v1/model-info` 或 `/api/v1/model-catalog` 同义入口。`catalog` 是保留路径；包含 `/` 等字符的模型 ID 必须按单个路径参数转义，路由测试必须证明不会变成另一个端点或绕过授权。
+
+### v2 模型广场与项目目录
+
+v0.3.2 起，模型广场与项目目录使用 v2 公开资源，并由与 v1 富目录相同的 catalog resolver 和 revision 投影；DTO、授权与作用域不同，不能互相替代。
+
+| 作用域 | 路径 | 语义 |
+| --- | --- | --- |
+| 公开 | `GET /api/v2/public/models` | 匿名可见的有限模型集；支持 `q`、`provider`、`protocol`、`action`、`modality`、`region`、`retention`、`stability`、`availability_state` 过滤，`sort` 可取 `name`、`price_input`、`context`、`ttft`、`availability`，使用 `limit` + `cursor` 分页 |
+| 公开 | `GET /api/v2/public/models/{id}` | 同一快照的单模型；`id` 接受稳定 ID `m_[0-9a-f]{32}` 或 `provider/model` slug；带 `catalog_version` 时锁定列表快照，revision 不匹配返回 410 `SNAPSHOT_EXPIRED` |
+| 公开 | `POST /api/v2/public/models/compare` | 仅接受当前可见集合内的 1–3 个 `model_ids`，可选 `protocol`、`action`、`scenario`、`price_at`；不可见或跨作用域 ID 必须失败，不得借对比绕过列表授权 |
+| 项目 | `GET /api/v2/workspaces/{workspace_id}/projects/{project_id}/models` | 项目会话视角；复用同一 resolver，但按项目/工作空间授权重新裁剪 |
+| 项目 | `GET .../models/{id}` | 项目内单模型，ID 规则与公开详情相同 |
+| 项目 | `POST .../models/compare` | 项目内对比；不能复用公开作用域的可见性结论 |
+
+`availability_state` 的取值固定为 `live` 或 `catalog_only`。`live` 表示当前作用域至少有一个可路由的 live 绑定；`catalog_only` 表示仅有目录事实、没有 live 绑定。该字段不授予路由或价格权限：`catalog_only` 条目仍可带 `reference_price` 参考价，但必须有已授权绑定才能服务请求。字段缺失表示未知，不得在投影时补成 `live` 或 `catalog_only`。
+
+分页游标是不透明字符串，绑定稳定 ID、catalog revision、作用域与筛选条件；后续页必须重新校验当前 Key、工作空间、项目、组和规则，撤权后旧游标不得返回已不可见条目。`next_cursor` 在末页为 `null`；非法、篡改、跨作用域或 revision 不匹配的游标必须失败并要求重新开始。
+
+对比结果保留缺价和未知值：未知价格不填 0，空 benchmark 表示没有已验证 benchmark；对比只读取当前快照，不触发新的上游探测或计费。
 
 列表与单查使用以下字段合同。字段命名用于后续 DTO 实施；只在富目录中增加这些字段，不扩展供应商极简模型对象。`null` 表示未知或不能保证，`[]` 表示已知空集，false/0 只可用于有事实支撑的实际值；未知数字不得填 0。
 
@@ -101,6 +120,7 @@ Anthropic 必须支持 `limit`、`after_id`、`before_id`，按可信创建时�
 | 条目 `canonical`、`aliases` | string/null、string[] | 仅输出当前授权域内可解析的公开规范名与别名；无可公开 canonical 时为 null |
 | 条目 `created`、`created_source` | integer、`upstream` 或 `first_registered` | 与极简 DTO 相同稳定时间；来源不是账号创建时间 |
 | 条目 `revision` | 不透明字符串 | 此次投影所属版本；单查同样校验权威版本 |
+| 条目 `availability_state` | `live` 或 `catalog_only` | 当前作用域是否存在 live 可路由绑定；不授予路由/价格权限，缺失为未知 |
 | 条目 `capabilities` | 有类型对象 | 按下表聚合当前授权且可路由的绑定，不掺入候选或无关账号 |
 | 条目 `pricing` | object/null | 有效销售价：币种、计量单位、条件/阶梯及有效期；确认为免费时明确零价；未解析到销售价为 null，调用计价仍必须报缺价，不降为免费 |
 | 条目 `lifecycle` | object/null | 有来源的状态/到期等生命周期事实，按 variant 保留差异；未知为 null |
