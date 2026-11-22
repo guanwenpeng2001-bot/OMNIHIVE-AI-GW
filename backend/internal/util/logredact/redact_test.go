@@ -103,3 +103,18 @@ func TestCredentialRedactionAcrossNestedBodiesAndURI(t *testing.T) {
 		t.Fatal("useful upstream reason lost")
 	}
 }
+
+func TestRedactNestedJSONAndProxyCredentials(t *testing.T) {
+	const sensitive = "synthetic-redaction-marker"
+	out := RedactMap(map[string]any{
+		"embedded":           "{\"nested\":\"{\\\"privateKey\\\":\\\"" + sensitive + "\\\"}\",\"customSecret\":\"" + sensitive + "\"}",
+		"serviceAccountJson": sensitive,
+		"proxy":              "socks5h://proxy-fixture-user:" + sensitive + "@proxy.example:badport",
+	}, "custom_secret")
+	for _, value := range out {
+		rendered, ok := value.(string)
+		if !ok || strings.Contains(rendered, sensitive) || strings.Contains(rendered, "proxy-fixture-user") {
+			t.Fatalf("credential survived redaction: %v", out)
+		}
+	}
+}

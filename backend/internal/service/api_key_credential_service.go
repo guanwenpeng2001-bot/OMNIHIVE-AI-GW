@@ -2,12 +2,17 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 )
+
+const ProjectCredentialStatus = "project"
 
 // ErrAPIKeyCredentialUnavailable reports that credential rotation is not wired.
 var ErrAPIKeyCredentialUnavailable = infraerrors.ServiceUnavailable("API_KEY_CREDENTIAL_UNAVAILABLE", "api key credential lifecycle is not available")
@@ -25,7 +30,26 @@ func (s *APIKeyService) RotateAPIKey(ctx context.Context, apiKeyID int64, graceT
 		return nil, fmt.Errorf("get api key: %w", err)
 	}
 
-	secret, err := s.GenerateKey()
+	status := domain.CredentialStatusCurrent
+	if projectKeys, ok := s.credentialRepo.(interface {
+		IsProjectKey(context.Context, int64) (bool, error)
+	}); ok {
+		project, err := projectKeys.IsProjectKey(ctx, apiKey.ID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve key policy: %w", err)
+		}
+		if project {
+			status = ProjectCredentialStatus
+		}
+	}
+	var secret string
+	if status == ProjectCredentialStatus {
+		var random [32]byte
+		_, err = rand.Read(random[:])
+		secret = identity.ProjectKeyPrefix + base64.RawURLEncoding.EncodeToString(random[:])
+	} else {
+		secret, err = s.GenerateKey()
+	}
 	if err != nil {
 		return nil, fmt.Errorf("generate key: %w", err)
 	}
@@ -39,7 +63,7 @@ func (s *APIKeyService) RotateAPIKey(ctx context.Context, apiKeyID int64, graceT
 		NewCredential: APIKeyCredential{
 			Digest:        APIKeyCredentialDigest(secret),
 			DisplaySuffix: APIKeyCredentialDisplaySuffix(secret),
-			Status:        domain.CredentialStatusCurrent,
+			Status:        status,
 		},
 		GraceUntil:     time.Now().UTC().Add(graceTTL),
 		RevokePrevious: revokePrevious,

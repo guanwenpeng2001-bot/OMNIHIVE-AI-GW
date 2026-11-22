@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
@@ -216,18 +217,56 @@ func TestUpdateServiceRollbackToVersionAcceptsVPrefix(t *testing.T) {
 	require.Contains(t, err.Error(), "no compatible release found")
 }
 
-func TestUpdateServiceNoPublishedRelease(t *testing.T) {
-	for _, cached := range []string{"", `{"current_version":"0.2.4","latest_version":"0.2.5","has_update":true}`} {
-		client := &updateServiceGitHubClientStub{latestErr: errors.New("GitHub API returned 404")}
-		svc := NewUpdateService(&updateServiceCacheStub{data: cached}, client, "0.2.4", "release")
-		info, err := svc.CheckUpdate(context.Background(), true)
-		require.NoError(t, err)
-		require.False(t, info.HasUpdate)
-		require.Empty(t, info.Warning)
-		require.Equal(t, "0.2.4", info.CurrentVersion)
-		require.Equal(t, "0.2.4", info.LatestVersion)
-		require.Equal(t, "release", info.BuildType)
+func TestUpdateServiceRemoteFailureDoesNotImplyLatest(t *testing.T) {
+	for _, upstream := range []error{errors.New("GitHub API returned 404"), errors.New("release service timed out")} {
+		for _, cached := range []string{"", fmt.Sprintf(`{"latest":"0.2.5","timestamp":%d}`, time.Now().Unix())} {
+			client := &updateServiceGitHubClientStub{latestErr: upstream}
+			svc := NewUpdateService(&updateServiceCacheStub{data: cached}, client, "0.2.4", "release")
+			err := svc.PerformUpdate(t.Context())
+			require.ErrorIs(t, err, upstream)
+			require.ErrorIs(t, err, ErrUpdateCheckUnavailable)
+			require.Equal(t, 503, infraerrors.Code(err))
+		}
 	}
+}
+
+func TestUpdateServiceBackupKeyAndInvalidManifestReason(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.JWT.Secret = strings.Repeat("j", 32)
+	cfg.Totp.EncryptionKey = strings.Repeat("a", 32)
+	first := &UpdateService{backupKey: updateBackupKey(cfg), currentVersion: "0.3.2"}
+	backup := filepath.Join(t.TempDir(), "backup")
+	require.NoError(t, os.WriteFile(backup, []byte("local binary"), 0600))
+	require.NoError(t, first.prepareBackupManifest(backup))
+
+	cfg.Totp.EncryptionKey = strings.Repeat("b", 32)
+	second := &UpdateService{backupKey: updateBackupKey(cfg)}
+	require.NoError(t, second.verifyBackup(backup, "v0.3.2"))
+	cfg.Totp.EncryptionKeyConfigured = true
+	require.Equal(t, []byte(cfg.Totp.EncryptionKey), updateBackupKey(cfg))
+
+	require.NoError(t, os.WriteFile(backup, []byte("changed binary"), 0600))
+	require.ErrorIs(t, second.verifyBackup(backup, "v0.3.2"), ErrRollbackManifestInvalid)
+	require.NoError(t, os.WriteFile(backup+".manifest.json", []byte("{"), 0600))
+	require.ErrorIs(t, second.verifyBackup(backup, "v0.3.2"), ErrRollbackManifestInvalid)
+}
+
+func TestUpdateServiceFailedExecutableSwapKeepsLiveBinary(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "omnihive")
+	staged := filepath.Join(dir, "next")
+	require.NoError(t, os.WriteFile(exe, []byte("current"), 0755))
+	// A directory passes fsync but cannot replace a regular executable.
+	require.NoError(t, os.Mkdir(staged, 0755))
+	svc := &UpdateService{
+		currentVersion: "0.3.2", backupKey: bytes.Repeat([]byte{1}, 32),
+		runningBinary: func() (string, error) { return exe, nil },
+	}
+	require.ErrorContains(t, svc.replaceExecutable(dir, exe, staged), "replace executable failed")
+	data, err := os.ReadFile(exe)
+	require.NoError(t, err)
+	require.Equal(t, "current", string(data))
+	require.NoError(t, svc.verifyBackup(exe+".backup", "v0.3.2"))
 }
 
 func TestUpdateServicePrivateAssetSelection(t *testing.T) {
@@ -281,8 +320,7 @@ func TestUpdateServicePersistentUpdateAndRollback(t *testing.T) {
 			previous := "running-old"
 			if existing {
 				require.NoError(t, os.MkdirAll(filepath.Dir(current), 0755))
-				previous = "staged-old"
-				require.NoError(t, os.WriteFile(current, []byte(previous), 0755))
+				require.NoError(t, os.WriteFile(current, []byte("staged-old"), 0755))
 			}
 			archive := updateTestArchive(t, "omnihive", "new-binary")
 			client, assets := updateTestRelease("0.2.5", archive, "omnihive", "0.2.5")
@@ -488,7 +526,7 @@ func prepareRollbackService(t *testing.T, svc *UpdateService) {
 	t.Helper()
 	svc.currentVersion = "v0.2.23-omnihive.2"
 	svc.backupKey = []byte("test-backup-key-32-bytes-long-value")
-	svc.runningBinary = svc.executablePath
+	svc.runningBinary = func() (string, error) { return svc.executablePath() }
 	svc.readRollbackFloor = func(context.Context) (string, error) { return "v0.2.23-omnihive.2", nil }
 }
 

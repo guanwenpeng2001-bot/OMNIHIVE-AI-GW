@@ -322,3 +322,19 @@ func TestSystemHandlerGetRollbackVersionsError(t *testing.T) {
 
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
+
+func TestSystemHandlerPerformUpdateReportsReleaseLookupFailure(t *testing.T) {
+	updateSvc := &systemHandlerUpdateServiceStub{performErr: service.ErrUpdateCheckUnavailable}
+	repo := newMemoryIdempotencyRepoStub()
+	router := newSystemHandlerTestRouter(t, updateSvc, repo)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/system/update", nil)
+	req.Header.Set("Idempotency-Key", "release-unavailable")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	require.Contains(t, rec.Body.String(), "UPDATE_CHECK_UNAVAILABLE")
+	require.NotContains(t, rec.Body.String(), "already_up_to_date")
+	require.Empty(t, updateSvc.checkForces)
+	requireSystemLockStatus(t, repo, service.IdempotencyStatusFailedRetryable)
+}

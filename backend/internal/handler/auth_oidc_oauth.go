@@ -28,7 +28,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/imroc/req/v3"
 	"github.com/tidwall/gjson"
 )
 
@@ -52,27 +51,6 @@ type oidcTokenResponse struct {
 	RefreshToken string `json:"refresh_token,omitempty"`
 	Scope        string `json:"scope,omitempty"`
 	IDToken      string `json:"id_token,omitempty"`
-}
-
-type oidcTokenExchangeError struct {
-	StatusCode          int
-	ProviderError       string
-	ProviderDescription string
-	Body                string
-}
-
-func (e *oidcTokenExchangeError) Error() string {
-	if e == nil {
-		return ""
-	}
-	parts := []string{fmt.Sprintf("token exchange status=%d", e.StatusCode)}
-	if strings.TrimSpace(e.ProviderError) != "" {
-		parts = append(parts, "error="+strings.TrimSpace(e.ProviderError))
-	}
-	if strings.TrimSpace(e.ProviderDescription) != "" {
-		parts = append(parts, "error_description="+strings.TrimSpace(e.ProviderDescription))
-	}
-	return strings.Join(parts, " ")
 }
 
 type oidcIDTokenClaims struct {
@@ -282,22 +260,8 @@ func (h *AuthHandler) OIDCOAuthCallback(c *gin.Context) {
 
 	tokenResp, err := oidcExchangeCode(c.Request.Context(), cfg, code, redirectURI, codeVerifier)
 	if err != nil {
-		description := ""
-		var exchangeErr *oidcTokenExchangeError
-		if errors.As(err, &exchangeErr) && exchangeErr != nil {
-			log.Printf(
-				"[OIDC OAuth] token exchange failed: status=%d provider_error=%q provider_description=%q body=%s",
-				exchangeErr.StatusCode,
-				truncateLogValue(exchangeErr.ProviderError, 128),
-				truncateLogValue(exchangeErr.ProviderDescription, 2048),
-				truncateLogValue(exchangeErr.Body, 2048),
-			)
-			description = exchangeErr.Error()
-		} else {
-			log.Printf("[OIDC OAuth] token exchange failed: %s", truncateLogValue(err.Error(), 2048))
-			description = err.Error()
-		}
-		redirectOAuthError(c, frontendCallback, "token_exchange_failed", "failed to exchange oauth code", singleLine(description))
+		log.Printf("[OIDC OAuth] token exchange failed: %s", truncateLogValue(err.Error(), 256))
+		redirectOAuthError(c, frontendCallback, "token_exchange_failed", "failed to exchange oauth code", "OAuth provider request failed")
 		return
 	}
 
@@ -715,6 +679,8 @@ func (h *AuthHandler) getOIDCOAuthConfig(ctx context.Context) (config.OIDCConnec
 	return h.cfg.OIDC, nil
 }
 
+var readOIDCEndpoint = service.ReadOIDCEndpoint
+
 func oidcExchangeCode(
 	ctx context.Context,
 	cfg config.OIDCConnectConfig,
@@ -722,8 +688,6 @@ func oidcExchangeCode(
 	redirectURI string,
 	codeVerifier string,
 ) (*oidcTokenResponse, error) {
-	client := req.C().SetTimeout(30 * time.Second)
-
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
 	form.Set("client_id", cfg.ClientID)
@@ -733,44 +697,37 @@ func oidcExchangeCode(
 		form.Set("code_verifier", codeVerifier)
 	}
 
-	r := client.R().
-		SetContext(ctx).
-		SetHeader("Accept", "application/json")
+	headers := make(http.Header)
+	headers.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	switch strings.ToLower(strings.TrimSpace(cfg.TokenAuthMethod)) {
 	case "", "client_secret_post":
 		form.Set("client_secret", cfg.ClientSecret)
 	case "client_secret_basic":
-		r.SetBasicAuth(cfg.ClientID, cfg.ClientSecret)
+		headers.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(cfg.ClientID+":"+cfg.ClientSecret)))
 	case "none":
 	default:
 		return nil, fmt.Errorf("unsupported token_auth_method: %s", cfg.TokenAuthMethod)
 	}
 
-	resp, err := r.SetFormDataFromValues(form).Post(cfg.TokenURL)
+	status, data, err := readOIDCEndpoint(ctx, http.MethodPost, cfg.TokenURL, strings.NewReader(form.Encode()), headers)
 	if err != nil {
 		return nil, fmt.Errorf("request token: %w", err)
 	}
-	body := strings.TrimSpace(resp.String())
-	if !resp.IsSuccessState() {
-		providerErr, providerDesc := parseOAuthProviderError(body)
-		return nil, &oidcTokenExchangeError{
-			StatusCode:          resp.StatusCode,
-			ProviderError:       providerErr,
-			ProviderDescription: providerDesc,
-			Body:                body,
-		}
+	body := strings.TrimSpace(string(data))
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("token exchange status=%d", status)
 	}
 
 	tokenResp, ok := oidcParseTokenResponse(body)
 	if !ok {
-		return nil, &oidcTokenExchangeError{StatusCode: resp.StatusCode, Body: body}
+		return nil, errors.New("invalid token exchange response")
 	}
 	if strings.TrimSpace(tokenResp.TokenType) == "" {
 		tokenResp.TokenType = "Bearer"
 	}
 	if strings.TrimSpace(tokenResp.AccessToken) == "" && strings.TrimSpace(tokenResp.IDToken) == "" {
-		return nil, &oidcTokenExchangeError{StatusCode: resp.StatusCode, Body: body}
+		return nil, errors.New("invalid token exchange response")
 	}
 	return tokenResp, nil
 }
@@ -835,25 +792,21 @@ func oidcFetchUserInfo(
 		return nil, errors.New("missing access_token for userinfo request")
 	}
 
-	client := req.C().SetTimeout(30 * time.Second)
 	authorization, err := buildBearerAuthorization(token.TokenType, token.AccessToken)
 	if err != nil {
 		return nil, fmt.Errorf("invalid token for userinfo request: %w", err)
 	}
 
-	resp, err := client.R().
-		SetContext(ctx).
-		SetHeader("Accept", "application/json").
-		SetHeader("Authorization", authorization).
-		Get(cfg.UserInfoURL)
+	headers := http.Header{"Authorization": {authorization}}
+	status, body, err := readOIDCEndpoint(ctx, http.MethodGet, cfg.UserInfoURL, nil, headers)
 	if err != nil {
 		return nil, fmt.Errorf("request userinfo: %w", err)
 	}
-	if !resp.IsSuccessState() {
-		return nil, fmt.Errorf("userinfo status=%d", resp.StatusCode)
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("userinfo status=%d", status)
 	}
 
-	return oidcParseUserInfo(resp.String(), cfg), nil
+	return oidcParseUserInfo(string(body), cfg), nil
 }
 
 func oidcParseUserInfo(body string, cfg config.OIDCConnectConfig) *oidcUserInfoClaims {
@@ -1023,20 +976,15 @@ func oidcFetchJWKSet(ctx context.Context, jwksURL string) (*oidcJWKSet, error) {
 	if jwksURL == "" {
 		return nil, errors.New("missing jwks_url")
 	}
-	resp, err := req.C().
-		SetTimeout(30*time.Second).
-		R().
-		SetContext(ctx).
-		SetHeader("Accept", "application/json").
-		Get(jwksURL)
+	status, body, err := readOIDCEndpoint(ctx, http.MethodGet, jwksURL, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("request jwks: %w", err)
 	}
-	if !resp.IsSuccessState() {
-		return nil, fmt.Errorf("jwks status=%d", resp.StatusCode)
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("jwks status=%d", status)
 	}
 	set := &oidcJWKSet{}
-	if err := json.Unmarshal(resp.Bytes(), set); err != nil {
+	if err := json.Unmarshal(body, set); err != nil {
 		return nil, fmt.Errorf("parse jwks: %w", err)
 	}
 	if len(set.Keys) == 0 {

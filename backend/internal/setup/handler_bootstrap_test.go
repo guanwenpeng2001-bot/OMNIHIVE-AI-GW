@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func TestSetupBootstrapIsLocalSingleUseAndDoesNotExtendExpiry(t *testing.T) {
+func TestSetupBootstrapIsLocalSingleUseAndRenewsWithinDeadline(t *testing.T) {
 	directory := t.TempDir()
 	t.Setenv("DATA_DIR", directory)
 	require.NoError(t, initializeBootstrapToken())
@@ -38,10 +38,16 @@ func TestSetupBootstrapIsLocalSingleUseAndDoesNotExtendExpiry(t *testing.T) {
 	require.NotEmpty(t, next)
 	require.NotEqual(t, token, next)
 	require.Equal(t, http.StatusUnauthorized, attempt(token).Code)
-	require.Equal(t, expiresAt, bootstrapState.expiresAt)
-	require.Equal(t, http.StatusNoContent, attempt(next).Code)
+	require.True(t, bootstrapState.expiresAt.After(expiresAt))
+	bootstrapState.deadline = time.Now().Add(time.Minute)
+	renewed := attempt(next)
+	require.Equal(t, http.StatusNoContent, renewed.Code)
+	require.Equal(t, bootstrapState.deadline, bootstrapState.expiresAt)
+	next = renewed.Header().Get("X-Setup-Bootstrap-Token")
 	bootstrapState.expiresAt = time.Now().Add(-time.Second)
-	require.Equal(t, http.StatusUnauthorized, attempt(next).Code)
+	expired := attempt(next)
+	require.Equal(t, http.StatusUnauthorized, expired.Code)
+	require.Contains(t, expired.Body.String(), "expired")
 	require.True(t, validateHostname("192.168.1.12"))
 	require.True(t, validateHostname("postgres.internal"))
 }

@@ -5,8 +5,11 @@ package service
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
@@ -70,7 +73,19 @@ func TestGetOIDCConnectOAuthConfig_ResolvesEndpointsFromIssuerDiscovery(t *testi
 		}`, baseURL, baseURL, baseURL, baseURL)))
 	}))
 	defer srv.Close()
-	baseURL = srv.URL
+	baseURL = "https://issuer.example"
+	original := oidcDiscoveryClient
+	t.Cleanup(func() { oidcDiscoveryClient = original })
+	oidcDiscoveryClient = newOIDCClient(original.Timeout, true)
+	oidcDiscoveryClient.Transport = oidcRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		local, err := url.Parse(srv.URL)
+		if err != nil {
+			return nil, err
+		}
+		req := r.Clone(r.Context())
+		req.URL.Scheme, req.URL.Host = local.Scheme, local.Host
+		return srv.Client().Transport.RoundTrip(req)
+	})
 
 	cfg := &config.Config{
 		OIDC: config.OIDCConnectConfig{
@@ -78,7 +93,7 @@ func TestGetOIDCConnectOAuthConfig_ResolvesEndpointsFromIssuerDiscovery(t *testi
 			ProviderName:        "OIDC",
 			ClientID:            "oidc-client",
 			ClientSecret:        "oidc-secret",
-			IssuerURL:           srv.URL + "/issuer",
+			IssuerURL:           baseURL + "/issuer",
 			RedirectURL:         "https://example.com/api/v1/auth/oauth/oidc/callback",
 			FrontendRedirectURL: "/auth/oidc/callback",
 			Scopes:              "openid email profile",
@@ -95,11 +110,11 @@ func TestGetOIDCConnectOAuthConfig_ResolvesEndpointsFromIssuerDiscovery(t *testi
 	got, err := svc.GetOIDCConnectOAuthConfig(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, 1, discoveryHits)
-	require.Equal(t, srv.URL+"/issuer/.well-known/openid-configuration", got.DiscoveryURL)
-	require.Equal(t, srv.URL+"/issuer/protocol/openid-connect/auth", got.AuthorizeURL)
-	require.Equal(t, srv.URL+"/issuer/protocol/openid-connect/token", got.TokenURL)
-	require.Equal(t, srv.URL+"/issuer/protocol/openid-connect/userinfo", got.UserInfoURL)
-	require.Equal(t, srv.URL+"/issuer/protocol/openid-connect/certs", got.JWKSURL)
+	require.Equal(t, baseURL+"/issuer/.well-known/openid-configuration", got.DiscoveryURL)
+	require.Equal(t, baseURL+"/issuer/protocol/openid-connect/auth", got.AuthorizeURL)
+	require.Equal(t, baseURL+"/issuer/protocol/openid-connect/token", got.TokenURL)
+	require.Equal(t, baseURL+"/issuer/protocol/openid-connect/userinfo", got.UserInfoURL)
+	require.Equal(t, baseURL+"/issuer/protocol/openid-connect/certs", got.JWKSURL)
 }
 
 func TestSettingService_ParseSettings_PreservesOptionalOIDCCompatibilityFlags(t *testing.T) {
@@ -248,4 +263,41 @@ func TestGetOIDCConnectOAuthConfig_DefaultsCompatibilityFlagsToSafeValuesWhenSet
 	require.NoError(t, err)
 	require.True(t, got.UsePKCE)
 	require.True(t, got.ValidateIDToken)
+}
+
+type oidcRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn oidcRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return fn(r) }
+
+func TestOIDCOutboundPolicy(t *testing.T) {
+	client := newOIDCClient(0, false)
+	calls := 0
+	client.Transport = oidcRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{
+			StatusCode: http.StatusTemporaryRedirect,
+			Header:     http.Header{"Location": {"https://other.example/token"}},
+			Body:       io.NopCloser(strings.NewReader("")),
+		}, nil
+	})
+	for _, raw := range []string{"http://issuer.example/token", "https://localhost/token", "https://[::1]/token", "https://account@issuer.example/token"} {
+		_, _, err := readOIDCEndpoint(t.Context(), client, http.MethodGet, raw, nil, nil)
+		require.Error(t, err)
+	}
+	require.Zero(t, calls)
+	_, _, err := readOIDCEndpoint(t.Context(), client, http.MethodPost, "https://issuer.example/token", strings.NewReader("code=fixture"), nil)
+	require.ErrorContains(t, err, "redirect is not allowed")
+	require.Equal(t, 1, calls)
+
+	discovery := newOIDCClient(0, true)
+	from, err := http.NewRequest(http.MethodGet, "https://issuer.example/discovery", nil)
+	require.NoError(t, err)
+	for _, raw := range []string{"http://issuer.example/moved", "https://localhost/moved", "https://other.example/moved"} {
+		to, err := http.NewRequest(http.MethodGet, raw, nil)
+		require.NoError(t, err)
+		require.Error(t, discovery.CheckRedirect(to, []*http.Request{from}))
+	}
+	to, err := http.NewRequest(http.MethodGet, "https://issuer.example/moved", nil)
+	require.NoError(t, err)
+	require.NoError(t, discovery.CheckRedirect(to, []*http.Request{from}))
 }

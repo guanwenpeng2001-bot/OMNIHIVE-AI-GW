@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -63,6 +64,12 @@ func queryStringColumn(ctx context.Context, db stringColumnQueryer, query string
 	return out, rows.Err()
 }
 
+func (r *apiKeyCredentialRepository) IsProjectKey(ctx context.Context, apiKeyID int64) (bool, error) {
+	var project bool
+	err := r.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM project_key_policies WHERE api_key_id = $1)`, apiKeyID).Scan(&project)
+	return project, err
+}
+
 func (r *apiKeyCredentialRepository) Rotate(ctx context.Context, rotation service.APIKeyCredentialRotation) error {
 	if r == nil || r.db == nil {
 		return fmt.Errorf("nil api key credential repository")
@@ -79,49 +86,45 @@ func (r *apiKeyCredentialRepository) Rotate(ctx context.Context, rotation servic
 		rotation.GraceUntil = now
 	}
 
-	// Serialize concurrent rotations of the same key so at most one 'current'
-	// credential can exist.
-	var keyID int64
-	if err := tx.QueryRowContext(ctx, `SELECT id FROM api_keys WHERE id = $1 FOR UPDATE`, rotation.APIKeyID).Scan(&keyID); err != nil {
+	// Serialize rotations and read the authoritative workspace and policy.
+	var workspaceID int64
+	var project bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT workspace_id, EXISTS (SELECT 1 FROM project_key_policies p WHERE p.api_key_id = api_keys.id)
+		FROM api_keys WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, rotation.APIKeyID).Scan(&workspaceID, &project); err != nil {
 		return err
 	}
-
-	// Retire any graceful credential older than the previous one: a key keeps at
-	// most the current credential plus one bounded grace credential.
+	current, grace := domain.CredentialStatusCurrent, domain.CredentialStatusGrace
+	if project {
+		// Project credentials must retain their status to resolve the same policy.
+		// A non-null deadline distinguishes the previous project credential.
+		current, grace = service.ProjectCredentialStatus, service.ProjectCredentialStatus
+	}
+	if newCredential.Status != current {
+		return fmt.Errorf("key policy changed during rotation")
+	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE api_key_credentials
-		SET status = $2, revoked_at = $3, updated_at = $3
-		WHERE api_key_id = $1 AND status = $4 AND revoked_at IS NULL`,
-		rotation.APIKeyID, domain.CredentialStatusRevoked, now, domain.CredentialStatusGrace); err != nil {
+		SET status = $3, revoked_at = $4, updated_at = $4
+		WHERE api_key_id = $1 AND workspace_id = $2 AND revoked_at IS NULL
+		  AND (status = $5 AND ($5 <> 'project' OR valid_until IS NOT NULL)
+		       OR $6 AND status = $7)`,
+		rotation.APIKeyID, workspaceID, domain.CredentialStatusRevoked, now, grace, rotation.RevokePrevious, current); err != nil {
 		return err
 	}
-
-	if rotation.RevokePrevious {
+	if !rotation.RevokePrevious {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE api_key_credentials
-			SET status = $2, revoked_at = $3, updated_at = $3
-			WHERE api_key_id = $1 AND status = $4 AND revoked_at IS NULL`,
-			rotation.APIKeyID, domain.CredentialStatusRevoked, now, domain.CredentialStatusCurrent); err != nil {
+			SET status = $3, valid_until = $4, updated_at = $5
+			WHERE api_key_id = $1 AND workspace_id = $2 AND status = $6 AND revoked_at IS NULL`,
+			rotation.APIKeyID, workspaceID, grace, rotation.GraceUntil, now, current); err != nil {
 			return err
 		}
-	} else {
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE api_key_credentials
-			SET status = $2, valid_until = $3, updated_at = $4
-			WHERE api_key_id = $1 AND status = $5 AND revoked_at IS NULL`,
-			rotation.APIKeyID, domain.CredentialStatusGrace, rotation.GraceUntil, now, domain.CredentialStatusCurrent); err != nil {
-			return err
-		}
-	}
-
-	workspaceID := rotation.WorkspaceID
-	if workspaceID <= 0 {
-		workspaceID = domain.DefaultWorkspaceID
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO api_key_credentials (workspace_id, api_key_id, credential_digest, display_suffix, status, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $6)`,
-		workspaceID, rotation.APIKeyID, newCredential.Digest, newCredential.DisplaySuffix, domain.CredentialStatusCurrent, now); err != nil {
+		workspaceID, rotation.APIKeyID, newCredential.Digest, newCredential.DisplaySuffix, current, now); err != nil {
 		return err
 	}
 
@@ -130,8 +133,8 @@ func (r *apiKeyCredentialRepository) Rotate(ctx context.Context, rotation servic
 			"api_key_id":          rotation.APIKeyID,
 			"grace_until":         rotation.GraceUntil.Unix(),
 			"revoke_previous":     rotation.RevokePrevious,
-			"previous_credential": "current",
-			"new_credential":      "current",
+			"previous_credential": current,
+			"new_credential":      current,
 		}); err != nil {
 		return err
 	}
@@ -148,10 +151,18 @@ func (r *apiKeyCredentialRepository) RevokeGrace(ctx context.Context, apiKeyID i
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	var keyID int64
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM api_keys WHERE id = $1 FOR UPDATE`, apiKeyID).Scan(&keyID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, err
+	}
 	res, err := tx.ExecContext(ctx, `
 		UPDATE api_key_credentials
 		SET status = $2, revoked_at = $3, updated_at = $3
-		WHERE api_key_id = $1 AND status = $4 AND revoked_at IS NULL`,
+		WHERE api_key_id = $1 AND revoked_at IS NULL
+		  AND (status = $4 OR (status = 'project' AND valid_until IS NOT NULL))`,
 		apiKeyID, domain.CredentialStatusRevoked, now, domain.CredentialStatusGrace)
 	if err != nil {
 		return 0, err

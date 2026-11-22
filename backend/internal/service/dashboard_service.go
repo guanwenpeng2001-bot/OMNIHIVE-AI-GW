@@ -450,8 +450,10 @@ func parseStatsUpdatedAt(raw string) time.Time {
 	return parsed.UTC()
 }
 
+const MaxDashboardTrendLimit = 100
+
 func (s *DashboardService) GetAPIKeyUsageTrend(ctx context.Context, startTime, endTime time.Time, granularity string, limit int) ([]usagestats.APIKeyUsageTrendPoint, error) {
-	trend, err := s.usageRepo.GetAPIKeyUsageTrend(ctx, startTime, endTime, granularity, limit)
+	trend, err := s.usageRepo.GetAPIKeyUsageTrend(ctx, startTime, endTime, granularity, min(limit, MaxDashboardTrendLimit))
 	if err != nil {
 		return nil, fmt.Errorf("get api key usage trend: %w", err)
 	}
@@ -459,7 +461,7 @@ func (s *DashboardService) GetAPIKeyUsageTrend(ctx context.Context, startTime, e
 }
 
 func (s *DashboardService) GetUserUsageTrend(ctx context.Context, startTime, endTime time.Time, granularity string, limit int) ([]usagestats.UserUsageTrendPoint, error) {
-	trend, err := s.usageRepo.GetUserUsageTrend(ctx, startTime, endTime, granularity, limit)
+	trend, err := s.usageRepo.GetUserUsageTrend(ctx, startTime, endTime, granularity, min(limit, MaxDashboardTrendLimit))
 	if err != nil {
 		return nil, fmt.Errorf("get user usage trend: %w", err)
 	}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/stretchr/testify/require"
 )
 
@@ -17,12 +18,17 @@ import (
 type apiKeyCredentialRepoStub struct {
 	digests        []string
 	listErr        error
+	project        bool
 	rotations      []APIKeyCredentialRotation
 	rotateErr      error
 	revokeGrace    int64
 	revokeGraceErr error
 	revokeAll      int64
 	revokeAllErr   error
+}
+
+func (s *apiKeyCredentialRepoStub) IsProjectKey(context.Context, int64) (bool, error) {
+	return s.project, nil
 }
 
 func (s *apiKeyCredentialRepoStub) ListDigestsByAPIKeyID(context.Context, int64) ([]string, error) {
@@ -263,4 +269,17 @@ func TestAPIKeyService_Update_OmittedGroupIDKeepsTheBinding(t *testing.T) {
 	require.NotNil(t, updated.GroupID)
 	require.Equal(t, int64(5), *updated.GroupID)
 	require.Zero(t, groupRepo.lastGetByIDArg, "an omitted group_id must not query a group")
+}
+
+func TestAPIKeyServiceRotatesProjectCredentialWithProjectPrefix(t *testing.T) {
+	repo := &apiKeyCredentialRepoStub{project: true}
+	svc := newCredentialLifecycleService(repo, &apiKeyCacheStub{}, &APIKey{ID: 42, UserID: 7, WorkspaceID: 8})
+	issue, err := svc.RotateAPIKey(t.Context(), 42, time.Hour, false, ConfigurationAuditActor{UserID: 7})
+	require.NoError(t, err)
+	require.Equal(t, int64(42), issue.APIKey.ID)
+	require.Equal(t, int64(8), issue.APIKey.WorkspaceID)
+	require.Contains(t, issue.Secret, identity.ProjectKeyPrefix)
+	require.Len(t, repo.rotations, 1)
+	require.Equal(t, ProjectCredentialStatus, repo.rotations[0].NewCredential.Status)
+	require.Equal(t, APIKeyCredentialDigest(issue.Secret), repo.rotations[0].NewCredential.Digest)
 }

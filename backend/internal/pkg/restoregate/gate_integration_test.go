@@ -23,6 +23,6 @@ func TestBootstrapQueryDoesNotAbortFencingTransaction(t *testing.T) {
 	_, leave, err := gate.Admit(t.Context())
 	require.NoError(t, err)
 	defer leave()
-	_, err = gate.held.ExecContext(t.Context(), "SELECT 1")
+	_, err = gate.held.conn.ExecContext(t.Context(), "SELECT 1")
 	require.NoError(t, err)
 }

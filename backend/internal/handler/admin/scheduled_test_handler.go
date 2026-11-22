@@ -151,7 +151,7 @@ func (h *ScheduledTestHandler) ListResults(c *gin.Context) {
 
 	limit := 50
 	if l, err := strconv.Atoi(c.Query("limit")); err == nil && l > 0 {
-		limit = l
+		limit = min(l, service.MaxScheduledTestResults)
 	}
 
 	results, err := h.scheduledTestSvc.ListResults(c.Request.Context(), planID, limit)

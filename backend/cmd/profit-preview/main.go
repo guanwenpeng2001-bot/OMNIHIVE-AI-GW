@@ -7,9 +7,11 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -50,9 +52,7 @@ type inputEntry struct {
 	Models        []string            `json:"models"`
 }
 
-type inputDoc struct {
-	Groups []inputEntry `json:"groups"`
-}
+const maxPreviewInputBytes = 64 << 20
 
 func main() {
 	inputPath := flag.String("input", "", "生产只读导出 JSON 路径")
@@ -63,12 +63,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "usage: profit-preview -input dump.json [-assume-enabled] [-json]")
 		os.Exit(2)
 	}
-	raw, err := os.ReadFile(*inputPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "read input: %v\n", err)
-		os.Exit(1)
-	}
-	inputs, err := parsePreviewInputs(raw, *assumeEnabled)
+	inputs, err := loadPreviewInputs(*inputPath, *assumeEnabled)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "parse input: %v\n", err)
 		os.Exit(1)
@@ -140,74 +135,147 @@ func main() {
 	}
 }
 
-func parsePreviewInputs(raw []byte, assumeEnabled bool) ([]service.ProfitPreviewGroupInput, error) {
-	var doc inputDoc
-	if err := json.Unmarshal(raw, &doc); err != nil {
+func loadPreviewInputs(path string, assumeEnabled bool) ([]service.ProfitPreviewGroupInput, error) {
+	file, err := os.Open(path)
+	if err != nil {
 		return nil, err
 	}
-	if len(doc.Groups) == 0 {
-		return nil, fmt.Errorf("input contains no groups; check the export query and target configuration")
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() > maxPreviewInputBytes {
+		return nil, fmt.Errorf("input exceeds %d bytes", maxPreviewInputBytes)
+	}
+	bounded := &io.LimitedReader{R: file, N: maxPreviewInputBytes + 1}
+	inputs, err := parsePreviewInputs(bufio.NewReader(bounded), assumeEnabled)
+	if bounded.N == 0 {
+		return nil, fmt.Errorf("input exceeds %d bytes", maxPreviewInputBytes)
+	}
+	return inputs, err
+}
+
+func parsePreviewInputs(reader io.Reader, assumeEnabled bool) ([]service.ProfitPreviewGroupInput, error) {
+	decoder := json.NewDecoder(reader)
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	if token != json.Delim('{') {
+		return nil, fmt.Errorf("input must be a JSON object")
 	}
 
-	inputs := make([]service.ProfitPreviewGroupInput, 0, len(doc.Groups))
-	for i, entry := range doc.Groups {
-		if entry.Group.ID <= 0 || strings.TrimSpace(entry.Group.Platform) == "" {
-			return nil, fmt.Errorf("invalid group at index %d: id and platform are required", i)
+	var inputs []service.ProfitPreviewGroupInput
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return nil, err
 		}
-		group := &service.Group{
-			ID:                   entry.Group.ID,
-			Name:                 entry.Group.Name,
-			Platform:             entry.Group.Platform,
-			Status:               service.StatusActive,
-			Hydrated:             true,
-			RateMultiplier:       entry.Group.RateMultiplier,
-			SubscriptionType:     entry.Group.SubscriptionType,
-			ProfitControlEnabled: entry.Group.ProfitControlEnabled,
-			ProfitMinMargin:      entry.Group.ProfitMinMargin,
-			ProfitSafetyBuffer:   entry.Group.ProfitSafetyBuffer,
-			PeakRateEnabled:      entry.Group.PeakRateEnabled,
-			PeakStart:            entry.Group.PeakStart,
-			PeakEnd:              entry.Group.PeakEnd,
-			PeakRateMultiplier:   entry.Group.PeakRateMultiplier,
+		if !strings.EqualFold(key.(string), "groups") {
+			var ignored json.RawMessage
+			if err := decoder.Decode(&ignored); err != nil {
+				return nil, err
+			}
+			continue
 		}
-		accounts := make([]*service.Account, 0, len(entry.Accounts))
-		for _, a := range entry.Accounts {
-			account := &service.Account{
-				ID:             a.ID,
-				Name:           a.Name,
-				Platform:       a.Platform,
-				Type:           a.Type,
-				RateMultiplier: a.RateMultiplier,
-				Extra:          a.Extra,
-			}
-			if len(a.ModelMapping) > 0 {
-				mapping := make(map[string]any, len(a.ModelMapping))
-				for k, v := range a.ModelMapping {
-					mapping[k] = v
-				}
-				account.Credentials = map[string]any{"model_mapping": mapping}
-			}
-			accounts = append(accounts, account)
+		inputs, err = decodePreviewGroups(decoder, assumeEnabled)
+		if err != nil {
+			return nil, err
 		}
-		overrides := make(map[int64]float64, len(entry.UserOverrides))
-		for userID, rate := range entry.UserOverrides {
-			if rate == nil {
-				continue
-			}
-			var id int64
-			if _, err := fmt.Sscan(userID, &id); err == nil && id > 0 {
-				overrides[id] = *rate
-			}
-		}
-		inputs = append(inputs, service.ProfitPreviewGroupInput{
-			Group:         group,
-			Accounts:      accounts,
-			UserOverrides: overrides,
-			Models:        entry.Models,
-			AssumeEnabled: assumeEnabled,
-		})
+	}
+	if _, err := decoder.Token(); err != nil {
+		return nil, err
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return nil, fmt.Errorf("unexpected data after input object")
+	}
+	if len(inputs) == 0 {
+		return nil, fmt.Errorf("input contains no groups; check the export query and target configuration")
 	}
 	return inputs, nil
+}
+
+func decodePreviewGroups(decoder *json.Decoder, assumeEnabled bool) ([]service.ProfitPreviewGroupInput, error) {
+	token, err := decoder.Token()
+	if err != nil || token == nil {
+		return nil, err
+	}
+	if token != json.Delim('[') {
+		return nil, fmt.Errorf("groups must be a JSON array")
+	}
+	var inputs []service.ProfitPreviewGroupInput
+	for decoder.More() {
+		var entry inputEntry
+		if err := decoder.Decode(&entry); err != nil {
+			return nil, err
+		}
+		group, err := buildPreviewGroup(entry, assumeEnabled)
+		if err != nil {
+			return nil, fmt.Errorf("invalid group at index %d: %w", len(inputs), err)
+		}
+		inputs = append(inputs, group)
+	}
+	_, err = decoder.Token()
+	return inputs, err
+}
+
+func buildPreviewGroup(entry inputEntry, assumeEnabled bool) (service.ProfitPreviewGroupInput, error) {
+	if entry.Group.ID <= 0 || strings.TrimSpace(entry.Group.Platform) == "" {
+		return service.ProfitPreviewGroupInput{}, fmt.Errorf("id and platform are required")
+	}
+	group := &service.Group{
+		ID:                   entry.Group.ID,
+		Name:                 entry.Group.Name,
+		Platform:             entry.Group.Platform,
+		Status:               service.StatusActive,
+		Hydrated:             true,
+		RateMultiplier:       entry.Group.RateMultiplier,
+		SubscriptionType:     entry.Group.SubscriptionType,
+		ProfitControlEnabled: entry.Group.ProfitControlEnabled,
+		ProfitMinMargin:      entry.Group.ProfitMinMargin,
+		ProfitSafetyBuffer:   entry.Group.ProfitSafetyBuffer,
+		PeakRateEnabled:      entry.Group.PeakRateEnabled,
+		PeakStart:            entry.Group.PeakStart,
+		PeakEnd:              entry.Group.PeakEnd,
+		PeakRateMultiplier:   entry.Group.PeakRateMultiplier,
+	}
+	accounts := make([]*service.Account, 0, len(entry.Accounts))
+	for _, a := range entry.Accounts {
+		account := &service.Account{
+			ID:             a.ID,
+			Name:           a.Name,
+			Platform:       a.Platform,
+			Type:           a.Type,
+			RateMultiplier: a.RateMultiplier,
+			Extra:          a.Extra,
+		}
+		if len(a.ModelMapping) > 0 {
+			mapping := make(map[string]any, len(a.ModelMapping))
+			for k, v := range a.ModelMapping {
+				mapping[k] = v
+			}
+			account.Credentials = map[string]any{"model_mapping": mapping}
+		}
+		accounts = append(accounts, account)
+	}
+	overrides := make(map[int64]float64, len(entry.UserOverrides))
+	for userID, rate := range entry.UserOverrides {
+		if rate == nil {
+			continue
+		}
+		var id int64
+		if _, err := fmt.Sscan(userID, &id); err == nil && id > 0 {
+			overrides[id] = *rate
+		}
+	}
+	return service.ProfitPreviewGroupInput{
+		Group:         group,
+		Accounts:      accounts,
+		UserOverrides: overrides,
+		Models:        entry.Models,
+		AssumeEnabled: assumeEnabled,
+	}, nil
 }
 
 func modelsWithZeroRemaining(report service.ProfitPreviewGroupReport) []string {

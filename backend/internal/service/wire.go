@@ -66,7 +66,7 @@ func ProvidePricingService(cfg *config.Config, remoteClient PricingRemoteClient,
 // ProvideUpdateService creates UpdateService with BuildInfo
 func ProvideUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, buildInfo BuildInfo, db *sql.DB, cfg *config.Config) *UpdateService {
 	service := NewUpdateService(cache, githubClient, buildInfo.Version, buildInfo.BuildType)
-	service.backupKey = []byte(cfg.Totp.EncryptionKey)
+	service.backupKey = updateBackupKey(cfg)
 	service.readRollbackFloor = func(ctx context.Context) (string, error) {
 		var floor string
 		err := db.QueryRowContext(ctx, "SELECT minimum_rollback_version FROM release_schema_compatibility WHERE singleton").Scan(&floor)

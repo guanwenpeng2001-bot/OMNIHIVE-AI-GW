@@ -1,6 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,7 +37,7 @@ func TestParsePreviewInputsIgnoresNullUserOverride(t *testing.T) {
 		}]
 	}`)
 
-	inputs, err := parsePreviewInputs(raw, true)
+	inputs, err := parsePreviewInputs(bytes.NewReader(raw), true)
 	require.NoError(t, err)
 	require.Len(t, inputs, 1)
 	require.Equal(t, map[int64]float64{41: 0.4}, inputs[0].UserOverrides)
@@ -49,7 +53,7 @@ func TestParsePreviewInputsRejectsEmptyGroups(t *testing.T) {
 		[]byte(`{"groups":null}`),
 		[]byte(`{"groups":[]}`),
 	} {
-		inputs, err := parsePreviewInputs(raw, false)
+		inputs, err := parsePreviewInputs(bytes.NewReader(raw), false)
 		require.ErrorContains(t, err, "input contains no groups")
 		require.Nil(t, inputs)
 	}
@@ -89,4 +93,15 @@ func TestModelsWithZeroRemainingWarnings(t *testing.T) {
 			t.Fatalf("最低有效D归零告警不符（应按模型名排序）: got %v want %v", got, want)
 		}
 	}
+}
+
+func TestLoadPreviewInputsRejectsOversizeAndTrailingJSON(t *testing.T) {
+	file, err := os.Create(filepath.Join(t.TempDir(), "large.json"))
+	require.NoError(t, err)
+	require.NoError(t, file.Truncate(maxPreviewInputBytes+1))
+	require.NoError(t, file.Close())
+	_, err = loadPreviewInputs(file.Name(), false)
+	require.ErrorContains(t, err, "input exceeds")
+	_, err = parsePreviewInputs(strings.NewReader("{\"groups\":[{\"group\":{\"id\":1,\"platform\":\"openai\"}}]} {}"), false)
+	require.ErrorContains(t, err, "unexpected data")
 }

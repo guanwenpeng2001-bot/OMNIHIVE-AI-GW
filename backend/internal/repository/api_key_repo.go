@@ -803,7 +803,10 @@ func (r *apiKeyRepository) attachCredentialDisplaySuffixes(ctx context.Context, 
 	if err := r.client.APIKeyCredential.Query().
 		Where(
 			apikeycredential.APIKeyIDIn(apiKeyIDs...),
-			apikeycredential.StatusEQ(domain.CredentialStatusCurrent),
+			apikeycredential.Or(
+				apikeycredential.StatusEQ(domain.CredentialStatusCurrent),
+				apikeycredential.And(apikeycredential.StatusEQ(service.ProjectCredentialStatus), apikeycredential.ValidUntilIsNil()),
+			),
 			apikeycredential.RevokedAtIsNil(),
 		).
 		Select(apikeycredential.FieldAPIKeyID, apikeycredential.FieldDisplaySuffix).

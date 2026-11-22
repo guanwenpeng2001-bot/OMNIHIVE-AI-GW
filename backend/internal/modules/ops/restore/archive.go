@@ -12,9 +12,17 @@ import (
 	"io"
 	"strconv"
 	"strings"
+
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 )
 
 var tables = [...]string{"users", "api_keys", "billing_usage_entries", "upstream_jobs"}
+
+const maxRestoreSQLBytes = 16 << 30
+
+var errArchiveSize = &fault.Fault{
+	Status: 422, Reason: "RESTORE_ARCHIVE_TOO_LARGE", Message: "The decompressed restore archive exceeds the size limit.",
+}
 
 func inspectArchive(ctx context.Context, raw io.Reader, sqlOut io.Writer) (string, map[string]string, error) {
 	hash := sha256.New()
@@ -23,8 +31,22 @@ func inspectArchive(ctx context.Context, raw io.Reader, sqlOut io.Writer) (strin
 		return "", nil, invalidArchive
 	}
 	defer gz.Close()
-	result, err := inspectSQL(ctx, io.TeeReader(gz, sqlOut))
+	result, err := inspectArchiveSQL(ctx, gz, sqlOut, maxRestoreSQLBytes)
 	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), result, err
+}
+
+func inspectArchiveSQL(ctx context.Context, src io.Reader, dst io.Writer, limit int64) (map[string]string, error) {
+	bounded := &io.LimitedReader{R: src, N: limit}
+	result, err := inspectSQL(ctx, io.TeeReader(bounded, dst))
+	if bounded.N == 0 {
+		var extra [1]byte
+		if n, readErr := io.ReadFull(src, extra[:]); n != 0 {
+			return nil, errArchiveSize
+		} else if !errors.Is(readErr, io.EOF) {
+			return nil, readErr
+		}
+	}
+	return result, err
 }
 
 type copyEvidence struct {
