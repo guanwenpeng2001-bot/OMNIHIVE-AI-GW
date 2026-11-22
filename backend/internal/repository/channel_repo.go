@@ -5,9 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"strconv"
 	"strings"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/lib/pq"
@@ -307,9 +308,13 @@ func channelListOrderBy(params pagination.PaginationParams) string {
 	return fmt.Sprintf("%s %s, c.id %s", column, sortOrder, sortOrder)
 }
 
+const channelUnpagedListLimit = 1000
+
 func (r *channelRepository) ListAll(ctx context.Context) ([]service.Channel, error) {
+	// Channel administration has a paged API. This retained helper is used by
+	// periodic/control-plane paths, so keep one invocation bounded.
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, name, description, status, model_mapping, billing_model_source, restrict_models, features, features_config, apply_pricing_to_account_stats, created_at, updated_at FROM channels WHERE `+workspacePredicate(ctx, "workspace_id")+` ORDER BY id`,
+		`SELECT id, name, description, status, model_mapping, billing_model_source, restrict_models, features, features_config, apply_pricing_to_account_stats, created_at, updated_at FROM channels WHERE `+workspacePredicate(ctx, "workspace_id")+` ORDER BY id LIMIT `+strconv.Itoa(channelUnpagedListLimit),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query all channels: %w", err)

@@ -938,6 +938,7 @@ var (
 		{Name: "account_id", Type: field.TypeInt64, Unique: true},
 		{Name: "version", Type: field.TypeInt64, Default: 1},
 		{Name: "ciphertext", Type: field.TypeString, Size: 2147483647},
+		{Name: "api_key_digest", Type: field.TypeString, Nullable: true},
 		{Name: "revoked_at", Type: field.TypeTime, Nullable: true},
 	}
 	// CredentialSecretsTable holds the schema information for the "credential_secrets" table.
@@ -2366,6 +2367,7 @@ var (
 		{Name: "workspace_id", Type: field.TypeInt64},
 		{Name: "user_id", Type: field.TypeInt64},
 		{Name: "role", Type: field.TypeEnum, Enums: []string{"member", "admin"}},
+		{Name: "inherits_global_role", Type: field.TypeBool, Default: false},
 	}
 	// WorkspaceMembersTable holds the schema information for the "workspace_members" table.
 	WorkspaceMembersTable = &schema.Table{

@@ -31,6 +31,8 @@ type CredentialSecret struct {
 	Version int64 `json:"version,omitempty"`
 	// Ciphertext holds the value of the "ciphertext" field.
 	Ciphertext string `json:"-"`
+	// Digest of the resolved API key; never stores plaintext.
+	APIKeyDigest *string `json:"api_key_digest,omitempty"`
 	// RevokedAt holds the value of the "revoked_at" field.
 	RevokedAt    *time.Time `json:"revoked_at,omitempty"`
 	selectValues sql.SelectValues
@@ -43,7 +45,7 @@ func (*CredentialSecret) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case credentialsecret.FieldID, credentialsecret.FieldWorkspaceID, credentialsecret.FieldAccountID, credentialsecret.FieldVersion:
 			values[i] = new(sql.NullInt64)
-		case credentialsecret.FieldReference, credentialsecret.FieldCiphertext:
+		case credentialsecret.FieldReference, credentialsecret.FieldCiphertext, credentialsecret.FieldAPIKeyDigest:
 			values[i] = new(sql.NullString)
 		case credentialsecret.FieldCreatedAt, credentialsecret.FieldUpdatedAt, credentialsecret.FieldRevokedAt:
 			values[i] = new(sql.NullTime)
@@ -110,6 +112,13 @@ func (_m *CredentialSecret) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.Ciphertext = value.String
 			}
+		case credentialsecret.FieldAPIKeyDigest:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field api_key_digest", values[i])
+			} else if value.Valid {
+				_m.APIKeyDigest = new(string)
+				*_m.APIKeyDigest = value.String
+			}
 		case credentialsecret.FieldRevokedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
 				return fmt.Errorf("unexpected type %T for field revoked_at", values[i])
@@ -172,6 +181,11 @@ func (_m *CredentialSecret) String() string {
 	builder.WriteString(fmt.Sprintf("%v", _m.Version))
 	builder.WriteString(", ")
 	builder.WriteString("ciphertext=<sensitive>")
+	builder.WriteString(", ")
+	if v := _m.APIKeyDigest; v != nil {
+		builder.WriteString("api_key_digest=")
+		builder.WriteString(*v)
+	}
 	builder.WriteString(", ")
 	if v := _m.RevokedAt; v != nil {
 		builder.WriteString("revoked_at=")

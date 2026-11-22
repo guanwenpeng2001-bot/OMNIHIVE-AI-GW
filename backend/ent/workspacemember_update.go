@@ -90,6 +90,20 @@ func (_u *WorkspaceMemberUpdate) SetNillableRole(v *workspacemember.Role) *Works
 	return _u
 }
 
+// SetInheritsGlobalRole sets the "inherits_global_role" field.
+func (_u *WorkspaceMemberUpdate) SetInheritsGlobalRole(v bool) *WorkspaceMemberUpdate {
+	_u.mutation.SetInheritsGlobalRole(v)
+	return _u
+}
+
+// SetNillableInheritsGlobalRole sets the "inherits_global_role" field if the given value is not nil.
+func (_u *WorkspaceMemberUpdate) SetNillableInheritsGlobalRole(v *bool) *WorkspaceMemberUpdate {
+	if v != nil {
+		_u.SetInheritsGlobalRole(*v)
+	}
+	return _u
+}
+
 // Mutation returns the WorkspaceMemberMutation object of the builder.
 func (_u *WorkspaceMemberUpdate) Mutation() *WorkspaceMemberMutation {
 	return _u.mutation
@@ -171,6 +185,9 @@ func (_u *WorkspaceMemberUpdate) sqlSave(ctx context.Context) (_node int, err er
 	if value, ok := _u.mutation.Role(); ok {
 		_spec.SetField(workspacemember.FieldRole, field.TypeEnum, value)
 	}
+	if value, ok := _u.mutation.InheritsGlobalRole(); ok {
+		_spec.SetField(workspacemember.FieldInheritsGlobalRole, field.TypeBool, value)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{workspacemember.Label}
@@ -249,6 +266,20 @@ func (_u *WorkspaceMemberUpdateOne) SetRole(v workspacemember.Role) *WorkspaceMe
 func (_u *WorkspaceMemberUpdateOne) SetNillableRole(v *workspacemember.Role) *WorkspaceMemberUpdateOne {
 	if v != nil {
 		_u.SetRole(*v)
+	}
+	return _u
+}
+
+// SetInheritsGlobalRole sets the "inherits_global_role" field.
+func (_u *WorkspaceMemberUpdateOne) SetInheritsGlobalRole(v bool) *WorkspaceMemberUpdateOne {
+	_u.mutation.SetInheritsGlobalRole(v)
+	return _u
+}
+
+// SetNillableInheritsGlobalRole sets the "inherits_global_role" field if the given value is not nil.
+func (_u *WorkspaceMemberUpdateOne) SetNillableInheritsGlobalRole(v *bool) *WorkspaceMemberUpdateOne {
+	if v != nil {
+		_u.SetInheritsGlobalRole(*v)
 	}
 	return _u
 }
@@ -363,6 +394,9 @@ func (_u *WorkspaceMemberUpdateOne) sqlSave(ctx context.Context) (_node *Workspa
 	}
 	if value, ok := _u.mutation.Role(); ok {
 		_spec.SetField(workspacemember.FieldRole, field.TypeEnum, value)
+	}
+	if value, ok := _u.mutation.InheritsGlobalRole(); ok {
+		_spec.SetField(workspacemember.FieldInheritsGlobalRole, field.TypeBool, value)
 	}
 	_node = &WorkspaceMember{config: _u.config}
 	_spec.Assign = _node.assignValues

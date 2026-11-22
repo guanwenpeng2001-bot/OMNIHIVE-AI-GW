@@ -69,6 +69,26 @@ func (_u *CredentialSecretUpdate) SetNillableCiphertext(v *string) *CredentialSe
 	return _u
 }
 
+// SetAPIKeyDigest sets the "api_key_digest" field.
+func (_u *CredentialSecretUpdate) SetAPIKeyDigest(v string) *CredentialSecretUpdate {
+	_u.mutation.SetAPIKeyDigest(v)
+	return _u
+}
+
+// SetNillableAPIKeyDigest sets the "api_key_digest" field if the given value is not nil.
+func (_u *CredentialSecretUpdate) SetNillableAPIKeyDigest(v *string) *CredentialSecretUpdate {
+	if v != nil {
+		_u.SetAPIKeyDigest(*v)
+	}
+	return _u
+}
+
+// ClearAPIKeyDigest clears the value of the "api_key_digest" field.
+func (_u *CredentialSecretUpdate) ClearAPIKeyDigest() *CredentialSecretUpdate {
+	_u.mutation.ClearAPIKeyDigest()
+	return _u
+}
+
 // SetRevokedAt sets the "revoked_at" field.
 func (_u *CredentialSecretUpdate) SetRevokedAt(v time.Time) *CredentialSecretUpdate {
 	_u.mutation.SetRevokedAt(v)
@@ -170,6 +190,12 @@ func (_u *CredentialSecretUpdate) sqlSave(ctx context.Context) (_node int, err e
 	if value, ok := _u.mutation.Ciphertext(); ok {
 		_spec.SetField(credentialsecret.FieldCiphertext, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.APIKeyDigest(); ok {
+		_spec.SetField(credentialsecret.FieldAPIKeyDigest, field.TypeString, value)
+	}
+	if _u.mutation.APIKeyDigestCleared() {
+		_spec.ClearField(credentialsecret.FieldAPIKeyDigest, field.TypeString)
+	}
 	if value, ok := _u.mutation.RevokedAt(); ok {
 		_spec.SetField(credentialsecret.FieldRevokedAt, field.TypeTime, value)
 	}
@@ -234,6 +260,26 @@ func (_u *CredentialSecretUpdateOne) SetNillableCiphertext(v *string) *Credentia
 	if v != nil {
 		_u.SetCiphertext(*v)
 	}
+	return _u
+}
+
+// SetAPIKeyDigest sets the "api_key_digest" field.
+func (_u *CredentialSecretUpdateOne) SetAPIKeyDigest(v string) *CredentialSecretUpdateOne {
+	_u.mutation.SetAPIKeyDigest(v)
+	return _u
+}
+
+// SetNillableAPIKeyDigest sets the "api_key_digest" field if the given value is not nil.
+func (_u *CredentialSecretUpdateOne) SetNillableAPIKeyDigest(v *string) *CredentialSecretUpdateOne {
+	if v != nil {
+		_u.SetAPIKeyDigest(*v)
+	}
+	return _u
+}
+
+// ClearAPIKeyDigest clears the value of the "api_key_digest" field.
+func (_u *CredentialSecretUpdateOne) ClearAPIKeyDigest() *CredentialSecretUpdateOne {
+	_u.mutation.ClearAPIKeyDigest()
 	return _u
 }
 
@@ -367,6 +413,12 @@ func (_u *CredentialSecretUpdateOne) sqlSave(ctx context.Context) (_node *Creden
 	}
 	if value, ok := _u.mutation.Ciphertext(); ok {
 		_spec.SetField(credentialsecret.FieldCiphertext, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.APIKeyDigest(); ok {
+		_spec.SetField(credentialsecret.FieldAPIKeyDigest, field.TypeString, value)
+	}
+	if _u.mutation.APIKeyDigestCleared() {
+		_spec.ClearField(credentialsecret.FieldAPIKeyDigest, field.TypeString)
 	}
 	if value, ok := _u.mutation.RevokedAt(); ok {
 		_spec.SetField(credentialsecret.FieldRevokedAt, field.TypeTime, value)

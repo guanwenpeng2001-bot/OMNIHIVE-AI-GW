@@ -9,6 +9,12 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
+const (
+	accountSecretBackfillBatchSize = 16
+	accountSecretBackfillTimeout   = "20s"
+	accountSecretBackfillLockWait  = "2s"
+)
+
 func backfillAccountSecrets(ctx context.Context, db *sql.DB, enc service.SecretEncryptor) error {
 	connection, err := db.Conn(ctx)
 	if err != nil {
@@ -38,7 +44,13 @@ func backfillAccountSecretBatch(ctx context.Context, db *sql.DB, enc service.Sec
 		return 0, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT a.id,a.workspace_id,a.credentials FROM account_secret_backfill b JOIN accounts a ON a.id=b.account_id ORDER BY b.account_id LIMIT 64 FOR UPDATE OF b,a`)
+	if _, err := tx.ExecContext(ctx, "SET LOCAL statement_timeout = '"+accountSecretBackfillTimeout+"'"); err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, "SET LOCAL lock_timeout = '"+accountSecretBackfillLockWait+"'"); err != nil {
+		return 0, err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT a.id,a.workspace_id,a.credentials FROM account_secret_backfill b JOIN accounts a ON a.id=b.account_id ORDER BY b.account_id LIMIT $1 FOR UPDATE OF b,a SKIP LOCKED`, accountSecretBackfillBatchSize)
 	if err != nil {
 		return 0, err
 	}

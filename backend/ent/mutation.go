@@ -22639,6 +22639,7 @@ type CredentialSecretMutation struct {
 	version         *int64
 	addversion      *int64
 	ciphertext      *string
+	api_key_digest  *string
 	revoked_at      *time.Time
 	clearedFields   map[string]struct{}
 	done            bool
@@ -23056,6 +23057,55 @@ func (m *CredentialSecretMutation) ResetCiphertext() {
 	m.ciphertext = nil
 }
 
+// SetAPIKeyDigest sets the "api_key_digest" field.
+func (m *CredentialSecretMutation) SetAPIKeyDigest(s string) {
+	m.api_key_digest = &s
+}
+
+// APIKeyDigest returns the value of the "api_key_digest" field in the mutation.
+func (m *CredentialSecretMutation) APIKeyDigest() (r string, exists bool) {
+	v := m.api_key_digest
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAPIKeyDigest returns the old "api_key_digest" field's value of the CredentialSecret entity.
+// If the CredentialSecret object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CredentialSecretMutation) OldAPIKeyDigest(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAPIKeyDigest is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAPIKeyDigest requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAPIKeyDigest: %w", err)
+	}
+	return oldValue.APIKeyDigest, nil
+}
+
+// ClearAPIKeyDigest clears the value of the "api_key_digest" field.
+func (m *CredentialSecretMutation) ClearAPIKeyDigest() {
+	m.api_key_digest = nil
+	m.clearedFields[credentialsecret.FieldAPIKeyDigest] = struct{}{}
+}
+
+// APIKeyDigestCleared returns if the "api_key_digest" field was cleared in this mutation.
+func (m *CredentialSecretMutation) APIKeyDigestCleared() bool {
+	_, ok := m.clearedFields[credentialsecret.FieldAPIKeyDigest]
+	return ok
+}
+
+// ResetAPIKeyDigest resets all changes to the "api_key_digest" field.
+func (m *CredentialSecretMutation) ResetAPIKeyDigest() {
+	m.api_key_digest = nil
+	delete(m.clearedFields, credentialsecret.FieldAPIKeyDigest)
+}
+
 // SetRevokedAt sets the "revoked_at" field.
 func (m *CredentialSecretMutation) SetRevokedAt(t time.Time) {
 	m.revoked_at = &t
@@ -23139,7 +23189,7 @@ func (m *CredentialSecretMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *CredentialSecretMutation) Fields() []string {
-	fields := make([]string, 0, 8)
+	fields := make([]string, 0, 9)
 	if m.created_at != nil {
 		fields = append(fields, credentialsecret.FieldCreatedAt)
 	}
@@ -23160,6 +23210,9 @@ func (m *CredentialSecretMutation) Fields() []string {
 	}
 	if m.ciphertext != nil {
 		fields = append(fields, credentialsecret.FieldCiphertext)
+	}
+	if m.api_key_digest != nil {
+		fields = append(fields, credentialsecret.FieldAPIKeyDigest)
 	}
 	if m.revoked_at != nil {
 		fields = append(fields, credentialsecret.FieldRevokedAt)
@@ -23186,6 +23239,8 @@ func (m *CredentialSecretMutation) Field(name string) (ent.Value, bool) {
 		return m.Version()
 	case credentialsecret.FieldCiphertext:
 		return m.Ciphertext()
+	case credentialsecret.FieldAPIKeyDigest:
+		return m.APIKeyDigest()
 	case credentialsecret.FieldRevokedAt:
 		return m.RevokedAt()
 	}
@@ -23211,6 +23266,8 @@ func (m *CredentialSecretMutation) OldField(ctx context.Context, name string) (e
 		return m.OldVersion(ctx)
 	case credentialsecret.FieldCiphertext:
 		return m.OldCiphertext(ctx)
+	case credentialsecret.FieldAPIKeyDigest:
+		return m.OldAPIKeyDigest(ctx)
 	case credentialsecret.FieldRevokedAt:
 		return m.OldRevokedAt(ctx)
 	}
@@ -23270,6 +23327,13 @@ func (m *CredentialSecretMutation) SetField(name string, value ent.Value) error 
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetCiphertext(v)
+		return nil
+	case credentialsecret.FieldAPIKeyDigest:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAPIKeyDigest(v)
 		return nil
 	case credentialsecret.FieldRevokedAt:
 		v, ok := value.(time.Time)
@@ -23347,6 +23411,9 @@ func (m *CredentialSecretMutation) AddField(name string, value ent.Value) error 
 // mutation.
 func (m *CredentialSecretMutation) ClearedFields() []string {
 	var fields []string
+	if m.FieldCleared(credentialsecret.FieldAPIKeyDigest) {
+		fields = append(fields, credentialsecret.FieldAPIKeyDigest)
+	}
 	if m.FieldCleared(credentialsecret.FieldRevokedAt) {
 		fields = append(fields, credentialsecret.FieldRevokedAt)
 	}
@@ -23364,6 +23431,9 @@ func (m *CredentialSecretMutation) FieldCleared(name string) bool {
 // error if the field is not defined in the schema.
 func (m *CredentialSecretMutation) ClearField(name string) error {
 	switch name {
+	case credentialsecret.FieldAPIKeyDigest:
+		m.ClearAPIKeyDigest()
+		return nil
 	case credentialsecret.FieldRevokedAt:
 		m.ClearRevokedAt()
 		return nil
@@ -23395,6 +23465,9 @@ func (m *CredentialSecretMutation) ResetField(name string) error {
 		return nil
 	case credentialsecret.FieldCiphertext:
 		m.ResetCiphertext()
+		return nil
+	case credentialsecret.FieldAPIKeyDigest:
+		m.ResetAPIKeyDigest()
 		return nil
 	case credentialsecret.FieldRevokedAt:
 		m.ResetRevokedAt()
@@ -65619,20 +65692,21 @@ func (m *WorkspaceMutation) ResetEdge(name string) error {
 // WorkspaceMemberMutation represents an operation that mutates the WorkspaceMember nodes in the graph.
 type WorkspaceMemberMutation struct {
 	config
-	op              Op
-	typ             string
-	id              *int64
-	created_at      *time.Time
-	updated_at      *time.Time
-	workspace_id    *int64
-	addworkspace_id *int64
-	user_id         *int64
-	adduser_id      *int64
-	role            *workspacemember.Role
-	clearedFields   map[string]struct{}
-	done            bool
-	oldValue        func(context.Context) (*WorkspaceMember, error)
-	predicates      []predicate.WorkspaceMember
+	op                   Op
+	typ                  string
+	id                   *int64
+	created_at           *time.Time
+	updated_at           *time.Time
+	workspace_id         *int64
+	addworkspace_id      *int64
+	user_id              *int64
+	adduser_id           *int64
+	role                 *workspacemember.Role
+	inherits_global_role *bool
+	clearedFields        map[string]struct{}
+	done                 bool
+	oldValue             func(context.Context) (*WorkspaceMember, error)
+	predicates           []predicate.WorkspaceMember
 }
 
 var _ ent.Mutation = (*WorkspaceMemberMutation)(nil)
@@ -65953,6 +66027,42 @@ func (m *WorkspaceMemberMutation) ResetRole() {
 	m.role = nil
 }
 
+// SetInheritsGlobalRole sets the "inherits_global_role" field.
+func (m *WorkspaceMemberMutation) SetInheritsGlobalRole(b bool) {
+	m.inherits_global_role = &b
+}
+
+// InheritsGlobalRole returns the value of the "inherits_global_role" field in the mutation.
+func (m *WorkspaceMemberMutation) InheritsGlobalRole() (r bool, exists bool) {
+	v := m.inherits_global_role
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldInheritsGlobalRole returns the old "inherits_global_role" field's value of the WorkspaceMember entity.
+// If the WorkspaceMember object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *WorkspaceMemberMutation) OldInheritsGlobalRole(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldInheritsGlobalRole is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldInheritsGlobalRole requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldInheritsGlobalRole: %w", err)
+	}
+	return oldValue.InheritsGlobalRole, nil
+}
+
+// ResetInheritsGlobalRole resets all changes to the "inherits_global_role" field.
+func (m *WorkspaceMemberMutation) ResetInheritsGlobalRole() {
+	m.inherits_global_role = nil
+}
+
 // Where appends a list predicates to the WorkspaceMemberMutation builder.
 func (m *WorkspaceMemberMutation) Where(ps ...predicate.WorkspaceMember) {
 	m.predicates = append(m.predicates, ps...)
@@ -65987,7 +66097,7 @@ func (m *WorkspaceMemberMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *WorkspaceMemberMutation) Fields() []string {
-	fields := make([]string, 0, 5)
+	fields := make([]string, 0, 6)
 	if m.created_at != nil {
 		fields = append(fields, workspacemember.FieldCreatedAt)
 	}
@@ -66002,6 +66112,9 @@ func (m *WorkspaceMemberMutation) Fields() []string {
 	}
 	if m.role != nil {
 		fields = append(fields, workspacemember.FieldRole)
+	}
+	if m.inherits_global_role != nil {
+		fields = append(fields, workspacemember.FieldInheritsGlobalRole)
 	}
 	return fields
 }
@@ -66021,6 +66134,8 @@ func (m *WorkspaceMemberMutation) Field(name string) (ent.Value, bool) {
 		return m.UserID()
 	case workspacemember.FieldRole:
 		return m.Role()
+	case workspacemember.FieldInheritsGlobalRole:
+		return m.InheritsGlobalRole()
 	}
 	return nil, false
 }
@@ -66040,6 +66155,8 @@ func (m *WorkspaceMemberMutation) OldField(ctx context.Context, name string) (en
 		return m.OldUserID(ctx)
 	case workspacemember.FieldRole:
 		return m.OldRole(ctx)
+	case workspacemember.FieldInheritsGlobalRole:
+		return m.OldInheritsGlobalRole(ctx)
 	}
 	return nil, fmt.Errorf("unknown WorkspaceMember field %s", name)
 }
@@ -66083,6 +66200,13 @@ func (m *WorkspaceMemberMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetRole(v)
+		return nil
+	case workspacemember.FieldInheritsGlobalRole:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetInheritsGlobalRole(v)
 		return nil
 	}
 	return fmt.Errorf("unknown WorkspaceMember field %s", name)
@@ -66174,6 +66298,9 @@ func (m *WorkspaceMemberMutation) ResetField(name string) error {
 		return nil
 	case workspacemember.FieldRole:
 		m.ResetRole()
+		return nil
+	case workspacemember.FieldInheritsGlobalRole:
+		m.ResetInheritsGlobalRole()
 		return nil
 	}
 	return fmt.Errorf("unknown WorkspaceMember field %s", name)

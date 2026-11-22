@@ -17,6 +17,10 @@ func (WorkspaceMember) Fields() []ent.Field {
 		field.Int64("workspace_id"),
 		field.Int64("user_id"),
 		field.Enum("role").Values("member", "admin"),
+		// SQL migration 337 is authoritative. Ent declares this persisted source
+		// marker so future generation never proposes dropping the column.
+		field.Bool("inherits_global_role").Default(false).
+			Comment("Whether the membership role follows the user's global role; false means independently assigned."),
 	}
 }
 

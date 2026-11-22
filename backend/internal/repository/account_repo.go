@@ -54,6 +54,9 @@ type accountRepository struct {
 	// Used to proactively sync account snapshot to cache when status changes,
 	// ensuring sticky sessions can promptly detect unavailable accounts.
 	schedulerCache service.SchedulerCache
+	// credentialDecryptionCache avoids repeatedly decrypting unchanged referenced
+	// credentials while scheduler reads rebuild account candidates.
+	credentialDecryptionCache *credentialDecryptionCache
 }
 
 var schedulerNeutralExtraKeyPrefixes = []string{
@@ -75,6 +78,7 @@ var schedulerNeutralExtraKeys = map[string]struct{}{
 }
 
 const postgresParameterBatchSize = 50000
+const schedulerScoreAccountLimit = 1000
 
 const codexFingerprintSeedCanonicalPattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 const codexFingerprintNilSeed = "00000000-0000-0000-0000-000000000000"
@@ -124,7 +128,12 @@ func NewAdminAccountRepository(client *dbent.Client, sqlDB *sql.DB, schedulerCac
 // newAccountRepositoryWithSQL 是内部构造函数，支持依赖注入 SQL 执行器。
 // 这种设计便于单元测试时注入 mock 对象。
 func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedulerCache service.SchedulerCache) *accountRepository {
-	repository := &accountRepository{client: client, sql: sqlq, schedulerCache: schedulerCache}
+	repository := &accountRepository{
+		client:                    client,
+		sql:                       sqlq,
+		schedulerCache:            schedulerCache,
+		credentialDecryptionCache: newCredentialDecryptionCache(),
+	}
 	repository.bulkUpdateSecrets = repository.bulkUpdateCredentialSecrets
 	return repository
 }
@@ -1334,7 +1343,13 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 }
 
 func (r *accountRepository) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, error) {
-	accounts, err := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode).All(ctx)
+	// This helper powers the scheduler-score management view, not a bulk export.
+	// Keep the legacy all-in-one API bounded until it can be replaced by cursor
+	// pagination; normal installations remain unaffected while a pathological
+	// account table cannot trigger unbounded hydration/decryption.
+	accounts, err := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode).
+		Limit(schedulerScoreAccountLimit).
+		All(ctx)
 	if err != nil {
 		return nil, err
 	}

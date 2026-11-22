@@ -1013,7 +1013,21 @@ func init() {
 	// compositemodelroute.DefaultTargetPlatform holds the default value on creation for the target_platform field.
 	compositemodelroute.DefaultTargetPlatform = compositemodelrouteDescTargetPlatform.Default.(string)
 	// compositemodelroute.TargetPlatformValidator is a validator for the "target_platform" field. It is called by the builders before save.
-	compositemodelroute.TargetPlatformValidator = compositemodelrouteDescTargetPlatform.Validators[0].(func(string) error)
+	compositemodelroute.TargetPlatformValidator = func() func(string) error {
+		validators := compositemodelrouteDescTargetPlatform.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(target_platform string) error {
+			for _, fn := range fns {
+				if err := fn(target_platform); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
 	// compositemodelrouteDescUpstreamModel is the schema descriptor for upstream_model field.
 	compositemodelrouteDescUpstreamModel := compositemodelrouteFields[5].Descriptor()
 	// compositemodelroute.DefaultUpstreamModel holds the default value on creation for the upstream_model field.
@@ -2930,6 +2944,10 @@ func init() {
 	workspacemember.DefaultUpdatedAt = workspacememberDescUpdatedAt.Default.(func() time.Time)
 	// workspacemember.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	workspacemember.UpdateDefaultUpdatedAt = workspacememberDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// workspacememberDescInheritsGlobalRole is the schema descriptor for inherits_global_role field.
+	workspacememberDescInheritsGlobalRole := workspacememberFields[3].Descriptor()
+	// workspacemember.DefaultInheritsGlobalRole holds the default value on creation for the inherits_global_role field.
+	workspacemember.DefaultInheritsGlobalRole = workspacememberDescInheritsGlobalRole.Default.(bool)
 }
 
 const (

@@ -26,8 +26,10 @@ type WorkspaceMember struct {
 	// UserID holds the value of the "user_id" field.
 	UserID int64 `json:"user_id,omitempty"`
 	// Role holds the value of the "role" field.
-	Role         workspacemember.Role `json:"role,omitempty"`
-	selectValues sql.SelectValues
+	Role workspacemember.Role `json:"role,omitempty"`
+	// Whether the membership role follows the user's global role; false means independently assigned.
+	InheritsGlobalRole bool `json:"inherits_global_role,omitempty"`
+	selectValues       sql.SelectValues
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -35,6 +37,8 @@ func (*WorkspaceMember) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
+		case workspacemember.FieldInheritsGlobalRole:
+			values[i] = new(sql.NullBool)
 		case workspacemember.FieldID, workspacemember.FieldWorkspaceID, workspacemember.FieldUserID:
 			values[i] = new(sql.NullInt64)
 		case workspacemember.FieldRole:
@@ -92,6 +96,12 @@ func (_m *WorkspaceMember) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.Role = workspacemember.Role(value.String)
 			}
+		case workspacemember.FieldInheritsGlobalRole:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field inherits_global_role", values[i])
+			} else if value.Valid {
+				_m.InheritsGlobalRole = value.Bool
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -142,6 +152,9 @@ func (_m *WorkspaceMember) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("role=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Role))
+	builder.WriteString(", ")
+	builder.WriteString("inherits_global_role=")
+	builder.WriteString(fmt.Sprintf("%v", _m.InheritsGlobalRole))
 	builder.WriteByte(')')
 	return builder.String()
 }

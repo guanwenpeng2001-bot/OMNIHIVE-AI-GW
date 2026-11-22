@@ -28,6 +28,8 @@ const (
 	FieldVersion = "version"
 	// FieldCiphertext holds the string denoting the ciphertext field in the database.
 	FieldCiphertext = "ciphertext"
+	// FieldAPIKeyDigest holds the string denoting the api_key_digest field in the database.
+	FieldAPIKeyDigest = "api_key_digest"
 	// FieldRevokedAt holds the string denoting the revoked_at field in the database.
 	FieldRevokedAt = "revoked_at"
 	// Table holds the table name of the credentialsecret in the database.
@@ -44,6 +46,7 @@ var Columns = []string{
 	FieldAccountID,
 	FieldVersion,
 	FieldCiphertext,
+	FieldAPIKeyDigest,
 	FieldRevokedAt,
 }
 
@@ -122,6 +125,11 @@ func ByVersion(opts ...sql.OrderTermOption) OrderOption {
 // ByCiphertext orders the results by the ciphertext field.
 func ByCiphertext(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldCiphertext, opts...).ToFunc()
+}
+
+// ByAPIKeyDigest orders the results by the api_key_digest field.
+func ByAPIKeyDigest(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAPIKeyDigest, opts...).ToFunc()
 }
 
 // ByRevokedAt orders the results by the revoked_at field.
