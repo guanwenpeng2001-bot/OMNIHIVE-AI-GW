@@ -124,6 +124,12 @@ docker_manifests:
       - "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}-amd64"
       - "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}-arm64"
 
+  # The Compose templates pin the image using the v-prefixed release version.
+  - name_template: "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:v{{ .Version }}"
+    image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}-arm64"
+
   - name_template: "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:latest"
     skip_push: auto
     image_templates:
