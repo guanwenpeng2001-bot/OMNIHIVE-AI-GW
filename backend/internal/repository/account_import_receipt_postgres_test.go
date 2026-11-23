@@ -485,7 +485,7 @@ func TestStagedReceiptPostgresLockWaitAndActorRace(t *testing.T) {
 	f := newCredentialSecretFixture(t)
 	key, body := uuid.NewString(), receiptBody(t)
 	repo := NewStagedImportReceiptRepository()
-	id := service.StagedImportIdentity{WorkspaceID: domain.DefaultWorkspaceID, ActorID: 71, Operation: service.StagedImportOperation, KeyHash: service.HashIdempotencyKey(key)}
+	id := service.StagedImportIdentity{WorkspaceID: domain.ResolvedDefaultWorkspaceID(f.ctx), ActorID: 71, Operation: service.StagedImportOperation, KeyHash: service.HashIdempotencyKey(key)}
 	tx, err := f.client.Tx(f.ctx)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = tx.Rollback() })

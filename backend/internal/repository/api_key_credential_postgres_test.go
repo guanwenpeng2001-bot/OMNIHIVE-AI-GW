@@ -127,8 +127,8 @@ func (f *apiKeyCredentialFixture) seedKeys(t *testing.T, userID int64, name stri
 	var id int64
 	require.NoError(t, f.db.QueryRow(`
 		INSERT INTO api_keys(user_id, workspace_id, key, name, status)
-		VALUES ($1, $2, $3, $4, 'active') RETURNING id`,
-		userID, domain.DefaultWorkspaceID, secret, name).Scan(&id))
+		VALUES ($1, (SELECT id FROM workspaces WHERE is_default), $2, $3, 'active') RETURNING id`,
+		userID, secret, name).Scan(&id))
 	if deleted {
 		_, err := f.db.Exec(`UPDATE api_keys SET deleted_at = NOW(), key = '__deleted__' || id || '__' WHERE id = $1`, id)
 		require.NoError(t, err)
@@ -362,8 +362,8 @@ func TestAPIKeyCredentialExpiryRetiresOnceAndIsAudited(t *testing.T) {
 	expiredSecret := "sk-expired-grace-0003"
 	_, err := db.Exec(`
 		INSERT INTO api_key_credentials(workspace_id, api_key_id, credential_digest, display_suffix, status, valid_until)
-		VALUES ($1, $2, $3, $4, 'grace', NOW() - INTERVAL '1 minute')`,
-		domain.DefaultWorkspaceID, keyID, service.APIKeyCredentialDigest(expiredSecret), service.APIKeyCredentialDisplaySuffix(expiredSecret))
+		SELECT workspace_id, id, $2, $3, 'grace', NOW() - INTERVAL '1 minute' FROM api_keys WHERE id = $1`,
+		keyID, service.APIKeyCredentialDigest(expiredSecret), service.APIKeyCredentialDisplaySuffix(expiredSecret))
 	require.NoError(t, err)
 
 	_, err = fixture.keys.GetByKeyForAuth(ctx, expiredSecret)

@@ -104,7 +104,10 @@ func (s *GatewayService) ResolvePlaygroundPrice(ctx context.Context, key *APIKey
 	if err != nil {
 		return decision, err
 	}
-	price := tariff.(*platformTariff)
+	price, ok := tariff.(*platformTariff)
+	if !ok {
+		return decision, errors.New("playground price book returned an unexpected tariff")
+	}
 	if publicModelLane(account) {
 		if account.IsOpenCodeZenFree() && !zenFreeModelAllowed(account, outbound) || account.IsKiloFree() && !verifiedKiloFreeTariff(account, outbound) {
 			return decision, nil

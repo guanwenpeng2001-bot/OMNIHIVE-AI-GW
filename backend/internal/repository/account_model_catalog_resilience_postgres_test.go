@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testresources"
 	"github.com/stretchr/testify/require"
@@ -38,7 +39,8 @@ func TestLegacyCatalogResiliencePostgres(test *testing.T) {
 	repository := newAccountRepositoryWithSQL(client, database, nil)
 	repository.credentialEncryptor = persistentTestAES(test, true)
 	create := func(test *testing.T) *service.Account {
-		row := createEncryptedCatalogFixture(test, ctx, client, database, repository, &service.Account{Name: "legacy-resilience", Platform: service.PlatformAntigravity, Type: service.AccountTypeOAuth, Status: service.StatusActive, Schedulable: true, Credentials: map[string]any{"access_token": "original-token", "model_mapping": map[string]string{"alias": "target"}}})
+		createCtx := domain.WithWorkspaceScope(ctx, 17)
+		row := createEncryptedCatalogFixture(test, createCtx, client, database, repository, &service.Account{Name: "legacy-resilience", Platform: service.PlatformAntigravity, Type: service.AccountTypeOAuth, Status: service.StatusActive, Schedulable: true, Credentials: map[string]any{"access_token": "original-token", "model_mapping": map[string]string{"alias": "target"}}})
 		snapshot := service.AccountModelCatalogSnapshot{LegacyAccountID: row.ID, Revision: 1, Complete: true,
 			SourceKind: "legacy-mapping-upgrade", DiscoveryScope: "legacy-mapping-upgrade", ObservedAt: "2026-09-20T00:00:00Z",
 			DiscoveredModels: []string{}, EligibleModels: []service.AccountCatalogModel{{ID: "target", EvidenceKind: "legacy-mapping-upgrade", EvidenceObservedAt: "2026-09-20T00:00:00Z"}}}

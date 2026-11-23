@@ -631,7 +631,11 @@ func TestCompatibleBufferedResponsesCarriesUsageToSettlement(t *testing.T) {
 			billing := newOpenAIRecordUsageServiceForTest(&openAIRecordUsageLogRepoStub{}, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
 			billing.usageSettlement = NewUsageSettlementService(repo, nil, nil)
 			result.BillingModel = "gpt-5.4"
-			err = billing.RecordUsage(context.Background(), &OpenAIRecordUsageInput{Result: result, User: &User{ID: 1}, APIKey: &APIKey{ID: 2}, Account: account})
+			inputPrice, outputPrice := 1e-6, 2e-6
+			group := &Group{ID: 3, Platform: account.Platform, RateMultiplier: 1, ModelPricing: []ChannelModelPricing{
+				{Platform: account.Platform, Models: []string{result.BillingModel}, InputPrice: &inputPrice, OutputPrice: &outputPrice},
+			}}
+			err = billing.RecordUsage(context.Background(), &OpenAIRecordUsageInput{Result: result, User: &User{ID: 1}, APIKey: &APIKey{ID: 2, GroupID: &group.ID, Group: group}, Account: account})
 			if tc.incomplete {
 				require.ErrorIs(t, err, ErrUsageSettlementNeedsReview)
 				require.Equal(t, "unresolved", repo.receipt.ResolutionState)

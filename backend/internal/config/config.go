@@ -1913,7 +1913,7 @@ func load(allowMissingJWTSecret, allowMissingConfigFile bool) (*Config, error) {
 
 	configErr := viper.ReadInConfig()
 	if configErr != nil {
-		if _, ok := configErr.(viper.ConfigFileNotFoundError); !ok && !(allowMissingConfigFile && errors.Is(configErr, os.ErrNotExist)) {
+		if _, ok := configErr.(viper.ConfigFileNotFoundError); !ok && (!allowMissingConfigFile || !errors.Is(configErr, os.ErrNotExist)) {
 			return nil, fmt.Errorf("read config error: %w", configErr)
 		}
 	} else {

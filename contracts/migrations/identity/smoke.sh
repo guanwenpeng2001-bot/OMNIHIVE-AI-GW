@@ -88,7 +88,7 @@ key_input = {
 issued = request("POST", project + "/keys", 201, bearer=session, payload=key_input, idempotency_key=run)["data"]
 credential = issued["credential"]
 require(credential and credential.startswith("oh_p_"), "Project credential missing on first issue.")
-replay = request("POST", project + "/keys", 201, bearer=session, payload=key_input, idempotency_key=run)["data"]
+replay = request("POST", project + "/keys", 200, bearer=session, payload=key_input, idempotency_key=run)["data"]
 require(replay["id"] == issued["id"] and replay["credential"] is None, "Replay returned a new key or repeated the credential.")
 print("Project key replay preserved the key ID and returned a null credential.")
 

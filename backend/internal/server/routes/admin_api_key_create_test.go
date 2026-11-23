@@ -41,6 +41,8 @@ func (*provisioningUsers) GetUserAvatar(context.Context, int64) (*service.UserAv
 	return nil, nil
 }
 
+const provisioningWorkspaceID int64 = 17
+
 type provisioningGroups struct {
 	service.GroupRepository
 	group service.Group
@@ -48,7 +50,7 @@ type provisioningGroups struct {
 
 func (r *provisioningGroups) GetByID(ctx context.Context, id int64) (*service.Group, error) {
 	workspace, scoped := domain.WorkspaceScope(ctx)
-	if !scoped || workspace != domain.DefaultWorkspaceID || id != r.group.ID {
+	if !scoped || workspace != provisioningWorkspaceID || id != r.group.ID {
 		return nil, service.ErrGroupNotFound
 	}
 	return &r.group, nil
@@ -142,7 +144,7 @@ func newProvisioningFixture(t *testing.T) *provisioningFixture {
 	adminAuth := middleware.NewAdminAuthMiddleware(f.auth, service.NewUserService(f.users, nil, nil, nil), settings, f.audit)
 	handlers := &handler.Handlers{Admin: &handler.AdminHandlers{APIKey: admin.NewAdminAPIKeyHandler(nil, keyService)}}
 	f.router.Use(func(c *gin.Context) {
-		c.Request = c.Request.WithContext(domain.WithDefaultWorkspaceID(c.Request.Context(), 1))
+		c.Request = c.Request.WithContext(domain.WithDefaultWorkspaceID(c.Request.Context(), provisioningWorkspaceID))
 	})
 	RegisterAdminRoutes(f.router.Group("/api/v1"), handlers, adminAuth, middleware.NewAuditLogMiddleware(f.audit),
 		middleware.StepUpAuthMiddleware(func(c *gin.Context) { c.Next() }), settings, nil)
@@ -199,7 +201,7 @@ func TestAdminAPIKeyCreateProductionRouteAuthentication(t *testing.T) {
 			}
 			require.Equal(t, 1, f.keys.calls)
 			require.Equal(t, int64(42), f.keys.key.UserID)
-			require.Equal(t, domain.DefaultWorkspaceID, f.keys.key.WorkspaceID)
+			require.Equal(t, provisioningWorkspaceID, f.keys.key.WorkspaceID)
 			f.audit.Stop() // flush queued audit records before inspecting them
 			require.Len(t, f.auditRepo.logs, 1)
 			require.Equal(t, int64(1), *f.auditRepo.logs[0].ActorUserID)

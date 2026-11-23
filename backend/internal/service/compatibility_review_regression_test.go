@@ -147,7 +147,11 @@ func TestExplicitNoneRequestedEffortPersistsWithoutCeilingExpansion(t *testing.T
 			require.Equal(t, "none", *effective)
 			repo := &openAIRecordUsageLogRepoStub{inserted: true}
 			svc := newOpenAIRecordUsageServiceForTest(repo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
-			err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{Result: &OpenAIForwardResult{RequestID: "none-record", Model: "gpt-5.4", RequestedReasoningEffort: requested, ReasoningEffort: effective, Usage: OpenAIUsage{InputTokens: 1, OutputTokens: 1}}, Account: &Account{ID: 30, Platform: platform}, APIKey: &APIKey{ID: 10}, User: &User{ID: 20}})
+			inputPrice, outputPrice := 1e-6, 2e-6
+			group := &Group{ID: 11, Platform: platform, RateMultiplier: 1, ModelPricing: []ChannelModelPricing{
+				{Platform: platform, Models: []string{"gpt-5.4"}, InputPrice: &inputPrice, OutputPrice: &outputPrice},
+			}}
+			err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{Result: &OpenAIForwardResult{RequestID: "none-record", Model: "gpt-5.4", RequestedReasoningEffort: requested, ReasoningEffort: effective, Usage: OpenAIUsage{InputTokens: 1, OutputTokens: 1}}, Account: &Account{ID: 30, Platform: platform}, APIKey: &APIKey{ID: 10, GroupID: &group.ID, Group: group}, User: &User{ID: 20}})
 			require.NoError(t, err)
 			require.Equal(t, "none", *repo.lastLog.RequestedReasoningEffort)
 			require.Equal(t, "none", *repo.lastLog.ReasoningEffort)

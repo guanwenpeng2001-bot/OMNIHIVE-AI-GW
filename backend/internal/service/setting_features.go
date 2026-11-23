@@ -334,7 +334,12 @@ func (s *SettingService) RegistrationDefaults(ctx context.Context) (ProviderDefa
 	if err != nil {
 		return ProviderDefaultGrantSettings{}, err
 	}
-	return ProviderDefaultGrantSettings{Balance: balance.(float64), Concurrency: int(concurrency.(int64))}, nil
+	amount, balanceOK := balance.(float64)
+	limit, concurrencyOK := concurrency.(int64)
+	if !balanceOK || !concurrencyOK {
+		return ProviderDefaultGrantSettings{}, errors.New("registration defaults have invalid types")
+	}
+	return ProviderDefaultGrantSettings{Balance: amount, Concurrency: int(limit)}, nil
 }
 
 func (s *SettingService) registrationDefault(key, raw string, values map[string]string) (any, error) {

@@ -100,7 +100,7 @@ func TestAPIKeyCreateInSelectedProject(t *testing.T) {
 	repo := &projectKeyCreateRepo{project: 19, user: user.ID, group: group.ID, projectWorkspace: 9}
 	svc := NewAPIKeyService(repo, &keyCreateUserRepo{user: user}, &keyCreateGroupRepo{group: group},
 		nil, nil, nil, &config.Config{})
-	ctx := domain.WithWorkspaceScope(t.Context(), domain.DefaultWorkspaceID)
+	ctx := domain.WithWorkspaceScope(t.Context(), 1)
 	req := CreateAPIKeyRequest{Name: "scoped", GroupID: &group.ID, ProjectID: &repo.project}
 	req.WorkspaceID = 4
 	_, err := svc.Create(ctx, user.ID, req)

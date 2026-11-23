@@ -9,7 +9,7 @@ trap 'rm -rf -- "$scratch"' EXIT
 source <(sed '$d' "$script_dir/install.sh")
 if [[ -z "${BE8_RELEASE_CHECKER:-}" ]]; then
     BE8_RELEASE_CHECKER="$scratch/omnihivectl"
-    (cd "$script_dir/../backend" && go build -o "$BE8_RELEASE_CHECKER" ./cmd/omnihivectl)
+    (cd "$script_dir/../backend" && go build -o "$BE8_RELEASE_CHECKER" ./cmd/omnihivectl/refactor/standalone)
 fi
 export BE8_RELEASE_CHECKER
 OS=linux
@@ -120,7 +120,10 @@ CHECKER
 
         install_log="$case_dir/install.log"
         if [ -z "$expected" ]; then
-            download_and_extract "$INSTALL_DIR/omnihive.backup" "$INSTALL_DIR/omnihive" > "$install_log" 2>&1
+            if ! download_and_extract "$INSTALL_DIR/omnihive.backup" "$INSTALL_DIR/omnihive" > "$install_log" 2>&1; then
+                cat "$install_log" >&2
+                exit 1
+            fi
             [[ "$(cat "$INSTALL_DIR/omnihive")" == "new binary" ]]
             [[ "$(cat "$INSTALL_DIR/omnihive.backup")" == "installed binary" ]]
             [[ -x "$INSTALL_DIR/omnihive" ]]

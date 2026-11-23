@@ -99,7 +99,9 @@ func TestCatalogOpenAPIContractAlignment(t *testing.T) {
 	modelMap, ok := detailMap["model"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "catalog_only", modelMap["availability_state"])
-	require.Equal(t, "requires_scope", modelMap["availability"].(map[string]any)["state"])
+	availability, ok := modelMap["availability"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "requires_scope", availability["state"])
 	for key := range modelMap {
 		require.Contains(t, spec.Components.Schemas["ModelSummary"].Properties, key, "ModelSummary missing runtime key %q", key)
 	}
