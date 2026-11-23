@@ -17,6 +17,31 @@ export interface BackupScheduleConfig {
   retain_count: number
 }
 
+export interface BackupSecretKeyStatus {
+  source: string
+  configured: boolean
+  migration_required: boolean
+  key_id?: string
+}
+
+export interface BackupSchedulerRuntime {
+  loaded: boolean
+  health: 'healthy' | 'degraded' | 'error' | 'unknown'
+  next_run_at?: string
+  last_attempt_at?: string
+  last_success_at?: string
+  last_verified_at?: string
+  last_error?: string
+  leader_required: boolean
+  timezone: string
+}
+
+export interface BackupScheduleStatus extends BackupScheduleConfig {
+  runtime: BackupSchedulerRuntime
+  last_verified_backup?: BackupRecord
+  backup_secret_key: BackupSecretKeyStatus
+}
+
 export interface BackupRecord {
   id: string
   status: 'pending' | 'running' | 'completed' | 'failed'
@@ -126,13 +151,13 @@ export async function testImageStorageConnection(
 }
 
 // Schedule
-export async function getSchedule(): Promise<BackupScheduleConfig> {
-  const { data } = await apiClient.get<BackupScheduleConfig>('/admin/backups/schedule')
+export async function getSchedule(): Promise<BackupScheduleStatus> {
+  const { data } = await apiClient.get<BackupScheduleStatus>('/admin/backups/schedule')
   return data
 }
 
-export async function updateSchedule(config: BackupScheduleConfig): Promise<BackupScheduleConfig> {
-  const { data } = await apiClient.put<BackupScheduleConfig>('/admin/backups/schedule', config)
+export async function updateSchedule(config: BackupScheduleConfig): Promise<BackupScheduleStatus> {
+  const { data } = await apiClient.put<BackupScheduleStatus>('/admin/backups/schedule', config)
   return data
 }
 

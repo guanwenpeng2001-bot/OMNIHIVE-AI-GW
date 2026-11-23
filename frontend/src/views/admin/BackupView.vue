@@ -210,6 +210,12 @@
             <p class="mt-1 text-xs text-[var(--muted-foreground)]">{{ t('admin.backup.schedule.retainCountHint') }}</p>
           </div>
         </div>
+        <div class="mt-3 grid grid-cols-1 gap-2 rounded-md border p-3 text-xs md:grid-cols-3" style="border-color: var(--border)">
+          <div><span class="text-[var(--muted-foreground)]">Scheduler</span><div class="font-medium">{{ schedulerRuntime.health || 'unknown' }} · {{ schedulerRuntime.loaded ? 'loaded' : 'not loaded' }}</div></div>
+          <div><span class="text-[var(--muted-foreground)]">Last verified</span><div class="font-medium">{{ schedulerRuntime.last_verified_at || lastVerifiedBackup?.verified_at || '—' }}</div></div>
+          <div><span class="text-[var(--muted-foreground)]">Key source</span><div class="font-medium">{{ backupSecretKey.source || 'legacy_totp' }}<span v-if="backupSecretKey.migration_required"> · migration required</span></div></div>
+        </div>
+        <p v-if="schedulerRuntime.last_error" class="mt-2 text-xs text-[var(--destructive)]">{{ schedulerRuntime.last_error }}</p>
         <div class="mt-4 border-t pt-3.5" style="border-color: var(--border)">
           <button type="button" class="btn btn-primary btn-sm" :disabled="savingSchedule" @click="saveSchedule">
             {{ savingSchedule ? t('common.loading') : t('common.save') }}
@@ -474,6 +480,8 @@ import { useAppStore } from '@/stores'
 import type {
   BackupS3Config,
   BackupScheduleConfig,
+  BackupSchedulerRuntime,
+  BackupSecretKeyStatus,
   BackupRecord,
   BackupDownloadPart,
   ImageStorageConfig,
@@ -544,6 +552,18 @@ const scheduleForm = ref<BackupScheduleConfig>({
   retain_count: 0,
 })
 const savingSchedule = ref(false)
+const schedulerRuntime = ref<BackupSchedulerRuntime>({
+  loaded: false,
+  health: 'unknown',
+  leader_required: true,
+  timezone: '',
+})
+const backupSecretKey = ref<BackupSecretKeyStatus>({
+  source: 'legacy_totp',
+  configured: false,
+  migration_required: true,
+})
+const lastVerifiedBackup = ref<BackupRecord | undefined>()
 
 // Backups
 const backups = ref<BackupRecord[]>([])
@@ -761,6 +781,9 @@ async function loadSchedule() {
       retain_days: cfg.retain_days ?? 14,
       retain_count: cfg.retain_count ?? 0,
     }
+    schedulerRuntime.value = cfg.runtime || schedulerRuntime.value
+    backupSecretKey.value = cfg.backup_secret_key || backupSecretKey.value
+    lastVerifiedBackup.value = cfg.last_verified_backup
   } catch (error) {
     appStore.showError((error as { message?: string })?.message || t('errors.networkError'))
   }
@@ -769,7 +792,10 @@ async function loadSchedule() {
 async function saveSchedule() {
   savingSchedule.value = true
   try {
-    await adminAPI.backup.updateSchedule(scheduleForm.value)
+    const status = await adminAPI.backup.updateSchedule(scheduleForm.value)
+    schedulerRuntime.value = status.runtime || schedulerRuntime.value
+    backupSecretKey.value = status.backup_secret_key || backupSecretKey.value
+    lastVerifiedBackup.value = status.last_verified_backup
     appStore.showSuccess(t('admin.backup.schedule.saved'))
   } catch (error) {
     appStore.showError((error as { message?: string })?.message || t('errors.networkError'))
