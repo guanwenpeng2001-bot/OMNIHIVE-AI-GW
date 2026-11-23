@@ -310,7 +310,7 @@ jobs:
           exec 3>&1 4>&2
           exec >"$log_path" 2>&1
           trap 'test_status=$?; trap - EXIT; exec 1>&3 2>&4; python3 ../scripts/summarize-go-test-log.py "$log_path" || true; exit "$test_status"' EXIT
-          set -e
+          set -eo pipefail
           reset_db() {
             for db in job_test stats_test billing_audit_test backup_data_test be09_journal_test model_access_test ops_billing_backlog_test scheduler_recovery_test scheduler_resources_test prompt_audit_test; do
               docker exec "${{ job.services.postgres.id }}" psql -U omni_fixture -d template1 -v ON_ERROR_STOP=1 \
