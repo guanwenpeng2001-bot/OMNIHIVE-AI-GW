@@ -64,6 +64,8 @@ describe('navigationRegistry <-> router consistency contract', () => {
   it.each([
     ['/admin/security-audit', 'AdminPromptAudit'],
     ['/admin/members', 'AdminMembers'],
+    ['/admin/models', 'AdminModelsCatalog'],
+    ['/admin/settings/diagnostics', 'AdminSettingsSection'],
     ['/admin/settings/general', 'AdminSettingsSection'],
     ['/admin/settings/security', 'AdminSettingsSection']
   ])('resolves %s to %s', (path, expectedName) => {

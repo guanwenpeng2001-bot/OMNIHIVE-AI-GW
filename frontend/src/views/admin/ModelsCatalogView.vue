@@ -107,7 +107,6 @@ const loadingMoreOffers = ref(false)
 const detailError = ref('')
 const detailSnapshotExpired = ref(false)
 
-
 let listRequestGeneration = 0
 let detailRequestGeneration = 0
 let listAbortController: AbortController | null = null
@@ -589,7 +588,7 @@ onMounted(() => {
               class="btn btn-secondary btn-sm text-xs"
               @click="handleExportUnpricedCsv"
             >
-              {{ isZh ? '导出缺价 CSV' : 'Export Unpriced CSV' }}
+              {{ isZh ? '导出当前列表缺价 CSV' : 'Export Unpriced CSV (Loaded Rows)' }}
             </button>
             <button
               type="button"
