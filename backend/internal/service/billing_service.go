@@ -1278,19 +1278,24 @@ func (s *BillingService) getProviderModelPricingAt(provider, model string, prici
 	// 1. 优先从动态价格服务获取
 	if s.pricingService != nil {
 		var litellmPricing *LiteLLMModelPricing
+		legacyGPTImage := false
 		if provider != "" {
 			var err error
 			litellmPricing, err = s.pricingService.providerModelPricing(provider, model, IsGPTImageGenerationModel(model))
 			if err != nil {
 				return nil, err
 			}
-		} else if IsGPTImageGenerationModel(model) {
-			// GPT Image billing requires this exact model's tariff, not family fallback.
-			s.pricingService.mu.RLock()
-			litellmPricing = s.pricingService.pricingData[model]
-			s.pricingService.mu.RUnlock()
-		} else {
-			litellmPricing = s.pricingService.GetModelPricing(model)
+		}
+		if litellmPricing == nil {
+			if IsGPTImageGenerationModel(model) {
+				// The legacy GPT Image token lane used the exact global entry.
+				s.pricingService.mu.RLock()
+				litellmPricing = s.pricingService.pricingData[model]
+				s.pricingService.mu.RUnlock()
+				legacyGPTImage = true
+			} else if provider == "" {
+				litellmPricing = s.pricingService.GetModelPricing(model)
+			}
 		}
 		if litellmPricing != nil && len(litellmPricing.PriceVariants) > 0 {
 			return nil, ErrModelPricingUnavailable
@@ -1341,7 +1346,9 @@ func (s *BillingService) getProviderModelPricingAt(provider, model string, prici
 				ImageOutputPricePerToken:      litellmPricing.OutputCostPerImageToken,
 			}
 			pricing.preserveTokenPricePresence()
-			if litellmPricing.staticTariff {
+			if legacyGPTImage {
+				pricing.Source = legacyGPTImageSource
+			} else if litellmPricing.staticTariff {
 				pricing.Source = PricingSourceStaticFallback
 			}
 			return s.applyModelSpecificPricingPolicyEx(model, pricing, true, pricingAt), nil
@@ -2347,37 +2354,29 @@ func (s *BillingService) getVideoUnitPrice(model string, resolution string, grou
 
 // getDefaultImagePrice 获取 LiteLLM 默认图片价格
 func (s *BillingService) getDefaultImagePrice(model string, imageSize string) float64 {
+	rate, _ := s.legacyDefaultImageRate(model, imageSize)
+	return rate
+}
+
+// legacyDefaultImageRate reproduces the v0.3.3 sale fallback from the local
+// billing catalog and built-in rates.
+func (s *BillingService) legacyDefaultImageRate(model string, imageSize string) (float64, string) {
 	if price, ok := getDefaultGrokImagineImagePrice(model, imageSize); ok {
-		return price
-	}
-
-	basePrice := 0.0
-
-	// 从 PricingService 获取 output_cost_per_image
-	if s.pricingService != nil {
-		pricing := s.pricingService.GetModelPricing(model)
-		if pricing != nil && pricing.OutputCostPerImage > 0 {
-			basePrice = pricing.OutputCostPerImage
-		}
+		return price, legacyGrokMediaSource
 	}
 
 	if IsGPTImageGenerationModel(model) {
-		return math.NaN()
-	}
-	// 如果没有找到价格，使用硬编码默认值（$0.134，来自 gemini-3-pro-image-preview）
-	if basePrice <= 0 {
-		basePrice = defaultImageGenerationPrice
+		return math.NaN(), ""
 	}
 
-	// 2K 尺寸 1.5 倍，4K 尺寸翻倍
-	if imageSize == "2K" {
-		return basePrice * 1.5
-	}
-	if imageSize == "4K" {
-		return basePrice * 2
+	if s.pricingService != nil {
+		pricing := s.pricingService.GetModelPricing(model)
+		if pricing != nil && pricing.OutputCostPerImage > 0 {
+			return scaleImageRate(pricing.OutputCostPerImage, imageSize), legacyImageCatalogSource
+		}
 	}
 
-	return basePrice
+	return scaleImageRate(defaultImageGenerationPrice, imageSize), legacyImageDefaultSource
 }
 
 func (s *BillingService) getDefaultVideoPrice(model string, resolution string) float64 {

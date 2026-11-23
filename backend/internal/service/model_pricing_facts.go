@@ -235,8 +235,14 @@ func (r *ModelPricingResolver) configuredPriceDescriptor(ctx context.Context, in
 	if r.billingService != nil {
 		billing := r.billingService.forGatewayRequest(ctx)
 		if billing.pricingService != nil {
+			media := input.Mode == BillingModeImage || input.Mode == BillingModeVideo
 			if input.shadowLegacy || platform == "" {
 				descriptor.Variants = billing.pricingService.modelPriceVariants(input.Model, platform)
+				if !input.shadowLegacy && media {
+					descriptor.Source = legacyMediaVariantSource
+				} else if !input.shadowLegacy && IsGPTImageGenerationModel(input.Model) {
+					descriptor.Source = legacyGPTImageSource
+				}
 			} else {
 				card, err := billing.pricingService.providerModelPricing(platform, input.Model, true)
 				if err != nil {
@@ -247,6 +253,17 @@ func (r *ModelPricingResolver) configuredPriceDescriptor(ctx context.Context, in
 					if card.staticTariff {
 						descriptor.Source = PricingSourceStaticFallback
 					}
+				}
+				// The legacy media calculators could resolve an exact global variant
+				// after the group and channel paths. Preserve that binding when the
+				// provider has no applicable media card.
+				if media && len(descriptor.Variants) == 0 && (card == nil || !card.tariffDeleted &&
+					(input.Mode != BillingModeImage || !hasScopedImageRate(card))) {
+					descriptor.Variants = billing.pricingService.modelPriceVariants(input.Model, "")
+					descriptor.Source = legacyMediaVariantSource
+				} else if card == nil && IsGPTImageGenerationModel(input.Model) {
+					descriptor.Variants = billing.pricingService.modelPriceVariants(input.Model, "")
+					descriptor.Source = legacyGPTImageSource
 				}
 			}
 			if len(descriptor.Variants) > 0 {

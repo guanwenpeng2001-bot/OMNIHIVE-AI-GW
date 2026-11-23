@@ -773,7 +773,8 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 	if len(thinkingEnabled) > 0 {
 		thinking = thinkingEnabled[0]
 	}
-	if s.resolver != nil && apiKey.Group != nil || pricingPlatform(ctx, PricingInput{Group: apiKey.Group}) != "" || playgroundPriceFromContext(ctx) != nil {
+	if s.resolver != nil && apiKey.Group != nil || pricingPlatform(ctx, PricingInput{Group: apiKey.Group}) != "" ||
+		IsGPTImageGenerationModel(billingModel) || playgroundPriceFromContext(ctx) != nil {
 		gid := pricingGroupID(apiKey)
 		resolver := s.resolver
 		if resolver == nil {
