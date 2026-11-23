@@ -14,6 +14,7 @@ var coreDatabaseSettingDefaults = map[string]string{
 	SettingKeyAliyunCaptchaSceneID: "", SettingKeyAliyunCaptchaPrefix: "", SettingKeyAliyunCaptchaRegion: "cn",
 	SettingKeySMTPHost: "", SettingKeySMTPPort: "587", SettingKeySMTPUsername: "", SettingKeySMTPPassword: "",
 	SettingKeySMTPFrom: "", SettingKeySMTPFromName: "", SettingKeySMTPUseTLS: "false", SettingKeyAdminAPIKey: "",
+	SettingKeyAntigravityUserAgentVersion: "",
 	SettingKeyOpenAITTFTMode: OpenAITTFTModeSemantic, SettingKeyEnableFingerprintUnification: "true",
 	SettingKeyEnableMetadataPassthrough: "false", SettingKeyEnableCCHSigning: "false",
 	SettingKeyEnableClaudeOAuthSystemPromptInjection: "true", SettingKeyClaudeOAuthSystemPrompt: "",

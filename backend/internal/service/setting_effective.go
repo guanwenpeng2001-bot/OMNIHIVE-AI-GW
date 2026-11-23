@@ -81,53 +81,61 @@ func (s *SettingService) EffectiveSettings(ctx context.Context, filter Effective
 	if readErr != nil {
 		stored = map[string]string{}
 	}
-	items := make([]EffectiveSetting, 0)
-	query := strings.ToLower(strings.TrimSpace(filter.Query))
-	for _, registration := range s.SettingRegistry() {
-		if filter.Group != "" && registration.Group != filter.Group {
-			continue
+	items := s.registryEffectiveSettings(stored, readErr)
+	seedSources := make(map[string]string)
+	for key := range installSeedSettingKeys {
+		if item, ok := stored[key+"_install_seed_source"]; ok {
+			seedSources[key] = item
 		}
-		if query != "" && !strings.Contains(strings.ToLower(registration.Key), query) && !strings.Contains(strings.ToLower(registration.Group), query) {
-			continue
-		}
-		if filter.AfterCursor != "" && registration.Key <= filter.AfterCursor {
-			continue
-		}
-		item := s.resolveEffectiveSetting(registration, stored, readErr)
+	}
+	for index := range items {
+		item := &items[index]
 		if item.State == EffectiveSettingStateInvalid {
 			item.ErrorCode = "CONFIG_INVALID"
 		} else if item.State == EffectiveSettingStateUnavailable {
 			item.ErrorCode = "CONFIG_UNAVAILABLE"
 		}
-		if strings.HasSuffix(registration.Key, "_install_seed_source") {
+		if strings.HasSuffix(item.Key, "_install_seed_source") {
 			item.InstallSeedSource = fmt.Sprint(item.Value)
 			item.Value = nil
 		} else {
-			item.InstallSeedSource = installSeedSource(registration.Key)
+			item.InstallSeedSource = installSeedSource(item.Key)
+			if seed, ok := seedSources[item.Key]; ok {
+				item.InstallSeedSource = seed
+			}
 		}
-		s.applySecurityGate(&item, registration, stored, readErr)
+	}
+	items = append(items, s.derivedSecurityGates(items, readErr)...)
+	sort.Slice(items, func(left, right int) bool { return items[left].Key < items[right].Key })
+	for index := 1; index < len(items); index++ {
+		if items[index-1].Key == items[index].Key {
+			return nil, fmt.Errorf("duplicate effective setting key %q", items[index].Key)
+		}
+	}
+
+	query := strings.ToLower(strings.TrimSpace(filter.Query))
+	filtered := make([]EffectiveSetting, 0, len(items))
+	for _, item := range items {
+		if filter.Group != "" && item.Group != filter.Group {
+			continue
+		}
+		if query != "" && !strings.Contains(strings.ToLower(item.Key), query) && !strings.Contains(strings.ToLower(item.Group), query) {
+			continue
+		}
 		if filter.Source != "" && item.Source != filter.Source {
 			continue
 		}
 		if filter.State != "" && item.State != filter.State {
 			continue
 		}
-		items = append(items, item)
-	}
-	items = s.appendDerivedSecurityGates(s.registryEffectiveSettings(stored, readErr), filter, readErr)
-	if filter.Source == "derived" {
-		derived := make([]EffectiveSetting, 0, 3)
-		for _, item := range items {
-			if item.Source == "derived" {
-				derived = append(derived, item)
-			}
+		if filter.AfterCursor != "" && item.Key <= filter.AfterCursor {
+			continue
 		}
-		items = derived
+		filtered = append(filtered, item)
 	}
-	page := &EffectiveSettingsPage{ConfigFile: s.ConfigFile(), GeneratedAt: time.Now().UTC(), Items: items}
-	sort.Slice(page.Items, func(left, right int) bool { return page.Items[left].Key < page.Items[right].Key })
-	if len(items) > filter.Limit {
-		page.Items = items[:filter.Limit]
+	page := &EffectiveSettingsPage{ConfigFile: s.ConfigFile(), GeneratedAt: time.Now().UTC(), Items: filtered}
+	if len(filtered) > filter.Limit {
+		page.Items = filtered[:filter.Limit]
 		page.NextCursor = page.Items[len(page.Items)-1].Key
 	}
 	return page, nil
@@ -143,7 +151,7 @@ func (s *SettingService) registryEffectiveSettings(stored map[string]string, rea
 	return items
 }
 
-func (s *SettingService) appendDerivedSecurityGates(items []EffectiveSetting, filter EffectiveSettingsFilter, readErr error) []EffectiveSetting {
+func (s *SettingService) derivedSecurityGates(items []EffectiveSetting, readErr error) []EffectiveSetting {
 	values := map[string]EffectiveSetting{}
 	for _, item := range items {
 		values[item.Key] = item
@@ -164,15 +172,12 @@ func (s *SettingService) appendDerivedSecurityGates(items []EffectiveSetting, fi
 			passkey.BlockedBy = SettingKeyPasskeyEnabled
 		}
 	}
-	if (filter.Group == "" || filter.Group == passkey.Group) && (filter.Query == "" || strings.Contains(passkey.Key, strings.ToLower(filter.Query))) && (filter.AfterCursor == "" || passkey.Key > filter.AfterCursor) && (filter.State == "" || filter.State == passkey.State) {
-		items = append(items, passkey)
-	}
-
 	turnstile := EffectiveSetting{Key: "turnstile.effective_enabled", Group: "security", ValueType: SettingValueBool, Source: "derived", Authority: SettingAuthorityDeployment, FallbackChain: []string{"derived"}, State: EffectiveSettingStateEffective}
 	turnstileSoft, turnstileOK := values[SettingKeyTurnstileEnabled]
 	turnstileSecret, secretOK := values[SettingKeyTurnstileSecretKey]
+	turnstileSite, siteOK := values[SettingKeyTurnstileSiteKey]
 	turnstileRequired := s.cfg != nil && s.cfg.Server.Mode == "release" && s.cfg.Turnstile.Required
-	turnstile.Value = turnstileOK && turnstileSoft.Value == true && turnstileSoft.State == EffectiveSettingStateEffective && secretOK && turnstileSecret.Configured != nil && *turnstileSecret.Configured
+	turnstile.Value = turnstileOK && turnstileSoft.Value == true && turnstileSoft.State == EffectiveSettingStateEffective && secretOK && turnstileSecret.Configured != nil && *turnstileSecret.Configured && siteOK && strings.TrimSpace(fmt.Sprint(turnstileSite.Value)) != ""
 	if readErr != nil {
 		turnstile.Value = false
 		turnstile.State = EffectiveSettingStateUnavailable
@@ -181,9 +186,6 @@ func (s *SettingService) appendDerivedSecurityGates(items []EffectiveSetting, fi
 		turnstile.State = EffectiveSettingStateBlockedByHardGate
 		turnstile.BlockedBy = "turnstile.required"
 		turnstile.ErrorCode = "TURNSTILE_REQUIRED_NOT_CONFIGURED"
-	}
-	if (filter.Group == "" || filter.Group == turnstile.Group) && (filter.Query == "" || strings.Contains(turnstile.Key, strings.ToLower(filter.Query))) && (filter.AfterCursor == "" || turnstile.Key > filter.AfterCursor) && (filter.State == "" || filter.State == turnstile.State) {
-		items = append(items, turnstile)
 	}
 	ops := EffectiveSetting{Key: "ops.effective_enabled", Group: "ops", ValueType: SettingValueBool, Source: "derived", Authority: SettingAuthorityDeployment, FallbackChain: []string{"derived"}, State: EffectiveSettingStateEffective}
 	opsHard, hardOK := values["ops.enabled"]
@@ -201,10 +203,7 @@ func (s *SettingService) appendDerivedSecurityGates(items []EffectiveSetting, fi
 			ops.BlockedBy = SettingKeyOpsMonitoringEnabled
 		}
 	}
-	if (filter.Group == "" || filter.Group == ops.Group) && (filter.Query == "" || strings.Contains(ops.Key, strings.ToLower(filter.Query))) && (filter.AfterCursor == "" || ops.Key > filter.AfterCursor) && (filter.State == "" || filter.State == ops.State) {
-		return append(items, ops)
-	}
-	return items
+	return []EffectiveSetting{ops, passkey, turnstile}
 }
 
 func (s *SettingService) EffectiveSettingByKeys(ctx context.Context, keys []string) ([]EffectiveSetting, error) {
@@ -278,11 +277,22 @@ func (s *SettingService) resolveEffectiveSetting(registration SettingRegistratio
 				item.Source = "default"
 				item.Value = registration.Default
 			}
-			return s.redactEffectiveSetting(item, databaseConfigured)
+		return s.redactEffectiveSetting(item, databaseConfigured || registration.Sensitive && raw != "")
 		}
 	}
 
-	baseline, source, valid := s.deploymentBaseline(registration)
+		baseline, source, valid := s.deploymentBaseline(registration)
+		if _, configured := stored[registration.Key+"_install_seed_source"]; configured && registration.EnvironmentKey != "" {
+			item.Baseline, source, valid = s.deploymentBaseline(registration)
+		} else if raw, ok := os.LookupEnv(registration.EnvironmentKey); registration.EnvironmentKey != "" && ok {
+			item.Source = "environment"
+			item.Value, valid = parseEffectiveValue(raw, registration.ValueType)
+			if !valid {
+				item.State = EffectiveSettingStateInvalid
+				item.Value = failClosedValue(registration)
+			}
+			return s.redactEffectiveSetting(item, false)
+		}
 	item.Baseline = baseline
 	item.HasBaseline = true
 	if !databaseConfigured {
@@ -354,11 +364,12 @@ func (s *SettingService) applySecurityGate(item *EffectiveSetting, registration 
 		required := s.cfg != nil && s.cfg.Server.Mode == "release" && s.cfg.Turnstile.Required
 		enabled := item.State == EffectiveSettingStateEffective && item.Value == true
 		secretConfigured := strings.TrimSpace(stored[SettingKeyTurnstileSecretKey]) != ""
-		if required && !enabled {
+		siteConfigured := strings.TrimSpace(stored[SettingKeyTurnstileSiteKey]) != ""
+		if required && (!enabled || !secretConfigured || !siteConfigured) {
 			item.State = EffectiveSettingStateBlockedByHardGate
 			item.BlockedBy = "turnstile.required"
 		}
-		if required && (!enabled || !secretConfigured) {
+		if required && (!enabled || !secretConfigured || !siteConfigured) {
 			item.Value = false
 		}
 	}

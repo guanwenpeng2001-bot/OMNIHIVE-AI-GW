@@ -165,6 +165,162 @@ func TestEffectiveSettingsHardGatesFailClosed(t *testing.T) {
 	require.Equal(t, "turnstile.required", turnstile.BlockedBy)
 }
 
+func TestEffectiveSettingsPaginationReachesEveryDerivedGateWithoutDuplicates(t *testing.T) {
+	svc := registryService(&registrySettingRepoStub{values: map[string]string{}})
+	all, err := svc.EffectiveSettings(context.Background(), EffectiveSettingsFilter{Limit: 200})
+	require.NoError(t, err)
+	require.NotEmpty(t, all.NextCursor)
+	expectedCount := len(svc.SettingRegistry()) + 3
+
+	for _, limit := range []int{1, 2, 3, 7, 50} {
+		filter := EffectiveSettingsFilter{Limit: limit}
+		seen := map[string]struct{}{}
+		keys := []string{}
+		pages := 0
+		maxPages := (expectedCount+limit-1)/limit + 1
+		for {
+			page, err := svc.EffectiveSettings(context.Background(), filter)
+			require.NoError(t, err)
+			require.NotEmpty(t, page.Items)
+			require.LessOrEqual(t, len(page.Items), limit)
+			pages++
+			for index, item := range page.Items {
+				if index > 0 {
+					require.Less(t, page.Items[index-1].Key, item.Key)
+				}
+				if len(keys) > 0 {
+					require.Less(t, keys[len(keys)-1], item.Key)
+				}
+				_, duplicate := seen[item.Key]
+				require.False(t, duplicate, "duplicate key %s", item.Key)
+				seen[item.Key] = struct{}{}
+				keys = append(keys, item.Key)
+				if item.Sensitive {
+					require.Nil(t, item.Value)
+					require.Nil(t, item.Baseline)
+				}
+			}
+			if page.NextCursor == "" {
+				break
+			}
+			require.Equal(t, keys[len(keys)-1], page.NextCursor, "cursor must come from the returned page")
+			filter.AfterCursor = page.NextCursor
+			require.LessOrEqual(t, pages, maxPages, "cursor did not advance")
+		}
+		require.Len(t, keys, expectedCount)
+		for _, registration := range svc.SettingRegistry() {
+			require.Contains(t, seen, registration.Key)
+		}
+		for _, key := range []string{"passkey.effective_enabled", "turnstile.effective_enabled", "ops.effective_enabled"} {
+			require.Contains(t, seen, key)
+		}
+	}
+}
+
+func TestEffectiveSettingsFiltersApplyAfterGlobalOrdering(t *testing.T) {
+	svc := registryService(&registrySettingRepoStub{values: map[string]string{}})
+	for _, filter := range []EffectiveSettingsFilter{
+		{Source: "derived"},
+		{Group: "security"},
+		{Query: "effective_enabled"},
+		{State: EffectiveSettingStateBlockedByHardGate},
+	} {
+		filter.Limit = 1
+		seen := map[string]struct{}{}
+		for {
+			page, err := svc.EffectiveSettings(context.Background(), filter)
+			require.NoError(t, err)
+			for _, item := range page.Items {
+				_, duplicate := seen[item.Key]
+				require.False(t, duplicate)
+				seen[item.Key] = struct{}{}
+				if filter.Source != "" {
+					require.Equal(t, filter.Source, item.Source)
+				}
+				if filter.Group != "" {
+					require.Equal(t, filter.Group, item.Group)
+				}
+				if filter.State != "" {
+					require.Equal(t, filter.State, item.State)
+				}
+			}
+			if page.NextCursor == "" {
+				break
+			}
+			filter.AfterCursor = page.NextCursor
+		}
+		require.NotEmpty(t, seen)
+		if filter.Source == "derived" || filter.Query == "effective_enabled" {
+			require.Len(t, seen, 3)
+			for _, key := range []string{"passkey.effective_enabled", "turnstile.effective_enabled", "ops.effective_enabled"} {
+				require.Contains(t, seen, key)
+			}
+		}
+	}
+}
+
+func TestRegistrationDefaultsMissingRowsUseDeploymentBaseline(t *testing.T) {
+	t.Setenv("DEFAULT_USER_BALANCE", "12.5")
+	t.Setenv("DEFAULT_USER_CONCURRENCY", "17")
+	svc := registryService(&registrySettingRepoStub{values: map[string]string{}})
+	defaults, err := svc.RegistrationDefaults(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 12.5, defaults.Balance)
+	require.Equal(t, 17, defaults.Concurrency)
+	require.Equal(t, 12.5, svc.GetDefaultBalance(context.Background()))
+	require.Equal(t, 17, svc.GetDefaultConcurrency(context.Background()))
+
+	os.Unsetenv("DEFAULT_USER_BALANCE")
+	os.Unsetenv("DEFAULT_USER_CONCURRENCY")
+	svc = NewSettingService(&registrySettingRepoStub{values: map[string]string{}}, &config.Config{Default: config.DefaultConfig{UserBalance: 8.25, UserConcurrency: 9}})
+	defaults, err = svc.RegistrationDefaults(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 8.25, defaults.Balance)
+	require.Equal(t, 9, defaults.Concurrency)
+}
+
+func TestRegistrationDefaultsFailClosedOnReadAndMalformedValues(t *testing.T) {
+	t.Setenv("DEFAULT_USER_BALANCE", "99")
+	t.Setenv("DEFAULT_USER_CONCURRENCY", "99")
+	for _, test := range []struct {
+		name string
+		repo *registrySettingRepoStub
+	}{
+		{name: "read error", repo: &registrySettingRepoStub{values: map[string]string{}, readErr: errors.New("database unavailable")}},
+		{name: "malformed balance", repo: &registrySettingRepoStub{values: map[string]string{SettingKeyDefaultBalance: "not-money"}}},
+		{name: "negative balance", repo: &registrySettingRepoStub{values: map[string]string{SettingKeyDefaultBalance: "-1"}}},
+		{name: "non-finite balance", repo: &registrySettingRepoStub{values: map[string]string{SettingKeyDefaultBalance: "NaN"}}},
+		{name: "malformed concurrency", repo: &registrySettingRepoStub{values: map[string]string{SettingKeyDefaultConcurrency: "many"}}},
+		{name: "negative concurrency", repo: &registrySettingRepoStub{values: map[string]string{SettingKeyDefaultConcurrency: "-1"}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			svc := registryService(test.repo)
+			_, err := svc.RegistrationDefaults(context.Background())
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "registration default")
+			_, _, err = svc.ResolveAuthSourceGrantSettings(context.Background(), "email", false)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestRegistrationDefaultsPreserveExplicitZeroAndRegistryFallback(t *testing.T) {
+	svc := registryService(&registrySettingRepoStub{values: map[string]string{SettingKeyDefaultBalance: "0", SettingKeyDefaultConcurrency: "0"}})
+	defaults, err := svc.RegistrationDefaults(context.Background())
+	require.NoError(t, err)
+	require.Zero(t, defaults.Balance)
+	require.Zero(t, defaults.Concurrency)
+
+	svc = NewSettingService(&registrySettingRepoStub{values: map[string]string{}}, &config.Config{Default: config.DefaultConfig{UserBalance: defaultRegistryBalance, UserConcurrency: defaultRegistryConcurrency}})
+	defaults, err = svc.RegistrationDefaults(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, defaultRegistryBalance, defaults.Balance)
+	require.Equal(t, defaultRegistryConcurrency, defaults.Concurrency)
+
+	_, err = NewSettingService(nil, &config.Config{}).RegistrationDefaults(context.Background())
+	require.Error(t, err)
+}
+
 func TestResetConfigOverridesValidatesBeforeDeletingAndResetsProviderGroup(t *testing.T) {
 	repo := &registrySettingRepoStub{values: map[string]string{
 		SettingKeyLinuxDoConnectEnabled: "true", SettingKeyLinuxDoConnectClientID: "db-client",
@@ -239,8 +395,10 @@ func TestRegistryCoversExistingDefaultAndWriteKeys(t *testing.T) {
 	for key := range updates {
 		require.True(t, registry[key], "write key has no registration: %s", key)
 	}
-	for key := range svc.databaseSettingDefaults() {
-		require.NotContains(t, strings.ToLower(key), "password", "passwords must be explicitly redacted")
+	for _, registration := range svc.SettingRegistry() {
+		if strings.Contains(strings.ToLower(registration.Key), "password") && !strings.HasSuffix(registration.Key, "_enabled") {
+			require.True(t, registration.Sensitive, "password key must be explicitly redacted: %s", registration.Key)
+		}
 	}
 }
 

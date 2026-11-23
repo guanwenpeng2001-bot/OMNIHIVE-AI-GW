@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 )
 
 // IsRegistrationEnabled 检查是否开放注册
@@ -312,32 +314,147 @@ func (s *SettingService) GetSiteName(ctx context.Context) string {
 	return value
 }
 
-// GetDefaultConcurrency 获取默认并发量
+// RegistrationDefaults resolves all money/limit-sensitive defaults together.
+// A genuinely missing row uses the deployment-aware install baseline; storage
+// failures and malformed values must block registration rather than substitute
+// registry constants.
+func (s *SettingService) RegistrationDefaults(ctx context.Context) (ProviderDefaultGrantSettings, error) {
+	if s == nil || s.settingRepo == nil {
+		return ProviderDefaultGrantSettings{}, errors.New("registration defaults unavailable: setting repository not initialized")
+	}
+	values, err := s.settingRepo.GetMultiple(ctx, []string{SettingKeyDefaultBalance, SettingKeyDefaultConcurrency})
+	if err != nil {
+		return ProviderDefaultGrantSettings{}, fmt.Errorf("registration defaults unavailable: read settings: %w", err)
+	}
+	balance, err := s.registrationDefault(SettingKeyDefaultBalance, values[SettingKeyDefaultBalance], values)
+	if err != nil {
+		return ProviderDefaultGrantSettings{}, err
+	}
+	concurrency, err := s.registrationDefault(SettingKeyDefaultConcurrency, values[SettingKeyDefaultConcurrency], values)
+	if err != nil {
+		return ProviderDefaultGrantSettings{}, err
+	}
+	return ProviderDefaultGrantSettings{Balance: balance.(float64), Concurrency: int(concurrency.(int64))}, nil
+}
+
+func (s *SettingService) registrationDefault(key, raw string, values map[string]string) (any, error) {
+	registration, ok := s.settingRegistration(key)
+	if !ok {
+		return nil, fmt.Errorf("registration default %s is not registered", key)
+	}
+	_, configured := values[key]
+	if !configured {
+		registration.Default = deploymentRegistrationDefault(s.cfg, key)
+		baseline, _, valid := s.deploymentBaseline(registration)
+		if !valid {
+			return nil, fmt.Errorf("registration default %s has invalid deployment baseline", key)
+		}
+		return validateRegistrationDefault(key, baseline)
+	}
+	value, valid := parseEffectiveValue(raw, registration.ValueType)
+	if !valid {
+		return nil, fmt.Errorf("registration default %s has invalid stored value", key)
+	}
+	return validateRegistrationDefault(key, value)
+}
+
+func deploymentRegistrationDefault(cfg *config.Config, key string) any {
+	if cfg == nil {
+		if key == SettingKeyDefaultBalance {
+			return defaultRegistryBalance
+		}
+		return defaultRegistryConcurrency
+	}
+	if key == SettingKeyDefaultBalance {
+		return cfg.Default.UserBalance
+	}
+	return cfg.Default.UserConcurrency
+}
+
+func validateRegistrationDefault(key string, value any) (any, error) {
+	switch value := value.(type) {
+	case float64:
+		if value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+			return nil, fmt.Errorf("registration default %s must be non-negative", key)
+		}
+	case int:
+		if value < 0 {
+			return nil, fmt.Errorf("registration default %s must be non-negative", key)
+		}
+		if key == SettingKeyDefaultBalance {
+			return float64(value), nil
+		}
+		return int64(value), nil
+	case int64:
+		if value < 0 || int64(int(value)) != value {
+			return nil, fmt.Errorf("registration default %s is outside the supported concurrency range", key)
+		}
+		if key == SettingKeyDefaultBalance {
+			return float64(value), nil
+		}
+	default:
+		return nil, fmt.Errorf("registration default %s has an unsupported value type", key)
+	}
+	return value, nil
+}
+
+func (s *SettingService) settingRegistration(key string) (SettingRegistration, bool) {
+	for _, registration := range s.SettingRegistry() {
+		if registration.Key == key {
+			return registration, true
+		}
+	}
+	return SettingRegistration{}, false
+}
+
+// GetDefaultConcurrency retains the legacy non-error API. Registration must
+// use RegistrationDefaults so read/parse errors cannot silently change limits.
 func (s *SettingService) GetDefaultConcurrency(ctx context.Context) int {
 	if s == nil || s.settingRepo == nil {
 		return defaultRegistryConcurrency
 	}
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyDefaultConcurrency)
-	if err != nil {
-		return defaultRegistryConcurrency
+	if errors.Is(err, ErrSettingNotFound) {
+		if registration, ok := s.settingRegistration(SettingKeyDefaultConcurrency); ok {
+			baseline, _, valid := s.deploymentBaseline(registration)
+			if parsed, ok := baseline.(int64); ok && valid {
+				return int(parsed)
+			}
+			if parsed, ok := baseline.(int); ok && valid && parsed >= 0 {
+				return parsed
+			}
+		}
 	}
-	if v, err := strconv.Atoi(value); err == nil && v >= 0 {
-		return v
+	if err == nil {
+		if parsed, parseErr := strconv.Atoi(value); parseErr == nil && parsed >= 0 {
+			return parsed
+		}
 	}
 	return defaultRegistryConcurrency
 }
 
-// GetDefaultBalance 获取默认余额
+// GetDefaultBalance retains the legacy non-error API. Registration must use
+// RegistrationDefaults so read/parse errors cannot silently change grants.
 func (s *SettingService) GetDefaultBalance(ctx context.Context) float64 {
 	if s == nil || s.settingRepo == nil {
 		return defaultRegistryBalance
 	}
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyDefaultBalance)
-	if err != nil {
-		return defaultRegistryBalance
+	if errors.Is(err, ErrSettingNotFound) {
+		if registration, ok := s.settingRegistration(SettingKeyDefaultBalance); ok {
+			baseline, _, valid := s.deploymentBaseline(registration)
+			if parsed, ok := baseline.(float64); ok && valid {
+				return parsed
+			}
+			if parsed, ok := baseline.(int64); ok && valid && parsed >= 0 {
+				return float64(parsed)
+			}
+		}
 	}
-	if v, err := strconv.ParseFloat(value, 64); err == nil && v >= 0 {
-		return v
+	if err == nil {
+		if parsed, parseErr := strconv.ParseFloat(value, 64); parseErr == nil && parsed >= 0 && !math.IsNaN(parsed) && !math.IsInf(parsed, 0) {
+			return parsed
+		}
 	}
 	return defaultRegistryBalance
 }
@@ -428,11 +545,11 @@ func (s *SettingService) GetAuthSourceDefaultSettings(ctx context.Context) (*Aut
 }
 
 func (s *SettingService) ResolveAuthSourceGrantSettings(ctx context.Context, signupSource string, firstBind bool) (ProviderDefaultGrantSettings, bool, error) {
-	result := ProviderDefaultGrantSettings{
-		Balance:       s.GetDefaultBalance(ctx),
-		Concurrency:   s.GetDefaultConcurrency(ctx),
-		Subscriptions: s.GetDefaultSubscriptions(ctx),
+	result, err := s.RegistrationDefaults(ctx)
+	if err != nil {
+		return ProviderDefaultGrantSettings{}, false, err
 	}
+	result.Subscriptions = s.GetDefaultSubscriptions(ctx)
 
 	defaults, err := s.GetAuthSourceDefaultSettings(ctx)
 	if err != nil {
