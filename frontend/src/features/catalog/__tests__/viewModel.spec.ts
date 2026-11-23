@@ -95,6 +95,7 @@ describe('toCatalogModelVM 3-axis projection', () => {
     })
 
     const publicZh = toCatalogModelVM(summary, null, { isZh: true, perspective: 'public' })
+    expect(publicZh.origin.kinds).toContain('channel_published')
     expect(publicZh.availability.state).toBe('live')
     expect(publicZh.availability.isCallable).toBe(true)
     expect(publicZh.availability.badge?.label).toBe('可调用')

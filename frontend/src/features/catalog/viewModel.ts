@@ -193,6 +193,9 @@ function resolveOriginAxis(
     }
   }
 
+  if (summary.availability?.publication === 'published') {
+    normalized.add('channel_published')
+  }
   const orderedKinds = ORIGIN_PRIORITY.filter((k) => normalized.has(k))
   const badges: OriginBadgeVM[] = orderedKinds.map((kind) => ({
     kind,
