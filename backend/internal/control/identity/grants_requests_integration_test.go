@@ -127,3 +127,85 @@ func TestExactGrantsAndMembershipRequests(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, mine)
 }
+
+func TestAccessDecisionReplayReceipt(t *testing.T) {
+	db, _, _ := testutil.NewCapabilityPostgres(t)
+	ctx := t.Context()
+	store := identitydb.New(db)
+	id := func(query string, args ...any) int64 {
+		t.Helper()
+		var value int64
+		require.NoError(t, db.QueryRowContext(ctx, query, args...).Scan(&value))
+		return value
+	}
+	exec := func(query string, args ...any) {
+		t.Helper()
+		_, err := db.ExecContext(ctx, query, args...)
+		require.NoError(t, err)
+	}
+	for _, scenario := range []string{"demoted reviewer", "archived project", "changed target grants", "no-op approval", "decline", "missing receipt"} {
+		t.Run(scenario, func(t *testing.T) {
+			user := func() int64 {
+				return id("INSERT INTO users(email,role,password_hash) VALUES($1,'user','fixture') RETURNING id", uuid.NewString()+"@example.test")
+			}
+			admin, member := user(), user()
+			w := id("INSERT INTO workspaces(name) VALUES($1) RETURNING id", uuid.NewString())
+			exec("INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'admin'),($1,$3,'member')", w, admin, member)
+			p := id("INSERT INTO projects(workspace_id,name) VALUES($1,'team') RETURNING id", w)
+			in := domain.RequestAccess{RequestedProjectID: &p, Note: "reviewed access"}
+			// The requester can initially see the requested project.
+			v, err := store.SetExactGrants(ctx, admin, w, member, 1, []domain.ProjectGrant{{ProjectID: p, Actions: []string{"models.read"}}})
+			require.NoError(t, err)
+			if scenario == "no-op approval" {
+				v, err = store.SetExactGrants(ctx, admin, w, member, v.Version, []domain.ProjectGrant{{ProjectID: p, Actions: []string{"models.read", "keys.read"}}})
+				require.NoError(t, err)
+			}
+			r, err := store.RequestAccess(ctx, member, w, in, "create")
+			require.NoError(t, err)
+			decision := domain.DecideAccess{Decision: "approve", ProjectID: p, AddActions: []string{"keys.read"}, MemberVersion: v.Version}
+			if scenario == "decline" {
+				decision = domain.DecideAccess{Decision: "decline"}
+			}
+			result, err := store.DecideAccess(ctx, admin, w, r.ID, r.Version, decision, "first")
+			require.NoError(t, err)
+			switch scenario {
+			case "demoted reviewer":
+				exec("UPDATE workspace_members SET role='member' WHERE workspace_id=$1 AND user_id=$2", w, admin)
+			case "archived project":
+				_, err = store.ChangeProject(ctx, admin, w, p, 1, "", true)
+				require.NoError(t, err)
+			case "changed target grants":
+				g, err := store.MemberGrants(ctx, admin, w, member)
+				require.NoError(t, err)
+				_, err = store.SetExactGrants(ctx, admin, w, member, g.Version, []domain.ProjectGrant{})
+				require.NoError(t, err)
+			case "missing receipt":
+				exec("UPDATE project_access_requests SET decision_receipt=NULL WHERE id=$1", r.ID)
+			}
+			version := id("SELECT grant_version FROM workspace_members WHERE workspace_id=$1 AND user_id=$2", w, member)
+			grants := id("SELECT count(*) FROM project_grants WHERE workspace_id=$1 AND user_id=$2", w, member)
+			for _, expected := range []int64{r.Version, result.Version} {
+				again, err := store.DecideAccess(ctx, admin, w, r.ID, expected, decision, "replay")
+				switch scenario {
+				case "demoted reviewer":
+					require.ErrorIs(t, err, fault.Forbidden)
+				case "missing receipt":
+					require.ErrorIs(t, err, fault.Conflict)
+				default:
+					require.NoError(t, err)
+					require.Equal(t, result, again)
+				}
+			}
+			require.Equal(t, version, id("SELECT grant_version FROM workspace_members WHERE workspace_id=$1 AND user_id=$2", w, member))
+			require.Equal(t, grants, id("SELECT count(*) FROM project_grants WHERE workspace_id=$1 AND user_id=$2", w, member))
+			require.EqualValues(t, 1, id("SELECT count(*) FROM audit_logs WHERE action='project.access_request.decision' AND (extra->>'access_request_id')::bigint=$1", result.ID))
+			if scenario == "archived project" {
+				mine, err := store.AccessRequests(ctx, member, w, "mine", domain.Page{AsOf: time.Now().Add(time.Minute), Limit: 10})
+				require.NoError(t, err)
+				require.Len(t, mine, 1)
+				require.Nil(t, mine[0].RequestedProjectID)
+				require.Nil(t, mine[0].ApprovedProjectID)
+			}
+		})
+	}
+}
