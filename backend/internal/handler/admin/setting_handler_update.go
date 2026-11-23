@@ -474,6 +474,15 @@ func omittedSettingKeys(sentFields map[string]json.RawMessage) service.OmittedSe
 			omitted[settingKey] = struct{}{}
 		}
 	}
+	// A PUT that leaves the OIDC provider alone must keep implicit security
+	// defaults. Provider saves retain the existing compatibility behavior.
+	if _, sent := sentFields[service.SettingKeyOIDCConnectEnabled]; !sent {
+		for _, key := range []string{service.SettingKeyOIDCConnectUsePKCE, service.SettingKeyOIDCConnectValidateIDToken} {
+			if _, sent := sentFields[key]; !sent {
+				omitted[key] = struct{}{}
+			}
+		}
+	}
 	return omitted
 }
 

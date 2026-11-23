@@ -16,7 +16,7 @@ import (
 )
 
 func TestSettingsGetAndPutUseTheSameProjection(t *testing.T) {
-	h, _ := newStepUpSwitchTestHandler(t, map[string]string{
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{
 		service.SettingKeySiteName:       "Example Gateway",
 		service.SettingKeyOpenAITTFTMode: service.OpenAITTFTModeVisible,
 	})
@@ -37,6 +37,8 @@ func TestSettingsGetAndPutUseTheSameProjection(t *testing.T) {
 	require.Equal(t, service.OpenAITTFTModeVisible, getResponse.Data["openai_ttft_mode"])
 	require.Contains(t, getResponse.Data, "web_search_emulation_enabled")
 	require.NotContains(t, getResponse.Data, "turnstile_secret_key")
+	require.NotContains(t, repo.values, service.SettingKeyOIDCConnectUsePKCE)
+	require.NotContains(t, repo.values, service.SettingKeyOIDCConnectValidateIDToken)
 }
 
 func TestGetEffectiveConfigRedactsSecretsAndPaginates(t *testing.T) {
