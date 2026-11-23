@@ -216,7 +216,6 @@
             @expand-connect="openConnectClientDrawer"
             @navigate="navigateTo"
             @retry-probe="loadScopedReliabilitySample"
-            @scope-changed="loadScopedReliabilitySample"
           />
           <button type="button" class="card interactive w-full p-4 text-left" @click="navigateTo('/usage')">
             <span class="flex justify-between"><b>{{ isZh ? '日志' : 'Logs' }}</b><span class="opacity-40">›</span></span>
@@ -279,7 +278,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, getCurrentInstance } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, getCurrentInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { resolveReportTimeZone, formatReportDateInput, formatDateTimeWithZone } from '@/utils/format'
 import type { OnboardingDTO, UpdateOnboardingPayload } from '@/api/mcp'
@@ -704,28 +703,25 @@ const loadRecent = async () => {
   }
 }
 const loadPlatformQuotas = async () => { try { const data = await getMyPlatformQuotas(); platformQuotas.value = data.platform_quotas ?? [] } catch (error) { console.warn('Failed to load platform quotas:', error); platformQuotas.value = [] } }
+let scopeRequestSequence = 0
 const loadScopedReliabilitySample = async () => {
-  const userId = authStore.user?.id
-  if (!userId) return
+  const sequence = ++scopeRequestSequence
+  scopedSampleCount.value = 0
+  scopedSucceededCount.value = 0
+  scopedFailureOrUnknownCount.value = 0
+  projectProbeRequestId.value = ''
+  projectActions.value = []
+  const { mode, workspaceId: wsId, projectId: projId } = currentScopeSelection.value
+  if (!authStore.user?.id || mode === 'personal' || !wsId || !projId) {
+    projectProbeState.value = 'idle'
+    return
+  }
+  projectProbeState.value = 'loading'
   try {
-    const active = currentScopeSelection.value
-    if (active.mode === 'personal' || !active.workspaceId || !active.projectId) {
-      // Personal space or Workspace overview: never auto-switch to Default or probe project access
-      projectProbeState.value = 'idle'
-      projectProbeRequestId.value = ''
-      projectActions.value = []
-      scopedSampleCount.value = 0
-      scopedSucceededCount.value = 0
-      scopedFailureOrUnknownCount.value = 0
-      return
-    }
-    const wsId = active.workspaceId
-    const projId = active.projectId
-    projectProbeState.value = 'loading'
-    projectProbeRequestId.value = ''
     if (typeof identityApi.getProjectAccess === 'function') {
       try {
         const access = await identityApi.getProjectAccess(wsId, projId)
+        if (sequence !== scopeRequestSequence) return
         if (Array.isArray(access?.actions)) {
           projectActions.value = access.actions
           projectProbeState.value = 'allowed'
@@ -734,6 +730,7 @@ const loadScopedReliabilitySample = async () => {
           projectProbeState.value = 'unavailable'
         }
       } catch (err) {
+        if (sequence !== scopeRequestSequence) return
         const status = (err as { status?: number; response?: { status?: number } })?.status ??
           (err as { response?: { status?: number } })?.response?.status
         const reqId =
@@ -752,28 +749,29 @@ const loadScopedReliabilitySample = async () => {
         }
       }
     }
-    if (projectProbeState.value !== 'allowed' || !hasProjectAction('requests.read')) {
-      scopedSampleCount.value = 0
-      scopedSucceededCount.value = 0
-      scopedFailureOrUnknownCount.value = 0
-      return
-    }
+    if (!hasProjectAction('requests.read')) return
     const { apiClient } = await import('@/api/client')
     const { data } = await apiClient.get<{ items?: Array<{ outcome?: string }> }>(
       buildGatewayUrl(`/api/v2/workspaces/${wsId}/projects/${projId}/requests`),
       { baseURL: '', params: { limit: 50 }, signal: auditController.signal }
     )
+    if (sequence !== scopeRequestSequence) return
     const rows = Array.isArray(data?.items) ? data.items : []
     const terminal = rows.filter((r) => r.outcome && r.outcome !== 'admitted' && r.outcome !== 'running')
     scopedSampleCount.value = terminal.length
     scopedSucceededCount.value = terminal.filter((r) => r.outcome === 'succeeded').length
     scopedFailureOrUnknownCount.value = terminal.filter((r) => r.outcome !== 'succeeded').length
   } catch {
+    if (sequence !== scopeRequestSequence) return
     scopedSampleCount.value = 0
     scopedSucceededCount.value = 0
     scopedFailureOrUnknownCount.value = 0
   }
 }
+watch(
+  [() => currentScopeSelection.value.workspaceId, () => currentScopeSelection.value.projectId],
+  () => { void loadScopedReliabilitySample() }
+)
 const refreshAll = (isBackgroundRefresh = false) => {
   void loadStats(isBackgroundRefresh)
   void loadCharts()
@@ -792,7 +790,7 @@ onMounted(() => {
   void loadPersonalSecurity()
   void loadOnboarding()
 })
-onUnmounted(() => { auditController.abort(); statsRequestSequence++; chartRequestSequence++; recentRequestSequence++; copyRevision++; clearTimeout(copyTimer) })
+onUnmounted(() => { auditController.abort(); scopeRequestSequence++; statsRequestSequence++; chartRequestSequence++; recentRequestSequence++; copyRevision++; clearTimeout(copyTimer) })
 </script>
 
 <style scoped>

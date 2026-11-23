@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores'
 import {
+  OPEN_SCOPE_SWITCHER_EVENT,
   SCOPE_CHANGED_EVENT,
   getConsoleScopeStore,
   isDefaultSharedScope
@@ -246,11 +247,15 @@ watch(query, () => {
   activeIndex.value = 0
 })
 
-async function togglePopover(): Promise<void> {
+function togglePopover(): void {
   if (open.value) {
     closePopover(true)
     return
   }
+  void openPopover()
+}
+
+async function openPopover(): Promise<void> {
   open.value = true
   query.value = ''
   activeIndex.value = Math.max(
@@ -368,6 +373,7 @@ function handleExternalScopeChanged(): void {
 onMounted(() => {
   document.addEventListener('mousedown', handleDocumentPointerDown)
   if (typeof window !== 'undefined') {
+    window.addEventListener(OPEN_SCOPE_SWITCHER_EVENT, openPopover)
     window.addEventListener(SCOPE_CHANGED_EVENT, handleExternalScopeChanged)
   }
 })
@@ -375,6 +381,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('mousedown', handleDocumentPointerDown)
   if (typeof window !== 'undefined') {
+    window.removeEventListener(OPEN_SCOPE_SWITCHER_EVENT, openPopover)
     window.removeEventListener(SCOPE_CHANGED_EVENT, handleExternalScopeChanged)
   }
 })

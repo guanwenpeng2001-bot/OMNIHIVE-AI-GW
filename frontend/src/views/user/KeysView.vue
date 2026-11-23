@@ -52,13 +52,13 @@
             >
               {{ isZh ? '请求记录' : 'Request Logs' }}
             </a>
-            <a
-              href="/workspaces"
+            <button
+              type="button"
               class="btn btn-ghost btn-sm px-2 py-1 text-xs"
-              @click.prevent="navigateConsole('/workspaces')"
+              @click="requestScopeSwitcher"
             >
               {{ isZh ? '切换作用域' : 'Switch Scope' }}
-            </a>
+            </button>
           </div>
         </div>
 
@@ -1850,7 +1850,7 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { identityApi, type IdentityKey, type IdentityKeyGroup } from '@/api/identity'
 import { useAuthStore } from '@/stores/auth'
-import { getConsoleScopeStore, type ScopeSelection } from '@/stores/consoleScope'
+import { getConsoleScopeStore, requestScopeSwitcher, type ScopeSelection } from '@/stores/consoleScope'
 import ScopeGateEmptyState from '@/features/console/components/ScopeGateEmptyState.vue'
 import {
   ensureProjectAccess,

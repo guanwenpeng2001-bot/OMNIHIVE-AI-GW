@@ -7,7 +7,7 @@ import { identityApi, type IdentityWorkspacePage } from '@/api/identity'
 import enConsoleWorkbench from '@/i18n/locales/en/consoleWorkbench'
 import zhConsoleWorkbench from '@/i18n/locales/zh/consoleWorkbench'
 import { useAuthStore } from '@/stores/auth'
-import { useConsoleScopeStore } from '@/stores/consoleScope'
+import { requestScopeSwitcher, useConsoleScopeStore } from '@/stores/consoleScope'
 import { resetScopeAccessCache } from '@/features/console/scopeAccess'
 import ScopeSwitcher from '../ScopeSwitcher.vue'
 
@@ -120,6 +120,11 @@ describe('ScopeSwitcher', () => {
     expect(trigger.text()).toContain('PER')
     expect(trigger.text()).toContain('个人空间')
 
+    requestScopeSwitcher()
+    await flushPromises()
+    expect(trigger.attributes('aria-expanded')).toBe('true')
+    await trigger.trigger('keydown.esc')
+    expect(useConsoleScopeStore().activeScope.mode).toBe('personal')
     await trigger.trigger('click')
 
     // Shared Default badge appears ONLY when BOTH ws.is_default && proj.is_default (1:1), not 12:24 named 'Default'

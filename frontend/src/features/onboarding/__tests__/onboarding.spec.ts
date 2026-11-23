@@ -5,6 +5,7 @@ import { createI18n } from 'vue-i18n'
 import { createPinia, setActivePinia } from 'pinia'
 import en from '@/i18n/locales/en'
 import zh from '@/i18n/locales/zh'
+import { OPEN_SCOPE_SWITCHER_EVENT } from '@/stores/consoleScope'
 import * as controlClient from '@/features/shared/controlClient'
 import {
   accessRequestsAPI,
@@ -294,6 +295,12 @@ describe('FirstRunChecklist & AdminSetupBanner', () => {
     // Switch to Team Project branch
     await wrapper.get('[data-testid="onboarding-branch-project"]').trigger('click')
     await flushPromises()
+
+    const openHeader = vi.fn()
+    window.addEventListener(OPEN_SCOPE_SWITCHER_EVENT, openHeader, { once: true })
+    await wrapper.get('[data-testid="onboarding-scope-chooser-toggle"]').trigger('click')
+    expect(openHeader).toHaveBeenCalledOnce()
+    expect(wrapper.find('[data-testid="onboarding-scope-switcher"]').exists()).toBe(false)
 
     expect(
       (wrapper.get('[data-testid="project-step-2-cta"]').element as HTMLButtonElement).disabled

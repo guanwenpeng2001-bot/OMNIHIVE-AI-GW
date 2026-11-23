@@ -48,6 +48,11 @@ export type ScopeValidationStatus = 'idle' | 'validating' | 'ready' | 'unavailab
 export type ScopeUnavailableReason = 'not_found' | 'archived' | 'revoked' | 'malformed' | null
 
 export const SCOPE_CHANGED_EVENT = 'omnihive:scope-changed'
+export const OPEN_SCOPE_SWITCHER_EVENT = 'omnihive:open-scope-switcher'
+
+export function requestScopeSwitcher(): void {
+  window.dispatchEvent(new Event(OPEN_SCOPE_SWITCHER_EVENT))
+}
 
 interface PersistedScopeEnvelope {
   v: 2
