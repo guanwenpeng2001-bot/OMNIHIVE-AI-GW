@@ -9,16 +9,24 @@ import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
 import Tabs from '@/components/ui/Tabs.vue'
 import { classifyConsoleError, type ConsoleAsyncNotice } from '@/features/console/asyncState'
-import { catalogApi, type CatalogModelItem } from '@/features/console/catalogApi'
+import type { CatalogModelItem } from '@/features/console/catalogApi'
 import ConsoleAsyncBanner from '@/features/console/components/ConsoleAsyncBanner.vue'
-import ConsoleScopeBar from '@/features/console/components/ConsoleScopeBar.vue'
+import ScopeGateEmptyState from '@/features/console/components/ScopeGateEmptyState.vue'
 import {
   EM_DASH,
   formatExactMoney,
   formatNullableInteger,
   formatNullableLatencyMs
 } from '@/features/console/format'
-import { identityApi, useConsoleScope } from '@/features/console/scope'
+import { identityApi } from '@/api/identity'
+import { isSilentRequestError } from '@/api/client'
+import { getConsoleScopeStore } from '@/stores/consoleScope'
+import {
+  ensureProjectAccess,
+  getAccessActionState,
+  recheckProjectActionBeforeMutation,
+  type AccessProbeEntry
+} from '@/features/console/scopeAccess'
 import { playgroundApi } from '@/features/playground/api'
 import { useAuthStore } from '@/stores/auth'
 import PlaygroundCostConfirmModal from '@/features/playground/components/PlaygroundCostConfirmModal.vue'
@@ -34,7 +42,9 @@ import {
 } from '@/features/playground/costEstimate'
 import { createPlaygroundRunController } from '@/features/playground/runMachine'
 import type {
+  EligiblePlaygroundModel,
   PlaygroundCostEstimate,
+  PlaygroundKeyModelItem,
   PlaygroundMessageDraft,
   PlaygroundProtocol,
   PlaygroundReplay,
@@ -46,6 +56,7 @@ interface KeyOption {
   id: string
   name: string
   prefix: string
+  state: string
   ownerId: string | null
   isOwned: boolean
 }
@@ -63,7 +74,7 @@ const { locale, t } = useI18n()
 const isZh = computed(() => String(locale?.value || '').startsWith('zh'))
 const instance = getCurrentInstance()
 
-const scope = useConsoleScope()
+const consoleScopeStore = getConsoleScopeStore()
 const authStore = useAuthStore()
 
 const mobilePane = ref<'params' | 'session' | 'inspector'>('session')
@@ -81,12 +92,29 @@ const keysLoadError = ref(false)
 let bootstrapGeneration = 0
 let loadedScopeKey = ''
 let hasBootstrapped = false
+let suppressKeyModelWatch = false
 
+const projectAccessEntry = ref<AccessProbeEntry | null>(null)
 const availableKeys = ref<KeyOption[]>([])
 const canActAsKeys = ref(false)
-const canManageByok = ref(true)
-const catalogModels = ref<CatalogModelItem[]>([])
+const canManageByok = ref(false)
+const hasPlaygroundRun = ref(false)
+const hasKeysRead = ref(false)
+
+const sideAModels = ref<EligiblePlaygroundModel[]>([])
+const sideAModelsLoading = ref(false)
+const sideAModelsError = ref<ConsoleAsyncNotice | null>(null)
+const sideBModels = ref<EligiblePlaygroundModel[]>([])
+const sideBModelsLoading = ref(false)
+const sideBModelsError = ref<ConsoleAsyncNotice | null>(null)
+let sideAModelsController: AbortController | null = null
+let sideBModelsController: AbortController | null = null
+let sideAModelsGen = 0
+let sideBModelsGen = 0
+
 const modelFilterQuery = ref('')
+const requestedRouteModel = ref('')
+const requestedModelIneligible = ref('')
 
 const systemPrompt = ref('')
 const toolsJson = ref('')
@@ -125,7 +153,7 @@ const sideB = reactive<PlaygroundSideConfig>({
 
 function isKeyOwnedByCurrentUser(apiKeyId: string): boolean {
   const key = availableKeys.value.find((item) => item.id === apiKeyId)
-  return key ? key.isOwned : true
+  return key ? key.isOwned : false
 }
 
 function resolvePayerForKey(apiKeyId: string): string | undefined {
@@ -178,46 +206,95 @@ watch(
   { immediate: true }
 )
 
-const filteredModels = computed(() => {
-  const q = modelFilterQuery.value.trim().toLowerCase()
-  if (!q) return catalogModels.value
-  return catalogModels.value.filter(
+function filterModelList(
+  list: EligiblePlaygroundModel[],
+  rawQuery: string
+): EligiblePlaygroundModel[] {
+  const q = rawQuery.trim().toLowerCase()
+  if (!q) return list
+  return list.filter(
     (m) =>
       m.id.toLowerCase().includes(q) ||
       m.slug.toLowerCase().includes(q) ||
       m.displayName.toLowerCase().includes(q) ||
       m.provider.toLowerCase().includes(q)
   )
-})
-
-function isModelInList(modelId: string, list: CatalogModelItem[]): boolean {
-  const target = modelId.trim()
-  if (!target) return false
-  return list.some((m) => m.slug === target || m.id === target)
 }
 
-function isCatalogOnlyOrUnrouted(modelId: string): boolean {
-  const target = modelId.trim()
-  if (!target) return false
-  const matched = findCatalogModel(target)
-  if (matched) {
-    return matched.availabilityState === 'catalog_only'
+const filteredModelsA = computed(() => filterModelList(sideAModels.value, modelFilterQuery.value))
+const filteredModelsB = computed(() => filterModelList(sideBModels.value, modelFilterQuery.value))
+
+const VALID_PLAYGROUND_PROTOCOLS = new Set<PlaygroundProtocol>([
+  'openai_chat',
+  'openai_responses',
+  'anthropic_messages',
+  'gemini_generate'
+])
+
+function normalizeKeyModelItem(raw: PlaygroundKeyModelItem): EligiblePlaygroundModel {
+  const actionProtocols =
+    Array.isArray(raw.action_protocols) && raw.action_protocols.length > 0
+      ? raw.action_protocols.map((pair) => ({
+          action: String(pair.action || 'text.chat'),
+          protocol: String(pair.protocol || '')
+        }))
+      : (raw.protocols ?? []).map((protocol) => ({
+          action: 'text.chat',
+          protocol: String(protocol)
+        }))
+  const supportedProtocols = [
+    ...new Set(
+      actionProtocols
+        .filter((pair) => pair.action === 'text.chat' && VALID_PLAYGROUND_PROTOCOLS.has(pair.protocol as PlaygroundProtocol))
+        .map((pair) => pair.protocol as PlaygroundProtocol)
+    )
+  ]
+  return {
+    id: String(raw.id),
+    slug: String(raw.slug || raw.id),
+    displayName: String(raw.displayName || raw.display_name || raw.slug || raw.id),
+    provider: String(raw.provider || 'unknown'),
+    actions: [...new Set(actionProtocols.map((pair) => pair.action).filter(Boolean))],
+    protocols: supportedProtocols,
+    modalities: Array.isArray(raw.modalities) ? raw.modalities : ['text'],
+    maxOutputTokens: raw.max_output_tokens ?? null,
+    contextTokens: raw.context_tokens ?? null,
+    toolsSupported: Boolean(raw.tools_supported),
+    reasoningSupported: Boolean(raw.reasoning_supported),
+    inputRate: raw.input_rate ?? null,
+    outputRate: raw.output_rate ?? null,
+    availabilityState: (raw.availabilityState || raw.availability_state || 'live') as CatalogModelItem['availabilityState'],
+    actionProtocols
   }
-  return catalogModels.value.length > 0
 }
 
-const modelACatalogOnly = computed(() => isCatalogOnlyOrUnrouted(sideA.modelId))
-const modelBCatalogOnly = computed(() => compareMode.value && isCatalogOnlyOrUnrouted(sideB.modelId))
+function findSideModel(side: 'A' | 'B', modelId: string): EligiblePlaygroundModel | null {
+  const target = modelId.trim()
+  if (!target) return null
+  const list = side === 'A' ? sideAModels.value : sideBModels.value
+  return list.find((m) => m.slug === target || m.id === target) ?? null
+}
 
-function selectFirstRoutedModel(side: 'A' | 'B'): void {
-  const firstRouted =
-    catalogModels.value.find((m) => m.availabilityState !== 'catalog_only') ?? catalogModels.value[0]
-  if (!firstRouted) return
-  const nextId = firstRouted.slug || firstRouted.id
-  if (side === 'A') {
-    sideA.modelId = nextId
-  } else {
-    sideB.modelId = nextId
+function getModelSupportedProtocols(model: EligiblePlaygroundModel | null): PlaygroundProtocol[] {
+  if (!model) return []
+  return model.protocols.filter((p): p is PlaygroundProtocol =>
+    VALID_PLAYGROUND_PROTOCOLS.has(p as PlaygroundProtocol)
+  )
+}
+
+const selectedModelA = computed(() => findSideModel('A', sideA.modelId))
+const selectedModelB = computed(() => findSideModel('B', sideB.modelId))
+const supportedProtocolsA = computed(() => getModelSupportedProtocols(selectedModelA.value))
+const supportedProtocolsB = computed(() => getModelSupportedProtocols(selectedModelB.value))
+
+function selectFirstEligibleModelA(): void {
+  const first = sideAModels.value[0]
+  if (!first) return
+  requestedModelIneligible.value = ''
+  sideA.modelId = first.slug || first.id
+  const protos = getModelSupportedProtocols(first)
+  if (protos.length > 0 && !protos.includes(sideA.protocol)) {
+    sideA.protocol = protos[0]
   }
 }
 
@@ -241,9 +318,44 @@ const anyStreaming = computed(
     controllerB.state.status === 'streaming'
 )
 
-const hasActiveProjectScope = computed(() =>
-  Boolean(scope.activeWorkspaceId.value && scope.activeProjectId.value)
+const activeScope = computed(() => consoleScopeStore.activeScope)
+const activeWorkspaceId = computed(() =>
+  activeScope.value.mode === 'workspace' ? activeScope.value.workspaceId : null
 )
+const activeProjectId = computed(() =>
+  activeScope.value.mode === 'workspace' ? activeScope.value.projectId : null
+)
+const activeScopeBadgeLabel = computed(() => {
+  if (activeScope.value.mode === 'personal' || !activeWorkspaceId.value) {
+    return t('scope.personal.label')
+  }
+  const wsName = consoleScopeStore.activeWorkspace?.name || `#${activeWorkspaceId.value}`
+  if (!activeProjectId.value) {
+    return `${wsName} · ${t('scope.workspace.overviewShort')}`
+  }
+  const projName = consoleScopeStore.activeProject?.name || `#${activeProjectId.value}`
+  return `${wsName} / ${projName}`
+})
+
+const isScopeUnavailable = computed(
+  () =>
+    activeScope.value.mode === 'workspace' &&
+    consoleScopeStore.scopeValidationStatus === 'unavailable'
+)
+const hasActiveProjectScope = computed(() =>
+  Boolean(activeWorkspaceId.value && activeProjectId.value && !isScopeUnavailable.value)
+)
+const scopeGateState = computed<'empty' | 'denied' | 'unavailable' | null>(() => {
+  if (isScopeUnavailable.value) return 'unavailable'
+  if (activeScope.value.mode === 'personal' || !activeWorkspaceId.value || !activeProjectId.value) {
+    return 'empty'
+  }
+  const entry = projectAccessEntry.value
+  if (!entry || entry.status === 'idle' || entry.status === 'loading') return null
+  if (entry.status === 'unavailable') return 'unavailable'
+  if (entry.status === 'denied' || !hasPlaygroundRun.value) return 'denied'
+  return null
+})
 
 const validProjectKeyIds = computed(() => new Set(availableKeys.value.map((k) => k.id)))
 const ownedKeys = computed(() => availableKeys.value.filter((k) => k.isOwned))
@@ -265,12 +377,31 @@ const hasValidKeyB = computed(
     validProjectKeyIds.value.has(sideB.apiKeyId)
 )
 
-const canTriggerPrimaryRun = computed(() => {
-  if (!hasPromptInput.value || !hasValidKeyA.value) return false
-  if (compareMode.value) {
-    return Boolean(sideA.modelId) && hasValidKeyB.value && Boolean(sideB.modelId)
+function isSideEligible(side: 'A' | 'B'): boolean {
+  if (scopeGateState.value !== null || !hasPlaygroundRun.value) return false
+  if (side === 'A') {
+    if (!hasValidKeyA.value || sideAModelsLoading.value || Boolean(sideAModelsError.value)) {
+      return false
+    }
+    if (!selectedModelA.value) return false
+    return supportedProtocolsA.value.includes(sideA.protocol)
   }
-  return Boolean(sideA.modelId || replayRequestId.value.trim())
+  if (!hasValidKeyB.value || sideBModelsLoading.value || Boolean(sideBModelsError.value)) {
+    return false
+  }
+  if (!selectedModelB.value) return false
+  return supportedProtocolsB.value.includes(sideB.protocol)
+}
+
+const canTriggerPrimaryRun = computed(() => {
+  if (!hasPromptInput.value || scopeGateState.value !== null || !hasPlaygroundRun.value) {
+    return false
+  }
+  if (!isSideEligible('A')) return false
+  if (compareMode.value) {
+    return isSideEligible('B')
+  }
+  return true
 })
 
 function navigateTo(path: string): void {
@@ -283,22 +414,54 @@ function navigateTo(path: string): void {
   }
 }
 
-function resetTransientScopeState(): void {
-  controllerA.reset()
-  controllerB.reset()
+function clearSideEligibility(side: 'A' | 'B'): void {
+  const controller = side === 'A' ? sideAModelsController : sideBModelsController
+  controller?.abort()
+  if (side === 'A') {
+    sideAModelsController = null
+    sideAModelsGen += 1
+    sideAModels.value = []
+    sideAModelsLoading.value = false
+    sideAModelsError.value = null
+    sideA.modelId = ''
+    requestedModelIneligible.value = ''
+  } else {
+    sideBModelsController = null
+    sideBModelsGen += 1
+    sideBModels.value = []
+    sideBModelsLoading.value = false
+    sideBModelsError.value = null
+    sideB.modelId = ''
+  }
   consentModalOpen.value = false
-  quoteErrorNotice.value = null
   pendingTargets.value = []
   pendingPayloads.value = {}
   pendingReplayPayload.value = null
   pendingEstimates.value = []
   inlinePreviewEstimates.value = []
+  quoteErrorNotice.value = null
+}
+
+function resetTransientScopeState(): void {
+  controllerA.reset()
+  controllerB.reset()
   availableKeys.value = []
+  projectAccessEntry.value = null
   canActAsKeys.value = false
-  canManageByok.value = true
+  canManageByok.value = false
+  hasPlaygroundRun.value = false
+  hasKeysRead.value = false
+  suppressKeyModelWatch = true
   sideA.apiKeyId = ''
   sideB.apiKeyId = ''
+  suppressKeyModelWatch = false
+  clearSideEligibility('A')
+  clearSideEligibility('B')
   keysLoadError.value = false
+}
+
+function normalizeIdentityKeyState(rawState?: string | null): string {
+  return String(rawState ?? '').trim().toLowerCase()
 }
 
 async function fetchAllProjectKeys(wsId: string, projId: string) {
@@ -314,7 +477,144 @@ async function fetchAllProjectKeys(wsId: string, projId: string) {
     if (!page.next_cursor) break
     cursor = page.next_cursor
   }
-  return collected.filter((k) => !k.state || k.state === 'active')
+  return collected.filter((k) => {
+    if (normalizeIdentityKeyState(k.state) !== 'active') return false
+    const rawOwner =
+      (k as { owner_id?: string | number; user_id?: string | number }).owner_id ??
+      (k as { user_id?: string | number }).user_id
+    if (rawOwner === undefined || rawOwner === null || String(rawOwner).trim() === '') {
+      return false
+    }
+    if (k.group_id === null || k.group_id === undefined || String(k.group_id).trim() === '') {
+      return false
+    }
+    return true
+  })
+}
+
+async function loadSideKeyModels(side: 'A' | 'B', keyId: string): Promise<void> {
+  const wsId = activeWorkspaceId.value
+  const projId = activeProjectId.value
+  const controller = new AbortController()
+  let gen = 0
+
+  if (side === 'A') {
+    sideAModelsController?.abort()
+    sideAModelsController = controller
+    gen = ++sideAModelsGen
+    sideAModelsLoading.value = true
+    sideAModelsError.value = null
+    sideAModels.value = []
+  } else {
+    sideBModelsController?.abort()
+    sideBModelsController = controller
+    gen = ++sideBModelsGen
+    sideBModelsLoading.value = true
+    sideBModelsError.value = null
+    sideBModels.value = []
+  }
+
+  const isStale = () =>
+    gen !== (side === 'A' ? sideAModelsGen : sideBModelsGen) || controller.signal.aborted
+
+  if (!wsId || !projId || !keyId || !hasPlaygroundRun.value) {
+    if (side === 'A') {
+      sideAModelsLoading.value = false
+    } else {
+      sideBModelsLoading.value = false
+    }
+    return
+  }
+
+  try {
+    if (typeof playgroundApi.listKeyModels !== 'function') {
+      throw Object.assign(new Error('Key model discovery unavailable'), { status: 503 })
+    }
+    const collected: EligiblePlaygroundModel[] = []
+    const seenIds = new Set<string>()
+    const seenCursors = new Set<string>()
+    let cursor: string | undefined
+
+    for (let i = 0; i < 20; i++) {
+      const page = await playgroundApi.listKeyModels(
+        wsId,
+        projId,
+        keyId,
+        cursor ? { limit: 100, cursor } : { limit: 100 },
+        controller.signal
+      )
+      if (isStale()) return
+      for (const item of page?.items ?? []) {
+        const normalized = normalizeKeyModelItem(item)
+        if (!seenIds.has(normalized.id)) {
+          seenIds.add(normalized.id)
+          collected.push(normalized)
+        }
+      }
+      if (!page?.next_cursor || seenCursors.has(page.next_cursor)) break
+      seenCursors.add(page.next_cursor)
+      cursor = page.next_cursor
+    }
+
+    if (isStale()) return
+
+    if (side === 'A') {
+      sideAModels.value = collected
+      const requested = requestedRouteModel.value.trim()
+      const matchedRequested = requested
+        ? collected.find((m) => m.slug === requested || m.id === requested) ?? null
+        : null
+      if (requested && !matchedRequested) {
+        requestedModelIneligible.value = requested
+        sideA.modelId = ''
+      } else if (matchedRequested) {
+        requestedModelIneligible.value = ''
+        sideA.modelId = matchedRequested.slug || matchedRequested.id
+      } else {
+        requestedModelIneligible.value = ''
+        const chosen = collected[0]
+        sideA.modelId = chosen ? chosen.slug || chosen.id : ''
+      }
+      const modelObj = findSideModel('A', sideA.modelId)
+      const protos = getModelSupportedProtocols(modelObj)
+      if (protos.length > 0 && !protos.includes(sideA.protocol)) {
+        sideA.protocol = protos[0]
+      }
+    } else {
+      sideBModels.value = collected
+      const chosen = collected[1] ?? collected[0]
+      sideB.modelId = chosen ? chosen.slug || chosen.id : ''
+      const modelObj = findSideModel('B', sideB.modelId)
+      const protos = getModelSupportedProtocols(modelObj)
+      if (protos.length > 0 && !protos.includes(sideB.protocol)) {
+        sideB.protocol = protos[0]
+      }
+    }
+  } catch (err) {
+    if (isStale() || isSilentRequestError(err)) return
+    const notice = classifyConsoleError(err, {
+      hasCachedData: false,
+      requiredGrantFallback: 'models.read',
+      isZh: isZh.value
+    })
+    if (side === 'A') {
+      sideAModels.value = []
+      sideA.modelId = ''
+      sideAModelsError.value = notice
+    } else {
+      sideBModels.value = []
+      sideB.modelId = ''
+      sideBModelsError.value = notice
+    }
+  } finally {
+    if (!isStale()) {
+      if (side === 'A') {
+        sideAModelsLoading.value = false
+      } else {
+        sideBModelsLoading.value = false
+      }
+    }
+  }
 }
 
 async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
@@ -326,48 +626,81 @@ async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
   }
   bootstrapNotice.value = null
   keysLoadError.value = false
-  const hadCached = availableKeys.value.length > 0 || catalogModels.value.length > 0
+  const hadCached = availableKeys.value.length > 0 || sideAModels.value.length > 0
 
   try {
-    await scope.refreshScopes(isRefresh)
-    if (gen !== bootstrapGeneration) return
-    const wsId = scope.activeWorkspaceId.value
-    const projId = scope.activeProjectId.value
-    const hasScope = Boolean(wsId && projId)
-    loadedScopeKey = `${wsId}:${projId}`
-
-    const [keysResult, modelsResult, accessResult] = await Promise.allSettled([
-      hasScope
-        ? fetchAllProjectKeys(wsId, projId)
-        : Promise.resolve([]),
-      catalogApi.listScopedModels(wsId, projId, { limit: 100 }),
-      hasScope && typeof identityApi.getProjectAccess === 'function'
-        ? identityApi.getProjectAccess(wsId, projId)
-        : Promise.resolve(null)
-    ])
+    if (!consoleScopeStore.scopesLoaded || isRefresh) {
+      await consoleScopeStore.fetchScopes({ force: isRefresh })
+    }
     if (gen !== bootstrapGeneration) return
 
-    const accessActions =
-      accessResult.status === 'fulfilled' && Array.isArray(accessResult.value?.actions)
-        ? accessResult.value.actions
-        : []
-    canActAsKeys.value = accessActions.includes('keys.act_as') || accessActions.includes('*')
-    canManageByok.value =
-      authStore.isAdmin ||
-      (accessResult.status === 'fulfilled' && accessResult.value && Array.isArray(accessResult.value.actions)
-        ? accessActions.includes('credentials.byok.manage') || accessActions.includes('*')
-        : true)
+    const wsId = activeWorkspaceId.value
+    const projId = activeProjectId.value
+    loadedScopeKey = `${activeScope.value.mode}:${wsId ?? ''}:${projId ?? ''}:${consoleScopeStore.scopeValidationStatus}`
 
-    const rawUserId = authStore.user?.id
-    const currentUserId =
-      rawUserId !== undefined && rawUserId !== null && String(rawUserId).trim() !== ''
-        ? String(rawUserId).trim()
-        : accessResult.status === 'fulfilled' && accessResult.value?.actor_id
-          ? String(accessResult.value.actor_id).trim()
-          : ''
+    if (isScopeUnavailable.value || !wsId || !projId) {
+      projectAccessEntry.value = null
+      hasPlaygroundRun.value = false
+      hasKeysRead.value = false
+      canActAsKeys.value = false
+      canManageByok.value = false
+      availableKeys.value = []
+      return
+    }
 
-    if (keysResult.status === 'fulfilled') {
-      const mappedKeys: KeyOption[] = keysResult.value.map((k) => {
+    const accessEntry = await ensureProjectAccess(wsId, projId, { force: isRefresh })
+    if (gen !== bootstrapGeneration) return
+    projectAccessEntry.value = accessEntry
+
+    if (accessEntry.status !== 'ready') {
+      hasPlaygroundRun.value = false
+      hasKeysRead.value = false
+      canActAsKeys.value = false
+      canManageByok.value = false
+      availableKeys.value = []
+      return
+    }
+
+    hasPlaygroundRun.value = getAccessActionState(accessEntry, 'playground.run') === 'allowed'
+    hasKeysRead.value = getAccessActionState(accessEntry, 'keys.read') === 'allowed'
+    canActAsKeys.value = getAccessActionState(accessEntry, 'keys.act_as') === 'allowed'
+    canManageByok.value = Boolean(
+      authStore?.isAdmin ||
+        getAccessActionState(accessEntry, 'credentials.byok.manage') === 'allowed'
+    )
+
+    if (!hasPlaygroundRun.value) {
+      availableKeys.value = []
+      return
+    }
+
+    if (!hasKeysRead.value) {
+      availableKeys.value = []
+      keysLoadError.value = true
+      bootstrapNotice.value = {
+        code: 403,
+        kind: 'permission',
+        title: t('rbac.keys.deniedProject', {
+          grant: 'keys.read',
+          project: consoleScopeStore.activeProject?.name || `#${projId}`
+        }),
+        message: '',
+        requiredGrant: 'keys.read'
+      }
+      return
+    }
+
+    try {
+      const activeItems = await fetchAllProjectKeys(wsId, projId)
+      if (gen !== bootstrapGeneration) return
+
+      const rawUserId = authStore?.user?.id
+      const currentUserId =
+        rawUserId !== undefined && rawUserId !== null && String(rawUserId).trim() !== ''
+          ? String(rawUserId).trim()
+          : accessEntry.actorId || ''
+
+      const mappedKeys: KeyOption[] = activeItems.map((k) => {
         const rawOwner =
           (k as { owner_id?: string | number; user_id?: string | number }).owner_id ??
           (k as { user_id?: string | number }).user_id
@@ -375,67 +708,60 @@ async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
           rawOwner !== undefined && rawOwner !== null && String(rawOwner).trim() !== ''
             ? String(rawOwner).trim()
             : null
-        const isOwned = !ownerId ? true : Boolean(currentUserId && ownerId === currentUserId)
+        const isOwned = Boolean(ownerId && currentUserId && ownerId === currentUserId)
         return {
           id: String(k.id),
           name: k.name,
           prefix: k.prefix,
+          state: normalizeIdentityKeyState(k.state),
           ownerId,
           isOwned
         }
       })
       availableKeys.value = mappedKeys.filter((k) => k.isOwned || canActAsKeys.value)
-    } else {
+    } catch (err) {
+      if (gen !== bootstrapGeneration) return
       availableKeys.value = []
       keysLoadError.value = true
-      bootstrapNotice.value = classifyConsoleError(keysResult.reason, {
+      bootstrapNotice.value = classifyConsoleError(err, {
         hasCachedData: false,
-        lastSyncedAt: scope.lastSyncedAt.value,
+        lastSyncedAt: consoleScopeStore.scopesAsOf ?? undefined,
         requiredGrantFallback: 'keys.read',
         isZh: isZh.value
       })
-    }
-
-    if (!hasScope && scope.scopeError.value && !bootstrapNotice.value) {
-      keysLoadError.value = true
-      bootstrapNotice.value = classifyConsoleError(scope.scopeError.value, {
-        hasCachedData: false,
-        lastSyncedAt: scope.lastSyncedAt.value,
-        requiredGrantFallback: 'playground.run',
-        isZh: isZh.value
-      })
-    }
-
-    if (modelsResult.status === 'fulfilled') {
-      catalogModels.value = modelsResult.value
-    } else {
-      const pubModels = await catalogApi.listPublicModels({ limit: 100 }).catch((err) => {
-        throw err
-      })
-      if (gen !== bootstrapGeneration) return
-      catalogModels.value = pubModels
+      return
     }
 
     const validIds = new Set(availableKeys.value.map((k) => k.id))
     const preferredKeyId = ownedKeys.value[0]?.id ?? availableKeys.value[0]?.id ?? ''
+    suppressKeyModelWatch = true
     if (!validIds.has(sideA.apiKeyId)) {
       sideA.apiKeyId = preferredKeyId
     }
     if (!validIds.has(sideB.apiKeyId)) {
       sideB.apiKeyId = preferredKeyId
     }
-    if (!sideA.modelId && catalogModels.value.length > 0) {
-      sideA.modelId = catalogModels.value[0].slug || catalogModels.value[0].id
+    suppressKeyModelWatch = false
+
+    const modelFetches: Array<Promise<void>> = []
+    if (sideA.apiKeyId) {
+      modelFetches.push(loadSideKeyModels('A', sideA.apiKeyId))
+    } else {
+      clearSideEligibility('A')
     }
-    if (!sideB.modelId && catalogModels.value.length > 0) {
-      const second = catalogModels.value[1] ?? catalogModels.value[0]
-      sideB.modelId = second.slug || second.id
+    if (compareMode.value && sideB.apiKeyId) {
+      modelFetches.push(loadSideKeyModels('B', sideB.apiKeyId))
+    } else {
+      clearSideEligibility('B')
+    }
+    if (modelFetches.length > 0) {
+      await Promise.allSettled(modelFetches)
     }
   } catch (err) {
     if (gen !== bootstrapGeneration) return
     bootstrapNotice.value = classifyConsoleError(err, {
       hasCachedData: hadCached,
-      lastSyncedAt: scope.lastSyncedAt.value,
+      lastSyncedAt: consoleScopeStore.scopesAsOf ?? undefined,
       requiredGrantFallback: 'playground.run',
       isZh: isZh.value
     })
@@ -448,11 +774,12 @@ async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
   }
 }
 
-function handleScopeSelect(payload: { workspaceId: string; projectId: string | null }): void {
-  resetTransientScopeState()
-  scope.selectWorkspaceProject(payload.workspaceId, payload.projectId)
-  loadedScopeKey = `${scope.activeWorkspaceId.value}:${scope.activeProjectId.value}`
-  void loadKeysAndCatalog(true)
+function handleGateSwitchPersonal(): void {
+  consoleScopeStore.selectPersonalScope()
+}
+
+function handleGateSelectProject(payload: { workspaceId: string; projectId: string }): void {
+  consoleScopeStore.selectWorkspaceScope(payload.workspaceId, payload.projectId)
 }
 
 function addMessage(role: 'user' | 'assistant' | 'tool' = 'user'): void {
@@ -480,11 +807,8 @@ function injectToolResultMessage(payload: { toolCallId: string; name: string }):
   })
 }
 
-function findCatalogModel(modelId: string): CatalogModelItem | null {
-  const target = modelId.trim()
-  return (
-    catalogModels.value.find((m) => m.id === target || m.slug === target) ?? null
-  )
+function findCatalogModel(modelId: string, side: 'A' | 'B' = 'A'): CatalogModelItem | null {
+  return findSideModel(side, modelId) ?? findSideModel('A', modelId) ?? findSideModel('B', modelId)
 }
 
 function inferFundingSourceFromQuota(
@@ -502,8 +826,8 @@ async function resolveServerQuoteForEstimate(
   base: PlaygroundCostEstimate,
   catalogModel: CatalogModelItem | null
 ): Promise<PlaygroundCostEstimate> {
-  const wsId = scope.activeWorkspaceId.value
-  const projId = scope.activeProjectId.value
+  const wsId = activeWorkspaceId.value
+  const projId = activeProjectId.value
   if (!wsId || !projId) {
     return {
       ...base,
@@ -608,7 +932,7 @@ async function refreshAuthoritativeQuotes(
   initialEstimates: PlaygroundCostEstimate[],
   target: 'modal' | 'inline'
 ): Promise<void> {
-  if (typeof playgroundApi.quoteProjectModel !== 'function' && scope.activeWorkspaceId.value && scope.activeProjectId.value) {
+  if (typeof playgroundApi.quoteProjectModel !== 'function' && activeWorkspaceId.value && activeProjectId.value) {
     return
   }
   quoteErrorNotice.value = null
@@ -621,7 +945,10 @@ async function refreshAuthoritativeQuotes(
   try {
     const enriched = await Promise.all(
       initialEstimates.map((item) =>
-        resolveServerQuoteForEstimate(item, findCatalogModel(item.modelId))
+        resolveServerQuoteForEstimate(
+          item,
+          findCatalogModel(item.modelId, item.sideLabel === sideB.label ? 'B' : 'A')
+        )
       )
     )
     if (gen !== quoteGeneration) return
@@ -655,7 +982,7 @@ function previewAuthoritativeQuotes(): void {
         toolsJson: toolsJson.value
       })
       const submitPayload = buildPlaygroundSubmitPayload(cfg, nativeInput)
-      estimates.push(estimatePlaygroundRunCost(cfg, submitPayload, findCatalogModel(cfg.modelId)))
+      estimates.push(estimatePlaygroundRunCost(cfg, submitPayload, findCatalogModel(cfg.modelId, target)))
     }
     inlinePreviewEstimates.value = estimates
     void refreshAuthoritativeQuotes(estimates, 'inline')
@@ -668,12 +995,11 @@ function prepareConsentForTargets(targets: Array<'A' | 'B'>): void {
   toolsJsonError.value = ''
   quoteErrorNotice.value = null
   confirmedNotice.value = null
-  if (!hasActiveProjectScope.value || availableKeys.value.length === 0) {
+  if (scopeGateState.value !== null || !hasPlaygroundRun.value || !hasActiveProjectScope.value || availableKeys.value.length === 0) {
     return
   }
   for (const target of targets) {
-    const cfg = target === 'A' ? sideA : sideB
-    if (!cfg.apiKeyId || !validProjectKeyIds.value.has(cfg.apiKeyId)) {
+    if (!isSideEligible(target)) {
       return
     }
   }
@@ -706,7 +1032,7 @@ function prepareConsentForTargets(targets: Array<'A' | 'B'>): void {
       }
       const pseudoSubmit = buildPlaygroundSubmitPayload(sideA, nativeInput)
       estimates.push(
-        estimatePlaygroundRunCost(sideA, pseudoSubmit, findCatalogModel(sideA.modelId))
+        estimatePlaygroundRunCost(sideA, pseudoSubmit, findCatalogModel(sideA.modelId, 'A'))
       )
       pendingReplayPayload.value = replayPayload
       controllerA.markConsentPending(replayPayload)
@@ -728,7 +1054,7 @@ function prepareConsentForTargets(targets: Array<'A' | 'B'>): void {
         )
         payloads[target] = submitPayload
         estimates.push(
-          estimatePlaygroundRunCost(cfg, submitPayload, findCatalogModel(cfg.modelId))
+          estimatePlaygroundRunCost(cfg, submitPayload, findCatalogModel(cfg.modelId, target))
         )
         if (target === 'A') controllerA.markConsentPending(submitPayload)
         if (target === 'B') controllerB.markConsentPending(submitPayload)
@@ -753,9 +1079,19 @@ function handleCancelConsent(): void {
 
 async function handleConfirmAndExecute(): Promise<void> {
   consentModalOpen.value = false
-  const wsId = scope.activeWorkspaceId.value
-  const projId = scope.activeProjectId.value
+  const wsId = activeWorkspaceId.value
+  const projId = activeProjectId.value
   if (!wsId || !projId) {
+    return
+  }
+  const recheck = await recheckProjectActionBeforeMutation(wsId, projId, 'playground.run')
+  projectAccessEntry.value = recheck.entry
+  if (recheck.state !== 'allowed') {
+    hasPlaygroundRun.value = false
+    bootstrapNotice.value = classifyConsoleError(
+      { status: recheck.entry.error?.status || 403, message: recheck.entry.error?.message || 'Permission denied' },
+      { requiredGrantFallback: 'playground.run', isZh: isZh.value }
+    )
     return
   }
   const targets = [...pendingTargets.value]
@@ -803,14 +1139,14 @@ async function handleConfirmAndExecute(): Promise<void> {
 
 function handleKeydown(event: KeyboardEvent): void {
   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-    if (!consentModalOpen.value && canTriggerPrimaryRun.value) {
+    if (!consentModalOpen.value && scopeGateState.value === null && canTriggerPrimaryRun.value) {
       event.preventDefault()
       prepareConsentForTargets(compareMode.value ? ['A', 'B'] : ['A'])
     }
   } else if (event.key === 'Escape' && !consentModalOpen.value && anyStreaming.value) {
     event.preventDefault()
-    const wsId = scope.activeWorkspaceId.value || undefined
-    const projId = scope.activeProjectId.value || undefined
+    const wsId = activeWorkspaceId.value || undefined
+    const projId = activeProjectId.value || undefined
     if (controllerA.state.status === 'streaming' || controllerA.state.status === 'submitting') {
       void controllerA.stop(wsId, projId)
     }
@@ -820,20 +1156,73 @@ function handleKeydown(event: KeyboardEvent): void {
   }
 }
 
+watch(
+  () => sideA.apiKeyId,
+  (nextKeyId, prevKeyId) => {
+    if (suppressKeyModelWatch || nextKeyId === prevKeyId) return
+    clearSideEligibility('A')
+    if (nextKeyId && validProjectKeyIds.value.has(nextKeyId) && hasActiveProjectScope.value && hasPlaygroundRun.value) {
+      void loadSideKeyModels('A', nextKeyId)
+    }
+  },
+  { flush: 'sync' }
+)
+
+watch(
+  () => sideB.apiKeyId,
+  (nextKeyId, prevKeyId) => {
+    if (suppressKeyModelWatch || nextKeyId === prevKeyId) return
+    clearSideEligibility('B')
+    if (compareMode.value && nextKeyId && validProjectKeyIds.value.has(nextKeyId) && hasActiveProjectScope.value && hasPlaygroundRun.value) {
+      void loadSideKeyModels('B', nextKeyId)
+    }
+  },
+  { flush: 'sync' }
+)
+
+watch(
+  () => sideA.modelId,
+  () => {
+    const protos = supportedProtocolsA.value
+    if (protos.length > 0 && !protos.includes(sideA.protocol)) {
+      sideA.protocol = protos[0]
+    }
+  }
+)
+
+watch(
+  () => sideB.modelId,
+  () => {
+    const protos = supportedProtocolsB.value
+    if (protos.length > 0 && !protos.includes(sideB.protocol)) {
+      sideB.protocol = protos[0]
+    }
+  }
+)
+
 watch(compareMode, (enabled) => {
   if (!enabled) {
     controllerB.reset()
+    clearSideEligibility('B')
     inspectedSide.value = 'A'
+  } else if (
+    sideB.apiKeyId &&
+    validProjectKeyIds.value.has(sideB.apiKeyId) &&
+    hasActiveProjectScope.value &&
+    hasPlaygroundRun.value &&
+    sideBModels.value.length === 0
+  ) {
+    void loadSideKeyModels('B', sideB.apiKeyId)
   }
 })
 
 watch(
-  () => `${scope.activeWorkspaceId.value}:${scope.activeProjectId.value}`,
+  () => `${activeScope.value.mode}:${activeWorkspaceId.value ?? ''}:${activeProjectId.value ?? ''}:${consoleScopeStore.scopeValidationStatus}`,
   (nextKey) => {
     if (!hasBootstrapped || nextKey === loadedScopeKey) return
     loadedScopeKey = nextKey
     resetTransientScopeState()
-    void loadKeysAndCatalog(true)
+    void loadKeysAndCatalog(false)
   }
 )
 
@@ -845,7 +1234,17 @@ function readRouteQuery(): Record<string, string | undefined> | undefined {
 function applyRouteQueryOverrides(): void {
   const routeQuery = readRouteQuery()
   if (routeQuery?.model) {
-    sideA.modelId = String(routeQuery.model)
+    requestedRouteModel.value = String(routeQuery.model).trim()
+    if (sideAModels.value.length > 0) {
+      const matched = findSideModel('A', requestedRouteModel.value)
+      if (matched) {
+        requestedModelIneligible.value = ''
+        sideA.modelId = matched.slug || matched.id
+      } else {
+        requestedModelIneligible.value = requestedRouteModel.value
+        sideA.modelId = ''
+      }
+    }
   }
   if (routeQuery?.replay_request_id) {
     replayRequestId.value = String(routeQuery.replay_request_id)
@@ -871,6 +1270,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  sideAModelsController?.abort()
+  sideBModelsController?.abort()
   controllerA.reset()
   controllerB.reset()
   if (typeof window !== 'undefined') {
@@ -908,8 +1309,8 @@ function formatInspectorRawEvent(rawEvent: unknown): string {
 const linkedRequestPath = computed(() => {
   const reqId = inspectedSession.value.requestId
   if (!reqId) return ''
-  const wsId = scope.activeWorkspaceId.value
-  const projId = scope.activeProjectId.value
+  const wsId = activeWorkspaceId.value
+  const projId = activeProjectId.value
   const qs = wsId && projId ? `?workspace_id=${encodeURIComponent(wsId)}&project_id=${encodeURIComponent(projId)}` : ''
   return `/requests/${encodeURIComponent(reqId)}${qs}`
 })
@@ -935,20 +1336,6 @@ function formatSettlementState(state: string | null | undefined): string {
 <template>
   <AppLayout>
     <div data-testid="playground-workbench" class="w-full space-y-4">
-      <ConsoleScopeBar
-        :workspaces="scope.scopes.value"
-        :projects="scope.availableProjects.value"
-        :workspace-id="scope.activeWorkspaceId.value"
-        :project-id="scope.activeProjectId.value"
-        :loading="scope.loading.value || bootstrapLoading"
-        :refreshing="scope.refreshing.value || bootstrapRefreshing"
-        :last-synced-at="scope.lastSyncedAt.value"
-        active-surface="playground"
-        @select-scope="handleScopeSelect"
-        @refresh="loadKeysAndCatalog(true)"
-        @navigate="navigateTo"
-      />
-
       <!-- Top Workbench Bar -->
       <header class="flex flex-wrap items-center justify-between gap-3 rounded-[var(--oh-r-md,8px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] px-4 py-3">
         <div class="min-w-0">
@@ -957,6 +1344,9 @@ function formatSettlementState(state: string | null | undefined): string {
               {{ isZh ? '模型调试台' : 'Playground' }}
             </h1>
             <Badge tone="neutral" variant="outline" mono>{{ isZh ? '对话推理' : 'Chat Inference' }}</Badge>
+            <Badge data-testid="playground-active-scope-badge" tone="accent" variant="outline" mono>
+              {{ activeScopeBadgeLabel }}
+            </Badge>
           </div>
           <p class="mt-0.5 text-xs text-[var(--oh-ink-secondary,var(--muted-foreground))]">
             {{
@@ -1034,6 +1424,27 @@ function formatSettlementState(state: string | null | undefined): string {
         <Skeleton variant="rect" height="420px" />
       </div>
 
+      <ScopeGateEmptyState
+        v-else-if="scopeGateState !== null"
+        :state="scopeGateState"
+        surface="playground"
+        :title="scopeGateState === 'empty' ? t('rbac.playground.denied') : undefined"
+        :workspace-id="activeWorkspaceId"
+        :workspace-name="consoleScopeStore.activeWorkspace?.name ?? null"
+        :project-id="activeProjectId"
+        :project-name="consoleScopeStore.activeProject?.name ?? null"
+        required-grant="playground.run"
+        :description="projectAccessEntry?.error?.message ?? undefined"
+        :http-status="projectAccessEntry?.error?.status ?? null"
+        :request-id="projectAccessEntry?.error?.requestId ?? null"
+        :project-options="consoleScopeStore.availableProjectOptions"
+        :show-retry="scopeGateState === 'unavailable'"
+        @switch-personal="handleGateSwitchPersonal"
+        @select-project="handleGateSelectProject"
+        @request-access="navigateTo('/workspaces?requestAccess=1')"
+        @retry="loadKeysAndCatalog(true)"
+      />
+
       <!-- 3-Pane Desktop Workbench -->
       <div
         v-else
@@ -1069,18 +1480,18 @@ function formatSettlementState(state: string | null | undefined): string {
                 <template v-if="actAsKeys.length > 0">
                   <optgroup v-if="ownedKeys.length > 0" :label="t('playgroundKeys.ownedGroupLabel')">
                     <option v-for="k in ownedKeys" :key="k.id" :value="k.id">
-                      {{ k.name }} (#{{ k.id }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
+                      {{ k.name }} (#{{ k.id }} · {{ k.state }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
                     </option>
                   </optgroup>
                   <optgroup :label="t('playgroundKeys.actAsGroupLabel')">
                     <option v-for="k in actAsKeys" :key="k.id" :value="k.id">
-                      {{ k.name }} (#{{ k.id }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
+                      {{ k.name }} (#{{ k.id }} · {{ k.state }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
                     </option>
                   </optgroup>
                 </template>
                 <template v-else>
                   <option v-for="k in ownedKeys" :key="k.id" :value="k.id">
-                    {{ k.name }} (#{{ k.id }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
+                    {{ k.name }} (#{{ k.id }} · {{ k.state }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
                   </option>
                 </template>
               </select>
@@ -1154,11 +1565,11 @@ function formatSettlementState(state: string | null | undefined): string {
             </label>
 
             <p
-              v-if="modelFilterQuery && filteredModels.length === 0 && catalogModels.length > 0"
+              v-if="modelFilterQuery && filteredModelsA.length === 0 && sideAModels.length > 0"
               data-testid="console-state-zero-filter"
               class="rounded-[var(--oh-r-sm,6px)] border border-dashed border-[var(--oh-border,var(--border))] px-2.5 py-1.5 text-[11px] text-[var(--oh-ink-secondary,var(--muted-foreground))]"
             >
-              {{ isZh ? '无匹配目录模型，可直接输入自定义模型 ID。' : 'Zero models match filter. Clear filter or type exact model ID.' }}
+              {{ isZh ? '无匹配模型，请调整筛选条件。' : 'Zero models match filter. Clear or adjust the filter.' }}
             </p>
 
             <label class="block space-y-1 text-xs">
@@ -1166,51 +1577,69 @@ function formatSettlementState(state: string | null | undefined): string {
                 {{ isZh ? '模型 ID (Model A)' : 'Model ID (A)' }}
               </span>
               <select
-                v-if="filteredModels.length > 0"
+                v-if="filteredModelsA.length > 0"
                 v-model="sideA.modelId"
                 data-testid="select-model-a"
+                :disabled="sideAModelsLoading"
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
               >
                 <option
-                  v-if="sideA.modelId && !isModelInList(sideA.modelId, filteredModels)"
-                  :value="sideA.modelId"
+                  v-if="requestedModelIneligible"
+                  value=""
+                  disabled
                 >
-                  {{ sideA.modelId }} ({{ isZh ? '平台目录模型 / 暂无可用路由' : 'Catalog only / No route' }})
+                  {{ requestedModelIneligible }} ({{ isZh ? '当前密钥无权调用或未路由' : 'Not eligible for selected key' }})
                 </option>
-                <option v-for="m in filteredModels" :key="m.id" :value="m.slug || m.id">
+                <option v-for="m in filteredModelsA" :key="m.id" :value="m.slug || m.id">
                   {{ m.displayName && m.displayName !== m.slug ? `${m.displayName} (${m.slug})` : (m.slug || m.displayName) }}
                 </option>
               </select>
-              <input
+              <div
+                v-else-if="sideAModelsLoading"
+                data-testid="playground-models-loading-A"
+                class="rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2.5 py-2 text-[11px] text-[var(--oh-ink-secondary,var(--muted-foreground))]"
+              >
+                {{ isZh ? '正在加载所选密钥可用模型…' : 'Loading eligible models for selected key…' }}
+              </div>
+              <div
+                v-else-if="sideAModelsError"
+                data-testid="playground-models-error-A"
+                class="space-y-1.5 rounded-[var(--oh-r-sm,6px)] border border-red-400/40 bg-red-500/10 px-2.5 py-2 text-[11px]"
+              >
+                <p>{{ sideAModelsError.title }}</p>
+                <Button size="xs" variant="secondary" @click="sideA.apiKeyId && loadSideKeyModels('A', sideA.apiKeyId)">
+                  {{ t('scopeGate.retry') }}
+                </Button>
+              </div>
+              <p
                 v-else
-                v-model="sideA.modelId"
-                data-testid="input-model-a"
-                type="text"
-                :placeholder="isZh ? '输入已路由模型 ID' : 'Enter routed model slug/ID'"
-                class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2.5 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
-              />
+                data-testid="playground-models-empty-A"
+                class="rounded-[var(--oh-r-sm,6px)] border border-dashed border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2.5 py-2 text-[11px] text-[var(--oh-ink-secondary,var(--muted-foreground))]"
+              >
+                {{ t('rbac.playground.noModels') }}
+              </p>
             </label>
 
             <div
-              v-if="modelACatalogOnly"
+              v-if="requestedModelIneligible"
               data-testid="playground-catalog-only-notice-A"
               class="space-y-1.5 rounded-[var(--oh-r-sm,6px)] border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] text-[var(--oh-ink,var(--foreground))]"
             >
               <p class="font-medium">
                 {{
                   isZh
-                    ? `模型「${sideA.modelId}」为平台目录模型，当前项目作用域暂未配置可用路由（按需接入）。`
-                    : `Model "${sideA.modelId}" is catalog-only and has no active route in this project scope.`
+                    ? `模型「${requestedModelIneligible}」未在当前密钥允许清单与项目路由交集中，已锁定运行。`
+                    : `Model "${requestedModelIneligible}" is not in the eligible model set for this key and project.`
                 }}
               </p>
-              <div v-if="catalogModels.length > 0" class="flex flex-wrap gap-1.5">
+              <div v-if="sideAModels.length > 0" class="flex flex-wrap gap-1.5">
                 <Button
                   data-testid="switch-routed-model-A"
                   variant="secondary"
                   size="xs"
-                  @click="selectFirstRoutedModel('A')"
+                  @click="selectFirstEligibleModelA()"
                 >
-                  {{ isZh ? '切换为已就绪模型' : 'Switch to Routed Model' }}
+                  {{ isZh ? '切换为当前密钥可用模型' : 'Switch to Eligible Model' }}
                 </Button>
               </div>
             </div>
@@ -1224,7 +1653,12 @@ function formatSettlementState(state: string | null | undefined): string {
                 data-testid="select-protocol-a"
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
               >
-                <option v-for="p in protocolOptions" :key="p.value" :value="p.value">
+                <option
+                  v-for="p in protocolOptions"
+                  :key="p.value"
+                  :value="p.value"
+                  :disabled="supportedProtocolsA.length > 0 && !supportedProtocolsA.includes(p.value)"
+                >
                   {{ p.label }}
                 </option>
               </select>
@@ -1312,18 +1746,18 @@ function formatSettlementState(state: string | null | undefined): string {
                 <template v-if="actAsKeys.length > 0">
                   <optgroup v-if="ownedKeys.length > 0" :label="t('playgroundKeys.ownedGroupLabel')">
                     <option v-for="k in ownedKeys" :key="k.id" :value="k.id">
-                      {{ k.name }} (#{{ k.id }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
+                      {{ k.name }} (#{{ k.id }} · {{ k.state }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
                     </option>
                   </optgroup>
                   <optgroup :label="t('playgroundKeys.actAsGroupLabel')">
                     <option v-for="k in actAsKeys" :key="k.id" :value="k.id">
-                      {{ k.name }} (#{{ k.id }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
+                      {{ k.name }} (#{{ k.id }} · {{ k.state }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
                     </option>
                   </optgroup>
                 </template>
                 <template v-else>
                   <option v-for="k in ownedKeys" :key="k.id" :value="k.id">
-                    {{ k.name }} (#{{ k.id }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
+                    {{ k.name }} (#{{ k.id }} · {{ k.state }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
                   </option>
                 </template>
               </select>
@@ -1341,53 +1775,41 @@ function formatSettlementState(state: string | null | undefined): string {
                 {{ isZh ? '模型 ID (Model B)' : 'Model ID (B)' }}
               </span>
               <select
-                v-if="filteredModels.length > 0"
+                v-if="filteredModelsB.length > 0"
                 v-model="sideB.modelId"
                 data-testid="select-model-b"
+                :disabled="sideBModelsLoading"
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
               >
-                <option
-                  v-if="sideB.modelId && !isModelInList(sideB.modelId, filteredModels)"
-                  :value="sideB.modelId"
-                >
-                  {{ sideB.modelId }} ({{ isZh ? '平台目录模型 / 暂无可用路由' : 'Catalog only / No route' }})
-                </option>
-                <option v-for="m in filteredModels" :key="m.id" :value="m.slug || m.id">
+                <option v-for="m in filteredModelsB" :key="m.id" :value="m.slug || m.id">
                   {{ m.displayName && m.displayName !== m.slug ? `${m.displayName} (${m.slug})` : (m.slug || m.displayName) }}
                 </option>
               </select>
-              <input
-                v-else
-                v-model="sideB.modelId"
-                data-testid="input-model-b"
-                type="text"
-                :placeholder="isZh ? '输入模型 B ID' : 'Enter Model B slug/ID'"
-                class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2.5 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
-              />
-            </label>
-
-            <div
-              v-if="modelBCatalogOnly"
-              data-testid="playground-catalog-only-notice-B"
-              class="space-y-1.5 rounded-[var(--oh-r-sm,6px)] border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] text-[var(--oh-ink,var(--foreground))]"
-            >
-              <p class="font-medium">
-                {{
-                  isZh
-                    ? `模型「${sideB.modelId}」当前作用域暂未配置可用路由。`
-                    : `Model "${sideB.modelId}" has no active route in this project scope.`
-                }}
-              </p>
-              <Button
-                v-if="catalogModels.length > 0"
-                data-testid="switch-routed-model-B"
-                variant="secondary"
-                size="xs"
-                @click="selectFirstRoutedModel('B')"
+              <div
+                v-else-if="sideBModelsLoading"
+                data-testid="playground-models-loading-B"
+                class="rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2.5 py-2 text-[11px] text-[var(--oh-ink-secondary,var(--muted-foreground))]"
               >
-                {{ isZh ? '切换为已就绪模型' : 'Switch to Routed Model' }}
-              </Button>
-            </div>
+                {{ isZh ? '正在加载所选密钥可用模型…' : 'Loading eligible models for selected key…' }}
+              </div>
+              <div
+                v-else-if="sideBModelsError"
+                data-testid="playground-models-error-B"
+                class="space-y-1.5 rounded-[var(--oh-r-sm,6px)] border border-red-400/40 bg-red-500/10 px-2.5 py-2 text-[11px]"
+              >
+                <p>{{ sideBModelsError.title }}</p>
+                <Button size="xs" variant="secondary" @click="sideB.apiKeyId && loadSideKeyModels('B', sideB.apiKeyId)">
+                  {{ t('scopeGate.retry') }}
+                </Button>
+              </div>
+              <p
+                v-else
+                data-testid="playground-models-empty-B"
+                class="rounded-[var(--oh-r-sm,6px)] border border-dashed border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2.5 py-2 text-[11px] text-[var(--oh-ink-secondary,var(--muted-foreground))]"
+              >
+                {{ t('rbac.playground.noModels') }}
+              </p>
+            </label>
 
             <label class="block space-y-1 text-xs">
               <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
@@ -1398,7 +1820,12 @@ function formatSettlementState(state: string | null | undefined): string {
                 data-testid="select-protocol-b"
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
               >
-                <option v-for="p in protocolOptions" :key="p.value" :value="p.value">
+                <option
+                  v-for="p in protocolOptions"
+                  :key="p.value"
+                  :value="p.value"
+                  :disabled="supportedProtocolsB.length > 0 && !supportedProtocolsB.includes(p.value)"
+                >
                   {{ p.label }}
                 </option>
               </select>
@@ -1618,7 +2045,7 @@ function formatSettlementState(state: string | null | undefined): string {
                   variant="secondary"
                   size="sm"
                   :loading="inlinePreviewLoading"
-                  :disabled="!sideA.modelId && !replayRequestId"
+                  :disabled="!isSideEligible('A')"
                   @click="previewAuthoritativeQuotes"
                 >
                   {{ isZh ? '预览报价' : 'Preview Quote' }}
@@ -1676,9 +2103,9 @@ function formatSettlementState(state: string | null | undefined): string {
               :is-admin="authStore.isAdmin"
               :can-manage-byok="canManageByok"
               @run="prepareConsentForTargets(['A'])"
-              @stop="controllerA.stop(scope.activeWorkspaceId.value || undefined, scope.activeProjectId.value || undefined)"
-              @recover="controllerA.recoverByIdempotencyKey(scope.activeWorkspaceId.value || undefined, scope.activeProjectId.value || undefined)"
-              @query-status="controllerA.queryRunStatus(scope.activeWorkspaceId.value || undefined, scope.activeProjectId.value || undefined)"
+              @stop="controllerA.stop(activeWorkspaceId || undefined, activeProjectId || undefined)"
+              @recover="controllerA.recoverByIdempotencyKey(activeWorkspaceId || undefined, activeProjectId || undefined)"
+              @query-status="controllerA.queryRunStatus(activeWorkspaceId || undefined, activeProjectId || undefined)"
               @inspect="inspectedSide = 'A'"
               @navigate="navigateTo"
               @inject-tool-response="injectToolResultMessage"
@@ -1695,9 +2122,9 @@ function formatSettlementState(state: string | null | undefined): string {
               :is-admin="authStore.isAdmin"
               :can-manage-byok="canManageByok"
               @run="prepareConsentForTargets(['B'])"
-              @stop="controllerB.stop(scope.activeWorkspaceId.value || undefined, scope.activeProjectId.value || undefined)"
-              @recover="controllerB.recoverByIdempotencyKey(scope.activeWorkspaceId.value || undefined, scope.activeProjectId.value || undefined)"
-              @query-status="controllerB.queryRunStatus(scope.activeWorkspaceId.value || undefined, scope.activeProjectId.value || undefined)"
+              @stop="controllerB.stop(activeWorkspaceId || undefined, activeProjectId || undefined)"
+              @recover="controllerB.recoverByIdempotencyKey(activeWorkspaceId || undefined, activeProjectId || undefined)"
+              @query-status="controllerB.queryRunStatus(activeWorkspaceId || undefined, activeProjectId || undefined)"
               @inspect="inspectedSide = 'B'"
               @navigate="navigateTo"
               @inject-tool-response="injectToolResultMessage"

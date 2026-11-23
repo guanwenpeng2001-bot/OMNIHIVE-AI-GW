@@ -12,6 +12,7 @@ import { PlaygroundSseParser, type ParsedSseRecord } from './sseParser'
 import type {
   ExactQuote,
   ExactQuoteInput,
+  PlaygroundKeyModelsResponse,
   PlaygroundReplay,
   PlaygroundResult,
   PlaygroundSubmit,
@@ -295,6 +296,20 @@ export const playgroundApi = {
   ): Promise<components['schemas']['CostQuota']> {
     const { data } = await apiClient.get<components['schemas']['CostQuota']>(
       v2ProjectUrl(workspaceId, projectId, '/billing/quotas'),
+      { baseURL: '', params, signal }
+    )
+    return data
+  },
+
+  async listKeyModels(
+    workspaceId: string,
+    projectId: string,
+    keyId: string,
+    params?: { limit?: number; cursor?: string },
+    signal?: AbortSignal
+  ): Promise<PlaygroundKeyModelsResponse> {
+    const { data } = await apiClient.get<PlaygroundKeyModelsResponse>(
+      v2ProjectUrl(workspaceId, projectId, `/playground/keys/${encodeURIComponent(keyId)}/models`),
       { baseURL: '', params, signal }
     )
     return data

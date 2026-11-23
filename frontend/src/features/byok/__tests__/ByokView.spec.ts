@@ -1,9 +1,12 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ByokView from '@/views/user/ByokView.vue'
 import { formatIfMatchHeader } from '@/features/byok/api'
-import { identityApi } from '@/features/console/scope'
+import { identityApi } from '@/api/identity'
+import { useConsoleScopeStore } from '@/stores/consoleScope'
+import { resetScopeAccessCache } from '@/features/console/scopeAccess'
 
 const {
   listWorkspaceCredentials,
@@ -98,9 +101,16 @@ function mountByok() {
 }
 
 describe('ByokView & If-Match contract', () => {
+  function futureISO(offsetMs = 3600_000): string {
+    return new Date(Date.now() + offsetMs).toISOString()
+  }
+
   beforeEach(() => {
+    localStorage.clear()
+    sessionStorage.clear()
+    setActivePinia(createPinia())
+    resetScopeAccessCache()
     vi.resetAllMocks()
-    window.localStorage.clear()
     vi.spyOn(identityApi, 'listScopes').mockResolvedValue({
       items: [
         {
@@ -114,6 +124,15 @@ describe('ByokView & If-Match contract', () => {
       next_cursor: null,
       as_of: '2026-11-20T00:00:00Z'
     })
+    vi.spyOn(identityApi, 'getWorkspaceAccess').mockResolvedValue({
+      actor_id: '1',
+      workspace_id: '1',
+      actions: ['credentials.byok.manage'],
+      effective_admin: true,
+      role_source: 'inherited',
+      scope_version: '1',
+      expires_at: futureISO()
+    })
     vi.spyOn(identityApi, 'listProjectKeys').mockResolvedValue({
       items: [
         {
@@ -121,6 +140,8 @@ describe('ByokView & If-Match contract', () => {
           project_id: '10',
           name: 'Prod Key',
           prefix: 'oh_live_100',
+          owner_id: '1',
+          group_id: '7',
           state: 'active',
           created_at: '2026-11-20T00:00:00Z',
           version: '1'
@@ -134,7 +155,7 @@ describe('ByokView & If-Match contract', () => {
       project_id: '10',
       actions: ['credentials.byok.manage', 'keys.read'],
       scope_version: '1',
-      expires_at: '2026-11-20T00:00:00Z'
+      expires_at: futureISO()
     })
     listWorkspaceClasses.mockResolvedValue({
       items: [{ provider: 'openai', auth_type: 'api_key', supported: true, enabled: true }]
@@ -144,6 +165,7 @@ describe('ByokView & If-Match contract', () => {
     })
     listWorkspaceCredentials.mockResolvedValue({ items: [sampleCredential], next_cursor: null })
     listProjectCredentials.mockResolvedValue({ items: [], next_cursor: null })
+    useConsoleScopeStore().selectWorkspaceScope('1', '10')
   })
 
   it('formats If-Match header with strict quoted version', () => {
@@ -224,19 +246,52 @@ describe('ByokView & If-Match contract', () => {
       project_id: '10',
       actions: ['projects.read', 'models.read'],
       scope_version: '1',
-      expires_at: '2026-11-20T00:00:00Z'
+      expires_at: futureISO()
     })
 
     const wrapper = mountByok()
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="byok-enroll-btn"]').attributes('disabled')).toBeDefined()
-
     const projectTab = wrapper.findAll('button[role="tab"]')[1]
     await projectTab.trigger('click')
     await flushPromises()
 
-    expect(wrapper.find('[data-testid="console-state-permission"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="byok-enroll-btn"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="scope-gate-empty-state"]').attributes('data-state')).toBe('denied')
     expect(wrapper.find('byok-service-accounts-panel-stub').exists()).toBe(false)
+    expect(listProjectCredentials).not.toHaveBeenCalled()
+  })
+
+  it('fails closed on workspace-tab missing grant or 503 probe and shows ScopeGateEmptyState in Personal Space', async () => {
+    resetScopeAccessCache()
+    vi.spyOn(identityApi, 'getWorkspaceAccess').mockResolvedValueOnce({
+      actor_id: '1',
+      workspace_id: '1',
+      actions: ['projects.read'],
+      scope_version: '1',
+      expires_at: futureISO()
+    })
+    const deniedWs = mountByok()
+    await flushPromises()
+    expect(deniedWs.get('[data-testid="scope-gate-empty-state"]').attributes('data-state')).toBe('denied')
+    expect(deniedWs.get('[data-testid="byok-enroll-btn"]').attributes('disabled')).toBeDefined()
+    expect(listWorkspaceCredentials).not.toHaveBeenCalled()
+    deniedWs.unmount()
+
+    resetScopeAccessCache()
+    vi.spyOn(identityApi, 'getWorkspaceAccess').mockRejectedValueOnce(
+      Object.assign(new Error('Service Unavailable'), { status: 503, metadata: { request_id: 'req-byok503' } })
+    )
+    const errWs = mountByok()
+    await flushPromises()
+    expect(errWs.get('[data-testid="scope-gate-empty-state"]').attributes('data-state')).toBe('unavailable')
+    expect(listWorkspaceCredentials).not.toHaveBeenCalled()
+    errWs.unmount()
+
+    useConsoleScopeStore().selectPersonalScope()
+    const personalWrapper = mountByok()
+    await flushPromises()
+    expect(personalWrapper.get('[data-testid="scope-gate-empty-state"]').attributes('data-state')).toBe('empty')
+    personalWrapper.unmount()
   })
 })
