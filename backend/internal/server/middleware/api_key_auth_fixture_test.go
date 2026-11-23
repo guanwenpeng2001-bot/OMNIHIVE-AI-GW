@@ -28,7 +28,7 @@ func TestProtocolDecisionFixtures(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &cases))
 	for _, tc := range cases {
 		t.Run(tc.Name, func(t *testing.T) {
-			key := &service.APIKey{ID: 5, UserID: 3, Status: "active", User: &service.User{ID: 3, Status: "active", Balance: 1}}
+			key := &service.APIKey{WorkspaceID: 1, ID: 5, UserID: 3, Status: "active", User: &service.User{ID: 3, Status: "active", Balance: 1}}
 			if tc.Expired {
 				v := time.Now().Add(-time.Hour)
 				key.ExpiresAt = &v

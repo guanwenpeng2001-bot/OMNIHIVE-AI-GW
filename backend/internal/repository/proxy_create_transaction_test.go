@@ -19,6 +19,7 @@ func TestProxyCreateTransactionOwnership(t *testing.T) {
 	require.NoError(t, err)
 	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(entsql.OpenDB(dialect.SQLite, database))))
 	t.Cleanup(func() { _ = client.Close() })
+	require.NoError(t, client.Workspace.Create().SetName("Default").SetIsDefault(true).Exec(t.Context()))
 	repository := newProxyRepositoryWithSQL(client, database)
 	ctx := context.Background()
 	transaction, err := client.Tx(ctx)

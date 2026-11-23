@@ -158,10 +158,5 @@ func TestBE07QuoteCompareAndMigration(t *testing.T) {
 	post("/projects/2/quotes", keyed("6"), 404)
 	unpriced, err := os.ReadFile("../../../../../contracts/api/quotes/quote-unpriced.json")
 	require.NoError(t, err)
-	var expectedMissing map[string]any
-	require.NoError(t, json.Unmarshal(unpriced, &expectedMissing))
-	expectedMissing["reason"] = string(pricing.Missing)
-	expectedMissingJSON, err := json.Marshal(expectedMissing)
-	require.NoError(t, err)
-	require.JSONEq(t, string(expectedMissingJSON), post("/projects/2/quotes", strings.ReplaceAll(string(input), model, unknown), 200))
+	require.JSONEq(t, string(unpriced), post("/projects/2/quotes", strings.ReplaceAll(string(input), model, unknown), 200))
 }

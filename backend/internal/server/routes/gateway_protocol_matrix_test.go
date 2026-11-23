@@ -25,7 +25,7 @@ import (
 
 func protocolMatrixRouter(platform string) *gin.Engine {
 	group := &service.Group{ID: 1, Platform: platform, Status: service.StatusActive, Hydrated: true}
-	key := &service.APIKey{Key: "matrix-key", UserID: 1, Status: service.StatusActive, Group: group, GroupID: &group.ID,
+	key := &service.APIKey{WorkspaceID: 1, Key: "matrix-key", UserID: 1, Status: service.StatusActive, Group: group, GroupID: &group.ID,
 		User: &service.User{ID: 1, Status: service.StatusActive}}
 	cfg := &config.Config{RunMode: config.RunModeSimple, Gateway: config.GatewayConfig{MaxBodySize: 1 << 20, TextMaxBodySize: 1 << 20}}
 	keyService := service.NewAPIKeyService(&keyBillingRouteAPIKeyRepo{apiKey: key}, nil, nil, nil, &keyBillingRouteRateRepo{}, nil, cfg)

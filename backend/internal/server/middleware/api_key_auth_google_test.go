@@ -351,12 +351,13 @@ func TestApiKeyAuthWithSubscriptionGoogleSetsGroupContext(t *testing.T) {
 		Concurrency: 3,
 	}
 	apiKey := &service.APIKey{
-		ID:     100,
-		UserID: user.ID,
-		Key:    "test-key",
-		Status: service.StatusActive,
-		User:   user,
-		Group:  group,
+		WorkspaceID: 1,
+		ID:          100,
+		UserID:      user.ID,
+		Key:         "test-key",
+		Status:      service.StatusActive,
+		User:        user,
+		Group:       group,
 	}
 	apiKey.GroupID = &group.ID
 
@@ -405,9 +406,10 @@ func TestApiKeyAuthWithSubscriptionGoogle_QueryKeyAllowedOnV1Beta(t *testing.T) 
 	apiKeyService := newTestAPIKeyService(fakeAPIKeyRepo{
 		getByKey: func(ctx context.Context, key string) (*service.APIKey, error) {
 			return &service.APIKey{
-				ID:     1,
-				Key:    key,
-				Status: service.StatusActive,
+				WorkspaceID: 1,
+				ID:          1,
+				Key:         key,
+				Status:      service.StatusActive,
 				User: &service.User{
 					ID:     123,
 					Status: service.StatusActive,
@@ -471,12 +473,13 @@ func TestApiKeyAuthWithSubscriptionGoogle_MarksUnavailableGroupBusinessLimited(t
 		Concurrency: 3,
 	}
 	apiKey := &service.APIKey{
-		ID:      100,
-		UserID:  user.ID,
-		GroupID: &groupID,
-		Key:     "google-group-deleted",
-		Status:  service.StatusActive,
-		User:    user,
+		WorkspaceID: 1,
+		ID:          100,
+		UserID:      user.ID,
+		GroupID:     &groupID,
+		Key:         "google-group-deleted",
+		Status:      service.StatusActive,
+		User:        user,
 		Group: &service.Group{
 			ID:       groupID,
 			Name:     "deleted",
@@ -558,9 +561,10 @@ func TestApiKeyAuthWithSubscriptionGoogle_DisabledKey(t *testing.T) {
 	apiKeyService := newTestAPIKeyService(fakeAPIKeyRepo{
 		getByKey: func(ctx context.Context, key string) (*service.APIKey, error) {
 			return &service.APIKey{
-				ID:     1,
-				Key:    key,
-				Status: service.StatusDisabled,
+				WorkspaceID: 1,
+				ID:          1,
+				Key:         key,
+				Status:      service.StatusDisabled,
 				User: &service.User{
 					ID:     123,
 					Status: service.StatusActive,
@@ -591,9 +595,10 @@ func TestApiKeyAuthWithSubscriptionGoogle_InsufficientBalance(t *testing.T) {
 	apiKeyService := newTestAPIKeyService(fakeAPIKeyRepo{
 		getByKey: func(ctx context.Context, key string) (*service.APIKey, error) {
 			return &service.APIKey{
-				ID:     1,
-				Key:    key,
-				Status: service.StatusActive,
+				WorkspaceID: 1,
+				ID:          1,
+				Key:         key,
+				Status:      service.StatusActive,
 				User: &service.User{
 					ID:      123,
 					Status:  service.StatusActive,
@@ -627,9 +632,10 @@ func TestApiKeyAuthWithSubscriptionGoogle_BalanceBelowMinimumReserve(t *testing.
 	apiKeyService := newTestAPIKeyService(fakeAPIKeyRepo{
 		getByKey: func(ctx context.Context, key string) (*service.APIKey, error) {
 			return &service.APIKey{
-				ID:     1,
-				Key:    key,
-				Status: service.StatusActive,
+				WorkspaceID: 1,
+				ID:          1,
+				Key:         key,
+				Status:      service.StatusActive,
 				User: &service.User{
 					ID:      123,
 					Status:  service.StatusActive,
@@ -658,9 +664,10 @@ func TestApiKeyAuthWithSubscriptionGoogle_RejectsExhaustedBalance(t *testing.T) 
 	apiKeyService := newTestAPIKeyService(fakeAPIKeyRepo{
 		getByKey: func(ctx context.Context, key string) (*service.APIKey, error) {
 			return &service.APIKey{
-				ID:     1,
-				Key:    key,
-				Status: service.StatusActive,
+				WorkspaceID: 1,
+				ID:          1,
+				Key:         key,
+				Status:      service.StatusActive,
 				User: &service.User{
 					ID:      123,
 					Status:  service.StatusActive,
@@ -697,11 +704,12 @@ func TestApiKeyAuthWithSubscriptionGoogle_TouchesLastUsedOnSuccess(t *testing.T)
 		Concurrency: 3,
 	}
 	apiKey := &service.APIKey{
-		ID:     201,
-		UserID: user.ID,
-		Key:    "google-touch-ok",
-		Status: service.StatusActive,
-		User:   user,
+		WorkspaceID: 1,
+		ID:          201,
+		UserID:      user.ID,
+		Key:         "google-touch-ok",
+		Status:      service.StatusActive,
+		User:        user,
 	}
 
 	var touchedID int64
@@ -746,11 +754,12 @@ func TestApiKeyAuthWithSubscriptionGoogle_TouchFailureDoesNotBlock(t *testing.T)
 		Concurrency: 3,
 	}
 	apiKey := &service.APIKey{
-		ID:     202,
-		UserID: user.ID,
-		Key:    "google-touch-fail",
-		Status: service.StatusActive,
-		User:   user,
+		WorkspaceID: 1,
+		ID:          202,
+		UserID:      user.ID,
+		Key:         "google-touch-fail",
+		Status:      service.StatusActive,
+		User:        user,
 	}
 
 	touchCalls := 0
@@ -792,11 +801,12 @@ func TestApiKeyAuthWithSubscriptionGoogle_TouchesLastUsedInStandardMode(t *testi
 		Concurrency: 3,
 	}
 	apiKey := &service.APIKey{
-		ID:     203,
-		UserID: user.ID,
-		Key:    "google-touch-standard",
-		Status: service.StatusActive,
-		User:   user,
+		WorkspaceID: 1,
+		ID:          203,
+		UserID:      user.ID,
+		Key:         "google-touch-standard",
+		Status:      service.StatusActive,
+		User:        user,
 	}
 
 	touchCalls := 0
@@ -848,12 +858,13 @@ func TestApiKeyAuthWithSubscriptionGoogle_SubscriptionLimitExceededReturns429(t 
 		Concurrency: 3,
 	}
 	apiKey := &service.APIKey{
-		ID:     501,
-		UserID: user.ID,
-		Key:    "google-sub-limit",
-		Status: service.StatusActive,
-		User:   user,
-		Group:  group,
+		WorkspaceID: 1,
+		ID:          501,
+		UserID:      user.ID,
+		Key:         "google-sub-limit",
+		Status:      service.StatusActive,
+		User:        user,
+		Group:       group,
 	}
 	apiKey.GroupID = &group.ID
 

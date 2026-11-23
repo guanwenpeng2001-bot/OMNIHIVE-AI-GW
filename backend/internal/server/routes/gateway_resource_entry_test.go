@@ -50,7 +50,7 @@ func TestResourceEntrypointsRequireAuthentication(t *testing.T) {
 func TestResourceCredentialReachesHandler(t *testing.T) {
 	for _, platform := range []string{service.PlatformOpenAI, service.PlatformAnthropic} {
 		group := &service.Group{ID: 42, Platform: platform, Status: service.StatusActive, Hydrated: true, SubscriptionType: service.SubscriptionTypeStandard}
-		key := &service.APIKey{ID: 100, UserID: 7, Key: "resource-entry-key", Status: service.StatusActive, GroupID: &group.ID, Group: group,
+		key := &service.APIKey{WorkspaceID: 1, ID: 100, UserID: 7, Key: "resource-entry-key", Status: service.StatusActive, GroupID: &group.ID, Group: group,
 			User: &service.User{ID: 7, Status: service.StatusActive, Role: service.RoleUser, Balance: 10}}
 		cfg := &config.Config{RunMode: config.RunModeStandard, Gateway: config.GatewayConfig{MaxBodySize: 1024, TextMaxBodySize: 1024}}
 		keyService := service.NewAPIKeyService(&resourceEntryKeyRepository{keyBillingRouteAPIKeyRepo{apiKey: key}}, nil, nil, nil, &keyBillingRouteRateRepo{}, nil, cfg)

@@ -64,6 +64,7 @@ func newCursorEditTestRepository(t *testing.T) (*accountRepository, *dbent.Clien
 	require.NoError(t, err)
 	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(cursorEditTestDriver{entsql.OpenDB(dialect.SQLite, db)})))
 	t.Cleanup(func() { _ = client.Close() })
+	require.NoError(t, client.Workspace.Create().SetName("Default").SetIsDefault(true).Exec(t.Context()))
 	_, err = db.Exec(`CREATE TABLE scheduler_outbox (id INTEGER PRIMARY KEY, event_type TEXT, account_id INTEGER, group_id INTEGER, payload BLOB, dedup_key TEXT UNIQUE)`)
 	require.NoError(t, err)
 	_, err = db.Exec(`CREATE TABLE provider_connections (account_id INTEGER PRIMARY KEY REFERENCES accounts(id), legacy_dirty BOOLEAN DEFAULT false, verified_id TEXT, version INTEGER DEFAULT 1)`)

@@ -199,6 +199,7 @@ func TestVolcengineQueryCreateTransactionRollback(t *testing.T) {
 			repo.credentialEncryptor = enc
 			a := &service.Account{Name: "quota-account", Platform: service.PlatformVolcengine, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Credentials: quotaCredentialMap()}
 			mock.ExpectBegin()
+			mock.ExpectQuery("SELECT id FROM workspaces WHERE is_default").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 			mock.ExpectQuery(`INSERT INTO "accounts"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(17))
 			mock.ExpectExec("INSERT INTO credential_secrets").WillReturnError(errors.New("synthetic secret store unavailable"))
 			mock.ExpectRollback()
@@ -244,6 +245,7 @@ func TestVolcengineQueryCreateAtomicSuccess(t *testing.T) {
 			if withGroups {
 				mock.ExpectQuery("SELECT id FROM groups").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(99))
 			}
+			mock.ExpectQuery("SELECT id FROM workspaces WHERE is_default").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 			mock.ExpectQuery(`INSERT INTO "accounts"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(17))
 			mock.ExpectExec("INSERT INTO credential_secrets").WillReturnResult(sqlmock.NewResult(1, 1))
 			mock.ExpectExec("INSERT INTO audit_logs").WillReturnResult(sqlmock.NewResult(1, 1))
@@ -286,6 +288,7 @@ func TestInferenceCredentialCreateAtomic(t *testing.T) {
 			if withGroups {
 				mock.ExpectQuery("SELECT id FROM groups").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(99))
 			}
+			mock.ExpectQuery("SELECT id FROM workspaces WHERE is_default").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 			mock.ExpectQuery(`INSERT INTO "accounts"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(17))
 			mock.ExpectExec("INSERT INTO credential_secrets").WillReturnResult(sqlmock.NewResult(1, 1))
 			mock.ExpectExec("INSERT INTO audit_logs").WillReturnResult(sqlmock.NewResult(1, 1))

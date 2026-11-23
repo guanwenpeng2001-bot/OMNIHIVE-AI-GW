@@ -124,7 +124,11 @@ func TestGPT62ChainRecordUsageUsesActualProviderAndRequest(t *testing.T) {
 				users, subs, quota := &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, &openAIRecordUsageAPIKeyQuotaStub{}
 				svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(usage, billing, users, subs, nil)
 				svc.cfg.Default.RateMultiplier = 1
-				svc.billingService = NewBillingService(svc.cfg, newStubPricingServiceFromJSON(t, gpt62VerifiedStandardPriceFixture))
+				priceFixture := gpt62VerifiedStandardPriceFixture
+				if scenario.platform == PlatformOpenRouter {
+					priceFixture = `{"openrouter/gpt-6.2-sol":{"litellm_provider":"openrouter","mode":"chat","input_cost_per_token":0.000002,"output_cost_per_token":0.00001}}`
+				}
+				svc.billingService = NewBillingService(svc.cfg, newStubPricingServiceFromJSON(t, priceFixture))
 				if resolver {
 					svc.resolver = NewModelPricingResolver(nil, svc.billingService)
 				}

@@ -31,6 +31,7 @@ func newAPIKeyRepoSQLite(t *testing.T) (*apiKeyRepository, *dbent.Client) {
 	drv := entsql.OpenDB(dialect.SQLite, db)
 	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(drv)))
 	t.Cleanup(func() { _ = client.Close() })
+	require.NoError(t, client.Workspace.Create().SetName("Default").SetIsDefault(true).Exec(t.Context()))
 
 	addSQLiteAPIKeyBudgetColumns(t, db)
 	return &apiKeyRepository{client: client, sql: db}, client

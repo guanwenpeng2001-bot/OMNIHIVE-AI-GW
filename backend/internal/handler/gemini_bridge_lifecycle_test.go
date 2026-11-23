@@ -437,7 +437,17 @@ func TestGeminiOpenCodeNativeAndTextHandlerLifecycle(t *testing.T) {
 			usage := &cursorRouteUsageRepo{}
 			upstream := &geminiOpenCodeLifecycleUpstream{requestPlanHTTPFixture: requestPlanHTTPFixture{t: t, gemini: native}}
 			receipts := newHunyuanSTTReceiptRepository()
-			svc := service.ProvideOpenAIGatewayService(repo, usage, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(receipts, nil, nil))
+			billing := service.NewBillingService(cfg, nil)
+			resolver := service.NewModelPricingResolver(nil, billing)
+			if !native {
+				input, output := 0.000001, 0.000002
+				group.ModelPricing = []service.ChannelModelPricing{{
+					Platform: service.PlatformOpenCodeGo, Models: []string{model},
+					BillingMode: service.BillingModeToken, InputPrice: &input, OutputPrice: &output,
+				}}
+			}
+			svc := service.ProvideOpenAIGatewayService(repo, usage, nil, nil, nil, nil, nil, cfg, nil, nil, billing,
+				nil, nil, upstream, nil, nil, nil, resolver, nil, nil, nil, nil, service.NewUsageSettlementService(receipts, nil, nil))
 			h, cleanup := newTestGatewayHandler(t, group, []*service.Account{&account})
 			defer cleanup()
 			h.cfg = cfg

@@ -31,7 +31,7 @@ func TestModelAccessBothAuthenticationEntrypointsRefreshPolicy(t *testing.T) {
 			name = "google"
 		}
 		t.Run(name, func(t *testing.T) {
-			key := &service.APIKey{ID: 18, UserID: 3, Key: "model-access-key", Status: service.StatusActive, User: &service.User{ID: 3, Status: service.StatusActive, Role: service.RoleUser}}
+			key := &service.APIKey{WorkspaceID: 1, ID: 18, UserID: 3, Key: "model-access-key", Status: service.StatusActive, User: &service.User{ID: 3, Status: service.StatusActive, Role: service.RoleUser}}
 			repo := &modelAccessAuthRepo{fakeAPIKeyRepo: fakeAPIKeyRepo{getByKey: func(context.Context, string) (*service.APIKey, error) { return key, nil }}}
 			cfg := &config.Config{RunMode: config.RunModeSimple}
 			keys := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)

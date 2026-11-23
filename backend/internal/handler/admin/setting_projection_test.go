@@ -51,7 +51,7 @@ func TestProjectSystemSettingsIncludesAuditedDivergentFields(t *testing.T) {
 func TestUpdateSettingsRequestHasOwnerForWritableFields(t *testing.T) {
 	requestType := reflect.TypeOf(UpdateSettingsRequest{})
 	registry := map[string]bool{}
-	for _, registration := range NewSettingService(nil, nil).SettingRegistry() {
+	for _, registration := range service.NewSettingService(nil, nil).SettingRegistry() {
 		registry[registration.Key] = true
 	}
 	for index := 0; index < requestType.NumField(); index++ {
