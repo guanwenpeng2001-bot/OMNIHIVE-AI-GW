@@ -73,7 +73,7 @@ func (h *SystemHandler) GetVersion(c *gin.Context) {
 func (h *SystemHandler) CheckUpdates(c *gin.Context) {
 	force := c.Query("force") == "true"
 	info, err := h.updateSvc.CheckUpdate(c.Request.Context(), force)
-	if err != nil && !(info != nil && errors.Is(err, service.ErrUpdateCheckUnavailable)) {
+	if err != nil && (info == nil || !errors.Is(err, service.ErrUpdateCheckUnavailable)) {
 		response.ErrorFrom(c, err)
 		return
 	}

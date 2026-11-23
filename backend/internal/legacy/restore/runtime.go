@@ -94,9 +94,9 @@ func New(db *sql.DB, cfg *config.Config, backup *service.BackupService, access i
 	r.status = service.RestoreRuntimeStatus{Status: "available"}
 	r.closeDB = closeDB
 	if isolatedUnavailable {
-		r.Service.Journal = nil
-		r.Service.Targets = nil
-		r.Service.Archives = nil
+		r.Journal = nil
+		r.Targets = nil
+		r.Archives = nil
 		_ = i.Close()
 		r.closeDB = func() { _ = j.Close() }
 		r.status = service.RestoreRuntimeStatus{Status: "unavailable", Reason: "ISOLATED_TARGET_UNAVAILABLE"}
