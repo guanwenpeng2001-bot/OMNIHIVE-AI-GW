@@ -31,6 +31,7 @@ func (repo *createStatusRepository) Create(ctx context.Context, account *service
 		SetCredentials(account.Credentials).SetExtra(account.Extra).SetStatus(account.Status).SetSchedulable(account.Schedulable).Save(ctx)
 	if err == nil {
 		account.ID = stored.ID
+		account.WorkspaceID = stored.WorkspaceID
 	}
 	return err
 }
@@ -42,7 +43,7 @@ func (repo *createStatusRepository) GetByID(ctx context.Context, id int64) (*ser
 	if err != nil {
 		return nil, err
 	}
-	return &service.Account{ID: stored.ID, Name: stored.Name, Platform: stored.Platform, Type: stored.Type, Credentials: stored.Credentials, Status: stored.Status, Schedulable: stored.Schedulable}, nil
+	return &service.Account{ID: stored.ID, WorkspaceID: stored.WorkspaceID, Name: stored.Name, Platform: stored.Platform, Type: stored.Type, Credentials: stored.Credentials, Status: stored.Status, Schedulable: stored.Schedulable}, nil
 }
 
 type createStatusGroups struct{ service.AdminGroupRepository }
