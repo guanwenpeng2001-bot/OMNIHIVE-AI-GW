@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import DashboardView from '../DashboardView.vue'
-import en from '@/i18n/locales/en/dashboard'
-import zh from '@/i18n/locales/zh/dashboard'
+import en from '@/i18n/locales/en'
+import zh from '@/i18n/locales/zh'
 
 const api = vi.hoisted(() => ({ getDashboardStats: vi.fn(), getDashboardTrend: vi.fn(), getDashboardModels: vi.fn(), query: vi.fn() }))
 vi.mock('@/api/usage', () => ({ usageAPI: api }))
