@@ -541,22 +541,22 @@ onMounted(async () => {
   <AppLayout>
     <div
       data-testid="admin-models-catalog-view"
-      class="space-y-4 pb-12 text-[var(--foreground)] tabular-nums"
+      class="w-full min-w-0 max-w-full space-y-4 pb-12 text-[var(--foreground)] tabular-nums"
     >
       <!-- Top Header & Canonical Terminology Strip -->
       <header
         class="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 sm:p-5 space-y-3"
       >
         <div class="flex flex-wrap items-start justify-between gap-3">
-          <div class="space-y-1">
-            <div class="flex flex-wrap items-center gap-2">
+          <div class="min-w-0 max-w-full space-y-1">
+            <div class="flex min-w-0 flex-wrap items-center gap-2">
               <h1 class="text-lg font-bold tracking-tight">
                 {{ isZh ? '模型目录' : 'Model Catalog' }}
               </h1>
               <span
                 v-if="catalogVersion && catalogVersion !== 'unknown'"
                 data-testid="catalog-version-pill"
-                class="rounded bg-[var(--surface-2)] px-2 py-0.5 font-mono text-[11px] text-[var(--muted-foreground)]"
+                class="min-w-0 max-w-full break-all rounded bg-[var(--surface-2)] px-2 py-0.5 font-mono text-[11px] text-[var(--muted-foreground)]"
               >
                 {{ catalogVersion }}
               </span>
@@ -567,6 +567,12 @@ onMounted(async () => {
                   ? '按规范模型聚合核验四段漏斗与四层价格体系，排查可路由但未定价 (P0)、已发现未启用及规格来源冲突。'
                   : 'Per-model inspection workbench for the 4-stage funnel and 4 price layers; diagnose routable-but-unpriced (P0), discovered-not-enabled, and provenance conflicts.'
               }}
+            </p>
+            <p data-testid="catalog-read-only-note" class="text-xs text-[var(--muted-foreground)]">
+              {{ isZh ? '目录为只读视图；模型启用与定价请在' : 'This catalog is read-only. Manage model availability and prices in' }}
+              <a href="/admin/accounts" class="underline">{{ isZh ? '上游连接' : 'Upstream Connections' }}</a>
+              {{ isZh ? '/' : 'and' }}
+              <a href="/admin/channels/pricing" class="underline">{{ isZh ? '渠道与定价' : 'Channels & Pricing' }}</a>{{ isZh ? ' 中调整。' : '.' }}
             </p>
           </div>
 
@@ -834,7 +840,7 @@ onMounted(async () => {
           </button>
         </div>
 
-        <div v-else class="overflow-x-auto">
+        <div v-else class="w-full min-w-0 max-w-full overflow-x-auto">
           <table
             data-testid="admin-models-table"
             class="w-full text-left text-xs tabular-nums"

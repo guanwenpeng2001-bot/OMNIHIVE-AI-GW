@@ -32,6 +32,7 @@ import {
 
 const props = defineProps<{
   isZh: boolean
+  readOnly?: boolean
 }>()
 
 const ACCOUNT_MODES: CatalogAccountMode[] = [
@@ -61,11 +62,11 @@ const accountModeOptions = computed(() =>
   }))
 )
 
-const rolloutWorkspace = ref('1')
+const rolloutWorkspace = ref('')
 const rolloutChannelPath = computed(() => {
   const workspace = rolloutWorkspace.value.trim()
-  if (!isValidPositiveIntString(workspace)) return undefined
-  return workspace === '1' ? '/admin/channels/pricing' : `/workspaces/${workspace}/channels/pricing`
+  if (!workspace) return '/admin/channels/pricing'
+  return isValidPositiveIntString(workspace) ? `/workspaces/${workspace}/channels/pricing` : undefined
 })
 
 const sessionTargets = ref<CatalogVerificationTarget[]>([])
@@ -626,21 +627,21 @@ function formatOperationState(state: string): string {
 <template>
   <Card
     data-testid="catalog-verification-workbench"
-    :title="isZh ? '模型目录兼容性核验与发布工作台' : 'Model Catalog Verification & Publication Workbench'"
-    :subtitle="isZh ? '注册平台模型核验目标、管理周期探测计划、立即触发真实探测并按证据推进兼容性生命周期发布。' : 'Register verification targets, manage recurring probe schedules, trigger immediate catalog probes, and publish evidence-backed compatibility states.'"
+    :title="readOnly ? (isZh ? '模型核验记录' : 'Model Verification Records') : isZh ? '模型目录兼容性核验与发布工作台' : 'Model Catalog Verification & Publication Workbench'"
+    :subtitle="readOnly ? undefined : isZh ? '注册平台模型核验目标、管理周期探测计划、立即触发真实探测并按证据推进兼容性生命周期发布。' : 'Register verification targets, manage recurring probe schedules, trigger immediate catalog probes, and publish evidence-backed compatibility states.'"
   >
     <div class="space-y-4">
-      <p class="text-sm">
+      <p v-if="!readOnly" class="text-sm">
         {{ isZh
           ? '核验目标只接受平台工作区（#1）的活动连接。提供商、账号模式和协议须与连接一致。OpenAI Chat 经 Responses 桥接时，使用 ad_openai_chat_responses_v1，成功探测会自动运行兼容性 fixture。其他适配器请填写实际版本。'
           : 'Use an active platform workspace (#1) connection with the matching provider, account mode and protocol. For OpenAI Chat over the Responses bridge, use ad_openai_chat_responses_v1 to run the compatibility fixture on a successful probe. For other adapters enter their actual version.' }}
       </p>
-      <p class="text-sm">
+      <p v-if="!readOnly" class="text-sm">
         {{ isZh
           ? 'experimental 已可用于上线。要在项目目录和 Playground 使用模型，请在目标工作区将已验证账号加入项目分组，将活动渠道关联该分组，保存后重新编辑渠道，确认并保存该模型。公开广场读取平台工作区的公开分组。'
           : 'Experimental is sufficient for rollout. In the target workspace, add the verified account to a project group, associate an active channel with the group, then save and reopen the channel to confirm the model. The public plaza reads public groups in the platform workspace.' }}
       </p>
-      <div class="flex flex-wrap items-end gap-3">
+      <div v-if="!readOnly" class="flex flex-wrap items-end gap-3">
         <Input id="catalog-rollout-workspace" v-model="rolloutWorkspace" size="sm"
           :label="isZh ? '上线目标工作区 ID' : 'Rollout workspace ID'" />
         <a v-if="rolloutChannelPath" :href="rolloutChannelPath" data-testid="catalog-channel-setup" class="underline">{{ isZh ? '管理渠道与广场展示' : 'Manage channels and plaza visibility' }}</a>
@@ -676,7 +677,7 @@ function formatOperationState(state: string): string {
         {{ workbenchSuccess }}
       </p>
 
-      <div class="grid gap-4 xl:grid-cols-2">
+      <div v-if="!readOnly" class="grid gap-4 xl:grid-cols-2">
         <!-- 1. Register Verification Target -->
         <div class="space-y-3 rounded-oh-md border border-oh-subtle bg-oh-subtle/40 p-3.5">
           <div class="space-y-0.5">
@@ -908,9 +909,9 @@ function formatOperationState(state: string): string {
         <div class="flex flex-wrap items-end justify-between gap-3">
           <div class="space-y-0.5">
             <h4 class="text-sm font-semibold text-oh-primary">
-              {{ isZh ? '3. 核验目标观测详情、周期计划与兼容性发布' : '3. Target Inspection, Schedule & Compatibility Publication' }}
+              {{ readOnly ? (isZh ? '核验目标详情' : 'Target Details') : isZh ? '3. 核验目标观测详情、周期计划与兼容性发布' : '3. Target Inspection, Schedule & Compatibility Publication' }}
             </h4>
-            <p class="text-xs text-oh-muted">
+            <p v-if="!readOnly" class="text-xs text-oh-muted">
               {{
                 isZh
                   ? '读取核验目标最近探测记录与已发布状态，支持乐观并发锁更新核验周期或发布生命周期状态。'
@@ -919,7 +920,7 @@ function formatOperationState(state: string): string {
             </p>
           </div>
           <form class="flex flex-wrap items-end gap-2" @submit.prevent="loadTargetDetail()">
-            <div class="w-64 sm:w-80">
+            <div class="w-full sm:w-80">
               <Input
                 id="catalog-target-lookup-id"
                 v-model="targetLookupId"
@@ -1032,6 +1033,7 @@ function formatOperationState(state: string): string {
                 <div class="flex flex-wrap items-center gap-1.5">
                   <span>{{ activeTargetDetail.last_success.evidence_id }}</span>
                   <Button
+                    v-if="!readOnly"
                     size="xs"
                     variant="ghost"
                     @click="publishEvidenceId = activeTargetDetail.last_success.evidence_id"
@@ -1049,7 +1051,7 @@ function formatOperationState(state: string): string {
           </div>
         </div>
 
-        <div class="grid gap-4 border-t border-oh-subtle pt-3 xl:grid-cols-2">
+        <div v-if="!readOnly" class="grid gap-4 border-t border-oh-subtle pt-3 xl:grid-cols-2">
           <!-- 3. Schedule Form -->
           <form class="space-y-2.5" @submit.prevent="saveTargetSchedule">
             <h5 class="text-xs font-semibold text-oh-primary">
