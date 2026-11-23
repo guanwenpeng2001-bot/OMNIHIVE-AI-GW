@@ -28049,7 +28049,7 @@
     ],
     "platform": "qianwen",
     "provider_profile": "alibaba",
-    "revision": "b33b9456184eb549",
+    "revision": "f98dc54954bc6662",
     "source_refs": [
       "https://help.aliyun.com/zh/model-studio/models",
       "https://models.dev/api.json#alibaba",
@@ -32336,7 +32336,7 @@
     ],
     "platform": "qianwen",
     "provider_profile": "alibaba-cn",
-    "revision": "7e633d746271d331",
+    "revision": "26b0c6bae4a9c3fe",
     "source_refs": [
       "https://help.aliyun.com/zh/model-studio/models",
       "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api/",
@@ -44611,7 +44611,7 @@
     ],
     "platform": "volcengine",
     "provider_profile": "native",
-    "revision": "259436daa421c63b",
+    "revision": "399e07a5d24af5fb",
     "source_refs": [
       "https://www.volcengine.com/docs/82379/1330310",
       "https://docs.volcengine.com/docs/ark/coding-plan-personal-model-release?lang=zh"

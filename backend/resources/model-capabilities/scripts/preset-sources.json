@@ -24569,7 +24569,8 @@
       "coverage_status": "partial",
       "gaps": [
         "Full regional inventory, non-chat catalog and most legacy capabilities not exhaustively audited; context-specific output settings may differ.",
-        "Public documentation never establishes actual account entitlement, balances, or currently successful calls."
+        "Public documentation never establishes actual account entitlement, balances, or currently successful calls.",
+        "Qwen3.8 entries use official model pages; 1M context and mode-dependent input limits are not normalized here. Realtime requires a workspace-bound WebSocket address; family classification does not establish endpoint compatibility or account entitlement."
       ],
       "models": [
         {
@@ -26027,6 +26028,66 @@
           "output_modalities": [],
           "source": "official-oct03-b-qwen3-8-max",
           "task_type": "unknown"
+        },
+        {
+          "display_name": "Qwen3.8-Omni Flash",
+          "field_sources": {
+            "id": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash",
+            "input_modalities": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash",
+            "max_output_tokens": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash",
+            "output_modalities": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash"
+          },
+          "id": "qwen3.8-omni-flash",
+          "input_modalities": [
+            "text",
+            "image",
+            "audio",
+            "video"
+          ],
+          "lifecycle": "unknown",
+          "max_output_tokens": 131072,
+          "methods": [],
+          "output_modalities": [
+            "text"
+          ],
+          "reasoning_control": {
+            "kind": "unknown"
+          },
+          "source": "released-v0.3.3-missing-projections",
+          "source_content_hash": "d0a878054cf6e79c16b691e16203e57712d79c9c2a927d6a74af81d25cf3aba8",
+          "task_type": "unknown",
+          "verified_at": "2026-10-11T00:18:20.140336Z"
+        },
+        {
+          "display_name": "Qwen3.8-Omni Flash Realtime",
+          "field_sources": {
+            "id": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime",
+            "input_modalities": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime",
+            "max_input_tokens": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime",
+            "max_output_tokens": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime",
+            "output_modalities": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime"
+          },
+          "id": "qwen3.8-omni-flash-realtime",
+          "input_modalities": [
+            "text",
+            "audio",
+            "video"
+          ],
+          "lifecycle": "unknown",
+          "max_input_tokens": 196608,
+          "max_output_tokens": 65536,
+          "methods": [],
+          "output_modalities": [
+            "text",
+            "audio"
+          ],
+          "reasoning_control": {
+            "kind": "unknown"
+          },
+          "source": "released-v0.3.3-missing-projections",
+          "source_content_hash": "dd4bcfdbd1bf83c90a519a5317775c979f5a9315312f81173f3e01a5a9cf1002",
+          "task_type": "unknown",
+          "verified_at": "2026-10-11T00:18:20.140336Z"
         }
       ],
       "platform": "qianwen",
@@ -26040,7 +26101,9 @@
         "https://help.aliyun.com/zh/model-studio/qwen3-7-flash",
         "https://help.aliyun.com/zh/model-studio/qwen3-8-2-4t-a95b",
         "https://help.aliyun.com/zh/model-studio/qwen3-8-27b",
-        "https://help.aliyun.com/zh/model-studio/deep-thinking"
+        "https://help.aliyun.com/zh/model-studio/deep-thinking",
+        "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash",
+        "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime"
       ]
     },
     {
@@ -26691,7 +26754,8 @@
       "coverage_status": "partial",
       "gaps": [
         "Embedding and other modality rows retained with their original evidence; not revalidated in this focused text refresh.",
-        "Public documentation never establishes actual account entitlement, balances, or currently successful calls."
+        "Public documentation never establishes actual account entitlement, balances, or currently successful calls.",
+        "Qwen3.8 entries use official model pages; 1M context and mode-dependent input limits are not normalized here. Realtime requires a workspace-bound WebSocket address; family classification does not establish endpoint compatibility or account entitlement."
       ],
       "models": [
         {
@@ -28962,6 +29026,66 @@
           "output_modalities": [],
           "source": "official-oct03-b-qwen3-8-max",
           "task_type": "unknown"
+        },
+        {
+          "display_name": "Qwen3.8-Omni Flash",
+          "field_sources": {
+            "id": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash",
+            "input_modalities": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash",
+            "max_output_tokens": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash",
+            "output_modalities": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash"
+          },
+          "id": "qwen3.8-omni-flash",
+          "input_modalities": [
+            "text",
+            "image",
+            "audio",
+            "video"
+          ],
+          "lifecycle": "unknown",
+          "max_output_tokens": 131072,
+          "methods": [],
+          "output_modalities": [
+            "text"
+          ],
+          "reasoning_control": {
+            "kind": "unknown"
+          },
+          "source": "released-v0.3.3-missing-projections",
+          "source_content_hash": "d0a878054cf6e79c16b691e16203e57712d79c9c2a927d6a74af81d25cf3aba8",
+          "task_type": "unknown",
+          "verified_at": "2026-10-11T00:18:20.140336Z"
+        },
+        {
+          "display_name": "Qwen3.8-Omni Flash Realtime",
+          "field_sources": {
+            "id": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime",
+            "input_modalities": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime",
+            "max_input_tokens": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime",
+            "max_output_tokens": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime",
+            "output_modalities": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime"
+          },
+          "id": "qwen3.8-omni-flash-realtime",
+          "input_modalities": [
+            "text",
+            "audio",
+            "video"
+          ],
+          "lifecycle": "unknown",
+          "max_input_tokens": 196608,
+          "max_output_tokens": 65536,
+          "methods": [],
+          "output_modalities": [
+            "text",
+            "audio"
+          ],
+          "reasoning_control": {
+            "kind": "unknown"
+          },
+          "source": "released-v0.3.3-missing-projections",
+          "source_content_hash": "dd4bcfdbd1bf83c90a519a5317775c979f5a9315312f81173f3e01a5a9cf1002",
+          "task_type": "unknown",
+          "verified_at": "2026-10-11T00:18:20.140336Z"
         }
       ],
       "platform": "qianwen",
@@ -28976,7 +29100,9 @@
         "https://help.aliyun.com/zh/model-studio/qwen3-7-flash",
         "https://help.aliyun.com/zh/model-studio/qwen3-8-2-4t-a95b",
         "https://help.aliyun.com/zh/model-studio/qwen3-8-27b",
-        "https://help.aliyun.com/zh/model-studio/deep-thinking"
+        "https://help.aliyun.com/zh/model-studio/deep-thinking",
+        "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash",
+        "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime"
       ]
     },
     {
@@ -38995,7 +39121,8 @@
         "Regional or plan-specific availability and private endpoint IDs are account-scoped.",
         "Task limits, reasoning controls, and parameter-level modality constraints are incomplete in this overview.",
         "Embedding rows document 2048 dimensions with optional 1024 reduction; other task limits remain incomplete in this overview.",
-        "2026-10-02 direct official requests returned JavaScript shells. Search-index excerpts of coding aliases and retirement notices are leads, not fresh verification of public dated model IDs."
+        "2026-10-02 direct official requests returned JavaScript shells. Search-index excerpts of coding aliases and retirement notices are leads, not fresh verification of public dated model IDs.",
+        "ark-code-latest is a Coding Plan dynamic alias selected in the console, not a fixed capability profile. Official documentation search excerpts confirm its name and routing; direct documentation returned a JavaScript shell, so capabilities and verification hash/time remain unset."
       ],
       "models": [
         {
@@ -39961,12 +40088,26 @@
             ]
           },
           "task_type": "embedding"
+        },
+        {
+          "display_name": "ark-code-latest",
+          "field_sources": {
+            "id": "https://docs.volcengine.com/docs/ark/coding-plan-personal-model-release?lang=zh"
+          },
+          "id": "ark-code-latest",
+          "input_modalities": [],
+          "lifecycle": "unknown",
+          "methods": [],
+          "output_modalities": [],
+          "source": "released-v0.3.3-missing-projections",
+          "task_type": "unknown"
         }
       ],
       "platform": "volcengine",
       "provider_profile": "native",
       "source_refs": [
-        "https://www.volcengine.com/docs/82379/1330310"
+        "https://www.volcengine.com/docs/82379/1330310",
+        "https://docs.volcengine.com/docs/ark/coding-plan-personal-model-release?lang=zh"
       ]
     },
     {
@@ -64584,6 +64725,49 @@
       "content_sha256": "fac9800c74b44a5cec3c888fed87086bc52202ebf6ab37ed51ed97c0275238fc",
       "observed_at": "2026-09-20T14:30:00Z",
       "url": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
+    },
+    "released-v0.3.3-missing-projections": {
+      "kind": "released_projection_recovery",
+      "recovered_records": [
+        {
+          "model_id": "qwen3.8-omni-flash",
+          "platform": "qianwen",
+          "projection_sha256": "3232a11ea0440a3e2e1eb056a6745877458e0e79c9af90d25d948a518d724610",
+          "provider_profile": "alibaba"
+        },
+        {
+          "model_id": "qwen3.8-omni-flash-realtime",
+          "platform": "qianwen",
+          "projection_sha256": "b5f525eaa3ef9c84029d276e3b837d64a238d1370d2f5e7b6ea393e49e7554ab",
+          "provider_profile": "alibaba"
+        },
+        {
+          "model_id": "qwen3.8-omni-flash",
+          "platform": "qianwen",
+          "projection_sha256": "3232a11ea0440a3e2e1eb056a6745877458e0e79c9af90d25d948a518d724610",
+          "provider_profile": "alibaba-cn"
+        },
+        {
+          "model_id": "qwen3.8-omni-flash-realtime",
+          "platform": "qianwen",
+          "projection_sha256": "b5f525eaa3ef9c84029d276e3b837d64a238d1370d2f5e7b6ea393e49e7554ab",
+          "provider_profile": "alibaba-cn"
+        },
+        {
+          "model_id": "ark-code-latest",
+          "platform": "volcengine",
+          "projection_sha256": "c9b172e50cd80ed6c147fbf00f76ce2b84c1bad7daf668ecba578eec8fa8fb9a",
+          "provider_profile": "native"
+        }
+      ],
+      "recovery_basis": "Exact candidate rows and their existing field evidence recovered from the v0.3.3 preset artifact at commit 94d8a70b39c46895cac3817f3b230fb5eabe2692 to repair a missing source projection. No new network observation, upstream capture, official verification, model approval, entitlement, or endpoint guarantee is asserted. The released artifact hash identifies repository history only; original upstream hash/time are preserved where present and remain absent where absent.",
+      "released_from": {
+        "artifact_sha256": "a3f13e774f291715c9c3ebf291f6ae8caf7876c0aa5ba3d0c543b3c81c28a253",
+        "commit": "94d8a70b39c46895cac3817f3b230fb5eabe2692",
+        "path": "backend/internal/service/platform_model_presets.json",
+        "repository": "https://github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW"
+      },
+      "url": "https://github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/blob/94d8a70b39c46895cac3817f3b230fb5eabe2692/backend/internal/service/platform_model_presets.json"
     },
     "volcengine": {
       "content_sha256": "f09763c2ad7df6c6b7f2f9534928abf3fa776f6e8e080e13828f8788593e63fd",
