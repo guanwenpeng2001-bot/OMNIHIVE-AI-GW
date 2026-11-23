@@ -1298,7 +1298,7 @@ func TestAPIContracts(t *testing.T) {
 					"auth_source_default_dingtalk_platform_quotas": null,
 					"custom_menu_items": [],
 					"custom_endpoints": [],
-					"default_concurrency": 0,
+					"default_concurrency": 5,
 					"default_balance": 0,
 					"affiliate_rebate_rate": 20,
 					"affiliate_rebate_freeze_hours": 0,

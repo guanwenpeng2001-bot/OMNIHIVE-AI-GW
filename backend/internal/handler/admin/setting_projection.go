@@ -69,11 +69,8 @@ func (h *SettingHandler) SystemSettingsProjection(ctx context.Context) (map[stri
 		})
 	}
 	payload.AccountQuotaNotifyEmails = dto.NotifyEmailEntriesFromService(settings.AccountQuotaNotifyEmails)
-	payload.OpsMonitoringEnabled = settings.OpsMonitoringEnabled
-	if h.opsService != nil {
-		enabled, healthy, available := h.opsService.EffectiveMonitoringState(ctx)
-		payload.OpsMonitoringEnabled = available && healthy && enabled
-	}
+	enabled, healthy, available := h.opsService.EffectiveMonitoringState(ctx)
+	payload.OpsMonitoringEnabled = available && healthy && enabled
 
 	paymentConfig := &service.PaymentConfig{}
 	if h.paymentConfigService != nil {

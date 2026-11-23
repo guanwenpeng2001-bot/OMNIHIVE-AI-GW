@@ -325,7 +325,6 @@ func parseForwardedClientIPHeadersSetting(value string) ([]string, error) {
 
 // parseSettings 解析设置到结构体
 func (s *SettingService) parseSettings(settings map[string]string) *SystemSettings {
-	settings = s.withRegisteredDatabaseDefaults(settings)
 	emailVerifyEnabled := settings[SettingKeyEmailVerifyEnabled] == "true"
 	loginAgreementDocuments := parseLoginAgreementDocuments(settings[SettingKeyLoginAgreementDocuments])
 	loginAgreementUpdatedAt := strings.TrimSpace(settings[SettingKeyLoginAgreementUpdatedAt])
@@ -1027,25 +1026,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	})
 
 	return result
-}
-
-func (s *SettingService) withRegisteredDatabaseDefaults(settings map[string]string) map[string]string {
-	merged := make(map[string]string, len(settings))
-	for key, value := range settings {
-		merged[key] = value
-	}
-	for _, registration := range s.SettingRegistry() {
-		if registration.Authority != SettingAuthorityDatabaseOnly {
-			continue
-		}
-		if _, exists := merged[registration.Key]; exists {
-			continue
-		}
-		if raw, exists := s.databaseSettingDefaults()[registration.Key]; exists {
-			merged[registration.Key] = raw
-		}
-	}
-	return merged
 }
 
 func normalizeOpenAITTFTMode(mode string) string {
