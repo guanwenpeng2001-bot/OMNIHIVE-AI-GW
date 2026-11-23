@@ -132,6 +132,17 @@ describe('UseKeyModal', () => {
     saveAsMock.mockClear()
   })
 
+  it('shows copyable chat examples when a freshly issued key has no platform', () => {
+    const wrapper = mount(UseKeyModal, {
+      props: { show: true, apiKey: 'example', baseUrl: 'https://gateway.example/proxy/v1', platform: null },
+      global: { stubs: { BaseDialog: { template: '<div><slot /></div>' }, Icon: true } }
+    })
+    expect(wrapper.get('details').attributes('open')).toBeDefined()
+    expect(wrapper.text()).toContain('https://gateway.example/proxy/v1/chat/completions')
+    expect(wrapper.text()).toContain('client.chat.completions.create')
+    wrapper.unmount()
+  })
+
   // T2-3.5：没有配置公开 API 地址时必须明确提示，而不是回退到控制台域名。
   it('prompts when no public API address is configured and renders no client config', () => {
     const wrapper = mount(UseKeyModal, {

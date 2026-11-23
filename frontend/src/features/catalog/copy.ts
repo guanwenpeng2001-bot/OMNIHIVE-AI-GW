@@ -125,10 +125,10 @@ const ZH_COPY: CatalogUiCopy = {
     unavailable: '已停用',
     sentences: {
       live: '该模型已在网关上线，可使用有效个人或项目 API 密钥直接调用。',
-      listedUnrouted: '已上架·暂不可用 · 渠道已发布该名称，但当前无可用上游路由绑定。',
+      listedUnrouted: '已上架·暂不可用 · 渠道已发布该名称，但当前无可用上游路由绑定',
       requiresScope: '该模型已发布至平台目录，登录后使用有效个人或项目 API 密钥即可调用。',
-      catalogOnlyPlatform: '仅目录收录 · 本平台尚未接入该模型路由，规格与参考价仅供资料查阅。',
-      catalogOnlyDiscovered: '仅目录收录 · 上游连接已原生发现该模型，但管理员尚未加入有效模型。',
+      catalogOnlyPlatform: '仅目录收录 · 本平台尚未接入该模型路由，规格与参考价仅供资料查阅',
+      catalogOnlyDiscovered: '仅目录收录 · 上游连接已原生发现该模型，但管理员尚未加入有效模型',
       catalogOnlyDefault: '仅目录收录 · 本平台尚未接入该模型路由，规格与参考价仅供资料查阅。',
       unavailable: '当前作用域下没有可用的上游路由绑定。',
       unknown: '当前响应未包含完整的可用性状态，系统按未知处理，不作推测。'
@@ -232,10 +232,10 @@ const EN_COPY: CatalogUiCopy = {
     unavailable: 'Unavailable',
     sentences: {
       live: 'This model is live on the gateway and ready to call with a valid personal or project API key.',
-      listedUnrouted: 'Listed · Temporarily Unavailable · Zero active upstream routes.',
+      listedUnrouted: 'Listed · Temporarily Unavailable · Zero active upstream routes',
       requiresScope: 'This model is published on the platform; sign in with an eligible personal or project API key to call it.',
-      catalogOnlyPlatform: 'Catalog Only · Not routed on platform; specs for reference.',
-      catalogOnlyDiscovered: 'Catalog Only · Discovered upstream, not enabled in effective.',
+      catalogOnlyPlatform: 'Catalog Only · Not routed on platform; specs for reference',
+      catalogOnlyDiscovered: 'Catalog Only · Discovered upstream, not enabled in effective',
       catalogOnlyDefault: 'Catalog Only · Not routed on platform; specs for reference.',
       unavailable: 'No eligible upstream routing binding is currently available in this perspective.',
       unknown: 'Availability status was omitted from the payload; rendered as unknown without guessing.'
@@ -248,7 +248,7 @@ const EN_COPY: CatalogUiCopy = {
     priced: 'Priced',
     free: 'Free',
     varies: 'Group-Specific',
-    variesFull: 'Group-Specific Pricing (Rates vary by routing group)',
+    variesFull: 'Group-Specific Pricing (Rates vary by group; click for breakdown)',
     conflict: 'Group / Offer Variance',
     conditional: 'Conditional',
     partial: 'Partially Priced',
@@ -321,4 +321,18 @@ const EN_COPY: CatalogUiCopy = {
 
 export function getCatalogCopy(isZh: boolean): CatalogUiCopy {
   return isZh ? ZH_COPY : EN_COPY
+}
+
+export function catalogLocaleMessages(isZh: boolean) {
+  const copy = getCatalogCopy(isZh)
+  const { sentences } = copy.availability
+  return {
+    reason: {
+      platform: sentences.catalogOnlyPlatform,
+      discovered: sentences.catalogOnlyDiscovered,
+      unrouted: sentences.listedUnrouted
+    },
+    price: { varies: copy.billing.variesFull, error: copy.billing.errorFull },
+    empty: { liveFilter: copy.empty.liveNoMatchesDesc }
+  }
 }

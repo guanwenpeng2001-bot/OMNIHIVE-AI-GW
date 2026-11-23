@@ -97,7 +97,7 @@ afterEach(() => {
   wrappers.splice(0).forEach((w) => w.unmount())
 })
 
-describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16, FE-F05-01)', () => {
+describe('PublicCompareView, PublicModelsView & PublicModelDetailView', () => {
   it('recalculates interactive scenario cost and renders metrics.window + metrics.source in PublicCompareView', async () => {
     apiGetMock.mockResolvedValueOnce({
       data: { items: sampleCatalogItems, next_cursor: null }
@@ -601,7 +601,7 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
     expect(detailWrapper.get('[data-testid="detail-quickstart-toggle"]').attributes('aria-expanded')).toBe('false')
   })
 
-  it('renders availability badges, reference_price hints, and availability toggle in PublicPricingView (FE-05)', async () => {
+  it('renders availability badges, reference_price hints, and availability toggle in PublicPricingView', async () => {
     const pricingItems = [
       {
         ...sampleCatalogItems[0],
@@ -802,7 +802,7 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
     expect(quoteRow.find('[data-testid="compare-quote-retry"]').exists()).toBe(true)
   })
 
-  it('renders BE-3 anonymous published requires_scope offers as normal 可调用 on default live filter without any 需项目授权 badge', async () => {
+  it('renders anonymous published requires_scope offers as normal 可调用 on default live filter without any 需项目授权 badge', async () => {
     apiGetMock.mockResolvedValueOnce({
       data: {
         items: [
@@ -868,7 +868,7 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
     expect(wrapper.text()).not.toContain('需项目授权')
   })
 
-  it('prefers live chat-capable model for hero snippet in PublicHomeView (FE-04)', async () => {
+  it('prefers live chat-capable model for hero snippet in PublicHomeView', async () => {
     apiGetMock.mockImplementation(async (url: string, config?: { params?: Record<string, unknown> }) => {
       if (url === '/api/v2/public/status') {
         return { data: { overall: 'operational', components: [] } }
@@ -964,7 +964,7 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
     expect(wrapper.text()).not.toContain('openai/dall-e-3')
   })
 
-  it('formats 3d modality as 3D and hides partial pill counts when next_cursor is non-null (FE-03, FE-10)', async () => {
+  it('formats 3d modality as 3D and hides partial pill counts when next_cursor is non-null', async () => {
     expect(modalityLabel('3d', false)).toBe('3D')
     expect(modalityLabel('3d', true)).toBe('3D')
 

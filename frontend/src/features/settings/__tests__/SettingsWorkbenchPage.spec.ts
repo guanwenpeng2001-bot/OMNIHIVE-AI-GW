@@ -67,6 +67,24 @@ describe('SettingsWorkbenchPage sync state & diagnostics section', () => {
     activeLocale.value = 'en'
   })
 
+  it('preserves an unsaved site name across diagnostics and route-driven tab changes', async () => {
+    mockGetSettings.mockResolvedValue({ site_name: 'Original' })
+    const wrapper = mount(SettingsWorkbenchPage, {
+      props: { initialSection: 'general' },
+      global: { plugins: [createPinia()], stubs: { 'router-link': true, ConfigDiagnosticsView: true } }
+    })
+    await flushPromises()
+    const siteName = () => wrapper.findAll('input').find(input => ['Original', 'Draft'].includes(input.element.value))!
+    await siteName().setValue('Draft')
+    await wrapper.get('[role="tab"][id$="-tab-diagnostics"]').trigger('click')
+    expect(wrapper.emitted('select-section')).toEqual([['diagnostics']])
+    await wrapper.setProps({ initialSection: 'diagnostics' })
+    await wrapper.setProps({ initialSection: 'general' })
+    expect(siteName().element.value).toBe('Draft')
+    expect(mockGetSettings).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
   it('never renders Synced badge when GET /admin/settings fails', async () => {
     mockGetSettings.mockRejectedValueOnce({
       status: 500,

@@ -21,7 +21,7 @@ const { t } = useI18n()
 const isVisible = computed<boolean>(() => {
   if (props.forceVisible) return true
   const noAccounts = typeof props.totalAccounts === 'number' && props.totalAccounts === 0
-  const noLiveModels = typeof props.liveModels === 'number' && props.liveModels === 0
+  const noLiveModels = props.liveModels == null || props.liveModels === 0
   return noAccounts || noLiveModels
 })
 

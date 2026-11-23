@@ -106,7 +106,7 @@ async function openIncidentModal() {
   incidentError.value = ''
   if (incidentComponents.value.length === 0) {
     try {
-      const summary = await requestGet<StatusSummary>('/public/status/summary')
+      const summary = await requestGet<StatusSummary>('/public/status')
       incidentComponents.value = (summary.components ?? []).map((item) => ({
         id: item.id,
         name: item.name

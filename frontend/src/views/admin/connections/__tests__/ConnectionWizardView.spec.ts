@@ -139,7 +139,7 @@ function mountWizard() {
   })
 }
 
-describe('ConnectionWizardView state machine & truth invariants (FE-F09-01)', () => {
+describe('ConnectionWizardView state machine & truth invariants', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockRoute.params = {}
@@ -441,7 +441,7 @@ describe('ConnectionWizardView state machine & truth invariants (FE-F09-01)', ()
     )
   })
 
-  it('sends account_mode on Kilo apikey creation, patches account_mode before credential change, and locks keyless Step 2 input (FE-01, FE-07)', async () => {
+  it('sends account_mode on Kilo apikey creation, patches account_mode before credential change, and locks keyless Step 2 input', async () => {
     const kiloAndOpenCodeSchemas: ConnectionSchema[] = [
       {
         provider: 'kilo',

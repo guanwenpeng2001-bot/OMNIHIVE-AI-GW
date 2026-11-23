@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import SettingsWorkbenchPage from '@/features/settings/SettingsWorkbenchPage.vue'
 import { SETTINGS_SECTIONS, type SettingsSectionId } from '@/features/settings/sections'
@@ -11,6 +11,7 @@ const props = defineProps<{
 }>()
 
 const route = useRoute()
+const router = useRouter()
 const isZh = useIsZhLocale('zh')
 
 const validSectionIds = new Set<string>(SETTINGS_SECTIONS.map((item) => item.id))
@@ -39,29 +40,12 @@ const resolvedSection = computed<SettingsSectionId>(() => {
             {{ isZh ? '分区配置工作台' : 'Sectioned Workbench' }}
           </span>
         </div>
-
-        <nav
-          :aria-label="isZh ? '系统设置分区分段导航' : 'Settings section quick links'"
-          class="flex flex-wrap items-center gap-1 text-xs"
-        >
-          <RouterLink
-            v-for="item in SETTINGS_SECTIONS"
-            :key="item.id"
-            :to="`/admin/settings/${item.id}`"
-            :aria-current="resolvedSection === item.id ? 'page' : undefined"
-            :class="[
-              'oh-focus-ring rounded-oh-sm border px-2 py-0.5 font-mono text-[11px] transition-colors',
-              resolvedSection === item.id
-                ? 'border-oh-accent bg-oh-selected font-semibold text-oh-accent-text'
-                : 'border-oh-default bg-oh-surface text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
-            ]"
-          >
-            {{ isZh ? item.labelZh : item.label }}
-          </RouterLink>
-        </nav>
       </div>
     </template>
 
-    <SettingsWorkbenchPage :key="resolvedSection" :initial-section="resolvedSection" />
+    <SettingsWorkbenchPage
+      :initial-section="resolvedSection"
+      @select-section="section => router.push({ name: 'AdminSettingsSection', params: { section } })"
+    />
   </AppLayout>
 </template>

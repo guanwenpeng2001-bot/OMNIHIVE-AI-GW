@@ -229,6 +229,7 @@
         :project-options="consoleScopeStore.availableProjectOptions"
         :show-retry="scopeGateState === 'unavailable'"
         @switch-personal="handleSwitchToPersonalScope"
+        @switch-project="requestScopeSwitcher"
         @select-project="handleSelectProjectScope"
         @request-access="navigateConsole('/workspaces?requestAccess=1')"
         @retry="handleRetryScopeOrAccess"
@@ -344,6 +345,8 @@
                 @click="loadApiKeys"
                 :disabled="loading"
                 class="btn btn-secondary"
+                type="button"
+                :aria-label="t('common.refresh')"
                 :title="t('common.refresh')"
               >
                 <Icon name="refresh" size="md" :class="loading ? 'motion-safe:animate-spin' : ''" />
@@ -352,6 +355,9 @@
                 <button
                   @click="showColumnDropdown = !showColumnDropdown"
                   class="btn btn-secondary px-2 md:px-3"
+                  type="button"
+                  :aria-label="t('keys.columnSettings')"
+                  :aria-expanded="showColumnDropdown"
                   :title="t('keys.columnSettings')"
                 >
                   <svg class="h-4 w-4 md:mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
@@ -1693,7 +1699,7 @@
     <!-- Use Key Modal -->
     <UseKeyModal
       :show="showUseKeyModal"
-      :api-key="'<YOUR_API_KEY>'"
+      :api-key="(showUseKeyModal && selectedKey && sessionSecrets.get(secretKey(selectedKey))) || '<YOUR_API_KEY>'"
       :base-url="publicSettings?.api_base_url || defaultGatewayOrigin"
       :site-name="publicSettings?.site_name"
       :platform="selectedKey?.group?.platform || null"
@@ -1716,6 +1722,8 @@
       :secret="issuedSecret"
       :grace-until="issuedGraceUntil"
       :scope-label="issuedSecretScopeLabel || null"
+      :show-snippets-action="Boolean(issuedKey)"
+      @open-use-key="openIssuedKeySnippets"
       @close="closeSecretDialog"
     />
 
@@ -1877,6 +1885,7 @@ const authStore = useAuthStore()
 type ScopedApiKeyRow = ApiKey & {
   isProjectRow?: boolean
   isOwnedByActor?: boolean
+  secretScope?: [string | null, string | null]
   rawIdentityKey?: IdentityKey
 }
 
@@ -1982,7 +1991,7 @@ const scopedBillingHref = computed(() => {
 const scopedRequestsHref = computed(() => {
   const ws = activeConsoleScope.value.workspaceId
   const proj = activeConsoleScope.value.projectId
-  return ws && proj ? `/requests?workspace_id=${encodeURIComponent(ws)}&project_id=${encodeURIComponent(proj)}` : '/requests'
+  return ws && proj ? `/requests?workspace_id=${encodeURIComponent(ws)}&project_id=${encodeURIComponent(proj)}` : isPersonalMode.value ? '/usage' : '/requests'
 })
 
 function navigateConsole(path: string): void {
@@ -2045,7 +2054,9 @@ const rotateKeyForScope = (
 ) => keysAPI.rotate(id, { ...options, ...getScopeMutationOptions() })
 
 function handleSwitchToPersonalScope(): void {
+  const createKey = scopeGateState.value !== 'unavailable'
   consoleScopeStore.selectPersonalScope()
+  if (createKey) openCreateModal()
 }
 
 function handleSelectProjectScope(payload: { workspaceId: string; projectId: string }): void {
@@ -2503,7 +2514,12 @@ const pendingCcsRow = ref<ApiKey | null>(null)
 // Plaintext credentials exist only in this session: the panel can no longer read
 // them back after creation or rotation, so config exports may only use them while
 // they are still held here.
-const sessionSecrets = new Map<number, string>()
+const issuedKey = ref<ApiKey | null>(null)
+const sessionSecrets = new Map<string, string>()
+function secretKey(row: ApiKey): string {
+  const scopedRow = row as ScopedApiKeyRow
+  return JSON.stringify([currentUserId.value, scopedRow.secretScope, scopedRow.rawIdentityKey?.id ?? row.id])
+}
 const selectedKey = ref<ApiKey | null>(null)
 const groupSelectorKeyId = ref<number | null>(null)
 const publicSettings = ref<PublicSettings | null>(null)
@@ -2763,7 +2779,7 @@ function normalizeProjectRowStatus(pk: IdentityKey): ApiKey['status'] {
   return (raw || 'inactive') as ApiKey['status']
 }
 
-function mapIdentityKeyToRow(pk: IdentityKey): ScopedApiKeyRow {
+function mapIdentityKeyToRow(pk: IdentityKey, workspaceId: string | null, projectId: string | null): ScopedApiKeyRow {
   const matchedProjGroup = projectGroups.value.find((g) => String(g.id) === String(pk.group_id))
   const matchedLegacyGroup = groups.value.find(
     (g) => String(projectGroupRawIdByLocalId.value.get(g.id) ?? g.id) === String(pk.group_id)
@@ -2812,6 +2828,7 @@ function mapIdentityKeyToRow(pk: IdentityKey): ScopedApiKeyRow {
     updated_at: pk.created_at || '',
     isProjectRow: true,
     isOwnedByActor: Boolean(ownerIdStr && currentUserId.value && ownerIdStr === currentUserId.value),
+    secretScope: [workspaceId, projectId],
     rawIdentityKey: pk
   } as unknown as ScopedApiKeyRow
 }
@@ -2839,7 +2856,7 @@ const loadApiKeys = async () => {
         { limit: 100 }
       )
       if (!isCurrentRequest()) return
-      let rows = (page?.items ?? []).map(mapIdentityKeyToRow)
+      let rows = (page?.items ?? []).map(pk => mapIdentityKeyToRow(pk, activeConsoleScope.value.workspaceId, activeConsoleScope.value.projectId))
       if (filterSearch.value.trim()) {
         const q = filterSearch.value.trim().toLowerCase()
         rows = rows.filter(
@@ -3221,7 +3238,8 @@ const openRotateModal = (key: ApiKey) => {
 
 const onCredentialIssued = (payload: { secret: string; graceUntil: string | null }) => {
   if (rotateTarget.value && payload.secret) {
-    sessionSecrets.set(rotateTarget.value.id, payload.secret)
+    issuedKey.value = rotateTarget.value
+    sessionSecrets.set(secretKey(rotateTarget.value), payload.secret)
   }
   issuedSecret.value = payload.secret
   issuedGraceUntil.value = payload.graceUntil
@@ -3233,7 +3251,14 @@ const onCredentialIssued = (payload: { secret: string; graceUntil: string | null
   loadApiKeys()
 }
 
+function openIssuedKeySnippets(): void {
+  if (!issuedKey.value) return
+  openUseKeyModal(issuedKey.value)
+  closeSecretDialog()
+}
+
 const closeSecretDialog = () => {
+  issuedKey.value = null
   showSecretDialog.value = false
   issuedSecret.value = ''
   issuedGraceUntil.value = null
@@ -3517,7 +3542,10 @@ const handleSubmit = async () => {
       }
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       if (created?.credential) {
-        issuedSecret.value = created.credential
+        const { credential, ...metadata } = created
+        issuedKey.value = mapIdentityKeyToRow({ ...metadata, credential: null }, targetWsId, targetProjId)
+        sessionSecrets.set(secretKey(issuedKey.value), credential)
+        issuedSecret.value = credential
         issuedGraceUntil.value = null
         issuedSecretScopeLabel.value = modalScopePin.value?.label || buildScopeLabel(targetWsId, targetProjId)
         showSecretDialog.value = true
@@ -3537,7 +3565,8 @@ const handleSubmit = async () => {
       )
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       if (issue?.secret) {
-        sessionSecrets.set(issue.api_key.id, issue.secret)
+        issuedKey.value = issue.api_key
+        sessionSecrets.set(secretKey(issue.api_key), issue.secret)
         issuedSecret.value = issue.secret
         issuedGraceUntil.value = issue.grace_until ?? null
         issuedSecretScopeLabel.value = buildScopeLabel(null, null)
@@ -3637,7 +3666,7 @@ const importToCcswitch = (row: ApiKey) => {
 
   // A masked credential cannot configure a client. Import needs the one-time
   // secret from this session; never write the list's mask into a deep link.
-  if (!sessionSecrets.get(row.id)) {
+  if (!sessionSecrets.get(secretKey(row))) {
     appStore.showInfo(t('keys.ccSwitchSecretUnavailable'))
     return
   }
@@ -3654,7 +3683,7 @@ const importToCcswitch = (row: ApiKey) => {
 }
 
 const executeCcsImport = async (row: ApiKey, clientType: CcSwitchClientType) => {
-  const secret = sessionSecrets.get(row.id)
+  const secret = sessionSecrets.get(secretKey(row))
   if (!secret) {
     appStore.showInfo(t('keys.ccSwitchSecretUnavailable'))
     return
@@ -3744,7 +3773,9 @@ function formatResetTime(resetAt: string | null): string {
 watch(
   () => props.createPersonal,
   requested => {
-    if (requested && isPersonalMode.value) openCreateModal()
+    if (!requested) return
+    if (!isPersonalMode.value) consoleScopeStore.selectPersonalScope()
+    openCreateModal()
   },
   { immediate: true }
 )

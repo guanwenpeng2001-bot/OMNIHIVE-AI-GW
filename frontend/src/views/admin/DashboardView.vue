@@ -542,8 +542,9 @@ const reportQueryContext = { timezone: reportTimeZone }
 import UsageStatsState from '@/components/common/UsageStatsState.vue'
 import { historyGapFromError, withTrendGaps, type HistoryGap } from '@/views/trendGaps'
 import AdminSetupBanner from '@/features/onboarding/AdminSetupBanner.vue'
-import { listPublicModels } from '@/api/catalog'
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { listAdminCatalogModels } from '@/api/admin/modelCatalog'
+import { resolveCatalogWorkspace } from '@/features/catalog/adminWorkspace'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
@@ -1066,10 +1067,21 @@ onUnmounted(() => {
   clearInterval(refreshTimer)
 })
 
+watch(() => appStore.activeScope.workspaceId, async (_id, _previous, onCleanup) => {
+  const controller = new AbortController()
+  onCleanup(() => controller.abort())
+  liveModelSampleSize.value = null
+  try {
+    const workspace = await resolveCatalogWorkspace(appStore)
+    if (!workspace || controller.signal.aborted) return
+    const page = await listAdminCatalogModels({ workspace_id: workspace, availability: 'live', limit: 1 }, controller.signal)
+    if (!controller.signal.aborted) liveModelSampleSize.value = page.items.length
+  } catch {
+    // Unknown availability keeps the setup checklist visible.
+  }
+}, { immediate: true })
+
 onMounted(() => {
-  void listPublicModels({ availability_state: 'live', limit: 1 })
-    .then(page => { liveModelSampleSize.value = page.items.length })
-    .catch(() => { liveModelSampleSize.value = null })
   void refreshBatchImageAccess()
   loadDashboardStats()
   refreshTimer = setInterval(() => {

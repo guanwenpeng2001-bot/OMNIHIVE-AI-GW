@@ -2529,7 +2529,7 @@ function formatEventType(type: string): string {
                       {{
                         isZh
                           ? '将该上游连接加入目标调度分组，并授权给 API Key 或订阅套餐。'
-                          : 'Add this upstream account into a routing group accessible to keys or plans.'
+                          : 'Add this upstream connection into a routing group accessible to keys or plans.'
                       }}
                     </p>
                   </button>

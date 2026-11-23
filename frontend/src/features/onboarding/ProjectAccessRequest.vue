@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useOverlayDialog } from '@/components/ui/utils'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -282,12 +283,19 @@ onMounted(async () => {
     await refreshMyRequests()
   }
 })
+const panelRef = ref<HTMLElement | null>(null)
+useOverlayDialog({
+  open: computed(() => props.mode === 'modal' && props.open),
+  panelRef,
+  onClose: () => emit('close')
+})
 </script>
 
 <template>
   <div
     v-if="mode === 'inline' || open"
     data-testid="project-access-request"
+    @click.self="mode === 'modal' && emit('close')"
     :class="
       mode === 'modal'
         ? 'fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'
@@ -297,9 +305,11 @@ onMounted(async () => {
     <div
       :class="
         mode === 'modal'
-          ? 'w-full max-w-lg rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl space-y-4'
+          ? 'max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl space-y-4'
           : 'rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 space-y-4'
       "
+      ref="panelRef"
+      :tabindex="mode === 'modal' ? -1 : undefined"
       :role="mode === 'modal' ? 'dialog' : undefined"
       :aria-modal="mode === 'modal' ? 'true' : undefined"
       :aria-label="t('onboarding.request.modalTitle')"

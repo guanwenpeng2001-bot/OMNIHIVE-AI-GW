@@ -254,7 +254,7 @@ onBeforeUnmount(() => {
               : activeFilters
                 ? (isZh ? '请尝试清空筛选条件，或更换模型关键词与协议类别。' : 'Clear active filters or try a broader search query.')
                 : (isZh
-                    ? '当管理员在控制台完成上游连接验证、配置分组定价并确认模型上架后，模型规格与实时费率将自动在此展示。'
+                    ? '当管理员在控制台完成上游连接验证、配置渠道销售价并确认模型上架后，模型规格与实时费率将自动在此展示。'
                     : 'Models and rates appear here automatically once an administrator configures upstream connections, pricing, and publication.')
         "
         :action-label="

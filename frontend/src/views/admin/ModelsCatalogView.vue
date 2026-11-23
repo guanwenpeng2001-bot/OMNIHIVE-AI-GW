@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import { catalogWorkspace, resolveCatalogWorkspace } from '@/features/catalog/adminWorkspace'
 import { useAppStore } from '@/stores/app'
 import { normalizeApiError } from '@/utils/apiError'
 import {
@@ -45,24 +46,12 @@ try {
   routeQuery = {}
 }
 
-let appStore: ReturnType<typeof useAppStore> | null = null
-try {
-  appStore = useAppStore()
-} catch {
-  appStore = null
-}
+const appStore = useAppStore()
 
 function resolveInitialWorkspaceId(): string {
   const fromQuery = typeof routeQuery.workspace_id === 'string' ? routeQuery.workspace_id.trim() : ''
   if (/^[1-9]\d*$/.test(fromQuery)) return fromQuery
-  const fromActive = appStore?.activeScope?.workspaceId?.trim() ?? ''
-  if (/^[1-9]\d*$/.test(fromActive)) return fromActive
-  const scopes = (appStore?.scopes ?? []) as Array<{ workspace_id?: string; is_default?: boolean }>
-  const defaultWs = scopes.find((ws) => ws.is_default && ws.workspace_id)?.workspace_id
-  if (defaultWs && /^[1-9]\d*$/.test(defaultWs)) return defaultWs
-  const firstWs = scopes[0]?.workspace_id
-  if (firstWs && /^[1-9]\d*$/.test(firstWs)) return firstWs
-  return '1'
+  return catalogWorkspace(appStore)
 }
 
 function resolveInitialProjectId(): string {
@@ -412,7 +401,11 @@ async function fetchModelDetail(
   version?: string,
   cursors?: { accounts_cursor?: string; offers_cursor?: string }
 ) {
-  const ws = workspaceId.value.trim() || '1'
+  const ws = workspaceId.value.trim()
+  if (!/^[1-9]\d*$/.test(ws)) {
+    detailError.value = isZh.value ? '请选择工作空间。' : 'Select a workspace.'
+    return
+  }
   const proj = projectId.value.trim() || undefined
 
   detailAbortController?.abort()
@@ -535,7 +528,11 @@ function handleExportUnpricedCsv() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  if (!workspaceId.value) {
+    const resolved = await resolveCatalogWorkspace(appStore)
+    if (!workspaceId.value) workspaceId.value = resolved
+  }
   void fetchCatalogModels(false)
 })
 </script>

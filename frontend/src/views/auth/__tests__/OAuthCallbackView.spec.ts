@@ -315,7 +315,7 @@ describe('OAuthCallbackView', () => {
     }))
   })
 
-  it('handles BE3-01 requires_2fa challenge and sanitizes backslash redirect on completion (P1-2, BE3-01)', async () => {
+  it('handles requires_2fa challenge and sanitizes backslash redirect on completion', async () => {
     routeState.path = '/auth/oauth/callback'
     routeState.query = { code: 'pending_code_1' }
     exchangePendingOAuthCompletionMock.mockResolvedValueOnce({

@@ -137,7 +137,7 @@ describe('ScopeSwitcher', () => {
     const archivedOption = wrapper.get('[data-testid="scope-option-proj:12:25"]')
     expect(archivedOption.attributes('aria-disabled')).toBe('true')
 
-    // Footer carries direct request project access action without importing FE-2 internals
+    // Footer carries direct request project access action
     const requestLink = wrapper.get('[data-testid="scope-switcher-request-access"]')
     expect(requestLink.attributes('href')).toContain('/workspaces?requestAccess=1')
 

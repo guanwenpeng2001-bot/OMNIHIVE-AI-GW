@@ -154,6 +154,7 @@ const inactivePersonalSubscription = computed(
 
 const insufficientPersonalBalance = computed(
   () =>
+    props.availableGroupsLoaded && props.subscriptionsLoaded &&
     Number(props.userBalance ?? 0) <= 0 &&
     !props.hasActiveSubscription &&
     !hasFreeGroup.value
@@ -517,9 +518,9 @@ function switchToProjectBranchForRequest(): void {
             type="button"
             data-testid="personal-step-3-cta"
             class="btn btn-secondary btn-sm px-2.5 py-1 text-xs"
-            @click="emit('navigate', '/requests')"
+            @click="emit('navigate', '/usage')"
           >
-            {{ tr('onboarding.checklist.personalStep3Cta', '请求记录 →', 'Request Records →') }}
+            {{ tr('onboarding.checklist.personalStep3Cta', '查看个人请求与用量明细 →', 'View Personal Requests & Usage →') }}
           </button>
           <button
             type="button"

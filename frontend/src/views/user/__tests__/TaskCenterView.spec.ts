@@ -111,7 +111,7 @@ function sampleTaskDetail(overrides: Partial<ImageTaskDetail> = {}): ImageTaskDe
   }
 }
 
-describe('TaskCenterView BE-15 workflows and honest states', () => {
+describe('TaskCenterView project task workflows and status', () => {
   beforeEach(() => {
     localStorage.clear()
     setActivePinia(createPinia())

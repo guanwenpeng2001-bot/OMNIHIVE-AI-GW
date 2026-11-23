@@ -25,7 +25,7 @@ vi.mock('vue-i18n', async (importOriginal) => {
   const actual = await importOriginal<typeof import('vue-i18n')>()
   return {
     ...actual,
-    useI18n: () => ({ t: (k: string) => k, locale: { value: 'en' } })
+    useI18n: () => ({ t: (k: string, params?: { reqId?: string }) => params?.reqId ? k + ': ' + params.reqId : k, locale: { value: 'en' } })
   }
 })
 
@@ -316,8 +316,9 @@ describe('PlaygroundView 3-pane workbench', () => {
     expect(wrapper.find('[data-testid="playground-keys-empty-state-b"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="playground-run-trigger"]').attributes('disabled')).toBeDefined()
 
-    await wrapper.get('[data-testid="playground-create-project-key-btn"]').trigger('click')
-    expect(routerPush).toHaveBeenCalledWith('/keys')
+    expect(wrapper.find('[data-testid="playground-create-project-key-btn"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="playground-request-key-grant"]').trigger('click')
+    expect(routerPush).toHaveBeenCalledWith('/workspaces?requestAccess=1')
     wrapper.unmount()
   })
 
@@ -772,6 +773,7 @@ describe('PlaygroundView 3-pane workbench', () => {
         })
     )
     const selectKeyA = wrapper.get('[data-testid="select-key-a"]')
+    expect(selectKeyA.text()).toContain('#15 · Active')
     await selectKeyA.setValue('22')
     expect(wrapper.find('[data-testid="select-model-a"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="input-model-a"]').exists()).toBe(false)
@@ -785,7 +787,13 @@ describe('PlaygroundView 3-pane workbench', () => {
       items: []
     })
     await flushPromises()
-    expect(wrapper.find('[data-testid="playground-models-empty-A"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="playground-models-empty-A"]').findAll('button')).toHaveLength(2)
+    mocks.listKeyModels.mockRejectedValueOnce({ status: 503, metadata: { request_id: 'key-model-probe' } })
+    await selectKeyA.setValue('15')
+    await flushPromises()
+    const error = wrapper.get('[data-testid="playground-models-error-A"]')
+    expect(error.text()).toContain('key-model-probe')
+    expect(error.get('button').exists()).toBe(true)
     await wrapper.get('[data-testid="message-input-0"]').setValue('Try empty model run')
     expect(wrapper.get('[data-testid="playground-run-trigger"]').attributes('disabled')).toBeDefined()
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true }))

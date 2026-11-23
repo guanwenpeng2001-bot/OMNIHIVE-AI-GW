@@ -233,7 +233,7 @@ describe('Free Models (OpenCode Zen Free + Kilo) frontend support', () => {
     expect(kiloFreeWrapper.find('[data-testid="kilo-usage-badge"]').text()).toBe('Kilo Free Pool')
   })
 
-  it('blocks EditAccountModal submit when switching OpenCode zen_free to paid go/zen without a real API key (FE-06)', async () => {
+  it('blocks EditAccountModal submit when switching OpenCode zen_free to paid go/zen without a real API key', async () => {
     showErrorMock.mockReset()
     updateAccountMock.mockReset()
     updateAccountMock.mockResolvedValue({ id: 201 })

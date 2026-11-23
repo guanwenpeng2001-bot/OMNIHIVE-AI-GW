@@ -118,7 +118,7 @@ export function formatPriceSourceLabel(source?: string | null, isZh = false): st
     case 'channel_published':
       return isZh ? '已发布生效价格' : 'Published Rate'
     case 'reference':
-      return isZh ? '基准参考费率' : 'Reference Rate'
+      return isZh ? '参考价（非结算价）' : 'Reference Price'
     case 'pi-ai':
     case 'pi_ai_reference':
     case 'pi_supplement':
