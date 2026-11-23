@@ -10,16 +10,17 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import ErrorState from '@/components/ui/ErrorState.vue'
 import Input from '@/components/ui/Input.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
+import ModelPriceCell from '@/components/catalog/ModelPriceCell.vue'
+import ModelStatusBadge from '@/components/catalog/ModelStatusBadge.vue'
+import { getCatalogCopy } from '@/features/catalog/copy'
+import { toCatalogModelVM, type CatalogModelVM } from '@/features/catalog/viewModel'
 import {
-  availabilityStateLabel,
   formatContextTokens,
   formatMetricsSource,
   formatMetricsWindow,
   formatPublicTimestamp,
   formatShortVersion,
-  publicTokenPrice,
-  publicValue,
-  resolveAvailabilityState
+  publicValue
 } from '@/features/public/format'
 import {
   calculateExactScenarioBreakdown,
@@ -100,8 +101,10 @@ const COMPARE_MESSAGES = {
     unsupported: 'Unsupported',
     free: 'Free',
     unpriced: 'Unpriced',
-    onDemand: 'On demand',
-    refPrefix: 'Ref ',
+    pricingVaries: 'Group-Specific',
+    pricingError: 'Pricing Unavailable',
+    pricingConditional: 'Conditional',
+    pricingPartial: 'Partially Priced',
     loadMoreCandidates: 'Load more candidates',
     snapshotPrefix: 'Catalog ',
     snapshotMid: ' · Snapshot ',
@@ -172,8 +175,10 @@ const COMPARE_MESSAGES = {
     unsupported: '不支持',
     free: '免费',
     unpriced: '未定价',
-    onDemand: '按需接入',
-    refPrefix: '参考 ',
+    pricingVaries: '按分组定价',
+    pricingError: '价格加载失败',
+    pricingConditional: '按条件计费',
+    pricingPartial: '部分已定价',
     loadMoreCandidates: '加载更多候选模型',
     snapshotPrefix: '目录版本 ',
     snapshotMid: ' · 快照时间 ',
@@ -210,6 +215,7 @@ function tr(key: CompareKey): string {
 
 const activeLocaleCode = computed(() => String(locale?.value || 'en'))
 const zhFlag = computed(() => activeLocaleCode.value.toLowerCase().startsWith('zh'))
+const catalogCopy = computed(() => getCatalogCopy(zhFlag.value))
 
 const route = useRoute()
 const router = useRouter()
@@ -369,12 +375,31 @@ function supportText(val?: string | null): string {
   return tr('undeclared')
 }
 
+function findSummaryVM(modelId: string): CatalogModelVM | null {
+  const summary = findSummary(modelId)
+  if (!summary) return null
+  return toCatalogModelVM(summary, null, { isZh: zhFlag.value, perspective: 'public' })
+}
+
 function buildClientScenarioBreakdown(row: PublicCompareRow) {
   const summary = findSummary(row.model_id)
+  const vm = summary ? toCatalogModelVM(summary, null, { isZh: zhFlag.value, perspective: 'public' }) : null
+  if (!vm || !vm.billing.isEstimatable) {
+    return calculateExactScenarioBreakdown({
+      inputRate: null,
+      outputRate: null,
+      priceState: vm?.billing.isFree ? 'free' : 'unpriced',
+      inputTokens: normalizedScenario.value.input_tokens,
+      cachedInputTokens: normalizedScenario.value.cached_input_tokens,
+      outputTokens: normalizedScenario.value.output_tokens,
+      requests: normalizedScenario.value.requests,
+      locale: activeLocaleCode.value
+    })
+  }
   return calculateExactScenarioBreakdown({
-    inputRate: summary?.input_rate,
-    outputRate: summary?.output_rate,
-    priceState: summary?.price_state,
+    inputRate: vm.billing.inputRate,
+    outputRate: vm.billing.outputRate,
+    priceState: vm.billing.isFree ? 'free' : 'priced',
     inputTokens: normalizedScenario.value.input_tokens,
     cachedInputTokens: normalizedScenario.value.cached_input_tokens,
     outputTokens: normalizedScenario.value.output_tokens,
@@ -384,8 +409,25 @@ function buildClientScenarioBreakdown(row: PublicCompareRow) {
 }
 
 function formatQuoteCell(row: PublicCompareRow): string {
+  const vm = findSummaryVM(row.model_id)
   if (row.quote) {
-    if (row.quote.state === 'unpriced' || row.quote.state === 'error') {
+    if (row.quote.state === 'error' || row.quote.billing_state === 'error') {
+      return tr('pricingError')
+    }
+    if (
+      row.quote.billing_state === 'varies' ||
+      row.quote.billing_state === 'conflict' ||
+      row.quote.state === 'conflict'
+    ) {
+      return tr('pricingVaries')
+    }
+    if (row.quote.state === 'partial' || row.quote.billing_state === 'partial') {
+      return tr('pricingPartial')
+    }
+    if (row.quote.state === 'conditional' || row.quote.billing_state === 'conditional') {
+      return tr('pricingConditional')
+    }
+    if (row.quote.state === 'unpriced') {
       return tr('unpriced')
     }
     if (row.quote.state === 'free') {
@@ -406,8 +448,10 @@ function formatQuoteCell(row: PublicCompareRow): string {
     }
     return tr('unpriced')
   }
-  const summary = findSummary(row.model_id)
-  if (summary?.price_state === 'free') return tr('free')
+  if (vm?.billing.isError) return tr('pricingError')
+  if (vm?.billing.isGroupVarying) return tr('pricingVaries')
+  if (vm?.billing.isFree) return tr('free')
+  if (!vm?.billing.isEstimatable) return tr('unpriced')
   const local = buildClientScenarioBreakdown(row)
   if (local.state === 'estimated' || local.state === 'free') {
     return local.totalDisplay
@@ -416,8 +460,19 @@ function formatQuoteCell(row: PublicCompareRow): string {
 }
 
 function formatBreakdownDetailCell(row: PublicCompareRow): string {
+  const vm = findSummaryVM(row.model_id)
   if (row.quote) {
-    if (row.quote.state === 'unpriced' || row.quote.state === 'error') {
+    if (row.quote.state === 'error' || row.quote.billing_state === 'error') {
+      return tr('pricingError')
+    }
+    if (
+      row.quote.billing_state === 'varies' ||
+      row.quote.billing_state === 'conflict' ||
+      row.quote.state === 'conflict'
+    ) {
+      return tr('pricingVaries')
+    }
+    if (row.quote.state === 'unpriced') {
       return '—'
     }
     if (row.quote.state === 'free') {
@@ -443,6 +498,9 @@ function formatBreakdownDetailCell(row: PublicCompareRow): string {
     }
     return '—'
   }
+  if (vm?.billing.isError) return tr('pricingError')
+  if (vm?.billing.isGroupVarying) return tr('pricingVaries')
+  if (!vm?.billing.isEstimatable) return '—'
   const local = buildClientScenarioBreakdown(row)
   if (local.state === 'free') return tr('free')
   if (local.state === 'estimated') {
@@ -457,31 +515,10 @@ interface CompareSection {
   rows: Array<{
     key: string
     label: string
+    cellKind?: 'text' | 'availability' | 'price_input' | 'price_output' | 'quote'
     values: string[]
   }>
 }
-
-function formatCompareRateCell(
-  summary: PublicModelSummary | undefined,
-  kind: 'input' | 'output'
-): string {
-  if (summary?.price_state === 'free') return tr('free')
-  const rate = kind === 'input' ? summary?.input_rate : summary?.output_rate
-  if (rate) return publicTokenPrice(rate, 'adaptive', zhFlag.value)
-  const refRate =
-    kind === 'input' ? summary?.reference_price?.input_rate : summary?.reference_price?.output_rate
-  if (refRate) {
-    const formatted = publicTokenPrice(refRate, 'adaptive', zhFlag.value)
-    if (formatted && formatted !== '—') {
-      return `${tr('refPrefix')}${formatted}`
-    }
-  }
-  if (summary && resolveAvailabilityState(summary) === 'catalog_only') {
-    return tr('onDemand')
-  }
-  return publicTokenPrice(rate, 'adaptive', zhFlag.value)
-}
-
 const comparisonSections = computed<CompareSection[]>(() => {
   const rows = result.value?.rows ?? []
   return [
@@ -499,12 +536,10 @@ const comparisonSections = computed<CompareSection[]>(() => {
         {
           key: 'availability',
           label: tr('rowAvailability'),
+          cellKind: 'availability',
           values: rows.map((row) => {
-            const summary = findSummary(row.model_id)
-            const state = resolveAvailabilityState(summary)
-            return state === 'unknown'
-              ? tr('undeclared')
-              : availabilityStateLabel(state, zhFlag.value)
+            const vm = findSummaryVM(row.model_id)
+            return vm?.availability.badge?.label ?? tr('undeclared')
           })
         },
         {
@@ -533,16 +568,19 @@ const comparisonSections = computed<CompareSection[]>(() => {
         {
           key: 'input-rate',
           label: tr('rowInputRate'),
-          values: rows.map((row) => formatCompareRateCell(findSummary(row.model_id), 'input'))
+          cellKind: 'price_input',
+          values: rows.map((row) => findSummaryVM(row.model_id)?.billing.inputDisplay ?? '—')
         },
         {
           key: 'output-rate',
           label: tr('rowOutputRate'),
-          values: rows.map((row) => formatCompareRateCell(findSummary(row.model_id), 'output'))
+          cellKind: 'price_output',
+          values: rows.map((row) => findSummaryVM(row.model_id)?.billing.outputDisplay ?? '—')
         },
         {
           key: 'scenario-quote',
           label: tr('rowScenarioQuote'),
+          cellKind: 'quote',
           values: rows.map((row) => formatQuoteCell(row))
         },
         {
@@ -920,7 +958,53 @@ onMounted(() => {
                 :key="index"
                 class="break-words px-4 py-2.5 text-right font-mono text-xs tabular-nums text-oh-primary"
               >
-                {{ value }}
+                <template v-if="metric.cellKind === 'availability'">
+                  <ModelStatusBadge
+                    v-if="findSummaryVM(result.rows[index].model_id)?.availability.badge"
+                    :badge="findSummaryVM(result.rows[index].model_id)!.availability.badge"
+                  />
+                  <span v-else class="text-oh-muted">{{ value }}</span>
+                </template>
+                <template v-else-if="metric.cellKind === 'price_input' && findSummaryVM(result.rows[index].model_id)">
+                  <ModelPriceCell
+                    :billing="findSummaryVM(result.rows[index].model_id)!.billing"
+                    kind="input"
+                    :is-zh="zhFlag"
+                    :detail-to="`/model-plaza/${encodeURIComponent(result.rows[index].model_id)}`"
+                    @retry="run"
+                  />
+                </template>
+                <template v-else-if="metric.cellKind === 'price_output' && findSummaryVM(result.rows[index].model_id)">
+                  <ModelPriceCell
+                    :billing="findSummaryVM(result.rows[index].model_id)!.billing"
+                    kind="output"
+                    :is-zh="zhFlag"
+                    :detail-to="`/model-plaza/${encodeURIComponent(result.rows[index].model_id)}`"
+                    @retry="run"
+                  />
+                </template>
+                <template
+                  v-else-if="
+                    metric.cellKind === 'quote' &&
+                    (result.rows[index].quote?.state === 'error' ||
+                      result.rows[index].quote?.billing_state === 'error')
+                  "
+                >
+                  <span class="inline-flex items-center justify-end gap-1.5">
+                    <Badge tone="warning" size="xs" variant="subtle">{{ value }}</Badge>
+                    <button
+                      type="button"
+                      data-testid="compare-quote-retry"
+                      class="oh-focus-ring rounded-oh-xs font-mono text-[11px] font-medium text-oh-accent-text underline-offset-2 hover:underline"
+                      @click="run"
+                    >
+                      {{ catalogCopy.billing.retryPricing }}
+                    </button>
+                  </span>
+                </template>
+                <template v-else>
+                  {{ value }}
+                </template>
               </td>
             </tr>
           </tbody>

@@ -1,12 +1,19 @@
-import type { components } from '@/api/generated/openapi'
-import { apiClient, buildGatewayUrl } from '@/api/client'
+import {
+  compareProjectModels as compareProjectModelsClient,
+  getProjectModel as getProjectModelClient,
+  listProjectModels as listProjectModelsClient,
+  listPublicModels as listPublicModelsClient
+} from '@/api/catalog'
+import type {
+  CatalogCompareInput,
+  CatalogCompareResult,
+  CatalogModelDetail,
+  CatalogModelSummary,
+  CatalogRate
+} from '@/features/catalog/contract'
+import { toCatalogModelVM } from '@/features/catalog/viewModel'
 
-export interface CatalogModelRate {
-  currency: string
-  amount: string
-  unit: string
-  per: string
-}
+export type CatalogModelRate = CatalogRate
 
 export interface CatalogModelItem {
   id: string
@@ -22,78 +29,17 @@ export interface CatalogModelItem {
   reasoningSupported: boolean
   inputRate: CatalogModelRate | null
   outputRate: CatalogModelRate | null
-  priceState?: 'priced' | 'free' | 'unpriced' | 'error'
-  accessState?: 'allowed' | 'denied' | 'unknown' | 'requires_scope'
-  routeState?: 'eligible' | 'ineligible' | 'unknown' | 'requires_scope'
-  availabilityState?: 'live' | 'catalog_only' | string
-  catalogVersion?: string
+  priceState?: string | null
+  accessState?: string | null
+  routeState?: string | null
+  availabilityState?: string | null
+  catalogVersion?: string | null
+  billingState?: string | null
+  billingReason?: string | null
+  sourceKinds?: string[]
 }
 
-export type CatalogModelDetail = components['schemas']['ModelDetail']
-export type CatalogCompareInput = components['schemas']['CatalogCompareInput']
-export type CatalogCompareResult = components['schemas']['CatalogCompareResult']
-
-interface RawCatalogModel {
-  id?: string
-  model?: string
-  slug?: string
-  canonical_slug?: string
-  name?: string
-  display_name?: string
-  provider?: string
-  catalog_version?: string
-  protocols?: string[]
-  supported_protocols?: string[]
-  modalities?: string[]
-  actions?: string[]
-  context_tokens?: number | string | null
-  price_state?: 'priced' | 'free' | 'unpriced' | 'error'
-  access_state?: 'allowed' | 'denied' | 'unknown' | 'requires_scope'
-  route_state?: 'eligible' | 'ineligible' | 'unknown' | 'requires_scope'
-  availability_state?: 'live' | 'catalog_only' | string
-  input_rate?: CatalogModelRate | null
-  output_rate?: CatalogModelRate | null
-  facts?: {
-    context_tokens?: number | string | null
-    max_output_tokens?: number | string | null
-    tools?: boolean | string | null
-    reasoning?: boolean | string | null
-    modalities?: string[]
-  }
-  pricing?: {
-    rates?: CatalogModelRate[]
-    input?: CatalogModelRate | null
-    output?: CatalogModelRate | null
-  }
-  rates?: CatalogModelRate[]
-}
-
-interface RawCatalogPage {
-  items?: RawCatalogModel[]
-  models?: RawCatalogModel[]
-}
-
-function v2Url(path: string): string {
-  return buildGatewayUrl(path.startsWith('/api/v2') ? path : `/api/v2${path}`)
-}
-
-function normalizeRateList(raw: RawCatalogModel): {
-  inputRate: CatalogModelRate | null
-  outputRate: CatalogModelRate | null
-} {
-  const rates = raw.pricing?.rates ?? raw.rates ?? []
-  const inputRate =
-    raw.input_rate ??
-    raw.pricing?.input ??
-    rates.find((r) => r.unit === 'input_token' || r.unit === 'prompt_token') ??
-    null
-  const outputRate =
-    raw.output_rate ??
-    raw.pricing?.output ??
-    rates.find((r) => r.unit === 'output_token' || r.unit === 'completion_token') ??
-    null
-  return { inputRate, outputRate }
-}
+export type { CatalogCompareInput, CatalogCompareResult, CatalogModelDetail }
 
 function parseOptionalPositiveInt(val: number | string | null | undefined): number | null {
   if (typeof val === 'number' && Number.isFinite(val)) return val
@@ -104,39 +50,34 @@ function parseOptionalPositiveInt(val: number | string | null | undefined): numb
   return null
 }
 
-export function normalizeCatalogModel(raw: RawCatalogModel): CatalogModelItem | null {
-  const slug = (raw.slug || raw.canonical_slug || raw.model || raw.id || '').trim()
+export function normalizeCatalogModel(raw: CatalogModelSummary): CatalogModelItem | null {
+  const slug = (raw.model || raw.id || '').trim()
   const id = (raw.id || slug).trim()
   if (!id) return null
-  const displayName = (raw.display_name || raw.name || slug || id).trim()
-  const protocols = raw.protocols ?? raw.supported_protocols ?? []
-  const modalities = raw.modalities ?? raw.facts?.modalities ?? []
-  const actions = raw.actions ?? []
-  const { inputRate, outputRate } = normalizeRateList(raw)
-  const maxOutputTokens = parseOptionalPositiveInt(raw.facts?.max_output_tokens)
-  const contextTokens =
-    parseOptionalPositiveInt(raw.context_tokens) ??
-    parseOptionalPositiveInt(raw.facts?.context_tokens)
+  const vm = toCatalogModelVM(raw, null, { perspective: 'scoped' })
 
   return {
     id,
     slug: slug || id,
-    displayName,
+    displayName: (raw.display_name || slug || id).trim(),
     provider: (raw.provider || 'gateway').trim(),
-    actions: Array.isArray(actions) ? actions : [],
-    protocols: Array.isArray(protocols) ? protocols : [],
-    modalities: Array.isArray(modalities) ? modalities : [],
-    maxOutputTokens,
-    contextTokens,
-    toolsSupported: Boolean(raw.facts?.tools && raw.facts.tools !== 'unsupported'),
-    reasoningSupported: Boolean(raw.facts?.reasoning && raw.facts.reasoning !== 'unsupported'),
-    inputRate,
-    outputRate,
-    priceState: raw.price_state,
-    accessState: raw.access_state,
-    routeState: raw.route_state,
-    availabilityState: raw.availability_state,
-    catalogVersion: raw.catalog_version
+    actions: Array.isArray(raw.actions) ? raw.actions : [],
+    protocols: Array.isArray(raw.protocols) ? raw.protocols : [],
+    modalities: Array.isArray(raw.modalities) ? raw.modalities : [],
+    maxOutputTokens: null,
+    contextTokens: parseOptionalPositiveInt(raw.context_tokens),
+    toolsSupported: false,
+    reasoningSupported: false,
+    inputRate: vm.billing.inputRate,
+    outputRate: vm.billing.outputRate,
+    priceState: raw.billing?.state ?? raw.price_state ?? null,
+    accessState: raw.availability?.access ?? raw.access_state ?? null,
+    routeState: raw.route_state ?? null,
+    availabilityState: raw.availability?.state ?? raw.availability_state ?? null,
+    catalogVersion: raw.catalog_version ?? null,
+    billingState: vm.billing.state,
+    billingReason: vm.billing.reason,
+    sourceKinds: vm.origin.kinds
   }
 }
 
@@ -144,34 +85,48 @@ export const catalogApi = {
   async listScopedModels(
     workspaceId: string,
     projectId: string,
-    params?: { q?: string; action?: string[]; modality?: string[]; limit?: number },
+    params?: {
+      q?: string
+      action?: string[]
+      modality?: string[]
+      api_key_id?: string
+      limit?: number
+    },
     signal?: AbortSignal
   ): Promise<CatalogModelItem[]> {
-    if (workspaceId && projectId) {
-      const { data } = await apiClient.get<RawCatalogPage>(
-        v2Url(`/workspaces/${workspaceId}/projects/${projectId}/models`),
-        {
-          baseURL: '',
-          params: { limit: params?.limit ?? 100, accessible: true, ...params },
-          signal
-        }
-      )
-      const list = data?.items ?? data?.models ?? []
-      return list.map(normalizeCatalogModel).filter((item): item is CatalogModelItem => item !== null)
+    if (!workspaceId || !projectId) {
+      return []
     }
-    return this.listPublicModels(params, signal)
+    const page = await listProjectModelsClient(
+      workspaceId,
+      projectId,
+      {
+        limit: params?.limit ?? 100,
+        accessible: true,
+        q: params?.q,
+        action: params?.action,
+        modality: params?.modality,
+        api_key_id: params?.api_key_id
+      },
+      { signal }
+    )
+    const list = page?.items ?? []
+    return list.map(normalizeCatalogModel).filter((item): item is CatalogModelItem => item !== null)
   },
 
   async listPublicModels(
     params?: { q?: string; modality?: string[]; limit?: number },
     signal?: AbortSignal
   ): Promise<CatalogModelItem[]> {
-    const { data } = await apiClient.get<RawCatalogPage>(v2Url('/public/models'), {
-      baseURL: '',
-      params: { limit: params?.limit ?? 100, ...params },
-      signal
-    })
-    const list = data?.items ?? data?.models ?? []
+    const page = await listPublicModelsClient(
+      {
+        limit: params?.limit ?? 100,
+        q: params?.q,
+        modality: params?.modality
+      },
+      { signal }
+    )
+    const list = page?.items ?? []
     return list.map(normalizeCatalogModel).filter((item): item is CatalogModelItem => item !== null)
   },
 
@@ -179,14 +134,10 @@ export const catalogApi = {
     workspaceId: string,
     projectId: string,
     modelId: string,
-    params?: { catalog_version?: string },
+    params?: { catalog_version?: string; api_key_id?: string },
     signal?: AbortSignal
   ): Promise<CatalogModelDetail> {
-    const { data } = await apiClient.get<CatalogModelDetail>(
-      v2Url(`/workspaces/${workspaceId}/projects/${projectId}/models/${encodeURIComponent(modelId)}`),
-      { baseURL: '', params, signal }
-    )
-    return data
+    return getProjectModelClient(workspaceId, projectId, modelId, params, { signal })
   },
 
   async compareProjectModels(
@@ -195,11 +146,6 @@ export const catalogApi = {
     input: CatalogCompareInput,
     signal?: AbortSignal
   ): Promise<CatalogCompareResult> {
-    const { data } = await apiClient.post<CatalogCompareResult>(
-      v2Url(`/workspaces/${workspaceId}/projects/${projectId}/models/compare`),
-      input,
-      { baseURL: '', signal }
-    )
-    return data
+    return compareProjectModelsClient(workspaceId, projectId, input, { signal })
   }
 }

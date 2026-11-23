@@ -8,8 +8,8 @@ import { useAppStore, useAuthStore } from '@/stores'
 import { useAdminSettingsStore } from '@/stores/adminSettings'
 import { useThemeDirection } from '@/composables/useThemeDirection'
 import { resolveVisibleTierNavItems, type ShellNavItemSpec } from '@/router/navigationRegistry'
-import { getModelPlaza } from '@/api/modelPlaza'
-import { isSilentRequestError } from '@/api/client'
+import { isCatalogAbortError, listProjectModels, listPublicModels } from '@/api/catalog'
+import { toCatalogModelVM } from '@/features/catalog/viewModel'
 
 const router = useRouter()
 const route = useRoute()
@@ -28,10 +28,21 @@ const {
 
 const isZh = computed(() => String(locale?.value || 'zh').toLowerCase().startsWith('zh'))
 
-const liveModelNames = ref<Array<{ name: string; platform: string }>>([])
+interface PaletteModelEntry {
+  id: string
+  model: string
+  displayName: string
+  provider: string
+  badge: string
+  protocols: string[]
+}
+
+const liveModelNames = ref<PaletteModelEntry[]>([])
 const modelsLoaded = ref(false)
 const modelsLoading = ref(false)
+const loadedScopeKey = ref('')
 let modelAbortController: AbortController | null = null
+let modelRequestSeq = 0
 
 const isOpen = computed({
   get: () => Boolean(appStore.commandPaletteOpen || cmdkOpen.value),
@@ -73,8 +84,30 @@ function flattenNavItems(entries: ShellNavItemSpec[]): ShellNavItemSpec[] {
   )
 }
 
+const activeCatalogScope = computed(() => {
+  const active = appStore.activeScope
+  if (
+    authStore.isAuthenticated &&
+    active?.mode === 'workspace' &&
+    active.workspaceId &&
+    active.projectId
+  ) {
+    return {
+      key: `ws:${active.workspaceId}:${active.projectId}`,
+      workspaceId: active.workspaceId,
+      projectId: active.projectId
+    }
+  }
+  return {
+    key: 'public',
+    workspaceId: null,
+    projectId: null
+  }
+})
+
 async function loadLiveModelsIfPermitted(): Promise<void> {
-  if (modelsLoaded.value || modelsLoading.value) return
+  const targetScope = activeCatalogScope.value
+  if (modelsLoaded.value && loadedScopeKey.value === targetScope.key) return
   if (appStore.cachedPublicSettings?.model_plaza_enabled === false) return
   if (
     appStore.cachedPublicSettings?.model_plaza_require_auth === true &&
@@ -85,30 +118,73 @@ async function loadLiveModelsIfPermitted(): Promise<void> {
 
   modelAbortController?.abort()
   modelAbortController = new AbortController()
+  const currentSeq = ++modelRequestSeq
   modelsLoading.value = true
   try {
-    const response = await getModelPlaza({ signal: modelAbortController.signal })
+    const page =
+      targetScope.workspaceId && targetScope.projectId
+        ? await listProjectModels(
+            targetScope.workspaceId,
+            targetScope.projectId,
+            { availability_state: 'live', limit: 24, sort: 'availability' },
+            { signal: modelAbortController.signal }
+          )
+        : await listPublicModels(
+            { availability_state: 'live', limit: 24, sort: 'availability' },
+            { signal: modelAbortController.signal }
+          )
+    if (currentSeq !== modelRequestSeq) return
     const seen = new Set<string>()
-    const collected: Array<{ name: string; platform: string }> = []
-    for (const group of response?.groups ?? []) {
-      for (const model of group.models ?? []) {
-        if (!model.name || seen.has(model.name)) continue
-        seen.add(model.name)
-        collected.push({ name: model.name, platform: model.platform || group.platform || '' })
-        if (collected.length >= 24) break
-      }
+    const collected: PaletteModelEntry[] = []
+    const items = page?.items ?? []
+    const hasExplicitAvailability = items.some(
+      (item) => toCatalogModelVM(item, null, { isZh: isZh.value }).availability.state !== 'unknown'
+    )
+    const perspective = targetScope.workspaceId ? 'scoped' : 'public'
+    for (const entry of items) {
+      const vm = toCatalogModelVM(entry, null, { isZh: isZh.value, perspective })
+      if (hasExplicitAvailability && !vm.availability.isCallable) continue
+      const dedupeKey = vm.id || vm.model
+      if (!dedupeKey || seen.has(dedupeKey)) continue
+      seen.add(dedupeKey)
+      collected.push({
+        id: vm.id,
+        model: vm.model,
+        displayName: vm.displayName,
+        provider: entry.provider || '',
+        badge: vm.availability.badge?.label || (entry.provider ? entry.provider.toUpperCase() : 'MODEL'),
+        protocols: vm.protocols
+      })
       if (collected.length >= 24) break
     }
     liveModelNames.value = collected
+    loadedScopeKey.value = targetScope.key
     modelsLoaded.value = true
   } catch (err) {
-    if (!isSilentRequestError(err)) {
+    if (currentSeq === modelRequestSeq && !isCatalogAbortError(err)) {
       liveModelNames.value = []
+      loadedScopeKey.value = ''
+      modelsLoaded.value = false
     }
   } finally {
-    modelsLoading.value = false
+    if (currentSeq === modelRequestSeq) {
+      modelsLoading.value = false
+    }
   }
 }
+
+watch(
+  () => activeCatalogScope.value.key,
+  (nextKey, prevKey) => {
+    if (nextKey === prevKey) return
+    modelsLoaded.value = false
+    loadedScopeKey.value = ''
+    liveModelNames.value = []
+    if (isOpen.value) {
+      void loadLiveModelsIfPermitted()
+    }
+  }
+)
 
 watch(isOpen, (open) => {
   if (open) {
@@ -217,12 +293,20 @@ const groups = computed<UiCommandGroup[]>(() => {
       label: isZh.value ? '实时目录模型' : 'CATALOG MODELS',
       items: liveModelNames.value.map(
         (model): UiCommandItem => ({
-          id: `mdl-${model.name}`,
-          label: model.name,
-          badge: model.platform ? model.platform.toUpperCase() : 'MODEL',
-          keywords: ['model', model.name, model.platform],
+          id: `mdl-${model.id || model.model}`,
+          label: model.displayName,
+          description:
+            model.displayName !== model.model
+              ? `${model.provider ? `${model.provider} · ` : ''}${model.model}`
+              : model.provider || undefined,
+          badge: model.badge,
+          keywords: ['model', model.model, model.displayName, model.provider, ...model.protocols],
           onSelect: () => {
-            void router.push({ path: '/model-plaza', query: { q: model.name } })
+            if (model.id) {
+              void router.push(`/model-plaza/${encodeURIComponent(model.id)}`)
+            } else {
+              void router.push({ path: '/model-plaza', query: { q: model.model } })
+            }
           }
         })
       )

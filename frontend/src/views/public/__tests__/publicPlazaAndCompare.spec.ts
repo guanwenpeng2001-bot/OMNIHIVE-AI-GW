@@ -484,19 +484,30 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
     expect(apiGetMock).toHaveBeenCalledWith(
       '/api/v2/public/models',
       expect.objectContaining({
-        params: expect.objectContaining({ sort: 'availability', limit: 100 })
+        params: expect.objectContaining({ availability_state: 'live', sort: 'availability', limit: 100 })
       })
     )
-    expect(wrapper.text()).toContain('Live & Routable')
-    expect(wrapper.text()).toContain('Platform Catalog · On Demand')
+    // Default filter is availability_state=live (no catalog_only flood on first load)
+    expect(wrapper.text()).toContain('Available')
+    expect(wrapper.text()).toContain('GPT-4o')
+    expect(wrapper.text()).not.toContain('GPT Image 1')
+    expect(wrapper.text()).not.toContain('On demand')
+    // When next_cursor is present, pill numeric counts must NOT show misleading unloaded counts
+    expect(wrapper.get('[data-testid="modality-pill-audio"]').text()).toBe('Audio & Speech')
+
+    // Switching to All reveals Catalog Only + secondary pi reference price without raw pi-ai
+    await wrapper.get('[data-testid="availability-pill-all"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Catalog Only')
     expect(wrapper.text()).toContain('Ref $5.00')
-    expect(wrapper.text()).toContain('On demand')
+    expect(wrapper.text()).toContain('Community Catalog (pi)')
+    expect(wrapper.text()).toContain('Non-settlement')
+    expect(wrapper.text()).not.toContain('pi-ai')
+    expect(wrapper.text()).not.toContain('On demand')
     expect(wrapper.find('[data-testid="modality-badge-image"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="modality-badge-video"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="modality-badge-embedding"]').exists()).toBe(true)
     expect(modalityLabel('3d')).toBe('3D')
-    // When next_cursor is present, pill numeric counts must NOT show misleading unloaded counts
-    expect(wrapper.get('[data-testid="modality-pill-audio"]').text()).toBe('Audio & Speech')
 
     await wrapper.get('[data-testid="availability-pill-live"]').trigger('click')
     await flushPromises()
@@ -570,10 +581,21 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
     await flushPromises()
 
     expect(detailWrapper.get('[data-testid="detail-availability-badge-catalog_only"]').text()).toContain(
-      'Platform Catalog · On Demand'
+      'Catalog Only'
     )
     expect(detailWrapper.get('[data-testid="detail-modality-badge-image"]').text()).toContain('Image')
     expect(detailWrapper.text()).toContain('Ref $5.00')
+    expect(detailWrapper.text()).toContain('Community Catalog (pi)')
+    expect(detailWrapper.text()).toContain('Non-settlement')
+    expect(detailWrapper.text()).not.toContain('pi-ai')
+    expect(detailWrapper.text()).not.toContain('On demand')
+    // Strict 6-section IA markers & collapsed quickstart for non-live models
+    expect(detailWrapper.find('[data-testid="detail-section-pricing"]').exists()).toBe(true)
+    expect(detailWrapper.find('[data-testid="detail-section-capabilities"]').exists()).toBe(true)
+    expect(detailWrapper.find('[data-testid="detail-section-quickstart"]').exists()).toBe(true)
+    expect(detailWrapper.find('[data-testid="detail-section-lifecycle"]').exists()).toBe(true)
+    expect(detailWrapper.find('[data-testid="detail-section-telemetry"]').exists()).toBe(true)
+    expect(detailWrapper.get('[data-testid="detail-quickstart-toggle"]').attributes('aria-expanded')).toBe('false')
   })
 
   it('renders availability badges, reference_price hints, and availability toggle in PublicPricingView (FE-05)', async () => {
@@ -625,12 +647,19 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
     wrappers.push(wrapper)
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="pricing-availability-badge-live"]').text()).toContain('Live & Routable')
+    expect(wrapper.get('[data-testid="pricing-availability-badge-live"]').text()).toContain('Available')
+    expect(wrapper.text()).not.toContain('GPT Image 1')
+
+    await wrapper.get('[data-testid="pricing-availability-pill-all"]').trigger('click')
+    await flushPromises()
     expect(wrapper.get('[data-testid="pricing-availability-badge-catalog_only"]').text()).toContain(
-      'Platform Catalog · On Demand'
+      'Catalog Only'
     )
     expect(wrapper.get('[data-testid="pricing-reference-rate-input"]').text()).toContain('Ref $5.00')
     expect(wrapper.get('[data-testid="pricing-reference-rate-output"]').text()).toContain('Ref $40.00')
+    expect(wrapper.get('[data-testid="pricing-reference-rate-input"]').text()).toContain('Community Catalog (pi)')
+    expect(wrapper.get('[data-testid="pricing-reference-rate-input"]').text()).toContain('Non-settlement')
+    expect(wrapper.text()).not.toContain('pi-ai')
 
     await wrapper.get('[data-testid="pricing-availability-pill-live"]').trigger('click')
     await flushPromises()
@@ -642,6 +671,199 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
     )
     expect(wrapper.text()).toContain('Gemini 3.8 Flash')
     expect(wrapper.text()).not.toContain('GPT Image 1')
+  })
+
+  it('omits public requires_scope badge, provides 3-action empty state on live filter, and separates varies vs error in Compare/Plaza', async () => {
+    apiGetMock.mockImplementation(async (_url: string, config?: { params?: Record<string, unknown> }) => {
+      if (config?.params?.availability_state === 'live') {
+        return { data: { items: [], next_cursor: null } }
+      }
+      return {
+        data: {
+          items: [
+            {
+              id: 'm_scoped_pub',
+              provider: 'openai',
+              model: 'gpt-4.1',
+              display_name: 'GPT-4.1',
+              availability: { state: 'requires_scope', publication: 'published', access: 'requires_scope' },
+              billing: {
+                state: 'varies',
+                sale_price: {
+                  min_input_rate: { currency: 'USD', amount: '1', per: '1000000', unit: 'input_token' },
+                  max_input_rate: { currency: 'USD', amount: '2', per: '1000000', unit: 'input_token' }
+                }
+              }
+            },
+            {
+              id: 'm_err_pub',
+              provider: 'anthropic',
+              model: 'claude-4-opus',
+              display_name: 'Claude 4 Opus',
+              availability: { state: 'live', publication: 'published', access: 'allowed' },
+              billing: { state: 'error', reason: 'price_read_failed' }
+            }
+          ],
+          next_cursor: null
+        }
+      }
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/model-plaza', component: PublicModelsView },
+        { path: '/model-plaza/:id', component: PublicModelDetailView },
+        { path: '/model-plaza/compare', component: PublicCompareView },
+        { path: '/docs', component: { template: '<div />' } }
+      ]
+    })
+    await router.push('/model-plaza')
+    const i18n = createI18n({ legacy: false, locale: 'zh', messages: { zh: {} } })
+    const wrapper = mount(PublicModelsView, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { SiteICPFooter: true, LocaleSwitcher: true }
+      }
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+
+    // 3-action empty state when live returns 0 models
+    expect(wrapper.text()).toContain('当前筛选下没有可直接调用的模型')
+    expect(wrapper.find('[data-testid="empty-state-view-catalog-only"]').exists()).toBe(true)
+    expect(wrapper.find('a[href="/docs#support"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="availability-pill-all"]').trigger('click')
+    await flushPromises()
+
+    // Public plaza MUST NOT show "需项目授权" badge
+    expect(wrapper.text()).not.toContain('需项目授权')
+    expect(wrapper.find('[data-testid="availability-badge-requires_scope"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('按分组定价')
+    expect(wrapper.text()).toContain('价格加载失败')
+
+    // PublicCompareView also distinguishes error vs varies vs unpriced without collapsing error to unpriced
+    apiGetMock.mockReset()
+    apiGetMock.mockResolvedValueOnce({
+      data: {
+        items: [
+          {
+            id: MODEL_A_ID,
+            provider: 'openai',
+            model: 'gpt-4.1',
+            availability: { state: 'live', publication: 'published', access: 'allowed' },
+            billing: { state: 'varies' }
+          },
+          {
+            id: MODEL_B_ID,
+            provider: 'anthropic',
+            model: 'claude-4-opus',
+            availability: { state: 'live', publication: 'published', access: 'allowed' },
+            billing: { state: 'error', reason: 'price_read_failed' }
+          }
+        ],
+        next_cursor: null
+      }
+    })
+    apiPostMock.mockResolvedValueOnce({
+      data: {
+        catalog_version: 'cat_v2',
+        as_of: '2026-11-23T00:00:00Z',
+        rows: [
+          {
+            model_id: MODEL_A_ID,
+            capabilities: { tools: 'supported', stream: 'supported' },
+            quote: { state: 'unpriced', billing_state: 'varies', estimated_charge: null, components: [] }
+          },
+          {
+            model_id: MODEL_B_ID,
+            capabilities: { tools: 'supported', stream: 'supported' },
+            quote: { state: 'error', billing_state: 'error', estimated_charge: null, components: [] }
+          }
+        ]
+      }
+    })
+    await router.push(`/model-plaza/compare?ids=${MODEL_A_ID},${MODEL_B_ID}`)
+    const compareWrapper = mount(PublicCompareView, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { SiteICPFooter: true, LocaleSwitcher: true }
+      }
+    })
+    wrappers.push(compareWrapper)
+    await flushPromises()
+
+    const quoteRow = compareWrapper.get('tr[data-metric-key="scenario-quote"]')
+    expect(quoteRow.text()).toContain('按分组定价')
+    expect(quoteRow.text()).toContain('价格加载失败')
+    expect(quoteRow.find('[data-testid="compare-quote-retry"]').exists()).toBe(true)
+  })
+
+  it('renders BE-3 anonymous published requires_scope offers as normal 可调用 on default live filter without any 需项目授权 badge', async () => {
+    apiGetMock.mockResolvedValueOnce({
+      data: {
+        items: [
+          {
+            id: 'm_be3_pub_1',
+            provider: 'anthropic',
+            model: 'claude-sonnet-4-5',
+            display_name: 'Claude Sonnet 4.5',
+            availability_state: 'live',
+            availability: {
+              state: 'requires_scope',
+              publication: 'published',
+              access: 'requires_scope'
+            },
+            billing: {
+              state: 'priced',
+              sale_price: {
+                input_rate: { currency: 'USD', amount: '3', per: '1000000', unit: 'input_token' },
+                output_rate: { currency: 'USD', amount: '15', per: '1000000', unit: 'output_token' }
+              }
+            }
+          },
+          {
+            id: 'm_be3_cat_1',
+            provider: 'meta',
+            model: 'llama-4-scout',
+            display_name: 'Llama 4 Scout',
+            availability_state: 'catalog_only',
+            availability: {
+              state: 'requires_scope',
+              publication: 'unpublished',
+              access: 'requires_scope',
+              reason: 'platform_catalog'
+            }
+          }
+        ],
+        next_cursor: null
+      }
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/model-plaza', component: PublicModelsView },
+        { path: '/model-plaza/:id', component: PublicModelDetailView }
+      ]
+    })
+    await router.push('/model-plaza')
+    const i18n = createI18n({ legacy: false, locale: 'zh', messages: { zh: {} } })
+    const wrapper = mount(PublicModelsView, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { SiteICPFooter: true, LocaleSwitcher: true }
+      }
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Claude Sonnet 4.5')
+    expect(wrapper.text()).not.toContain('Llama 4 Scout')
+    expect(wrapper.get('[data-testid="availability-badge-live"]').text()).toContain('可调用')
+    expect(wrapper.find('[data-testid="availability-badge-requires_scope"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('需项目授权')
   })
 
   it('prefers live chat-capable model for hero snippet in PublicHomeView (FE-04)', async () => {

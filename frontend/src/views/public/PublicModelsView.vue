@@ -1,517 +1,115 @@
 <script setup lang="ts">
-import { extractApiErrorMessage } from '@/utils/apiError'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import PublicShell from '@/components/layout/PublicShell.vue'
+import CatalogFilterBar from '@/components/catalog/CatalogFilterBar.vue'
+import ModelOriginBadge from '@/components/catalog/ModelOriginBadge.vue'
+import ModelPriceCell from '@/components/catalog/ModelPriceCell.vue'
+import ModelStatusBadge from '@/components/catalog/ModelStatusBadge.vue'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import ErrorState from '@/components/ui/ErrorState.vue'
-import Input from '@/components/ui/Input.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
-import SegmentedControl from '@/components/ui/SegmentedControl.vue'
-import Tooltip from '@/components/ui/Tooltip.vue'
 import { useAuthStore } from '@/stores/auth'
+import { useCatalogBrowser } from '@/composables/useCatalogBrowser'
+import { getCatalogCopy } from '@/features/catalog/copy'
 import {
-  MODALITY_FILTER_PILLS,
-  availabilityStateLabel,
-  availabilityStateTone,
-  extractDisplayModalities,
-  formatContextTokens,
-  formatPublicTimestamp,
-  matchesModalityFilter,
-  maturityLabel,
   modalityLabel,
-  modalityTone,
-  publicTokenPrice,
-  publicValue,
-  resolveAvailabilityState,
-  routeStateLabel,
-  routeStateTone,
-  type ModalityFilterKey
-} from '@/features/public/format'
-import {
-  isSnapshotExpiredError,
-  listPublicModels,
-  type ListParams,
-  type PublicModelSummary
-} from '@/features/public/api'
-
-type ViewMode = 'table' | 'cards'
+  modalityTone
+} from '@/features/catalog/statusPresentation'
+import { extractApiErrorMessage } from '@/utils/apiError'
 
 const { locale } = useI18n()
 const isZh = computed(() => String(locale?.value ?? '').startsWith('zh'))
-
-const MODELS_FILTER_MESSAGES = {
-  en: {
-    regionLabel: 'Region',
-    regionUs: 'US',
-    regionEu: 'EU',
-    regionApac: 'APAC',
-    regionGlobal: 'Global',
-    retentionLabel: 'Retention',
-    retentionZero: 'Zero Retention',
-    retentionNone: 'No Retention',
-    retentionLimited: 'Limited Retention',
-    retentionStandard: 'Standard'
-  },
-  zh: {
-    regionLabel: '部署区域',
-    regionUs: '北美 US',
-    regionEu: '欧洲 EU',
-    regionApac: '亚太 APAC',
-    regionGlobal: '全球 Global',
-    retentionLabel: '留存合规',
-    retentionZero: '零留存 Zero',
-    retentionNone: '不落盘 None',
-    retentionLimited: '受限审计留存',
-    retentionStandard: '标准策略'
-  }
-} as const
-
-type ModelsFilterMessageKey = keyof typeof MODELS_FILTER_MESSAGES.en
-
-function toMessageFunctions<T extends Record<string, string>>(dict: T) {
-  return Object.fromEntries(
-    Object.entries(dict).map(([k, v]) => [k, () => v])
-  ) as Record<keyof T, () => string>
-}
-
-const { t: tFilter } = useI18n({
-  useScope: 'local',
-  messages: {
-    en: toMessageFunctions(MODELS_FILTER_MESSAGES.en),
-    zh: toMessageFunctions(MODELS_FILTER_MESSAGES.zh),
-    'zh-CN': toMessageFunctions(MODELS_FILTER_MESSAGES.zh)
-  }
-})
-
-function tf(key: ModelsFilterMessageKey): string {
-  const translated = tFilter(key)
-  if (translated && translated !== key) return translated
-  const active = String(locale?.value || 'en').toLowerCase()
-  const dict = active.startsWith('zh') ? MODELS_FILTER_MESSAGES.zh : MODELS_FILTER_MESSAGES.en
-  return dict[key]
-}
-
+const copy = computed(() => getCatalogCopy(isZh.value))
 const router = useRouter()
 const authStore = useAuthStore()
+const filterBarRef = ref<InstanceType<typeof CatalogFilterBar> | null>(null)
 
-const models = ref<PublicModelSummary[]>([])
-const nextCursor = ref<string | null>(null)
-const asOf = ref<string | null>(null)
-const loading = ref(true)
-const loadingMore = ref(false)
-const error = ref<unknown>(null)
-const paginationError = ref<unknown>(null)
-const paginationSnapshotExpired = ref(false)
-const snapshotResetAttempts = ref(0)
-const MAX_SNAPSHOT_RESET_ATTEMPTS = 3
-let request = 0
-const query = ref('')
-const sort = ref<NonNullable<ListParams['sort']>>('availability')
-const availabilityState = ref<'all' | 'live' | 'catalog_only'>('all')
-const viewMode = ref<ViewMode>('table')
-const providers = ref<string[]>([])
-const activeModalityPill = ref<ModalityFilterKey>('all')
-const selectedActions = ref<string[]>([])
-const selectedModalities = ref<string[]>([])
-const selectedProtocols = ref<string[]>([])
-const selectedRegions = ref<string[]>([])
-const selectedRetentions = ref<string[]>([])
-const searchContainerRef = ref<HTMLElement | null>(null)
-const onlyFavorites = ref(false)
-const FAVORITES_STORAGE_KEY = 'omnihive.public.favorite_models'
-const favoriteIds = ref<string[]>([])
-const compareIds = ref<string[]>([])
-const compareLabelCache = ref<Record<string, string>>({})
-
-const providerOptions = ref<string[]>([])
-const discoveredRegions = ref<string[]>([])
-let appliedQuery = ''
-
-const favoriteSet = computed(() => new Set(favoriteIds.value))
-const compareSet = computed(() => new Set(compareIds.value))
-
-function loadFavorites(): void {
-  if (typeof window === 'undefined') return
-  try {
-    const raw = window.localStorage.getItem(FAVORITES_STORAGE_KEY)
-    if (!raw) return
-    const parsed = JSON.parse(raw)
-    if (Array.isArray(parsed)) {
-      favoriteIds.value = parsed.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
-    }
-  } catch {
-    favoriteIds.value = []
-  }
-}
-
-function persistFavorites(): void {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favoriteIds.value))
-  } catch {
-    // ignore storage quota errors
-  }
-}
-
-function toggleFavorite(modelId: string): void {
-  if (favoriteSet.value.has(modelId)) {
-    favoriteIds.value = favoriteIds.value.filter((entry) => entry !== modelId)
-  } else {
-    favoriteIds.value = [...favoriteIds.value, modelId]
-  }
-  persistFavorites()
-}
-
-function toggleCompare(modelId: string): void {
-  if (compareSet.value.has(modelId)) {
-    compareIds.value = compareIds.value.filter((entry) => entry !== modelId)
-    return
-  }
-  if (compareIds.value.length >= 3) return
-  const match = models.value.find((entry) => entry.id === modelId)
-  if (match) {
-    compareLabelCache.value = {
-      ...compareLabelCache.value,
-      [modelId]: match.display_name || match.model || modelId
-    }
-  }
-  compareIds.value = [...compareIds.value, modelId]
-}
-
-function clearCompare(): void {
-  compareIds.value = []
-}
-
-function compareLabel(modelId: string): string {
-  const match = models.value.find((entry) => entry.id === modelId)
-  return match?.display_name || match?.model || compareLabelCache.value[modelId] || modelId
-}
-
-function modelSupportsInputModality(entry: PublicModelSummary, wanted: string): boolean {
-  const normalized = wanted.trim().toLowerCase()
-  if (!normalized) return true
-  const declared = (entry.modalities ?? []).map((item) => item.trim().toLowerCase())
-  if (
-    declared.includes(normalized) ||
-    (normalized === 'audio' && declared.includes('speech')) ||
-    (normalized === 'embedding' && declared.includes('embeddings'))
-  ) {
-    return true
-  }
-  if (
-    normalized === 'text' ||
-    normalized === 'image' ||
-    normalized === 'audio' ||
-    normalized === 'video' ||
-    normalized === 'embedding' ||
-    normalized === 'realtime'
-  ) {
-    return matchesModalityFilter(entry, normalized)
-  }
-  return false
-}
-
-const hasClientSideFilter = computed(
-  () =>
-    onlyFavorites.value ||
-    (activeModalityPill.value !== 'all' && selectedModalities.value.length > 0)
-)
-
-const displayedModels = computed(() => {
-  return models.value.filter((entry) => {
-    if (activeModalityPill.value !== 'all' && !matchesModalityFilter(entry, activeModalityPill.value)) {
-      return false
-    }
-    if (
-      activeModalityPill.value !== 'all' &&
-      selectedModalities.value.length > 0 &&
-      !selectedModalities.value.every((mod) => modelSupportsInputModality(entry, mod))
-    ) {
-      return false
-    }
-    if (onlyFavorites.value && !favoriteSet.value.has(entry.id)) {
-      return false
-    }
-    return true
-  })
+const {
+  MAX_SNAPSHOT_RESET_ATTEMPTS,
+  models,
+  displayedViewModels,
+  nextCursor,
+  asOf,
+  loading,
+  loadingMore,
+  error,
+  paginationError,
+  paginationSnapshotExpired,
+  snapshotResetAttempts,
+  query,
+  sort,
+  availabilityState,
+  billingFilter,
+  originFilter,
+  activeModalityPill,
+  viewMode,
+  selectedModalities,
+  selectedProtocols,
+  selectedRegions,
+  selectedRetentions,
+  providers,
+  providerOptions,
+  discoveredRegions,
+  favoriteIds,
+  favoriteSet,
+  onlyFavorites,
+  compareIds,
+  compareSet,
+  hasClientSideFilter,
+  activeFilters,
+  loadPersistedBrowserState,
+  load,
+  retryPagination,
+  toggleFilterByKey,
+  selectAvailabilityState,
+  selectBillingFilter,
+  selectOriginFilter,
+  selectModalityPill,
+  setSort,
+  setViewMode,
+  submitSearch,
+  resetFilters,
+  clearAllFiltersIncludingAvailability,
+  toggleFavorite,
+  toggleCompare,
+  clearCompare,
+  compareLabel
+} = useCatalogBrowser({
+  isZh,
+  defaultSort: 'availability',
+  defaultAvailability: 'live',
+  pageLimit: 100
 })
 
-const modalityPillOptions = computed(() =>
-  MODALITY_FILTER_PILLS.map((pill) => ({
-    ...pill,
-    label: isZh.value ? pill.labelZh : pill.labelEn,
-    count: models.value.filter((entry) => matchesModalityFilter(entry, pill.key)).length
-  }))
-)
+function handleToggleFilter(
+  kind: 'modality' | 'protocol' | 'provider' | 'region' | 'retention',
+  value: string
+): void {
+  toggleFilterByKey(kind, value)
+}
 
-const categoryChips = computed(() => [
-  { value: 'text.chat', label: isZh.value ? '对话推理' : 'Chat & Reasoning' },
-  { value: 'image.generate', label: isZh.value ? '图像生成' : 'Image Generation' },
-  { value: 'text.embeddings', label: isZh.value ? '向量嵌入' : 'Embeddings' },
-  { value: 'audio.stt', label: isZh.value ? '语音识别' : 'Speech-to-Text' },
-  { value: 'audio.tts', label: isZh.value ? '语音合成' : 'Text-to-Speech' }
-])
-
-const modalityChips = computed(() => [
-  { value: 'text', label: isZh.value ? '文本 Text' : 'Text' },
-  { value: 'image', label: isZh.value ? '视觉 Image' : 'Image' },
-  { value: 'audio', label: isZh.value ? '音频 Audio' : 'Audio' },
-  { value: 'video', label: isZh.value ? '视频 Video' : 'Video' },
-  { value: 'pdf', label: 'PDF' }
-])
-
-const protocolChips = computed(() => [
-  { value: 'openai_chat', label: 'OpenAI Chat' },
-  { value: 'openai_responses', label: 'OpenAI Responses' },
-  { value: 'anthropic_messages', label: 'Anthropic Messages' },
-  { value: 'gemini_generate', label: 'Gemini' }
-])
-
-const regionChips = computed(() => {
-  const defaults = [
-    { value: 'us', label: tf('regionUs') },
-    { value: 'eu', label: tf('regionEu') },
-    { value: 'apac', label: tf('regionApac') },
-    { value: 'global', label: tf('regionGlobal') }
-  ]
-  const known = new Set(defaults.map((entry) => entry.value))
-  const extras = discoveredRegions.value
-    .filter((code) => !known.has(code.toLowerCase()))
-    .map((code) => ({ value: code.toLowerCase(), label: code.toUpperCase() }))
-  return [...defaults, ...extras]
-})
-
-const retentionChips = computed(() => [
-  { value: 'zero', label: tf('retentionZero') },
-  { value: 'none', label: tf('retentionNone') },
-  { value: 'limited', label: tf('retentionLimited') },
-  { value: 'standard', label: tf('retentionStandard') }
-])
-
-const sortOptions = computed(() => [
-  { value: 'availability', label: isZh.value ? '优先已接入可用' : 'Sort: Availability' },
-  { value: 'name', label: isZh.value ? '按模型名称' : 'Sort: Name' },
-  { value: 'price_input', label: isZh.value ? '按输入价格' : 'Sort: Input Price' },
-  { value: 'context', label: isZh.value ? '按上下文长度' : 'Sort: Context Window' },
-  { value: 'ttft', label: isZh.value ? '按首字延迟 (TTFT)' : 'Sort: TTFT' }
-])
-
-const availabilityFilterOptions = computed(() => [
-  { key: 'all' as const, label: isZh.value ? '全部模型' : 'All' },
-  { key: 'live' as const, label: isZh.value ? '已接入可调用' : 'Live & Routable' },
-  { key: 'catalog_only' as const, label: isZh.value ? '平台目录' : 'Platform Catalog' }
-])
-
-const activeFilters = computed(
-  () =>
-    availabilityState.value !== 'all' ||
+function handleEmptyClearFilters(): void {
+  if (
+    query.value.trim() ||
+    billingFilter.value !== 'all' ||
+    originFilter.value !== 'all' ||
     activeModalityPill.value !== 'all' ||
     providers.value.length > 0 ||
-    selectedActions.value.length > 0 ||
     selectedModalities.value.length > 0 ||
     selectedProtocols.value.length > 0 ||
     selectedRegions.value.length > 0 ||
     selectedRetentions.value.length > 0 ||
-    onlyFavorites.value ||
-    query.value.trim().length > 0
-)
-
-async function load(reset = true): Promise<void> {
-  if (!reset && (loading.value || loadingMore.value || !nextCursor.value)) return
-  const currentRequest = ++request
-  paginationError.value = null
-  paginationSnapshotExpired.value = false
-  if (reset) {
-    appliedQuery = query.value.trim()
-    loadingMore.value = false
-    loading.value = true
-    error.value = null
-  } else {
-    loadingMore.value = true
-  }
-  try {
-    // Keep channel pill (single-select) and input modality chips decoupled:
-    // backend evaluates modality[] as OR, so merging both would pull unrelated rows.
-    const backendModalities =
-      activeModalityPill.value !== 'all'
-        ? [activeModalityPill.value]
-        : selectedModalities.value.length
-          ? [...selectedModalities.value]
-          : undefined
-    const page = await listPublicModels({
-      q: appliedQuery || undefined,
-      provider: providers.value.length ? providers.value : undefined,
-      action: selectedActions.value.length ? selectedActions.value : undefined,
-      modality: backendModalities,
-      protocol: selectedProtocols.value.length ? selectedProtocols.value : undefined,
-      region: selectedRegions.value.length ? selectedRegions.value : undefined,
-      retention: selectedRetentions.value.length ? selectedRetentions.value : undefined,
-      availability_state: availabilityState.value === 'all' ? undefined : availabilityState.value,
-      sort: sort.value,
-      cursor: reset ? undefined : nextCursor.value,
-      limit: 100
-    })
-    if (currentRequest !== request) return
-    if (
-      !appliedQuery &&
-      availabilityState.value === 'all' &&
-      activeModalityPill.value === 'all' &&
-      !providers.value.length &&
-      !selectedActions.value.length &&
-      !selectedModalities.value.length &&
-      !selectedProtocols.value.length &&
-      !selectedRegions.value.length &&
-      !selectedRetentions.value.length
-    ) {
-      const seen = new Set(providerOptions.value)
-      const seenRegions = new Set(discoveredRegions.value)
-      for (const model of page.items ?? []) {
-        const provider = model.provider?.trim()
-        if (provider && provider !== 'unknown') seen.add(provider)
-        for (const reg of model.regions ?? []) {
-          const cleaned = reg?.trim().toLowerCase()
-          if (cleaned && cleaned !== 'unknown') seenRegions.add(cleaned)
-        }
-      }
-      providerOptions.value = [...seen].sort()
-      discoveredRegions.value = [...seenRegions].sort()
-    }
-    const incoming = page.items ?? []
-    if (incoming.length) {
-      const nextCache = { ...compareLabelCache.value }
-      for (const item of incoming) {
-        nextCache[item.id] = item.display_name || item.model || item.id
-      }
-      compareLabelCache.value = nextCache
-    }
-    models.value = reset ? incoming : [...models.value, ...incoming]
-    nextCursor.value = page.next_cursor ?? null
-    asOf.value = page.as_of ?? null
-    if (reset) {
-      snapshotResetAttempts.value = 0
-    }
-  } catch (err) {
-    if (currentRequest === request) {
-      if (reset) {
-        error.value = err
-      } else {
-        paginationError.value = err
-        if (isSnapshotExpiredError(err)) {
-          paginationSnapshotExpired.value = true
-          nextCursor.value = null
-        }
-      }
-    }
-  } finally {
-    if (currentRequest === request) {
-      loading.value = false
-      loadingMore.value = false
-    }
-  }
-}
-
-function retryPagination(): void {
-  if (paginationSnapshotExpired.value) {
-    if (snapshotResetAttempts.value >= MAX_SNAPSHOT_RESET_ATTEMPTS) return
-    snapshotResetAttempts.value += 1
-    void load(true)
+    onlyFavorites.value
+  ) {
+    resetFilters()
     return
   }
-  void load(false)
-}
-
-function toggleFilterByKey(
-  kind: 'action' | 'modality' | 'protocol' | 'provider' | 'region' | 'retention',
-  item: string
-): void {
-  snapshotResetAttempts.value = 0
-  const map = {
-    action: selectedActions,
-    modality: selectedModalities,
-    protocol: selectedProtocols,
-    provider: providers,
-    region: selectedRegions,
-    retention: selectedRetentions
-  }
-  const target = map[kind]
-  target.value = target.value.includes(item)
-    ? target.value.filter((entry) => entry !== item)
-    : [...target.value, item]
-  void load()
-}
-
-function resetFilters(): void {
-  snapshotResetAttempts.value = 0
-  query.value = ''
-  availabilityState.value = 'all'
-  activeModalityPill.value = 'all'
-  providers.value = []
-  selectedActions.value = []
-  selectedModalities.value = []
-  selectedProtocols.value = []
-  selectedRegions.value = []
-  selectedRetentions.value = []
-  onlyFavorites.value = false
-  sort.value = 'availability'
-  void load()
-}
-
-function selectAvailabilityState(next: 'all' | 'live' | 'catalog_only'): void {
-  snapshotResetAttempts.value = 0
-  availabilityState.value = next
-  void load()
-}
-
-function selectModalityPill(next: ModalityFilterKey): void {
-  snapshotResetAttempts.value = 0
-  activeModalityPill.value = next
-  void load()
-}
-
-function displayRate(model: PublicModelSummary, kind: 'input' | 'output'): string {
-  if (model.price_state === 'free') return isZh.value ? '免费' : 'Free'
-  const rate = kind === 'input' ? model.input_rate : model.output_rate
-  if (rate) return publicTokenPrice(rate, 'adaptive', isZh.value)
-  const refRate = kind === 'input' ? model.reference_price?.input_rate : model.reference_price?.output_rate
-  if (refRate) {
-    const formatted = publicTokenPrice(refRate, 'adaptive', isZh.value)
-    return isZh.value ? `参考 ${formatted}` : `Ref ${formatted}`
-  }
-  if (resolveAvailabilityState(model) === 'catalog_only') {
-    return isZh.value ? '按需接入' : 'On demand'
-  }
-  return publicTokenPrice(rate, 'adaptive', isZh.value)
-}
-
-function availabilityBadge(model: PublicModelSummary) {
-  const state = resolveAvailabilityState(model)
-  if (state === 'unknown') return null
-  return {
-    state,
-    label: availabilityStateLabel(state, isZh.value),
-    tone: availabilityStateTone(state)
-  }
-}
-
-function modelTtftMs(model: PublicModelSummary): number | null {
-  const ms = model.metrics?.ttft_p50_ms
-  return typeof ms === 'number' && Number.isFinite(ms) ? ms : null
-}
-
-function ttftTooltip(model: PublicModelSummary): string {
-  if (model.observed_at) {
-    return isZh.value
-      ? `目录验证于 ${formatPublicTimestamp(model.observed_at)}；点击进入模型详情查看实时分位延迟与吞吐样本`
-      : `Catalog verified ${formatPublicTimestamp(model.observed_at)}; open model details for live P50 TTFT and throughput telemetry`
-  }
-  return isZh.value
-    ? '当前周期尚无足够真实调用样本，点击查看指标披露状态；未观测数据绝不伪造为 0'
-    : 'No live sample threshold met yet. Open model details for telemetry status; unobserved metrics are never reported as zero'
+  clearAllFiltersIncludingAvailability()
 }
 
 function openConsoleEmptyAction(): void {
@@ -519,30 +117,30 @@ function openConsoleEmptyAction(): void {
 }
 
 function handleGlobalShortcut(event: KeyboardEvent): void {
+  if (event.defaultPrevented) return
   if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key === '/') {
     const activeEl = document.activeElement as HTMLElement | null
-    const activeTag = activeEl?.tagName
-    if (
-      activeTag === 'INPUT' ||
-      activeTag === 'TEXTAREA' ||
-      activeTag === 'SELECT' ||
-      activeEl?.isContentEditable
-    ) {
+    const tag = activeEl?.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || activeEl?.isContentEditable) {
       return
     }
     event.preventDefault()
-    searchContainerRef.value?.querySelector('input')?.focus()
+    filterBarRef.value?.focusSearch()
   }
 }
 
 onMounted(() => {
-  loadFavorites()
-  window.addEventListener('keydown', handleGlobalShortcut)
-  void load()
+  loadPersistedBrowserState()
+  if (typeof window !== 'undefined') {
+    window.addEventListener('keydown', handleGlobalShortcut)
+  }
+  void load(true)
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', handleGlobalShortcut)
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('keydown', handleGlobalShortcut)
+  }
 })
 </script>
 
@@ -551,319 +149,145 @@ onBeforeUnmount(() => {
     <section class="flex flex-wrap items-end justify-between gap-4 border-b border-oh-default pb-6">
       <div>
         <p class="font-mono text-xs uppercase tracking-[0.18em] text-oh-muted">
-          {{ isZh ? '公开模型目录 · MODEL DIRECTORY' : 'MODEL DIRECTORY' }}
+          {{ isZh ? '模型广场 · MODEL PLAZA' : 'MODEL PLAZA' }}
         </p>
         <h1 class="mt-3 text-3xl font-semibold tracking-tight text-oh-primary sm:text-4xl">
-          {{ isZh ? '模型广场' : 'Models' }}
+          {{ isZh ? '模型广场' : 'Model Plaza' }}
         </h1>
         <p class="mt-2 max-w-[68ch] text-sm text-oh-secondary">
           {{
             isZh
-              ? '统一检索并对比 OmniHive 已发布上游模型的上下文规格、精确 Token 费率、协议兼容性与实测延迟。未观测或未声明指标均诚实标注，绝不伪造为零。'
-              : 'Compare capabilities, exact per-token pricing, protocol support, and observed latency across every published provider. Unknown values stay explicitly labeled, never faked as zero.'
+              ? '统一检索并对比已接入可调用与目录收录模型。销售价为主展示位，社区目录（pi）参考价仅作辅助参考（非网关结算价），未观测指标均诚实标注。'
+              : 'Search and compare live routable and catalog models. Sale rates appear primary while Community Catalog (pi) reference rates remain secondary and non-settlement.'
           }}
         </p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <RouterLink
-          to="/model-plaza/compare"
+          :to="
+            compareIds.length
+              ? { path: '/model-plaza/compare', query: { ids: compareIds.join(',') } }
+              : '/model-plaza/compare'
+          "
           class="oh-focus-ring inline-flex h-9 items-center rounded-oh-md border border-oh-default bg-oh-surface px-3.5 text-xs font-medium text-oh-primary hover:border-oh-strong hover:bg-oh-hover"
         >
-          {{ isZh ? '多模型横向对比' : 'Compare models' }}
+          {{
+            compareIds.length
+              ? (isZh ? `横向对比 (${compareIds.length})` : `Compare (${compareIds.length})`)
+              : (isZh ? '多模型横向对比' : 'Compare models')
+          }}
         </RouterLink>
         <RouterLink
           to="/pricing"
           class="oh-focus-ring inline-flex h-9 items-center rounded-oh-md border border-oh-default bg-oh-surface px-3.5 text-xs font-medium text-oh-secondary hover:border-oh-strong hover:text-oh-primary"
         >
-          {{ isZh ? '费率总表' : 'Pricing sheet' }}
+          {{ isZh ? '定价总表' : 'Pricing' }}
         </RouterLink>
       </div>
     </section>
 
-    <section class="flex flex-col gap-3.5 py-6">
-      <div class="flex flex-wrap items-center gap-3">
-        <div ref="searchContainerRef" class="relative w-full sm:w-80">
-          <Input
-            v-model="query"
-            type="search"
-            clearable
-            :placeholder="isZh ? '搜索模型 ID、显示名称或供应商… (/)' : 'Search model ID, name, or provider... (/)'"
-            @keydown.enter="load()"
-            @clear="load()"
-          />
-        </div>
-        <Button variant="secondary" @click="load()">{{ isZh ? '搜索' : 'Search' }}</Button>
+    <CatalogFilterBar
+      ref="filterBarRef"
+      :is-zh="isZh"
+      :query="query"
+      :availability-state="availabilityState"
+      :billing-filter="billingFilter"
+      :origin-filter="originFilter"
+      :show-origin-filter="authStore.isAuthenticated"
+      :active-modality-pill="activeModalityPill"
+      :selected-modalities="selectedModalities"
+      :selected-protocols="selectedProtocols"
+      :selected-regions="selectedRegions"
+      :selected-retentions="selectedRetentions"
+      :selected-providers="providers"
+      :provider-options="providerOptions"
+      :discovered-regions="discoveredRegions"
+      :sort="sort"
+      :view-mode="viewMode"
+      :only-favorites="onlyFavorites"
+      :show-favorites-toggle="true"
+      :favorite-count="favoriteIds.length"
+      :show-extended-filters="true"
+      :show-governance-filters="true"
+      :as-of="asOf"
+      :active-filters="activeFilters"
+      @update:query="query = $event"
+      @update:sort="setSort"
+      @update:view-mode="setViewMode"
+      @update:only-favorites="onlyFavorites = $event"
+      @select-availability="selectAvailabilityState"
+      @select-billing="selectBillingFilter"
+      @select-origin="selectOriginFilter"
+      @select-modality-pill="selectModalityPill"
+      @toggle-filter="handleToggleFilter"
+      @search="submitSearch"
+      @reset="resetFilters"
+    />
 
-        <div class="ml-auto flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            class="oh-focus-ring inline-flex h-9 items-center gap-1.5 rounded-oh-md border px-3 text-xs font-medium transition-colors"
-            :class="
-              onlyFavorites
-                ? 'border-oh-accent bg-oh-accent-subtle text-oh-accent-text'
-                : 'border-oh-default bg-oh-surface text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
-            "
-            :aria-pressed="onlyFavorites"
-            @click="onlyFavorites = !onlyFavorites"
-          >
-            <span aria-hidden="true">{{ onlyFavorites ? '★' : '☆' }}</span>
-            <span>{{ isZh ? '仅看收藏' : 'Favorites' }}</span>
-            <span class="font-mono text-[11px] tabular-nums">({{ favoriteIds.length }})</span>
-          </button>
-
-          <label class="sr-only" for="public-models-sort">{{ isZh ? '排序方式' : 'Sort models' }}</label>
-          <select
-            id="public-models-sort"
-            v-model="sort"
-            class="oh-focus-ring h-9 rounded-oh-md border border-oh-default bg-oh-surface px-3 font-mono text-xs text-oh-primary hover:border-oh-strong"
-            @change="load()"
-          >
-            <option v-for="opt in sortOptions" :key="opt.value" :value="opt.value">
-              {{ opt.label }}
-            </option>
-          </select>
-
-          <SegmentedControl
-            :model-value="viewMode"
-            :options="[
-              { value: 'table', label: isZh ? '表格' : 'Table' },
-              { value: 'cards', label: isZh ? '卡片' : 'Cards' }
-            ]"
-            @update:model-value="viewMode = $event as ViewMode"
-          />
-        </div>
-      </div>
-
-      <div class="flex flex-wrap items-center gap-1.5" data-testid="availability-filter-pills-row">
-        <span class="mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
-          {{ isZh ? '接入状态' : 'Availability' }}
-        </span>
-        <div class="mr-3 inline-flex flex-wrap items-center gap-1.5" data-testid="availability-filter-bar">
-          <button
-            v-for="opt in availabilityFilterOptions"
-            :key="opt.key"
-            type="button"
-            :data-testid="`availability-pill-${opt.key}`"
-            class="oh-focus-ring inline-flex items-center rounded-full border px-3 py-1 text-xs transition-colors"
-            :class="
-              availabilityState === opt.key
-                ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
-                : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
-            "
-            :aria-pressed="availabilityState === opt.key"
-            @click="selectAvailabilityState(opt.key)"
-          >
-            {{ opt.label }}
-          </button>
-        </div>
-      </div>
-
-      <div class="flex flex-wrap items-center gap-1.5" data-testid="modality-filter-pills-row">
-        <span class="mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
-          {{ isZh ? '模态通道' : 'Modalities' }}
-        </span>
-        <div class="inline-flex flex-wrap items-center gap-1.5" data-testid="modality-filter-pills">
-          <button
-            v-for="pill in modalityPillOptions"
-            :key="pill.key"
-            type="button"
-            :data-testid="`modality-pill-${pill.key}`"
-            class="oh-focus-ring inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors"
-            :class="
-              activeModalityPill === pill.key
-                ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
-                : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
-            "
-            :aria-pressed="activeModalityPill === pill.key"
-            @click="selectModalityPill(pill.key)"
-          >
-            <span>{{ pill.label }}</span>
-            <span
-              v-if="models.length > 0 && !nextCursor && activeModalityPill === 'all' && !hasClientSideFilter"
-              class="font-mono text-[10px] tabular-nums opacity-75"
-            >
-              {{ pill.count }}
-            </span>
-          </button>
-        </div>
-      </div>
-
-      <div class="flex flex-wrap items-center gap-1.5">
-        <span class="mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
-          {{ isZh ? '能力类别' : 'Category' }}
-        </span>
-        <button
-          v-for="chip in categoryChips"
-          :key="chip.value"
-          type="button"
-          class="oh-focus-ring rounded-full border px-2.5 py-1 text-xs transition-colors"
-          :class="
-            selectedActions.includes(chip.value)
-              ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
-              : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
-          "
-          :aria-pressed="selectedActions.includes(chip.value)"
-          @click="toggleFilterByKey('action', chip.value)"
-        >
-          {{ chip.label }}
-        </button>
-      </div>
-
-      <div class="flex flex-wrap items-center gap-1.5">
-        <span class="mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
-          {{ isZh ? '输入模态' : 'Modality' }}
-        </span>
-        <button
-          v-for="chip in modalityChips"
-          :key="chip.value"
-          type="button"
-          class="oh-focus-ring rounded-full border px-2.5 py-1 font-mono text-xs transition-colors"
-          :class="
-            selectedModalities.includes(chip.value)
-              ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
-              : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
-          "
-          :aria-pressed="selectedModalities.includes(chip.value)"
-          @click="toggleFilterByKey('modality', chip.value)"
-        >
-          {{ chip.label }}
-        </button>
-
-        <span class="ml-2 mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
-          {{ isZh ? '兼容协议' : 'Protocol' }}
-        </span>
-        <button
-          v-for="chip in protocolChips"
-          :key="chip.value"
-          type="button"
-          class="oh-focus-ring rounded-full border px-2.5 py-1 font-mono text-xs transition-colors"
-          :class="
-            selectedProtocols.includes(chip.value)
-              ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
-              : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
-          "
-          :aria-pressed="selectedProtocols.includes(chip.value)"
-          @click="toggleFilterByKey('protocol', chip.value)"
-        >
-          {{ chip.label }}
-        </button>
-      </div>
-
-      <div class="flex flex-wrap items-center gap-1.5" data-testid="filter-governance-row">
-        <span class="mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
-          {{ tf('regionLabel') }}
-        </span>
-        <div class="inline-flex flex-wrap items-center gap-1.5" data-testid="filter-region-group">
-          <button
-            v-for="chip in regionChips"
-            :key="chip.value"
-            type="button"
-            :data-testid="`filter-region-${chip.value}`"
-            class="oh-focus-ring rounded-full border px-2.5 py-1 font-mono text-xs transition-colors"
-            :class="
-              selectedRegions.includes(chip.value)
-                ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
-                : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
-            "
-            :aria-pressed="selectedRegions.includes(chip.value)"
-            @click="toggleFilterByKey('region', chip.value)"
-          >
-            {{ chip.label }}
-          </button>
-        </div>
-
-        <span class="ml-2 mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
-          {{ tf('retentionLabel') }}
-        </span>
-        <div class="inline-flex flex-wrap items-center gap-1.5" data-testid="filter-retention-group">
-          <button
-            v-for="chip in retentionChips"
-            :key="chip.value"
-            type="button"
-            :data-testid="`filter-retention-${chip.value}`"
-            class="oh-focus-ring rounded-full border px-2.5 py-1 font-mono text-xs transition-colors"
-            :class="
-              selectedRetentions.includes(chip.value)
-                ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
-                : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
-            "
-            :aria-pressed="selectedRetentions.includes(chip.value)"
-            @click="toggleFilterByKey('retention', chip.value)"
-          >
-            {{ chip.label }}
-          </button>
-        </div>
-      </div>
-
-      <div v-if="providerOptions.length > 0 || activeFilters || asOf" class="flex flex-wrap items-center gap-1.5">
-        <span v-if="providerOptions.length > 0" class="mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
-          {{ isZh ? '供应商' : 'Provider' }}
-        </span>
-        <button
-          v-for="provider in providerOptions"
-          :key="provider"
-          type="button"
-          class="oh-focus-ring max-w-full break-all rounded-full border px-2.5 py-1 font-mono text-xs transition-colors"
-          :class="providers.includes(provider)
-            ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
-            : 'border-oh-default text-oh-secondary hover:border-oh-strong'"
-          :aria-pressed="providers.includes(provider)"
-          @click="toggleFilterByKey('provider', provider)"
-        >
-          {{ provider }}
-        </button>
-        <button
-          v-if="activeFilters"
-          type="button"
-          class="oh-focus-ring ml-1 rounded-oh-sm text-xs font-medium text-oh-accent-text underline-offset-2 hover:underline"
-          @click="resetFilters"
-        >
-          {{ isZh ? '重置筛选条件' : 'Clear filters' }}
-        </button>
-        <span v-if="asOf" class="ml-auto font-mono text-[11px] text-oh-muted">
-          {{ isZh ? `目录快照 ${formatPublicTimestamp(asOf)}` : `Snapshot ${formatPublicTimestamp(asOf)}` }}
-        </span>
-      </div>
-    </section>
-
-    <Skeleton v-if="loading" class="py-4" :lines="8" :label="isZh ? '正在加载公开模型目录' : 'Loading model catalog'" />
+    <Skeleton v-if="loading" class="py-4" :lines="8" :label="isZh ? '正在加载模型广场' : 'Loading model plaza'" />
     <ErrorState
       v-else-if="error"
-      :title="isZh ? '公开模型目录暂时无法访问' : 'Model catalog unavailable'"
+      :title="isZh ? '模型广场暂时无法访问' : 'Model plaza unavailable'"
       :message="extractApiErrorMessage(error, '')"
       :retry-label="isZh ? '重新加载' : 'Retry'"
-      @retry="load()"
+      @retry="load(true)"
     />
-    <template v-else-if="displayedModels.length === 0">
+    <template v-else-if="displayedViewModels.length === 0">
       <EmptyState
-        :variant="activeFilters ? 'filtered' : 'empty'"
+        :variant="activeFilters || availabilityState === 'live' ? 'filtered' : 'empty'"
         :title="
           onlyFavorites
             ? (isZh ? '当前已加载列表中暂无已收藏模型' : 'No favorited models in loaded pages')
-            : activeFilters
-              ? (isZh ? '没有符合筛选条件的模型' : 'No models match these filters')
-              : (isZh ? '暂未发布公开模型目录' : 'No public models published yet')
+            : availabilityState === 'live'
+              ? copy.empty.liveNoMatchesTitle
+              : activeFilters
+                ? (isZh ? '没有符合筛选条件的模型' : 'No models match these filters')
+                : (isZh ? '暂未发布模型目录' : 'No public models published yet')
         "
         :description="
           nextCursor && hasClientSideFilter
             ? (isZh
                 ? `已扫描 ${models.length} 个模型，仍有更多目录分页未加载；可继续加载下一页以查找匹配项或清空筛选。`
                 : `Scanned ${models.length} loaded models with more catalog pages available. Load the next page to find matches or clear filters.`)
-            : activeFilters
-              ? (isZh ? '请尝试清空筛选条件，或更换模型关键词与协议类别。' : 'Clear active filters or try a broader search query.')
-              : (isZh
-                  ? '当管理员在控制台完成上游连接验证、配置分组定价并确认模型上架后，模型规格与实时费率将自动在此公开展示。'
-                  : 'Models and per-token rates appear here automatically once an administrator verifies upstream connections, configures pricing, and publishes the catalog.')
+            : availabilityState === 'live' && !onlyFavorites
+              ? copy.empty.liveNoMatchesDesc
+              : activeFilters
+                ? (isZh ? '请尝试清空筛选条件，或更换模型关键词与协议类别。' : 'Clear active filters or try a broader search query.')
+                : (isZh
+                    ? '当管理员在控制台完成上游连接验证、配置分组定价并确认模型上架后，模型规格与实时费率将自动在此展示。'
+                    : 'Models and rates appear here automatically once an administrator configures upstream connections, pricing, and publication.')
         "
         :action-label="
-          activeFilters
+          activeFilters || availabilityState === 'live'
             ? undefined
             : (authStore.isAuthenticated ? (isZh ? '前往控制台发布模型' : 'Open Console') : (isZh ? '管理员登录配置' : 'Sign in to Console'))
         "
-        :clear-filter-label="isZh ? '清空全部筛选' : 'Reset filters'"
+        :clear-filter-label="isZh ? '清除筛选' : 'Clear filters'"
         @action="openConsoleEmptyAction"
-        @clear-filters="resetFilters"
-      />
+        @clear-filters="handleEmptyClearFilters"
+      >
+        <template v-if="availabilityState === 'live' && !onlyFavorites" #actions>
+          <div class="flex flex-wrap items-center justify-center gap-2 pt-1">
+            <Button variant="secondary" @click="handleEmptyClearFilters">
+              {{ copy.filters.resetFilters }}
+            </Button>
+            <Button
+              data-testid="empty-state-view-catalog-only"
+              variant="primary"
+              @click="selectAvailabilityState('catalog_only')"
+            >
+              {{ copy.empty.viewCatalogOnly }}
+            </Button>
+            <RouterLink
+              to="/docs#support"
+              class="oh-focus-ring inline-flex h-9 items-center rounded-oh-md border border-oh-default bg-oh-surface px-3 text-xs font-medium text-oh-secondary hover:border-oh-strong hover:text-oh-primary"
+            >
+              {{ copy.empty.contactSupport }}
+            </RouterLink>
+          </div>
+        </template>
+      </EmptyState>
+
       <ErrorState
         v-if="paginationError"
         compact
@@ -913,9 +337,9 @@ onBeforeUnmount(() => {
         class="oh-focus-ring overflow-x-auto rounded-oh-md border border-oh-default bg-oh-surface"
         tabindex="0"
         role="region"
-        :aria-label="isZh ? '公开模型目录表格' : 'Model catalog table'"
+        :aria-label="isZh ? '模型广场目录表格' : 'Model plaza table'"
       >
-        <table class="w-full min-w-[820px] border-collapse text-sm">
+        <table class="w-full min-w-[860px] border-collapse text-sm">
           <thead>
             <tr class="border-b border-oh-default bg-oh-subtle text-left font-mono text-[11px] uppercase tracking-wider text-oh-muted">
               <th class="px-4 py-2.5">{{ isZh ? '模型 / ID' : 'Model' }}</th>
@@ -928,55 +352,42 @@ onBeforeUnmount(() => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="model in displayedModels" :key="model.id" class="border-b border-oh-subtle last:border-0 hover:bg-oh-hover">
+            <tr v-for="vm in displayedViewModels" :key="vm.id" class="border-b border-oh-subtle last:border-0 hover:bg-oh-hover">
               <td class="max-w-[18rem] break-all px-4 py-3 xl:max-w-[24rem]">
                 <div class="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     class="oh-focus-ring shrink-0 rounded-oh-xs px-0.5 text-sm leading-none transition-colors"
-                    :class="favoriteSet.has(model.id) ? 'text-amber-500' : 'text-oh-muted hover:text-amber-500'"
-                    :aria-pressed="favoriteSet.has(model.id)"
+                    :class="favoriteSet.has(vm.id) ? 'text-amber-500' : 'text-oh-muted hover:text-amber-500'"
+                    :aria-pressed="favoriteSet.has(vm.id)"
                     :aria-label="
-                      favoriteSet.has(model.id)
-                        ? (isZh ? `取消收藏 ${model.display_name || model.model}` : `Remove ${model.display_name || model.model} from favorites`)
-                        : (isZh ? `收藏 ${model.display_name || model.model}` : `Favorite ${model.display_name || model.model}`)
+                      favoriteSet.has(vm.id)
+                        ? (isZh ? `取消收藏 ${vm.displayName}` : `Remove ${vm.displayName} from favorites`)
+                        : (isZh ? `收藏 ${vm.displayName}` : `Favorite ${vm.displayName}`)
                     "
-                    @click="toggleFavorite(model.id)"
+                    @click="toggleFavorite(vm.id)"
                   >
-                    {{ favoriteSet.has(model.id) ? '★' : '☆' }}
+                    {{ favoriteSet.has(vm.id) ? '★' : '☆' }}
                   </button>
-                  <RouterLink :to="`/model-plaza/${encodeURIComponent(model.id)}`" class="oh-focus-ring rounded-oh-xs font-medium text-oh-primary hover:text-oh-accent-text">
-                    {{ model.display_name || model.model }}
+                  <RouterLink
+                    :to="`/model-plaza/${encodeURIComponent(vm.id)}`"
+                    class="oh-focus-ring rounded-oh-xs font-medium text-oh-primary hover:text-oh-accent-text"
+                  >
+                    {{ vm.displayName }}
                   </RouterLink>
-                  <Badge
-                    v-if="availabilityBadge(model)"
-                    :data-testid="`availability-badge-${availabilityBadge(model)!.state}`"
-                    :tone="availabilityBadge(model)!.tone"
-                    size="xs"
-                    variant="subtle"
-                    dot
-                  >
-                    {{ availabilityBadge(model)!.label }}
-                  </Badge>
-                  <Badge
-                    v-else-if="model.route_state"
-                    :tone="routeStateTone(model.route_state)"
-                    size="xs"
-                    variant="subtle"
-                  >
-                    {{ routeStateLabel(model.route_state, isZh) }}
-                  </Badge>
+                  <ModelStatusBadge :badge="vm.availability.badge" />
+                  <ModelOriginBadge v-if="authStore.isAuthenticated" :badge="vm.origin.primaryBadge" />
                 </div>
                 <div class="mt-0.5 flex items-center gap-1.5 font-mono text-[11px] text-oh-muted">
-                  <span class="truncate">{{ model.model }}</span>
-                  <CopyButton :value="model.model" size="xs" :aria-label="isZh ? '复制模型名称' : 'Copy model name'" />
+                  <span class="truncate">{{ vm.model }}</span>
+                  <CopyButton :value="vm.model" size="xs" :aria-label="isZh ? '复制模型名称' : 'Copy model name'" />
                 </div>
               </td>
               <td class="px-4 py-3">
-                <div class="font-mono text-xs text-oh-primary">{{ publicValue(model.provider, isZh ? '未声明' : 'Undeclared') }}</div>
-                <div v-if="extractDisplayModalities(model).length || model.protocols?.length" class="mt-1 flex flex-wrap gap-1">
+                <div class="font-mono text-xs text-oh-primary">{{ vm.provider }}</div>
+                <div v-if="vm.displayModalities.length || vm.protocols.length" class="mt-1 flex flex-wrap gap-1">
                   <Badge
-                    v-for="mod in extractDisplayModalities(model).slice(0, 4)"
+                    v-for="mod in vm.displayModalities.slice(0, 4)"
                     :key="mod"
                     :tone="modalityTone(mod)"
                     size="xs"
@@ -985,50 +396,56 @@ onBeforeUnmount(() => {
                   >
                     {{ modalityLabel(mod, isZh) }}
                   </Badge>
-                  <span
-                    v-for="proto in (model.protocols ?? []).slice(0, 2)"
+                  <Badge
+                    v-for="proto in vm.protocols.slice(0, 3)"
                     :key="proto"
-                    class="rounded-oh-xs border border-oh-subtle px-1.5 py-0.5 font-mono text-[10px] text-oh-muted"
+                    tone="neutral"
+                    size="xs"
+                    variant="outline"
+                    mono
                   >
                     {{ proto }}
-                  </span>
+                  </Badge>
                 </div>
               </td>
               <td class="px-4 py-3 text-right font-mono tabular-nums text-oh-primary">
-                {{ formatContextTokens(model.context_tokens) }}
+                {{ vm.contextDisplay }}
               </td>
-              <td class="px-4 py-3 text-right font-mono tabular-nums text-oh-primary">
-                {{ displayRate(model, 'input') }}
+              <td class="px-4 py-3 text-right">
+                <ModelPriceCell
+                  :billing="vm.billing"
+                  kind="input"
+                  :is-zh="isZh"
+                  :detail-to="`/model-plaza/${encodeURIComponent(vm.id)}`"
+                  @retry="load(true)"
+                />
               </td>
-              <td class="px-4 py-3 text-right font-mono tabular-nums text-oh-primary">
-                {{ displayRate(model, 'output') }}
+              <td class="px-4 py-3 text-right">
+                <ModelPriceCell
+                  :billing="vm.billing"
+                  kind="output"
+                  :is-zh="isZh"
+                  :detail-to="`/model-plaza/${encodeURIComponent(vm.id)}`"
+                  @retry="load(true)"
+                />
               </td>
-              <td class="px-4 py-3 text-right font-mono tabular-nums">
-                <span v-if="modelTtftMs(model) !== null" class="text-oh-primary">
-                  {{ modelTtftMs(model) }} ms
-                </span>
-                <Tooltip v-else :content="ttftTooltip(model)" placement="left">
-                  <RouterLink :to="`/model-plaza/${encodeURIComponent(model.id)}`" class="oh-focus-ring inline-flex rounded-oh-xs">
-                    <Badge tone="unknown" size="xs" variant="subtle">
-                      {{ isZh ? '未观测' : 'Unobserved' }}
-                    </Badge>
-                  </RouterLink>
-                </Tooltip>
+              <td class="px-4 py-3 text-right font-mono tabular-nums text-oh-secondary">
+                {{ vm.metrics?.ttft_p50_ms != null ? `${vm.metrics.ttft_p50_ms} ms` : (isZh ? '未观测' : 'Unobserved') }}
               </td>
               <td class="px-4 py-3 text-right">
                 <button
                   type="button"
-                  class="oh-focus-ring inline-flex h-7 items-center rounded-oh-xs border px-2 font-mono text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                  class="oh-focus-ring rounded-oh-sm border px-2.5 py-1 text-xs transition-colors disabled:opacity-40"
                   :class="
-                    compareSet.has(model.id)
+                    compareSet.has(vm.id)
                       ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
                       : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
                   "
-                  :disabled="!compareSet.has(model.id) && compareIds.length >= 3"
-                  :aria-pressed="compareSet.has(model.id)"
-                  @click="toggleCompare(model.id)"
+                  :disabled="!compareSet.has(vm.id) && compareIds.length >= 3"
+                  :aria-pressed="compareSet.has(vm.id)"
+                  @click="toggleCompare(vm.id)"
                 >
-                  {{ compareSet.has(model.id) ? (isZh ? '已加入' : 'Added') : (isZh ? '+ 对比' : '+ Compare') }}
+                  {{ compareSet.has(vm.id) ? (isZh ? '已加入对比' : 'In compare') : (isZh ? '+ 加入对比' : '+ Compare') }}
                 </button>
               </td>
             </tr>
@@ -1036,103 +453,79 @@ onBeforeUnmount(() => {
         </table>
       </div>
 
-      <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+      <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <div
-          v-for="model in displayedModels"
-          :key="model.id"
-          class="group flex min-w-0 flex-col justify-between rounded-oh-md border border-oh-default bg-oh-surface p-4 transition-colors hover:border-oh-strong"
+          v-for="vm in displayedViewModels"
+          :key="vm.id"
+          class="flex flex-col justify-between rounded-oh-md border border-oh-default bg-oh-surface p-4 transition-colors hover:border-oh-strong"
         >
-          <div class="flex items-start justify-between gap-2">
-            <div class="min-w-0">
-              <RouterLink
-                :to="`/model-plaza/${encodeURIComponent(model.id)}`"
-                class="oh-focus-ring block truncate font-medium text-oh-primary group-hover:text-oh-accent-text"
-              >
-                {{ model.display_name || model.model }}
-              </RouterLink>
-              <p class="break-all font-mono text-[11px] text-oh-muted">
-                {{ publicValue(model.provider, isZh ? '未声明' : 'Undeclared') }} · {{ model.model }}
-              </p>
-            </div>
-            <div class="flex shrink-0 items-center gap-1.5">
+          <div>
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0">
+                <RouterLink
+                  :to="`/model-plaza/${encodeURIComponent(vm.id)}`"
+                  class="oh-focus-ring block truncate font-medium text-oh-primary hover:text-oh-accent-text"
+                >
+                  {{ vm.displayName }}
+                </RouterLink>
+                <p class="mt-0.5 truncate font-mono text-[11px] text-oh-muted">
+                  {{ vm.provider }} · {{ vm.contextDisplay }}
+                </p>
+              </div>
               <button
                 type="button"
-                class="oh-focus-ring rounded-oh-xs px-1 text-sm leading-none transition-colors"
-                :class="favoriteSet.has(model.id) ? 'text-amber-500' : 'text-oh-muted hover:text-amber-500'"
-                :aria-pressed="favoriteSet.has(model.id)"
+                class="oh-focus-ring shrink-0 rounded-oh-xs px-1 text-sm leading-none transition-colors"
+                :class="favoriteSet.has(vm.id) ? 'text-amber-500' : 'text-oh-muted hover:text-amber-500'"
+                :aria-pressed="favoriteSet.has(vm.id)"
                 :aria-label="
-                  favoriteSet.has(model.id)
-                    ? (isZh ? `取消收藏 ${model.display_name || model.model}` : `Remove ${model.display_name || model.model} from favorites`)
-                    : (isZh ? `收藏 ${model.display_name || model.model}` : `Favorite ${model.display_name || model.model}`)
+                  favoriteSet.has(vm.id)
+                    ? (isZh ? `取消收藏 ${vm.displayName}` : `Remove ${vm.displayName} from favorites`)
+                    : (isZh ? `收藏 ${vm.displayName}` : `Favorite ${vm.displayName}`)
                 "
-                @click="toggleFavorite(model.id)"
+                @click="toggleFavorite(vm.id)"
               >
-                {{ favoriteSet.has(model.id) ? '★' : '☆' }}
+                {{ favoriteSet.has(vm.id) ? '★' : '☆' }}
               </button>
-              <Badge tone="neutral" size="xs" variant="subtle">{{ formatContextTokens(model.context_tokens) }}</Badge>
+            </div>
+            <div class="mt-2 flex flex-wrap gap-1.5">
+              <ModelStatusBadge
+                :badge="vm.availability.badge"
+                test-id-prefix="card-availability-badge"
+              />
+              <ModelOriginBadge v-if="authStore.isAuthenticated" :badge="vm.origin.primaryBadge" />
+              <Badge
+                v-for="mod in vm.displayModalities.slice(0, 3)"
+                :key="mod"
+                :tone="modalityTone(mod)"
+                size="xs"
+                variant="subtle"
+              >
+                {{ modalityLabel(mod, isZh) }}
+              </Badge>
             </div>
           </div>
-          <div v-if="availabilityBadge(model) || extractDisplayModalities(model).length" class="mt-2.5 flex flex-wrap items-center gap-1.5">
-            <Badge
-              v-if="availabilityBadge(model)"
-              :data-testid="`card-availability-badge-${availabilityBadge(model)!.state}`"
-              :tone="availabilityBadge(model)!.tone"
-              size="xs"
-              variant="subtle"
-              dot
-            >
-              {{ availabilityBadge(model)!.label }}
-            </Badge>
-            <Badge
-              v-for="mod in extractDisplayModalities(model).slice(0, 4)"
-              :key="mod"
-              :tone="modalityTone(mod)"
-              size="xs"
-              variant="subtle"
-            >
-              {{ modalityLabel(mod, isZh) }}
-            </Badge>
-          </div>
-          <dl class="mt-4 grid grid-cols-2 gap-2 border-t border-oh-subtle pt-3 font-mono text-xs tabular-nums">
-            <div>
-              <dt class="text-[10px] uppercase text-oh-muted">{{ isZh ? '输入 / 1M' : 'Input / 1M' }}</dt>
-              <dd class="mt-0.5 text-oh-primary">{{ displayRate(model, 'input') }}</dd>
-            </div>
-            <div>
-              <dt class="text-[10px] uppercase text-oh-muted">{{ isZh ? '输出 / 1M' : 'Output / 1M' }}</dt>
-              <dd class="mt-0.5 text-oh-primary">{{ displayRate(model, 'output') }}</dd>
-            </div>
-            <div>
-              <dt class="text-[10px] uppercase text-oh-muted">TTFT</dt>
-              <dd class="mt-0.5 text-oh-secondary">
-                {{ modelTtftMs(model) !== null ? `${modelTtftMs(model)} ms` : (isZh ? '未观测' : 'Unobserved') }}
-              </dd>
-            </div>
-            <div>
-              <dt class="text-[10px] uppercase text-oh-muted">{{ isZh ? '成熟度' : 'Stability' }}</dt>
-              <dd class="mt-0.5 text-oh-secondary">{{ maturityLabel(model.maturity, isZh) }}</dd>
-            </div>
-          </dl>
-          <div class="mt-3 flex items-center justify-between gap-2 border-t border-oh-subtle pt-2.5">
-            <RouterLink
-              :to="`/model-plaza/${encodeURIComponent(model.id)}`"
-              class="oh-focus-ring rounded-oh-xs text-xs font-medium text-oh-accent-text hover:underline"
-            >
-              {{ isZh ? '查看详情 →' : 'View details →' }}
-            </RouterLink>
+          <div class="mt-4 flex items-end justify-between gap-2 border-t border-oh-subtle pt-3">
+            <ModelPriceCell
+              :billing="vm.billing"
+              kind="pair"
+              :is-zh="isZh"
+              :detail-to="`/model-plaza/${encodeURIComponent(vm.id)}`"
+              compact
+              @retry="load(true)"
+            />
             <button
               type="button"
-              class="oh-focus-ring inline-flex h-7 items-center rounded-oh-xs border px-2 font-mono text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+              class="oh-focus-ring shrink-0 rounded-oh-sm border px-2.5 py-1 text-xs transition-colors disabled:opacity-40"
               :class="
-                compareSet.has(model.id)
+                compareSet.has(vm.id)
                   ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
                   : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
               "
-              :disabled="!compareSet.has(model.id) && compareIds.length >= 3"
-              :aria-pressed="compareSet.has(model.id)"
-              @click="toggleCompare(model.id)"
+              :disabled="!compareSet.has(vm.id) && compareIds.length >= 3"
+              :aria-pressed="compareSet.has(vm.id)"
+              @click="toggleCompare(vm.id)"
             >
-              {{ compareSet.has(model.id) ? (isZh ? '已加入对比' : 'In compare') : (isZh ? '+ 加入对比' : '+ Compare') }}
+              {{ compareSet.has(vm.id) ? (isZh ? '已加入对比' : 'In compare') : (isZh ? '+ 加入对比' : '+ Compare') }}
             </button>
           </div>
         </div>
@@ -1166,10 +559,10 @@ onBeforeUnmount(() => {
         <p role="status" class="text-xs text-oh-muted">
           {{
             onlyFavorites
-              ? (isZh ? `当前已展示 ${displayedModels.length} 个收藏模型（已加载 ${models.length} 个）` : `Showing ${displayedModels.length} favorited of ${models.length} loaded`)
-              : displayedModels.length !== models.length
-                ? (isZh ? `当前已展示 ${displayedModels.length} 个匹配模型（已加载 ${models.length} 个）` : `Showing ${displayedModels.length} matching of ${models.length} loaded`)
-                : (isZh ? `已加载 ${displayedModels.length} 个模型` : `${displayedModels.length} models loaded`)
+              ? (isZh ? `当前已展示 ${displayedViewModels.length} 个收藏模型（已加载 ${models.length} 个）` : `Showing ${displayedViewModels.length} favorited of ${models.length} loaded`)
+              : displayedViewModels.length !== models.length
+                ? (isZh ? `当前已展示 ${displayedViewModels.length} 个匹配模型（已加载 ${models.length} 个）` : `Showing ${displayedViewModels.length} matching of ${models.length} loaded`)
+                : (isZh ? `已加载 ${displayedViewModels.length} 个模型` : `${displayedViewModels.length} models loaded`)
           }}
         </p>
         <Button v-if="nextCursor && !paginationError" variant="secondary" :loading="loadingMore" @click="load(false)">
