@@ -1,0 +1,155 @@
+paths:
+  /api/v1/admin/config/effective:
+    get:
+      operationId: getEffectiveConfiguration
+      summary: Read redacted effective settings and their authority source
+      parameters:
+        - {$ref: '#/components/parameters/ConfigurationGroup'}
+        - {$ref: '#/components/parameters/ConfigurationQuery'}
+        - {$ref: '#/components/parameters/ConfigurationCursor'}
+        - {$ref: '#/components/parameters/ConfigurationLimit'}
+        - {$ref: '#/components/parameters/ConfigurationSource'}
+        - {$ref: '#/components/parameters/ConfigurationState'}
+      responses:
+        '200':
+          description: Deterministically key-sorted effective configuration page
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data: {$ref: '#/components/schemas/EffectiveConfiguration'}
+        '400': {$ref: '#/components/responses/ConfigurationError'}
+        '401': {$ref: '#/components/responses/ConfigurationError'}
+        '403': {$ref: '#/components/responses/ConfigurationError'}
+  /api/v1/admin/config/reset:
+    post:
+      operationId: resetConfigurationOverrides
+      summary: Delete resettable database overrides and resolve deployment baselines
+      description: Requires an administrator session. Provider and object overrides reset atomically as one group. No secret or baseline value is returned for sensitive keys.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConfigurationResetRequest'}
+      responses:
+        '200':
+          description: Shared admin settings projection and reset effective entries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data: {$ref: '#/components/schemas/ConfigurationResetResult'}
+        '400': {$ref: '#/components/responses/ConfigurationError'}
+        '401': {$ref: '#/components/responses/ConfigurationError'}
+        '403': {$ref: '#/components/responses/ConfigurationError'}
+        '503': {$ref: '#/components/responses/ConfigurationError'}
+components:
+  parameters:
+    ConfigurationGroup:
+      name: group
+      in: query
+      schema: {type: string, maxLength: 100}
+    ConfigurationQuery:
+      name: q
+      in: query
+      description: Case-insensitive substring match on key or group
+      schema: {type: string, maxLength: 200}
+    ConfigurationCursor:
+      name: cursor
+      in: query
+      description: Return registered keys strictly after this key
+      schema: {type: string, maxLength: 200}
+    ConfigurationLimit:
+      name: limit
+      in: query
+      schema: {type: integer, minimum: 1, maximum: 200, default: 50}
+    ConfigurationSource:
+      name: source
+      in: query
+      schema: {type: string, enum: [database, environment, yaml, default, derived, artifact]}
+    ConfigurationState:
+      name: state
+      in: query
+      schema: {type: string, enum: [effective, invalid, unavailable, blocked_by_hard_gate]}
+  schemas:
+    EffectiveConfigurationItem:
+      type: object
+      required: [key, group, value_type, value, source, authority, fallback_chain, restart_required, resettable, sensitive, state, configured]
+      properties:
+        key: {type: string}
+        group: {type: string}
+        value_type: {type: string, enum: [bool, int, float, string, string_list, json, object]}
+        value:
+          nullable: true
+          description: Effective non-secret value. Always null for sensitive or unavailable settings.
+        source: {type: string, enum: [database, environment, yaml, default, derived, artifact]}
+        authority: {type: string, enum: [deployment, database_override, database_only, versioned_artifact]}
+        fallback_chain:
+          type: array
+          items: {type: string, enum: [database, environment, yaml, default, derived, artifact]}
+        restart_required: {type: boolean}
+        resettable: {type: boolean}
+        sensitive: {type: boolean}
+        state: {type: string, enum: [effective, invalid, unavailable, blocked_by_hard_gate]}
+        configured:
+          type: boolean
+          nullable: true
+          description: Presence metadata for sensitive settings; null otherwise.
+        blocked_by: {type: string}
+        install_seed_source: {type: string, enum: [install_seed, environment, yaml, default, admin, unknown]}
+        baseline:
+          nullable: true
+          description: Non-secret value that a reset would restore.
+        error_code: {type: string, enum: [CONFIG_INVALID, CONFIG_UNAVAILABLE]}
+    EffectiveConfiguration:
+      type: object
+      required: [config_file, generated_at, items]
+      properties:
+        config_file: {type: string, description: Absolute CONFIG_FILE path, or empty when not explicitly configured}
+        generated_at: {type: string, format: date-time}
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/EffectiveConfigurationItem'}
+        next_cursor: {type: string}
+    ConfigurationResetRequest:
+      type: object
+      additionalProperties: false
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: {type: string, minLength: 1, maxLength: 200}
+    ConfigurationResetResult:
+      type: object
+      required: [settings, items, generated_at]
+      properties:
+        settings:
+          type: object
+          description: Same GET/PUT /api/v1/admin/settings response data, with secret plaintext omitted.
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/EffectiveConfigurationItem'}
+        generated_at: {type: string, format: date-time}
+  responses:
+    ConfigurationError:
+      description: Standard OmniHive management error; configuration values are not included
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message]
+            properties:
+              code: {type: integer}
+              message: {type: string}
+              reason: {type: string}
+              metadata: {type: object}
