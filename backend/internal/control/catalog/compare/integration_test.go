@@ -31,21 +31,25 @@ func (s testCatalog) Snapshot(context.Context, catalog.Perspective, time.Time) (
 	return s.snapshot, nil
 }
 
-type testKeys struct{ store pricing.VersionStore }
+func (s testCatalog) PriceBindings(_ context.Context, p catalog.Perspective, id string, key int64, _, _ string, at time.Time) ([]pricing.Binding, error) {
+	if key != 0 && (p.Project != 2 || p.Actor != 4 || key != 5) {
+		return nil, fault.NotFound
+	}
+	if id == "m_11111111111111111111111111111111" {
+		return nil, nil
+	}
+	return []pricing.Binding{{Provider: "openai", Model: id, At: at, RateMultiplier: 1}}, nil
+}
 
-func (s testKeys) ResolveKeyPrice(ctx context.Context, p catalog.Perspective, key int64, d catalog.Detail, protocol, action string, usage pricing.Usage, at time.Time) (pricing.Version, error) {
-	if p.Project != 2 || p.Actor != 4 || key != 5 {
-		return pricing.Version{}, fault.NotFound
-	}
-	versions, err := s.store.At(ctx, "test/key/5", at)
-	if err != nil {
-		return pricing.Version{}, err
-	}
-	v, err := pricing.Resolve(pricing.Candidates{Group: versions}, at)
-	if err != nil || v == nil {
-		return pricing.Version{}, err
-	}
-	return *v, nil
+type testPriceBook struct{ version pricing.Version }
+
+func (s testPriceBook) Resolve(_ context.Context, b pricing.Binding) (pricing.Tariff, error) {
+	return pricing.NewExactTariff(s.version, b.At), nil
+}
+
+func (s testPriceBook) Describe(ctx context.Context, b pricing.Binding) (pricing.Description, error) {
+	tariff, err := s.Resolve(ctx, b)
+	return tariff.Describe(), err
 }
 
 func TestBE07QuoteCompareAndMigration(t *testing.T) {
@@ -89,7 +93,7 @@ func TestBE07QuoteCompareAndMigration(t *testing.T) {
 	const model = "m_0123456789abcdef0123456789abcdef"
 	const unknown = "m_11111111111111111111111111111111"
 	capability := catalog.Capability{Action: "text.chat", Protocol: "openai_chat", Tools: "unsupported"}
-	d := catalog.Detail{Model: catalog.Summary{ID: model, Input: &r, PriceState: "priced", AccessState: "allowed"},
+	d := catalog.Detail{Model: catalog.Summary{ID: model, Input: &r, PriceState: "priced", AccessState: "allowed", RouteState: "eligible"},
 		Capabilities: []catalog.Capability{capability}, PriceSource: "published", PriceVersion: &version.ID}
 	missing := catalog.Detail{Model: catalog.Summary{ID: unknown, AccessState: "allowed"}, Capabilities: []catalog.Capability{capability}}
 	reader := testCatalog{catalog.Snapshot{Version: "cat_test", AsOf: at, Details: []catalog.Detail{d, missing}}}
@@ -113,8 +117,9 @@ func TestBE07QuoteCompareAndMigration(t *testing.T) {
 	until := at
 	history.EffectiveUntil = &until
 	require.NoError(t, store.Save(ctx, quotes.PublicationScope(public, model), history))
-	cmp := Service{Catalog: reader, Published: store}
-	quote := quotes.Service{Catalog: reader, Keys: testKeys{store}}
+	book := testPriceBook{version}
+	cmp := Service{Catalog: reader, Published: store, Book: book}
+	quote := quotes.Service{Catalog: reader, Book: book}
 	router.POST("/public/models/compare", wrap(public, cmp.Handle))
 	router.POST("/projects/2/models/compare", wrap(scope, cmp.Handle))
 	router.POST("/projects/2/quotes", wrap(scope, quote.Handle))
@@ -153,5 +158,10 @@ func TestBE07QuoteCompareAndMigration(t *testing.T) {
 	post("/projects/2/quotes", keyed("6"), 404)
 	unpriced, err := os.ReadFile("../../../../../contracts/api/quotes/quote-unpriced.json")
 	require.NoError(t, err)
-	require.JSONEq(t, string(unpriced), post("/projects/2/quotes", strings.ReplaceAll(string(input), model, unknown), 200))
+	var expectedMissing map[string]any
+	require.NoError(t, json.Unmarshal(unpriced, &expectedMissing))
+	expectedMissing["reason"] = string(pricing.Missing)
+	expectedMissingJSON, err := json.Marshal(expectedMissing)
+	require.NoError(t, err)
+	require.JSONEq(t, string(expectedMissingJSON), post("/projects/2/quotes", strings.ReplaceAll(string(input), model, unknown), 200))
 }

@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -137,7 +136,10 @@ var (
 // LiteLLMModelPricing LiteLLM价格数据结构
 // 只保留我们需要的字段，使用指针来处理可能缺失的值
 type LiteLLMModelPricing struct {
-	PriceVariants []ModelPriceVariant `json:"price_variants,omitempty"`
+	tariffOwner        string
+	tariffOwnerChecked bool
+	staticTariff       bool
+	PriceVariants      []ModelPriceVariant `json:"price_variants,omitempty"`
 	// sourceQuotes retain missing versus explicit zero for comparisons and billing.
 	// Billing reads field presence only; capability approval never uses them.
 	sourceQuotes                        map[string]PricingQuote
@@ -208,6 +210,7 @@ type PricingService struct {
 	remoteClient     PricingRemoteClient
 	mu               sync.RWMutex
 	pricingData      map[string]*LiteLLMModelPricing
+	providerPrices   *providerPriceIndex
 	pricingRevision  uint64
 	baseNameIndex    atomic.Pointer[pricingBaseNameIndex]
 	registry         *ModelRegistry
@@ -245,6 +248,7 @@ func (s *PricingService) rebuildBaseNameIndex() {
 
 func (s *PricingService) replacePricingData(data map[string]*LiteLLMModelPricing) {
 	s.pricingData = data
+	s.providerPrices = buildProviderPriceIndex(data)
 	s.rebuildBaseNameIndex()
 }
 
@@ -476,6 +480,9 @@ func (s *PricingService) validateCustomPricingFiles() error {
 		if err != nil {
 			return err
 		}
+		if bytes.Equal(bytes.TrimSpace(body), bytes.TrimSpace(modelpricing.PiSupplementJSON())) {
+			return fmt.Errorf("%s: reference prices are not a sale tariff", p)
+		}
 		var entries map[string]json.RawMessage
 		if err := json.Unmarshal(body, &entries); err != nil {
 			return fmt.Errorf("%s: %w", p, err)
@@ -620,10 +627,18 @@ func (s *PricingService) downloadPricingData() error {
 
 // parsePricingData 解析价格数据（处理各种格式）
 func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModelPricing, error) {
+	if bytes.Equal(bytes.TrimSpace(body), bytes.TrimSpace(modelpricing.PiSupplementJSON())) {
+		return nil, fmt.Errorf("reference prices are not a sale tariff")
+	}
 	// 首先解析为 map[string]json.RawMessage
 	var rawData map[string]json.RawMessage
 	if err := json.Unmarshal(body, &rawData); err != nil {
 		return nil, fmt.Errorf("parse raw JSON: %w", err)
+	}
+	for name, raw := range rawData {
+		if referenceTariffEntry(raw) {
+			delete(rawData, name)
+		}
 	}
 	rawData = s.applyPricingOverrides(rawData)
 
@@ -658,6 +673,8 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		}
 
 		pricing := &LiteLLMModelPricing{
+			tariffOwner:           rawTariffOwner(modelName, rawEntry),
+			tariffOwnerChecked:    true,
 			sourceQuotes:          pricingEntryQuotes(modelName, rawEntry),
 			exactTokenRates:       readExactTokenRates(rawEntry),
 			PriceVariants:         cloneModelPriceVariants(entry.PriceVariants),
@@ -923,23 +940,7 @@ func warnOrphanCacheTierFields(entries []string) {
 // 已存在的条目：目录/回退里都没有的模型由 mergeOverrideOnlyModels 在两层数据合并后
 // 统一并入——若在此处抢先建条目，纯 override 条目会挡住回退文件中同名完整条目的合并。
 func (s *PricingService) applyPricingOverrides(rawData map[string]json.RawMessage) map[string]json.RawMessage {
-	overrides := s.loadPricingOverrideEntries()
-	if len(overrides) == 0 {
-		return rawData
-	}
-	for name, patch := range overrides {
-		base, ok := rawData[name]
-		if !ok {
-			continue
-		}
-		merged, valid := mergePricingOverrideEntry(base, patch)
-		if !valid {
-			logger.LegacyPrintf("service.pricing", "[Pricing] Warning: override entry %q skipped: not a JSON object", name)
-			continue
-		}
-		rawData[name] = merged
-	}
-	return rawData
+	return patchedPricingEntries(rawData, s.loadPricingOverrideEntries())
 }
 
 // loadPricingOverrideEntries 读取 override 文件的原始条目。未配置返回 nil；
@@ -959,6 +960,9 @@ func (s *PricingService) loadPricingOverrideEntries() map[string]json.RawMessage
 	}
 	if err != nil {
 		logger.LegacyPrintf("service.pricing", "[Pricing] Warning: override merge skipped: %v", err)
+		return nil
+	}
+	if bytes.Equal(bytes.TrimSpace(body), bytes.TrimSpace(modelpricing.PiSupplementJSON())) {
 		return nil
 	}
 	var entries map[string]json.RawMessage
@@ -1023,7 +1027,17 @@ func (s *PricingService) mergeOverrideOnlyModels(data map[string]*LiteLLMModelPr
 	// 对已存在条目做的自我修补是幂等的，不会二次改值。
 	if body, err := json.Marshal(leftover); err == nil {
 		if parsed, err := s.parsePricingData(body); err == nil {
-			maps.Copy(data, parsed)
+			for name := range leftover {
+				card := parsed[name]
+				if owner, _ := qualifiedTariffName(strings.ToLower(strings.TrimSpace(name))); card != nil && owner == "" {
+					card.tariffOwner = ""
+				}
+			}
+			for name, card := range parsed {
+				if data[name] == nil {
+					data[name] = card
+				}
+			}
 		}
 	}
 	var missing []string
@@ -1050,6 +1064,13 @@ func (s *PricingService) buildPricingData(body []byte) (map[string]*LiteLLMModel
 		return nil, "", err
 	}
 	data = s.mergeFallbackPricingData(data)
+	if s.cfg != nil && s.cfg.Pricing.FallbackFile != "" {
+		if fallback, readErr := os.ReadFile(s.cfg.Pricing.FallbackFile); readErr == nil && bytes.Equal(body, fallback) {
+			for _, card := range data {
+				card.staticTariff = true
+			}
+		}
+	}
 	data = s.mergeOverrideOnlyModels(data)
 	if err := indexModelPriceVariants(data); err != nil {
 		return nil, "", err
@@ -1114,6 +1135,7 @@ func (s *PricingService) mergeFallbackPricingData(data map[string]*LiteLLMModelP
 		if _, ok := data[modelName]; ok {
 			continue
 		}
+		pricing.staticTariff = true
 		data[modelName] = pricing
 		merged++
 	}

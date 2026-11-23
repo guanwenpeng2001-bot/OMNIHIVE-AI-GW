@@ -9,10 +9,13 @@ import (
 )
 
 type requestLanePricing struct {
-	model    string
-	resolved *ResolvedPricing
-	resolver *ModelPricingResolver
-	amount   *money.Money
+	model, provider string
+	resolved        *ResolvedPricing
+	resolver        *ModelPricingResolver
+	amount          *money.Money
+	multiplier      float64
+	longContext     *bool
+	version         string
 }
 
 func publicModelPricingPlatform(platform string) bool {
@@ -32,11 +35,15 @@ func (p *GatewayRequestPlan) RequiresLanePricing() bool {
 func (p *GatewayRequestPlan) admitPublicModelLane(ctx context.Context, accountID int64) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if playgroundPriceFromContext(ctx) != nil {
+		return nil
+	}
 	platform, _ := ResolvedTargetPlatformFromContext(ctx)
 	if platform == "" {
 		platform = p.budgetPlatform
 	}
-	if !publicModelPricingPlatform(platform) {
+	composite := p.budgetEstimate != nil && p.budgetEstimate.Group != nil && p.budgetEstimate.Group.Platform == PlatformComposite
+	if !publicModelPricingPlatform(platform) && !composite {
 		p.selectedPrice.Store(nil)
 		return nil
 	}
@@ -52,36 +59,43 @@ func (p *GatewayRequestPlan) admitPublicModelLane(ctx context.Context, accountID
 	if err != nil {
 		return err
 	}
-	if account == nil || account.Platform != platform {
+	if account == nil || platform != "" && platform != PlatformComposite && account.Platform != platform {
 		return ErrModelPricingUnavailable
 	}
+	platform = account.Platform
+	ctx = WithResolvedTargetPlatform(ctx, platform)
 
 	estimate := *p.budgetEstimate
 	estimate.Model = model
 	resolver := NewModelPricingResolver(p.channels, p.billing)
+	_, _, base := NormalizeBudgetEstimateBounds(estimate)
+	key := &APIKey{Group: estimate.Group}
+	multiplier, _ := computePeakAwareMultipliers(key, p.budgetBaseMultiplier(ctx, estimate.Group, base), p.spec.PricingAt)
+	lane := requestLanePricing{provider: platform, resolver: resolver, multiplier: multiplier, longContext: openAILongContextBillingGate(account)}
 	var resolved *ResolvedPricing
 	var amount *money.Money
 	if publicModelLane(account) {
 		if account.IsOpenCodeZenFree() && !zenFreeModelAllowed(account, model) || account.IsKiloFree() && !verifiedKiloFreeTariff(account, model) {
 			return ErrModelPricingUnavailable
 		}
-		price := &ModelPricing{SupportsCacheBreakdown: true, TokenPricePresence: map[string]bool{
-			"input": true, "output": true, "cache_read": true, "cache_write": true, "cache_write_1h": true,
-			"image_input": true, "image_output": true, "image_cache_read": true,
-		}}
-		resolved = &ResolvedPricing{Mode: BillingModeToken, BasePricing: price, Source: "official_free:" + platform}
+		resolved = newOfficialFreeTariff(platform)
 		free, err := money.NewMoney("USD", "0")
 		if err != nil {
 			return err
 		}
 		amount = &free
 	} else {
-		resolved = resolver.Resolve(ctx, PricingInput{Model: model, Group: estimate.Group, GroupID: pricingGroupID(&APIKey{Group: estimate.Group})})
+		if composite {
+			model = p.compositeLanePriceModel(ctx, resolver, estimate.Group, model)
+			estimate.Model = model
+		}
+		resolved = resolver.Resolve(ctx, PricingInput{Model: model, Provider: platform, Group: estimate.Group, GroupID: pricingGroupID(&APIKey{Group: estimate.Group})})
 		if resolved.pricingErr != nil || resolved.Mode != BillingModeToken {
 			return ErrModelPricingUnavailable
 		}
-		amount = p.estimateBudgetHold(ctx, estimate)
-		if amount == nil || amount.Amount().Compare(money.Amount{}) <= 0 {
+		lane.model, lane.resolved = model, resolved
+		amount = p.estimateBudgetHoldForLane(ctx, estimate, &lane)
+		if amount == nil || publicModelPricingPlatform(platform) && amount.Amount().Compare(money.Amount{}) <= 0 {
 			return ErrModelPricingUnavailable
 		}
 	}
@@ -101,8 +115,37 @@ func (p *GatewayRequestPlan) admitPublicModelLane(ctx context.Context, accountID
 	if previous != nil {
 		ceiling = previous.amount
 	}
-	p.selectedPrice.Store(&requestLanePricing{model, resolved, resolver, ceiling})
+	lane.model, lane.resolved, lane.amount = model, resolved, ceiling
+	_, lane.version = pricingEvaluationIdentity(resolved, CostInput{Provider: platform, Model: model, Group: estimate.Group, PricingAt: p.spec.PricingAt,
+		RateMultiplier: multiplier, ServiceTier: estimate.ServiceTier, ReasoningEffort: estimate.ReasoningEffort, LongContextBillingEnabled: lane.longContext})
+	p.selectedPrice.Store(&lane)
 	return nil
+}
+
+func (p *GatewayRequestPlan) compositeLanePriceModel(ctx context.Context, resolver *ModelPricingResolver, group *Group, outbound string) string {
+	if p.channels == nil {
+		return outbound
+	}
+	mapping := p.channels.ResolveChannelMapping(ctx, group.ID, p.spec.Model)
+	var model string
+	switch mapping.BillingModelSource {
+	case BillingModelSourceRequested:
+		model = p.spec.Model
+	case BillingModelSourceChannelMapped:
+		model = mapping.MappedModel
+	}
+	if model != "" && model != outbound && resolver.configuredForKey(ctx, model, &APIKey{Group: group}) != nil {
+		return model
+	}
+	return outbound
+}
+
+func newOfficialFreeTariff(platform string) *ResolvedPricing {
+	price := &ModelPricing{SupportsCacheBreakdown: true, TokenPricePresence: map[string]bool{
+		"input": true, "output": true, "cache_read": true, "cache_write": true, "cache_write_1h": true,
+		"image_input": true, "image_output": true, "image_cache_read": true,
+	}}
+	return &ResolvedPricing{Mode: BillingModeToken, BasePricing: price, Source: "official_free:" + platform}
 }
 
 func verifiedKiloFreeTariff(account *Account, model string) bool {

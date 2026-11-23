@@ -36,6 +36,8 @@ type Result struct {
 type Service struct {
 	Catalog   catalog.CatalogReader
 	Published quotes.PublishedVersions
+	Book      pricing.PriceBook
+	Bindings  quotes.BindingReader
 }
 
 func (s Service) Compare(ctx context.Context, p catalog.Perspective, in Input) (Result, error) {
@@ -85,7 +87,8 @@ func (s Service) Compare(ctx context.Context, p catalog.Perspective, in Input) (
 			if in.At != nil {
 				at = *in.At
 			}
-			row.Quote, err = (quotes.Service{Published: s.Published}).Estimate(ctx, p, d, usage, at, snap.AsOf)
+			row.Quote, err = (quotes.Service{Catalog: s.Catalog, Published: s.Published, Book: s.Book, Bindings: s.Bindings}).
+				EstimateFor(ctx, p, d, 0, in.Protocol, in.Action, in.Scenario.PriceScenario(usage), at, snap.AsOf)
 			if err != nil {
 				return Result{}, err
 			}

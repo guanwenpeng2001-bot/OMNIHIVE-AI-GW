@@ -95,6 +95,7 @@ type prepared struct {
 	scenario  policy.Scenario
 	decision  trace.DecisionTrace
 	account   int64
+	price     service.PlaygroundPrice
 }
 
 func (g *Gateway) prepare(ctx context.Context, a identity.Access, s pg.Submit, ip string, replay bool) (prepared, error) {
@@ -221,11 +222,11 @@ func (g *Gateway) prepare(ctx context.Context, a identity.Access, s pg.Submit, i
 	if sub != nil {
 		funding = "subscription"
 	}
-	decision, account, err := g.route(ctx, frozen, k.Group.ID, scenario, snap.Version, model, funding)
+	decision, account, price, err := g.route(ctx, frozen, k, scenario, snap.Version, model, funding)
 	if err != nil {
 		return p, err
 	}
-	return prepared{ctx, k, sub, frozen, native, model.Model.Model, ip, scenario, decision, account}, nil
+	return prepared{ctx, k, sub, frozen, native, model.Model.Model, ip, scenario, decision, account, price}, nil
 }
 
 type runJournal struct {
@@ -285,8 +286,9 @@ func (g *Gateway) admit(p prepared, r pg.Summary, reg *journal.Registration) (co
 	ctx = service.WithProjectBudgetCoordinator(ctx, readmodel.Store{DB: g.DB})
 	ctx = service.WithPrefetchedStickySession(ctx, p.account, p.key.Group.ID, true)
 	ctx = service.WithRequiredAccount(ctx, p.account)
+	ctx = service.WithPlaygroundPrice(ctx, p.price)
 
-	spec := service.GatewayRequestSpec{ExecutionKind: "playground", Registration: reg, WorkspaceID: p.frozen.WorkspaceID, UserID: p.key.UserID, APIKeyID: p.key.ID, BillingGroupID: p.key.Group.ID, Route: strings.Split(p.native.Path, "?")[0], Action: "text.chat", Protocol: p.native.Protocol, Model: p.model, ModelVersion: p.decision.CatalogVersion, PriceVersion: p.decision.PriceVersion}
+	spec := service.GatewayRequestSpec{ExecutionKind: "playground", Registration: reg, WorkspaceID: p.frozen.WorkspaceID, UserID: p.key.UserID, APIKeyID: p.key.ID, BillingGroupID: p.key.Group.ID, Route: strings.Split(p.native.Path, "?")[0], Action: "text.chat", Protocol: p.native.Protocol, Model: p.model, ModelVersion: p.decision.CatalogVersion, PriceVersion: p.decision.PriceVersion, PricingAt: p.price.At()}
 	ctx, plan := g.Plans.CaptureRequestPlan(ctx, spec)
 	ex, err := plan.AdmittedExecution()
 	closePlan := func() {

@@ -9,6 +9,12 @@ var catalog string
 //go:embed cache-base-overrides.json
 var cacheBaseOverrides string
 
+//go:embed provider-tariff-bindings.json
+var providerTariffBindings string
+
+// ProviderTariffBindingsJSON returns the reviewed legacy and hosted tariff bindings.
+func ProviderTariffBindingsJSON() []byte { return []byte(providerTariffBindings) }
+
 // JSON returns an independent copy of the packaged baseline.
 func JSON() []byte { return []byte(catalog) }
 
