@@ -6,7 +6,6 @@ export default {
     actions: {
       openVerificationWorkbench: 'Verification Workbench',
       exportUnpricedCsv: 'Export Unpriced CSV',
-      batchActions: 'Batch Actions ({count})',
       refreshCatalog: 'Refresh Snapshot',
       loadMoreModels: 'Load More Models',
       loadMoreAccounts: 'Load More Discovered Accounts',
@@ -130,21 +129,6 @@ export default {
       embedding_dimensions: 'Embedding Dimensions',
       pdf: 'PDF Input',
       reference_price: 'Reference Price (Non-settlement)'
-    },
-    batch: {
-      title: 'Batch Preview & CAS Confirmation',
-      subtitle: 'Every bulk mutation requires an explicit Before -> After diff preview and CAS token (If-Match / rules_revision).',
-      operationLabel: 'Batch Operation',
-      opEnableDiscovered: 'Add to Account Effective (2. Native Discovered -> 3. Account Effective)',
-      opDraftChannelPricing: 'Draft Channel Sale Rate from Reference Price (1. Reference Price -> 2. Sale Rate Draft)',
-      opTogglePublication: 'Bulk Update Group Visibility (3. Account Effective -> 4. Group Visible)',
-      beforeColumn: 'Before State',
-      afterColumn: 'After Preview',
-      casTokenLabel: 'CAS Revision Token (If-Match / rules_revision)',
-      confirmSubmit: 'Confirm & Submit with CAS',
-      conflict409Title: 'Concurrent Version Conflict Detected (409 / 412 CAS Conflict)',
-      conflict409Message: 'Target connection or channel was modified by another administrator. Your draft is preserved; refresh the snapshot and re-preview.',
-      refreshAndRepreview: 'Refresh Snapshot & Re-preview'
     }
   }
 }

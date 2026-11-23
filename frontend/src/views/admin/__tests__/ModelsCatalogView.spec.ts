@@ -560,72 +560,14 @@ describe('ModelsCatalogView (/admin/models) & BE-9 Inspector Contract', () => {
     )
   })
 
-  it('enforces Preview + CAS on batch writes and recovers from 409 conflict without losing draft', async () => {
+  it('offers a local CSV export and no batch mutations on the read-only inspector', async () => {
     const wrapper = mountCatalogView()
     await flushPromises()
-
-    // Select first model and open batch modal
-    await wrapper.findAll('[data-testid="select-model-row"]')[0].setValue(true)
-    await wrapper.get('[data-testid="open-batch-preview-modal"]').trigger('click')
-    await flushPromises()
-
-    const modal = wrapper.get('[data-testid="admin-model-batch-preview-modal"]')
-    expect(modal.findAll('[data-testid="batch-diff-row"]')).toHaveLength(1)
-
-    const submitBtn = modal.get('[data-testid="batch-preview-submit"]')
-    // Submit disabled before explicit preview confirmation
-    expect(submitBtn.attributes('disabled')).toBeDefined()
-
-    await modal.get('[data-testid="batch-operation-select"]').setValue('enable_discovered')
-    await modal.get('[data-testid="batch-cas-revision-input"]').setValue('20')
-    await modal.get('[data-testid="batch-preview-confirm-checkbox"]').setValue(true)
-    expect(submitBtn.attributes('disabled')).toBeUndefined()
-
-    // First submit returns 409 CAS conflict
-    mockPut.mockRejectedValueOnce({
-      status: 409,
-      code: 'RULES_REVISION_CONFLICT',
-      message: 'Revision changed'
-    })
-    await submitBtn.trigger('click')
-    await flushPromises()
-
-    expect(mockPut).toHaveBeenCalledWith(
-      '/admin/accounts/1/models/allowlist',
-      expect.objectContaining({
-        expected_rules_revision: '20',
-        model_mapping: { 'gpt-4.1': 'gpt-4.1' }
-      }),
-      expect.objectContaining({
-        headers: { 'If-Match': '"20"' }
-      })
-    )
-
-    // Conflict banner shown and submit locked until snapshot refresh
-    expect(modal.find('[data-testid="batch-cas-conflict-banner"]').exists()).toBe(true)
-    expect(submitBtn.attributes('disabled')).toBeDefined()
-
-    // Click refresh snapshot button -> clears lock and retains draft
-    await modal.get('[data-testid="batch-cas-refresh-button"]').trigger('click')
-    await flushPromises()
-    expect(modal.find('[data-testid="batch-cas-conflict-banner"]').exists()).toBe(false)
-
-    // Update CAS revision to 21 and commit successfully
-    mockPut.mockResolvedValueOnce({ data: { rules_revision: '22' } })
-    await modal.get('[data-testid="batch-cas-revision-input"]').setValue('21')
-    await submitBtn.trigger('click')
-    await flushPromises()
-
-    expect(mockPut).toHaveBeenLastCalledWith(
-      '/admin/accounts/1/models/allowlist',
-      expect.objectContaining({
-        expected_rules_revision: '21'
-      }),
-      expect.objectContaining({
-        headers: { 'If-Match': '"21"' }
-      })
-    )
-    expect(modal.find('[data-testid="batch-success-banner"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="open-batch-preview-modal"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="export-unpriced-csv"]').trigger('click')
+    expect(wrapper.text()).toContain('gpt-4.1')
+    expect(mockPut).not.toHaveBeenCalled()
+    expect(mockPost).not.toHaveBeenCalled()
   })
 
   it('makes CatalogVerificationWorkbench reachable in the page drawer even when opsMonitoringEnabled is false', async () => {

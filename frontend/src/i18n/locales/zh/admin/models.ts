@@ -6,7 +6,6 @@ export default {
     actions: {
       openVerificationWorkbench: '目录核验工作台',
       exportUnpricedCsv: '导出缺价 CSV',
-      batchActions: '批量操作 ({count})',
       refreshCatalog: '刷新目录快照',
       loadMoreModels: '加载更多模型',
       loadMoreAccounts: '加载更多发现账号',
@@ -130,21 +129,6 @@ export default {
       embedding_dimensions: '向量维度',
       pdf: 'PDF 文档输入',
       reference_price: '参考价（非结算价）'
-    },
-    batch: {
-      title: '批量变更预览与 CAS 确认',
-      subtitle: '所有批量写操作必须先核对变更前后差异（Preview），再携带版本令牌（If-Match / rules_revision）显式提交。',
-      operationLabel: '批量操作类型',
-      opEnableDiscovered: '加入账号有效模型（2. 账号原生发现 -> 3. 账号有效模型）',
-      opDraftChannelPricing: '以参考价起草渠道销售价（1. 参考价（非结算价） -> 2. 销售价草稿）',
-      opTogglePublication: '批量更新分组对外可见（3. 账号有效模型 -> 4. 分组对外可见）',
-      beforeColumn: '变更前状态',
-      afterColumn: '变更后预览',
-      casTokenLabel: 'CAS 版本令牌 (If-Match / rules_revision)',
-      confirmSubmit: '确认并携带 CAS 提交',
-      conflict409Title: '检测到并发版本冲突（409 / 412 CAS Conflict）',
-      conflict409Message: '目标连接或渠道配置已被其他管理员修改，草稿已保留。请刷新快照重新生成预览后再提交。',
-      refreshAndRepreview: '刷新快照重新预览'
     }
   }
 }

@@ -89,7 +89,7 @@ function buildListQueryParams(params: CatalogListParams = {}): Record<string, un
     availability_state: params.availability_state || undefined,
     availability: params.availability || undefined,
     billing: params.billing || undefined,
-    source: params.source?.length ? params.source : undefined,
+
     api_key_id: params.api_key_id || undefined,
     accessible: params.accessible !== undefined ? params.accessible : undefined,
     sort: params.sort || undefined,

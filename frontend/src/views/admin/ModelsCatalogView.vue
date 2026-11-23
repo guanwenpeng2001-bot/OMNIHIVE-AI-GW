@@ -21,9 +21,6 @@ import {
   type AdminCatalogQuickFilter,
   type AdminCatalogSourceKind
 } from '@/api/admin/modelCatalog'
-import AdminModelBatchPreviewModal, {
-  type AdminBatchOperationKind
-} from './models/AdminModelBatchPreviewModal.vue'
 import AdminModelDetailDrawer from './models/AdminModelDetailDrawer.vue'
 
 let i18nCtx: { t?: (k: string, p?: Record<string, unknown>) => string; locale?: { value?: string } } | null =
@@ -97,8 +94,6 @@ const loadingMore = ref(false)
 const listError = ref('')
 const listSnapshotExpired = ref(false)
 
-// Selection & CSV state
-const selectedIds = ref<string[]>([])
 const lastExportedCsv = ref('')
 
 // Detail Drawer state
@@ -112,9 +107,6 @@ const loadingMoreOffers = ref(false)
 const detailError = ref('')
 const detailSnapshotExpired = ref(false)
 
-// Batch Preview + CAS Modal state
-const batchModalOpen = ref(false)
-const batchInitialOperation = ref<AdminBatchOperationKind>('draft_channel_pricing')
 
 let listRequestGeneration = 0
 let detailRequestGeneration = 0
@@ -230,18 +222,6 @@ const visibleItems = computed(() => {
   })
 })
 
-const selectedModelsForBatch = computed(() => {
-  if (selectedIds.value.length > 0) {
-    const idSet = new Set(selectedIds.value)
-    const matched = items.value.filter((item) => idSet.has(item.id))
-    if (matched.length > 0) return matched
-  }
-  if (activeDetail.value?.model) {
-    return [activeDetail.value.model]
-  }
-  return visibleItems.value.slice(0, 10)
-})
-
 const SOURCE_LABELS: Record<AdminCatalogSourceKind, { zh: string; en: string }> = {
   builtin_reviewed: { zh: '内置审阅', en: 'Approved Registry' },
   platform_preset: { zh: '平台候选', en: 'Platform Candidates' },
@@ -315,25 +295,6 @@ function isRowRoutableUnpriced(item: AdminCatalogModelSummary): boolean {
   return matchesAdminCatalogQuickFilter(item, 'routable_but_unpriced')
 }
 
-function toggleRowSelection(id: string) {
-  if (selectedIds.value.includes(id)) {
-    selectedIds.value = selectedIds.value.filter((item) => item !== id)
-  } else {
-    selectedIds.value = [...selectedIds.value, id]
-  }
-}
-
-function toggleSelectAllVisible() {
-  const visibleIdList = visibleItems.value.map((item) => item.id)
-  const allSelected =
-    visibleIdList.length > 0 && visibleIdList.every((id) => selectedIds.value.includes(id))
-  if (allSelected) {
-    const removeSet = new Set(visibleIdList)
-    selectedIds.value = selectedIds.value.filter((id) => !removeSet.has(id))
-  } else {
-    selectedIds.value = Array.from(new Set([...selectedIds.value, ...visibleIdList]))
-  }
-}
 
 async function fetchCatalogModels(append = false) {
   const ws = workspaceId.value.trim()
@@ -555,11 +516,6 @@ function handleRefreshDetail() {
   void fetchModelDetail(activeModelId.value)
 }
 
-function openBatchPreview(operation: AdminBatchOperationKind = 'draft_channel_pricing') {
-  batchInitialOperation.value = operation
-  batchModalOpen.value = true
-}
-
 function handleExportUnpricedCsv() {
   const csv = buildUnpricedModelsCsv(visibleItems.value)
   lastExportedCsv.value = csv
@@ -577,13 +533,6 @@ function handleExportUnpricedCsv() {
     }
   } catch {
     // In headless/unit test environments without Blob URL download, lastExportedCsv holds the output
-  }
-}
-
-function handleBatchRefreshSnapshot() {
-  void fetchCatalogModels(false)
-  if (activeModelId.value) {
-    void fetchModelDetail(activeModelId.value)
   }
 }
 
@@ -641,18 +590,6 @@ onMounted(() => {
               @click="handleExportUnpricedCsv"
             >
               {{ isZh ? '导出缺价 CSV' : 'Export Unpriced CSV' }}
-            </button>
-            <button
-              type="button"
-              data-testid="open-batch-preview-modal"
-              class="btn btn-secondary btn-sm text-xs"
-              @click="openBatchPreview('draft_channel_pricing')"
-            >
-              {{
-                isZh
-                  ? `批量操作 (${selectedIds.length || visibleItems.length})`
-                  : `Batch Actions (${selectedIds.length || visibleItems.length})`
-              }}
             </button>
             <button
               type="button"
@@ -910,18 +847,6 @@ onMounted(() => {
               class="border-b border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted-foreground)]"
             >
               <tr>
-                <th class="w-10 px-3 py-2.5">
-                  <input
-                    type="checkbox"
-                    data-testid="select-all-models"
-                    :aria-label="isZh ? '全选当前页模型' : 'Select all models'"
-                    :checked="
-                      visibleItems.length > 0 &&
-                      visibleItems.every((item) => selectedIds.includes(item.id))
-                    "
-                    @change="toggleSelectAllVisible"
-                  />
-                </th>
                 <th class="px-3 py-2.5 font-semibold">
                   {{ isZh ? '规范模型 / 厂商' : 'Canonical Model / Provider' }}
                 </th>
@@ -951,14 +876,6 @@ onMounted(() => {
                 class="cursor-pointer transition-colors hover:bg-[var(--surface-2)]/60"
                 @click="openModelDetail(item)"
               >
-                <td class="px-3 py-3" @click.stop>
-                  <input
-                    type="checkbox"
-                    data-testid="select-model-row"
-                    :checked="selectedIds.includes(item.id)"
-                    @change="toggleRowSelection(item.id)"
-                  />
-                </td>
 
                 <!-- Column 1: Canonical Model & Provider -->
                 <td class="px-3 py-3">
@@ -1139,21 +1056,8 @@ onMounted(() => {
         @load-more-accounts="handleLoadMoreAccounts"
         @load-more-offers="handleLoadMoreOffers"
         @refresh-detail="handleRefreshDetail"
-        @open-batch-preview="openBatchPreview"
       />
 
-      <!-- Preview + CAS Batch Modal -->
-      <AdminModelBatchPreviewModal
-        :open="batchModalOpen"
-        :models="selectedModelsForBatch"
-        :initial-operation="batchInitialOperation"
-        :catalog-version="catalogVersion || '1'"
-        :default-account-id="activeDetail?.accounts[0]?.account_id || '1'"
-        :default-rules-revision="activeDetail?.accounts[0]?.rules_revision || '1'"
-        :is-zh="isZh"
-        @close="batchModalOpen = false"
-        @refresh-snapshot="handleBatchRefreshSnapshot"
-      />
     </div>
   </AppLayout>
 </template>

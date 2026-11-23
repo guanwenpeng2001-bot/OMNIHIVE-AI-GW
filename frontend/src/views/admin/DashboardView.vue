@@ -27,6 +27,7 @@
 
       <UsageStatsState v-else-if="!stats" :state="chartError ? 'error' : 'unknown'" />
       <template v-else-if="stats">
+        <AdminSetupBanner :total-accounts="stats.total_accounts" :live-models="liveModelSampleSize" />
         <p
           v-if="summaryScope !== 'all_time'"
           class="inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs text-gray-600 dark:text-gray-300"
@@ -540,6 +541,8 @@ const reportQueryContext = { timezone: reportTimeZone }
 
 import UsageStatsState from '@/components/common/UsageStatsState.vue'
 import { historyGapFromError, withTrendGaps, type HistoryGap } from '@/views/trendGaps'
+import AdminSetupBanner from '@/features/onboarding/AdminSetupBanner.vue'
+import { listPublicModels } from '@/api/catalog'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
@@ -602,6 +605,7 @@ const appStore = useAppStore()
 const router = useRouter()
 const { openDrawer } = useThemeDirection()
 const { canUseBatchImage, refreshBatchImageAccess } = useBatchImageAccess()
+const liveModelSampleSize = ref<number | null>(null)
 const stats = ref<DashboardStats | null>(null)
 const activeAccountRate = computed(() => {
   const total = stats.value?.total_accounts ?? 0
@@ -1063,6 +1067,9 @@ onUnmounted(() => {
 })
 
 onMounted(() => {
+  void listPublicModels({ availability: 'live', limit: 1 })
+    .then(page => { liveModelSampleSize.value = page.items.length })
+    .catch(() => { liveModelSampleSize.value = null })
   void refreshBatchImageAccess()
   loadDashboardStats()
   refreshTimer = setInterval(() => {

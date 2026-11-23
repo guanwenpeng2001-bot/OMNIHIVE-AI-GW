@@ -301,7 +301,7 @@ describe('FirstRunChecklist & AdminSetupBanner', () => {
     expect(
       (wrapper.get('[data-testid="project-step-3-cta"]').element as HTMLButtonElement).disabled
     ).toBe(true)
-    expect(wrapper.get('[data-testid="project-playground-denied-notice"]').text()).toContain(
+    expect(wrapper.get('[data-testid="scope-gate-empty-state"]').text()).toContain(
       '模型调试台为团队项目工具'
     )
   })

@@ -483,6 +483,7 @@ ensure_frontend_dist() {
 }
 
 stage_frontend() {
+  node "${ROOT}/scripts/check-frontend-type-drift.mjs"
   cd "${ROOT}/frontend"
   require_command pnpm
   # The production bundle needs more heap than Node's 2 GB default on 7 GB hosts.

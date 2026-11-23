@@ -37,9 +37,6 @@ const emit = defineEmits<{
   'load-more-accounts': []
   'load-more-offers': []
   'refresh-detail': []
-  'open-batch-preview': [
-    operation: 'enable_discovered' | 'draft_channel_pricing' | 'toggle_publication'
-  ]
 }>()
 
 const activeTab = ref<'inspector' | 'verification'>(props.initialTab)
@@ -267,44 +264,6 @@ const isRoutableUnpriced = computed(() => {
           </div>
 
           <template v-else-if="detail">
-            <!-- Quick Batch Action Triggers for current model -->
-            <div
-              class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] p-3.5 text-xs"
-            >
-              <span class="text-[var(--muted-foreground)]">
-                {{
-                  isZh
-                    ? '需要变更该模型的有效绑定、销售价草稿或分组可见性？所有写操作均经过差异预览与 CAS 校验：'
-                    : 'Need to update effective bindings, sale rate drafts, or group visibility? All writes require Preview + CAS:'
-                }}
-              </span>
-              <div class="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  data-testid="drawer-action-enable-discovered"
-                  class="btn btn-secondary btn-sm text-xs"
-                  @click="emit('open-batch-preview', 'enable_discovered')"
-                >
-                  {{ isZh ? '加入账号有效模型 (Preview+CAS)' : 'Add to Account Effective (Preview+CAS)' }}
-                </button>
-                <button
-                  type="button"
-                  data-testid="drawer-action-draft-pricing"
-                  class="btn btn-secondary btn-sm text-xs"
-                  @click="emit('open-batch-preview', 'draft_channel_pricing')"
-                >
-                  {{ isZh ? '以参考价起草销售价 (Preview+CAS)' : 'Draft Sale Rate from Ref (Preview+CAS)' }}
-                </button>
-                <button
-                  type="button"
-                  data-testid="drawer-action-toggle-publication"
-                  class="btn btn-secondary btn-sm text-xs"
-                  @click="emit('open-batch-preview', 'toggle_publication')"
-                >
-                  {{ isZh ? '变更分组对外可见 (Preview+CAS)' : 'Update Group Visibility (Preview+CAS)' }}
-                </button>
-              </div>
-            </div>
 
             <!-- 1. Provenance Merge Table -->
             <AdminModelProvenanceTable

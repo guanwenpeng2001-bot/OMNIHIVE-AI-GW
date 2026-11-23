@@ -36,7 +36,7 @@ describe('unified v2 catalog client', () => {
       q: 'claude',
       availability_state: 'live',
       billing: 'conflict',
-      source: ['channel_published'],
+
       limit: 50
     })
     expect(getMock).toHaveBeenLastCalledWith(
@@ -46,7 +46,7 @@ describe('unified v2 catalog client', () => {
           q: 'claude',
           availability_state: 'live',
           billing: 'conflict',
-          source: ['channel_published'],
+
           limit: 50,
           timezone: undefined
         })

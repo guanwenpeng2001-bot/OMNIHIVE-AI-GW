@@ -413,9 +413,9 @@ export function useCatalogBrowser(options: UseCatalogBrowserOptions) {
               : billingFilter.value === 'varies'
                 ? 'conflict'
                 : billingFilter.value,
-          source: originFilter.value !== 'all' ? [originFilter.value] : undefined,
+
           sort: sort.value,
-          cursor: reset ? undefined : nextCursor.value,
+          cursor: reset ? undefined : nextCursor.value ?? undefined,
           limit: pageLimit
         },
         { signal: controller.signal }
