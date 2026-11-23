@@ -110,7 +110,7 @@ func connectionGraph(ctx context.Context, q queryer, t Target, s Scenario) (Grap
 		facts := Evidence{Provider: provider, Pools: pools, Connection: &binding}
 		identity := domain.ActionIdentity{Platform: provider, HostedAccountType: auth}
 		if !hasCatalog {
-			methods = catalog.BuiltinMethods(provider, model)
+			methods = catalog.ReviewedMethods(ctx, provider, model)
 		}
 		for _, method := range methods {
 			action, protocol, adapter := catalog.GatewayAction(method)

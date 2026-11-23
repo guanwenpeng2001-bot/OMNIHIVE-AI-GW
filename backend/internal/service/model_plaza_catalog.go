@@ -8,7 +8,27 @@ import (
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 )
+
+type catalogRegistryFactsKey struct{}
+
+func WithCatalogRegistryFacts(ctx context.Context, facts []catalog.RegistryModel) context.Context {
+	return context.WithValue(ctx, catalogRegistryFactsKey{}, facts)
+}
+
+func plazaOffer(channel *Channel, model SupportedModel, bindings []PlazaCatalogBinding, eligible bool) PlazaCatalogOffer {
+	basis := "explicit"
+	if _, ok := channel.FeaturesConfig[PlazaConfirmationConfigKey]; !ok {
+		basis = "legacy_default"
+	}
+	mapped := model.Name
+	if target := channel.ModelMapping[model.Platform][model.Name]; target != "" {
+		mapped = target
+	}
+	return PlazaCatalogOffer{ChannelID: channel.ID, BillingModelSource: channel.BillingModelSource,
+		ChannelMappedModel: mapped, PublicationBasis: basis, Bindings: bindings, Eligible: eligible}
+}
 
 // ListPublicCatalogGroups adds configured-platform inventory to the live plaza
 // offers. The v1 group/pricing view deliberately retains ListVisibleGroups.
@@ -58,7 +78,11 @@ func (s *ModelPlazaService) expandConfiguredCatalog(ctx context.Context, groups 
 	if err != nil {
 		return err
 	}
-	registry := ModelRegistrySnapshotFromContext(ctx).CatalogFacts(time.Now())
+	registry, ok := ctx.Value(catalogRegistryFactsKey{}).([]catalog.RegistryModel)
+	if !ok {
+		registry = ModelRegistrySnapshotFromContext(ctx).CatalogFacts(time.Now())
+	}
+	now := catalogReadTime(ctx)
 	for _, group := range groups {
 		pg := output[group.ID]
 		platforms := map[string]bool{}
@@ -81,6 +105,9 @@ func (s *ModelPlazaService) expandConfiguredCatalog(ctx context.Context, groups 
 			if !accept(platform) || model == "" || strings.TrimSpace(model) != model || strings.ContainsAny(model, "*?") {
 				return nil
 			}
+			if selection != nil && selection.SelectedKey && !visibleModelPolicyAllows(ctx, model) {
+				return nil
+			}
 			if i, exists := seen[identity]; exists {
 				return &pg.Models[i]
 			}
@@ -99,9 +126,12 @@ func (s *ModelPlazaService) expandConfiguredCatalog(ctx context.Context, groups 
 				configure(price.Platform)
 			}
 			// An operator-published name remains listed during a quota outage.
+			channel.normalizeBillingModelSource()
 			for _, model := range PlazaVisibleModels(&channel, group.ID) {
 				configure(model.Platform)
-				add(model.Platform, model.Name)
+				if entry := add(model.Platform, model.Name); entry != nil && !slices.ContainsFunc(entry.CatalogOffers, func(o PlazaCatalogOffer) bool { return o.ChannelID == channel.ID }) {
+					entry.CatalogOffers = append(entry.CatalogOffers, plazaOffer(&channel, model, nil, false))
+				}
 			}
 		}
 		for i := range accounts {
@@ -131,26 +161,103 @@ func (s *ModelPlazaService) expandConfiguredCatalog(ctx context.Context, groups 
 			if selection == nil {
 				continue
 			}
-			if snapshot := account.EffectiveUpstreamModelCatalogForCredentialAccount(account.modelCatalogCredentialAccount); snapshot != nil {
-				for _, model := range snapshot.DiscoveredModels {
-					if !internalMappedTarget(account, model) {
-						if entry := add(platform, model); entry != nil && entry.CatalogOnly {
-							if metadata, ok := account.GetUpstreamModelMetadata(model); ok {
-								entry.CatalogObservations = append(entry.CatalogObservations, PlazaCatalogBinding{
-									AccountModelBinding: AccountModelBinding{AccountID: account.ID, UpstreamModel: model, EvidenceObservedAt: snapshot.ObservedAt},
-									Identity:            domain.ActionIdentity{Platform: account.Platform, HostedAccountType: account.Type}, Metadata: metadata,
-								})
-							}
-						}
-					}
-				}
-			}
+			appendCatalogDiscoveries(account, platform, selection.IncludeHistorical, now, add)
 		}
 		for _, entry := range registry {
-			if platforms[entry.Provider] && entry.Facts.Source == "approved_registry" {
+			if platforms[entry.Provider] {
 				add(entry.Provider, entry.Model)
 			}
 		}
 	}
 	return nil
+}
+
+func appendCatalogDiscoveries(account *Account, platform string, includeHistorical bool, now time.Time, add func(string, string) *PlazaModel) {
+	current := account.EffectiveUpstreamModelCatalogForCredentialAccount(account.modelCatalogCredentialAccount)
+	snapshot := current
+	if snapshot == nil && includeHistorical {
+		snapshot = account.GetUpstreamModelCatalog()
+	}
+	if snapshot == nil || snapshot.SourceKind == "platform-candidates" || snapshot.SourceKind == modelEvidenceLegacyMappingUpgrade {
+		return
+	}
+	observed, _ := time.Parse(time.RFC3339Nano, snapshot.ObservedAt)
+	state := "current"
+	if current == nil {
+		state = "invalidated"
+	} else if observed.IsZero() || observed.After(now) || !now.Before(observed.Add(24*time.Hour)) {
+		state = "stale"
+	}
+	for _, model := range snapshot.DiscoveredModels {
+		if internalMappedTarget(account, model) {
+			continue
+		}
+		if entry := add(platform, model); entry != nil {
+			entry.Discovered = entry.Discovered || state == "current"
+			metadata, _ := account.GetUpstreamModelMetadata(model)
+			entry.CatalogObservations = append(entry.CatalogObservations, PlazaCatalogBinding{
+				AccountModelBinding: AccountModelBinding{AccountID: account.ID, UpstreamModel: model, EvidenceObservedAt: snapshot.ObservedAt,
+					SnapshotRevision: snapshot.Revision, IdentityRevision: snapshot.IdentityRevision, RulesRevision: snapshot.RulesRevision,
+					CredentialAccountID: snapshot.CredentialAccountID, CredentialIdentityRevision: snapshot.CredentialIdentityRevision},
+				Identity: domain.ActionIdentity{Platform: account.Platform, HostedAccountType: account.Type}, Metadata: metadata,
+				DiscoveryState: state, AccountLabel: account.Name,
+			})
+		}
+	}
+}
+
+// AdminCatalogInventory adds discovery and approved candidates from accounts
+// with no active group. IDs are authorized by the caller's workspace selection.
+func (s *ModelPlazaService) AdminCatalogInventory(ctx context.Context, ids []int64, registry []catalog.RegistryModel) ([]PlazaModel, error) {
+	resolver := s.catalogResolver()
+	if resolver == nil || resolver.gateway == nil || len(ids) == 0 {
+		return nil, nil
+	}
+	accounts, err := resolver.gateway.accountRepo.GetByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[int64]*Account, len(accounts))
+	for _, account := range accounts {
+		if account != nil {
+			byID[account.ID] = account
+		}
+	}
+	var out []PlazaModel
+	index := map[catalog.ModelIdentity]int{}
+	add := func(provider, model string) *PlazaModel {
+		id := catalog.NewModelIdentity(provider, model)
+		if !domain.IsConcretePlatform(id.Provider) || model == "" || strings.TrimSpace(model) != model || strings.ContainsAny(model, "*?") {
+			return nil
+		}
+		i, ok := index[id]
+		if !ok {
+			i = len(out)
+			index[id] = i
+			out = append(out, PlazaModel{Name: id.Model, Platform: id.Provider, CatalogOnly: true})
+		}
+		return &out[i]
+	}
+	platforms := map[string]bool{}
+	for _, id := range ids {
+		a := byID[id]
+		if a == nil {
+			continue
+		}
+		if a.IsShadow() && byID[*a.ParentAccountID] == nil {
+			continue
+		}
+		account := *a
+		if account.IsShadow() {
+			account.modelCatalogCredentialAccount = byID[*account.ParentAccountID]
+		}
+		platforms[account.Platform] = true
+		appendCatalogDiscoveries(&account, account.Platform, true, catalogReadTime(ctx), add)
+	}
+	for _, entry := range registry {
+		if platforms[entry.Provider] {
+			add(entry.Provider, entry.Model)
+		}
+	}
+	return out, nil
 }

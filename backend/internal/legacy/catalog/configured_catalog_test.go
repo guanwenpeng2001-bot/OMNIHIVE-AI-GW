@@ -76,7 +76,7 @@ func TestConfiguredCatalogSourceIncludesFullPlatformWithoutLiveAccounts(t *testi
 				require.Equal(t, "requires_scope", detail.Model.RouteState)
 				require.Empty(t, detail.Endpoints)
 				for _, fact := range detail.Facts {
-					require.Equal(t, "approved_registry", fact.Source)
+					require.Contains(t, []string{"approved_registry", catalog.ExternalReference, catalog.BuiltinSupplement, catalog.PiAIReference}, fact.Source)
 				}
 			}
 		} else {

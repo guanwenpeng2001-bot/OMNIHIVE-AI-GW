@@ -3,7 +3,6 @@ package models
 import (
 	"context"
 	"math/big"
-	"slices"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -11,7 +10,13 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
 )
+
+// ComparePricePort evaluates a scenario from admitted offer bindings.
+type ComparePricePort interface {
+	EstimateCatalog(context.Context, catalog.Perspective, []catalog.ModelBinding, []money.Quantity, time.Time) (pricing.Result, string, string, error)
+}
 
 type comparisonInput struct {
 	IDs      []string   `json:"model_ids"`
@@ -19,6 +24,7 @@ type comparisonInput struct {
 	Action   string     `json:"action"`
 	Scenario *scenario  `json:"scenario"`
 	At       *time.Time `json:"price_at"`
+	KeyID    *string    `json:"api_key_id"`
 }
 
 type scenario struct {
@@ -36,6 +42,9 @@ type component struct {
 
 type quote struct {
 	State              string       `json:"state"`
+	BillingState       string       `json:"billing_state"`
+	Reason             string       `json:"reason,omitempty"`
+	PriceAt            time.Time    `json:"price_at"`
 	PriceVersion       *string      `json:"price_version"`
 	Charge             *money.Money `json:"estimated_charge"`
 	Components         []component  `json:"components"`
@@ -51,9 +60,10 @@ type comparisonRow struct {
 }
 
 type comparison struct {
-	Version string          `json:"catalog_version"`
-	AsOf    time.Time       `json:"as_of"`
-	Rows    []comparisonRow `json:"rows"`
+	Version      string          `json:"catalog_version"`
+	AsOf         time.Time       `json:"as_of"`
+	Rows         []comparisonRow `json:"rows"`
+	ScopeVersion *int64          `json:"scope_version,string,omitempty"`
 }
 
 func (h *Handler) compare(ctx context.Context, p catalog.Perspective, c *gin.Context) (any, error) {
@@ -63,6 +73,16 @@ func (h *Handler) compare(ctx context.Context, p catalog.Perspective, c *gin.Con
 	var in comparisonInput
 	if err := decodeJSON(c, &in); err != nil {
 		return nil, err
+	}
+	if in.KeyID != nil {
+		if *in.KeyID == "" {
+			return nil, fault.Invalid("/api_key_id")
+		}
+		var err error
+		p, err = withSelectedKey(p, *in.KeyID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if len(in.IDs) < 1 || len(in.IDs) > 3 {
 		return nil, fault.Invalid("/model_ids")
@@ -89,7 +109,11 @@ func (h *Handler) compare(ctx context.Context, p catalog.Perspective, c *gin.Con
 	if err != nil {
 		return nil, err
 	}
-	result := comparison{Version: snapshot.Version, AsOf: snapshot.AsOf, Rows: make([]comparisonRow, 0, len(in.IDs))}
+	at := snapshot.AsOf.UTC()
+	if in.At != nil {
+		at = in.At.UTC()
+	}
+	result := comparison{Version: snapshot.Version, AsOf: snapshot.AsOf, ScopeVersion: snapshot.ScopeVersion, Rows: make([]comparisonRow, 0, len(in.IDs))}
 	catalogModels := map[string]catalog.Detail{}
 	for _, d := range snapshot.Details {
 		catalogModels[d.Model.ID] = d
@@ -100,11 +124,24 @@ func (h *Handler) compare(ctx context.Context, p catalog.Perspective, c *gin.Con
 			return nil, fault.NotFound
 		}
 		row := comparisonRow{ID: id, Metrics: d.Metrics, Benchmarks: d.Benchmarks,
-			Capabilities: comparisonCapabilities(d, in.Action, in.Protocol), Quote: quote{State: "unpriced", Components: []component{}}}
-		matching := slices.ContainsFunc(d.Capabilities, func(c catalog.Capability) bool { return matchesCapability(c, in.Action, in.Protocol) })
-		if quantities != nil && (in.At == nil || (!in.At.Before(snapshot.AsOf.Add(-catalog.SnapshotTTL)) && !in.At.After(snapshot.AsOf))) &&
-			((in.Action == "" && in.Protocol == "") || matching) {
-			row.Quote = simpleEstimate(d, quantities)
+			Capabilities: comparisonCapabilities(d, in.Action, in.Protocol), Quote: quote{State: "unpriced", BillingState: "unpriced", PriceAt: at, Components: []component{}}}
+		if d.Model.Billing != nil {
+			row.Quote.BillingState, row.Quote.Reason = d.Model.Billing.State, d.Model.Billing.Reason
+		}
+		bindings := d.EligibleBindings(p, in.Action, in.Protocol)
+		if len(bindings) == 0 {
+			row.Quote.BillingState, row.Quote.Reason = "unpriced", "no_applicable_offer"
+		}
+		if quantities != nil && len(bindings) > 0 && h.comparePrices != nil && !at.Before(snapshot.AsOf.Add(-catalog.SnapshotTTL)) && !at.After(snapshot.AsOf) {
+			estimate, state, reason, err := h.comparePrices.EstimateCatalog(ctx, p, bindings, quantities, at)
+			if err != nil {
+				return nil, err
+			}
+			row.Quote.State, row.Quote.BillingState, row.Quote.Reason = estimate.State, state, reason
+			row.Quote.PriceVersion, row.Quote.Charge, row.Quote.RoundingAdjustment = estimate.PriceVersion, estimate.Charge, estimate.RoundingAdjustment
+			for _, line := range estimate.Components {
+				row.Quote.Components = append(row.Quote.Components, component{Kind: line.Kind, Quantity: line.Quantity, RawAmount: line.RawAmount})
+			}
 		}
 		result.Rows = append(result.Rows, row)
 	}
@@ -182,68 +219,4 @@ func scenarioQuantities(s scenario) ([]money.Quantity, error) {
 	}
 	result[3], _ = money.NewQuantity(units[3], numbers[3].String())
 	return result, nil
-}
-
-func simpleEstimate(d catalog.Detail, quantities []money.Quantity) quote {
-	missing := quote{State: "unpriced", Components: []component{}}
-	if d.PriceVersion == nil || len(d.TimeBands) > 0 || d.ContextBasis != "" {
-		return missing
-	}
-	rates := []*money.Rate{d.Model.Input, nil, d.Model.Output, nil}
-	kinds := []string{"input", "cache_read", "output", "request"}
-	for _, band := range d.AdditionalRates {
-		switch band.Kind {
-		case "cache_read":
-			rate := band.Rate
-			rates[1] = &rate
-		case "request":
-			if band.Rate.Unit() != "request" {
-				return missing
-			}
-			rate := band.Rate
-			rates[3] = &rate
-		case "cache_write", "cache_write_1h":
-		default:
-			return missing
-		}
-	}
-	if rates[3] == nil {
-		quantities = quantities[:3]
-	}
-	total, _ := (money.Amount{}).Exact("USD")
-	parts := []component{}
-	for i, q := range quantities {
-		if q.Amount().Compare(money.Amount{}) == 0 {
-			continue
-		}
-		if rates[i] == nil {
-			return missing
-		}
-		line, err := rates[i].Cost(q)
-		if err != nil {
-			return missing
-		}
-		total, err = total.Add(line)
-		if err != nil {
-			return missing
-		}
-		parts = append(parts, component{Kind: kinds[i], Quantity: q.Amount().String(), RawAmount: line.Diagnostic()})
-	}
-	if len(parts) == 0 {
-		return missing
-	}
-	charge, err := total.RoundCharge()
-	if err != nil {
-		return missing
-	}
-	rounded, err := charge.Amount().Exact(charge.Currency())
-	if err != nil {
-		return missing
-	}
-	delta, err := rounded.Sub(total)
-	if err != nil {
-		return missing
-	}
-	adjustment := delta.Diagnostic()
-	return quote{State: "estimated", PriceVersion: d.PriceVersion, Charge: &charge, Components: parts, RoundingAdjustment: &adjustment}
 }

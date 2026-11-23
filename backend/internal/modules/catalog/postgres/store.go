@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
@@ -30,7 +31,11 @@ func (s *Store) ImportRegistry(ctx context.Context, version string, models []cat
 	if err != nil {
 		return err
 	}
-	payload, err := json.Marshal(models)
+	approved := slices.DeleteFunc(slices.Clone(models), func(model catalog.RegistryModel) bool {
+		kind := model.Facts.Origin.SourceKind
+		return kind != "" && kind != catalog.BuiltinReviewed && kind != catalog.PlatformPreset
+	})
+	payload, err := json.Marshal(approved)
 	if err != nil {
 		return err
 	}
@@ -72,17 +77,31 @@ func validatePublic(v catalog.Snapshot) error {
 			return fmt.Errorf("catalog publication is outside the public projection")
 		}
 		for _, f := range d.Facts {
-			if f.Source != "approved_registry" {
+			if !publicCatalogEvidence(f.Source) {
 				return fmt.Errorf("catalog publication includes private evidence")
 			}
 		}
 		for _, c := range d.Capabilities {
-			if c.Source != "approved_registry" {
+			if !publicCatalogEvidence(c.Source) {
 				return fmt.Errorf("catalog publication includes private capability")
+			}
+		}
+		for _, e := range d.Provenance {
+			if (e.SourceKind != "" && !publicCatalogEvidence(e.SourceKind)) || e.RecordKey != "" || e.Profile != "" ||
+				e.Provider != "" || e.MatchRule != "" || e.Trust != "" || e.Scope != "" || e.ExpiresAt != nil || e.Value != nil {
+				return fmt.Errorf("catalog publication includes private provenance")
 			}
 		}
 	}
 	return nil
+}
+
+func publicCatalogEvidence(source string) bool {
+	switch source {
+	case "approved_registry", catalog.BuiltinReviewed, catalog.PlatformPreset, catalog.BuiltinSupplement, catalog.PiAIReference, catalog.ExternalReference:
+		return true
+	}
+	return false
 }
 
 func visibilityProvenance(v catalog.Snapshot) string {
@@ -107,7 +126,7 @@ func (s *Store) ProjectResources(ctx context.Context, p catalog.Perspective) ([]
 	) SELECT o.kind,o.id,o.platform,o.type FROM owned o
 	JOIN projects d ON d.workspace_id=$1 AND d.is_default
 	LEFT JOIN project_resources r ON r.workspace_id=$1 AND r.kind=o.kind AND r.resource_id=o.id
-	WHERE coalesce(r.project_id,d.id)=$2
+	WHERE ($2::bigint=0 OR coalesce(r.project_id,d.id)=$2)
 	  AND NOT EXISTS (SELECT FROM identity_scope_quarantine q WHERE q.kind=o.kind AND q.resource_id=o.id)
 	ORDER BY o.kind,o.id`, p.Workspace, p.Project)
 	if err != nil {

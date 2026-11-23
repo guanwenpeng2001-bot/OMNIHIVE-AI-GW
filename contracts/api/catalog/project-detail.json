@@ -2,11 +2,33 @@
   "code": 0,
   "message": "success",
   "data": {
+    "scope_version": "3",
     "model": {
       "id": "m_999fff7ac750942004e8fc300d1b1259",
+      "canonical_id": "m_999fff7ac750942004e8fc300d1b1259",
       "model": "gpt-4o",
       "display_name": "GPT-4o",
       "provider": "openai",
+      "source": {
+        "kinds": ["account_discovery", "builtin_reviewed", "platform_preset"],
+        "candidate": true,
+        "discovered": true
+      },
+      "availability": {"state": "live", "publication": "published", "access": "allowed"},
+      "billing": {
+        "state": "priced",
+        "sale_price": {
+          "source": "scoped_plaza_reference",
+          "scope": "authorized",
+          "price_version": null,
+          "valid_from": null,
+          "valid_until": null,
+          "input_rate": {"currency": "USD", "amount": "2.5", "unit": "input_token", "per": "1000000"},
+          "output_rate": {"currency": "USD", "amount": "10", "unit": "output_token", "per": "1000000"},
+          "additional_rates": [],
+          "time_bands": []
+        }
+      },
       "modalities": [
         "text",
         "image"
@@ -22,6 +44,7 @@
       "maturity": "stable",
       "catalog_version": "cat_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "catalog_state": "listed",
+      "availability_state": "live",
       "access_state": "allowed",
       "route_state": "eligible",
       "price_state": "priced",
@@ -46,6 +69,35 @@
       }
     },
     "aliases": [],
+    "provenance": [
+      {
+        "field": "context_window",
+        "state": "known",
+        "source_kind": "builtin_reviewed",
+        "record_key": "openai/openai/gpt-4o",
+        "artifact_version": "approved-release-digest",
+        "provider": "openai",
+        "profile": "openai",
+        "match_rule": "exact_public_name",
+        "trust": "reviewed",
+        "scope": "public",
+        "observed_at": "2026-11-19T10:00:00Z",
+        "value": {"tokens": "128000", "basis": "total"}
+      },
+      {"field": "supports_reasoning", "state": "unknown"}
+    ],
+    "common_facts": {
+      "context_tokens": "128000",
+      "context_kind": "total",
+      "max_output_tokens": null,
+      "embedding_dimensions": null,
+      "tools": false,
+      "vision": true,
+      "reasoning": null,
+      "prompt_caching": null,
+      "pdf": null,
+      "modalities": ["text", "image"]
+    },
     "model_facts": [
       {
         "source": "approved_registry",

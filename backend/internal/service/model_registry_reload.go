@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	catalogmodel "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 
 	modelcapabilities "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/resources/model-capabilities"
 )
@@ -36,6 +39,7 @@ func (r *ModelRegistry) build(catalog, manifest, presets []byte, previous *model
 	if err != nil {
 		return nil, err
 	}
+	reviewed := maps.Clone(capabilities.records)
 	captures, err := presetFieldCaptures(presets)
 	if err != nil {
 		return nil, err
@@ -58,7 +62,7 @@ func (r *ModelRegistry) build(catalog, manifest, presets []byte, previous *model
 		}
 		for _, model := range preset.Models {
 			key := capabilityKey(profile, model.ID)
-			record := capabilities.records[key]
+			record := cloneCapabilityRecord(capabilities.records[key])
 			if record.ModelID == "" {
 				record = CapabilityRecord{Provider: preset.Platform, Profile: profile, ModelID: model.ID, Source: "platform-preset", SourceContentHash: binding.PresetsSHA256}
 			}
@@ -90,7 +94,10 @@ func (r *ModelRegistry) build(catalog, manifest, presets []byte, previous *model
 	}
 	capabilities.aliases = buildCapabilityAliasIndex(capabilities.records)
 	capabilities.version = identity.ManifestSHA256
-	return &ModelRegistrySnapshot{release: identity, presets: definitions, capabilities: capabilities}, nil
+	snapshot := &ModelRegistrySnapshot{release: identity, presets: definitions, capabilities: capabilities, reviewed: reviewed,
+		methods: map[catalogmodel.ModelIdentity][]string{}, methodConflicts: map[catalogmodel.ModelIdentity]bool{}}
+	snapshot.indexCatalogMethods()
+	return snapshot, nil
 }
 
 // Consume only exact confirmed field captures from the signed preset bundle.

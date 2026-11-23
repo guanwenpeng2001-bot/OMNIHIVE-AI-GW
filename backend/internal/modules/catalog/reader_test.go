@@ -91,9 +91,9 @@ func TestProjectionRedactsPrivateEvidenceAndPreservesUnknown(t *testing.T) {
 
 func TestPublicBuiltinMethodPairsAndUnknownModels(t *testing.T) {
 	now := time.Now().UTC()
-	in := Input{Models: []Candidate{{Provider: "openai", Model: "gpt-5"}, {Provider: "openai", Model: "unlisted-gpt-5"}, {Provider: "other", Model: "gpt-5"}}}
+	in := Input{Models: []Candidate{{Provider: "openai", Model: "gpt-6.2-astra"}, {Provider: "openai", Model: "unlisted-gpt-5"}, {Provider: "other", Model: "gpt-6.2-astra"}}}
 	for _, detail := range Project(Perspective{}, in, Window{}, now).Details {
-		if detail.Model.Provider != "openai" || detail.Model.Model != "gpt-5" {
+		if detail.Model.Provider != "openai" || detail.Model.Model != "gpt-6.2-astra" {
 			require.Nil(t, detail.Model.Context)
 			require.Empty(t, detail.Model.Protocols)
 			continue
@@ -105,7 +105,7 @@ func TestPublicBuiltinMethodPairsAndUnknownModels(t *testing.T) {
 		require.Contains(t, detail.Model.Actions, "text.chat")
 		require.NotEmpty(t, detail.Capabilities)
 		for _, capability := range detail.Capabilities {
-			require.Equal(t, "approved_registry", capability.Source)
+			require.Equal(t, BuiltinSupplement, capability.Source)
 			require.Nil(t, capability.VerifiedAt)
 		}
 		require.Equal(t, "requires_scope", detail.Model.RouteState)

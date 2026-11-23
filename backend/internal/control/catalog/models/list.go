@@ -24,14 +24,16 @@ import (
 type filter struct {
 	Text, Sort, Access, Route string
 	Availability              string `json:",omitempty"`
+	AvailabilityAxis, Billing string
 	Values                    map[string][]string
 }
 
 type page struct {
-	Items   []catalog.Summary `json:"items"`
-	Next    *string           `json:"next_cursor"`
-	AsOf    time.Time         `json:"as_of"`
-	Version string            `json:"catalog_version"`
+	Items        []catalog.Summary `json:"items"`
+	Next         *string           `json:"next_cursor"`
+	AsOf         time.Time         `json:"as_of"`
+	Version      string            `json:"catalog_version"`
+	ScopeVersion *int64            `json:"scope_version,string,omitempty"`
 }
 
 type cursor struct {
@@ -81,6 +83,20 @@ func filters(q url.Values, p catalog.Perspective) (filter, int, error) {
 			f.Sort = v
 		case "availability_state":
 			f.Availability = v
+		case "availability":
+			if !slices.Contains([]string{"live", "unavailable", "requires_scope", "unknown"}, v) {
+				return f, 0, fault.Invalid("/availability")
+			}
+			f.AvailabilityAxis = v
+		case "billing":
+			if !slices.Contains([]string{"priced", "free", "conditional", "partial", "conflict", "unpriced", "error", "unknown"}, v) {
+				return f, 0, fault.Invalid("/billing")
+			}
+			f.Billing = v
+		case "api_key_id":
+			if p.KeyID == 0 {
+				return f, 0, fault.Invalid("/api_key_id")
+			}
 		case "limit":
 			n, err := strconv.Atoi(v)
 			if err != nil || n < 1 || n > 100 || strconv.Itoa(n) != v {
@@ -109,6 +125,10 @@ func (h *Handler) list(ctx context.Context, p catalog.Perspective, c *gin.Contex
 	if err != nil {
 		return nil, err
 	}
+	p, err = withSelectedKey(p, q.Get("api_key_id"))
+	if err != nil {
+		return nil, err
+	}
 	f, limit, err := filters(q, p)
 	if err != nil {
 		return nil, err
@@ -134,7 +154,13 @@ func (h *Handler) list(ctx context.Context, p catalog.Perspective, c *gin.Contex
 	if continuation.Version != "" && continuation.Version != snapshot.Version {
 		return nil, snapshotExpired
 	}
-	items := slices.DeleteFunc(slices.Clone(snapshot.Details), func(item catalog.Detail) bool { return !f.matches(item) })
+	items := make([]catalog.Detail, 0, len(snapshot.Details))
+	for _, item := range snapshot.Details {
+		item.Model.Availability = f.availabilityFor(p, item)
+		if f.matches(item) {
+			items = append(items, item)
+		}
+	}
 	slices.SortFunc(items, func(a, b catalog.Detail) int { return compareModels(a, b, f.Sort) })
 	if continuation.After != "" {
 		start := slices.IndexFunc(items, func(item catalog.Detail) bool { return item.Model.ID == continuation.After })
@@ -143,7 +169,7 @@ func (h *Handler) list(ctx context.Context, p catalog.Perspective, c *gin.Contex
 		}
 		items = items[start+1:]
 	}
-	out := page{Items: []catalog.Summary{}, AsOf: snapshot.AsOf, Version: snapshot.Version}
+	out := page{Items: []catalog.Summary{}, AsOf: snapshot.AsOf, Version: snapshot.Version, ScopeVersion: snapshot.ScopeVersion}
 	if len(items) > limit {
 		next := h.sealCursor(cursor{Match: match, Version: snapshot.Version, After: items[limit-1].Model.ID, AsOf: snapshot.AsOf})
 		out.Next = &next
@@ -155,9 +181,28 @@ func (h *Handler) list(ctx context.Context, p catalog.Perspective, c *gin.Contex
 	return out, nil
 }
 
+func (f filter) availabilityFor(p catalog.Perspective, d catalog.Detail) *catalog.Availability {
+	a := d.Model.Availability
+	if a == nil || a.State != "live" || len(f.Values["action"])+len(f.Values["protocol"]) == 0 {
+		return a
+	}
+	for _, b := range d.EligibleBindings(p, "", "") {
+		if f.any("action", []string{b.Action}) && f.any("protocol", []string{b.Protocol}) {
+			return a
+		}
+	}
+	selected := *a
+	selected.State, selected.Reason = "unavailable", "no_eligible_binding"
+	return &selected
+}
+
 func (f filter) matches(d catalog.Detail) bool {
 	m := d.Model
 	if f.Availability != "" && m.AvailabilityState != f.Availability {
+		return false
+	}
+	if f.AvailabilityAxis != "" && (m.Availability == nil || m.Availability.State != f.AvailabilityAxis) ||
+		f.Billing != "" && (m.Billing == nil || m.Billing.State != f.Billing) {
 		return false
 	}
 	if !catalog.MatchesText(m.Model, f.Text) && !catalog.MatchesText(m.DisplayName, f.Text) && !catalog.MatchesText(m.Provider, f.Text) &&

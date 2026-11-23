@@ -6,7 +6,6 @@ import (
 	"time"
 
 	entsql "entgo.io/ent/dialect/sql"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 )
 
 const publicRankingMinimumSamples = 10
@@ -51,13 +50,14 @@ func (s *UsageService) PublicModelRankings(ctx context.Context, start, end time.
 	}
 	defer func() { _ = rows.Close() }()
 	items := []PublicModelRanking{}
+	registry := ModelRegistrySnapshotFromContext(ctx)
 	for rows.Next() {
 		var item PublicModelRanking
 		var published bool
 		if err := rows.Scan(&item.Model, &item.Provider, &item.Requests, &item.SuccessRate, &item.LatencySamples, &item.AverageLatency, &published); err != nil {
 			return nil, err
 		}
-		if !published && len(catalog.BuiltinMethods(item.Provider, item.Model)) == 0 {
+		if !published && len(registry.DescriptiveMethods(item.Provider, item.Model)) == 0 {
 			continue
 		}
 		item.SampleState = "observed"
