@@ -100,7 +100,7 @@ func TestW05PublicCatalogDatabaseSettingsDefaults(t *testing.T) {
 	settings := service.NewSettingService(repo, nil)
 	require.Equal(t, service.ModelPlazaRuntime{}, settings.GetModelPlazaRuntime(ctx))
 	repo.values = map[string]string{
-		service.SettingKeyModelPlazaEnabled: "false",
+		service.SettingKeyModelPlazaEnabled:     "false",
 		service.SettingKeyModelPlazaRequireAuth: "true",
 	}
 	require.Equal(t, service.ModelPlazaRuntime{RequireAuth: true}, settings.GetModelPlazaRuntime(ctx))

@@ -334,7 +334,7 @@ func (g *Gateway) AuthorizeCatalogKey(ctx context.Context, p catalog.Perspective
 	return context.WithValue(key.ctx, catalogKeyContextKey{}, selection), group, nil
 }
 
-func (g *Gateway) CatalogKeyAllows(ctx context.Context, binding catalog.ModelBinding) bool {
+func (g *Gateway) CatalogKeyAllows(ctx context.Context, binding catalog.ModelBinding, names map[string]string) bool {
 	selection, ok := ctx.Value(catalogKeyContextKey{}).(catalogKeySelection)
 	if !ok || binding.BillingGroupID != selection.key.key.Group.ID ||
 		!slices.Contains(selection.key.actions, binding.Action) {
@@ -343,13 +343,11 @@ func (g *Gateway) CatalogKeyAllows(ctx context.Context, binding catalog.ModelBin
 	if _, ok := selection.accounts[binding.AccountID]; !ok {
 		return false
 	}
-	// A bare name cannot identify a provider inside a composite group.
-	// An exclusion by bare name still vetoes the binding.
-	id := binding.Identity
-	matches := func(entry string) bool {
-		return entry == id.ID() || selection.key.key.Group.Platform != service.PlatformComposite && entry == id.Model
-	}
-	excludes := func(entry string) bool { return entry == id.ID() || entry == id.Model }
+	// The binding identity is provider-qualified. Legacy native rules may
+	// match only when their name resolves to that identity in this group.
+	id := binding.Identity.ID()
+	matches := func(entry string) bool { return entry == id || names[entry] == id }
+	excludes := func(entry string) bool { return entry == id || entry == binding.Identity.Model || names[entry] == id }
 	return selection.key.models.AllowsKeyModel(id.Model, matches, excludes) &&
 		selection.key.models.AllowsCatalogAccountModel(binding.AccountID, matches, excludes)
 }

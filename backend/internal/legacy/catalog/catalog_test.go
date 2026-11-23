@@ -37,10 +37,10 @@ func TestCatalogPricePortUsesAdmittedProviderAndBillingModel(t *testing.T) {
 		}}}
 	group := service.PlazaGroup{ID: 3, RateMultiplier: 1}
 	now := time.Now().UTC()
-	denied := source.modelOffers(context.Background(), p, model, group, false, nil, nil, nil, now)
+	denied := source.modelOffers(context.Background(), p, model, group, false, nil, nil, nil, now, nil)
 	require.Len(t, denied, 1)
 	require.Empty(t, prices.inputs)
-	allowed := source.modelOffers(context.Background(), p, model, group, true, map[int64]float64{3: 2}, nil, nil, now)
+	allowed := source.modelOffers(context.Background(), p, model, group, true, map[int64]float64{3: 2}, nil, nil, now, nil)
 	require.Len(t, allowed, 1)
 	require.True(t, allowed[0].Published)
 	require.Len(t, prices.inputs, 1)

@@ -170,7 +170,9 @@ type Service struct {
 
 type Quote struct {
 	pricing.Result
-	Scope *catalog.EffectiveScope `json:"effective_scope,omitempty"`
+	BillingState string                  `json:"billing_state"`
+	PriceAt      time.Time               `json:"price_at"`
+	Scope        *catalog.EffectiveScope `json:"effective_scope,omitempty"`
 }
 
 func (s Service) Quote(ctx context.Context, p catalog.Perspective, in Input) (Quote, error) {
@@ -208,7 +210,7 @@ func (s Service) Quote(ctx context.Context, p catalog.Perspective, in Input) (Qu
 			payer := p
 			payer.Actor, payer.KeyID = authorized.FundingUserID, key
 			cost, err := s.EstimateFor(ctx, payer, detail, key, in.Protocol, in.Action, in.Scenario.PriceScenario(usage), at, at)
-			return Quote{Result: cost, Scope: effectiveScope(p)}, err
+			return quoteResult(cost, p, at), err
 		}
 		if s.bindingReader() == nil {
 			return Quote{}, fault.NotFound
@@ -228,11 +230,29 @@ func (s Service) Quote(ctx context.Context, p catalog.Perspective, in Input) (Qu
 			continue
 		}
 		cost, err := s.EstimateFor(ctx, p, d, key, in.Protocol, in.Action, in.Scenario.PriceScenario(usage), snap.AsOf, snap.AsOf)
-		return Quote{Result: cost, Scope: effectiveScope(p)}, err
+		return quoteResult(cost, p, snap.AsOf), err
 	}
 	return Quote{}, fault.NotFound
 }
 
-func effectiveScope(p catalog.Perspective) *catalog.EffectiveScope {
-	return &catalog.EffectiveScope{Workspace: p.Workspace, Project: p.Project, Version: p.AccessVersion}
+func quoteResult(result pricing.Result, p catalog.Perspective, at time.Time) Quote {
+	return Quote{
+		Result: result, BillingState: BillingState(result), PriceAt: at.UTC(),
+		Scope: &catalog.EffectiveScope{Workspace: p.Workspace, Project: p.Project, Version: p.AccessVersion},
+	}
+}
+
+func BillingState(result pricing.Result) string {
+	switch result.Reason {
+	case pricing.Conflict:
+		return "conflict"
+	case pricing.Partial:
+		return "partial"
+	case pricing.Conditional:
+		return "conditional"
+	}
+	if result.State == "estimated" {
+		return "priced"
+	}
+	return result.State
 }

@@ -10,7 +10,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
-func (s *Source) modelOffers(ctx context.Context, p catalog.Perspective, model service.PlazaModel, group service.PlazaGroup, access bool, userRates map[int64]float64, priceErr error, endpoints map[int64]postgres.EndpointEvidence, now time.Time) []catalog.Offer {
+func (s *Source) modelOffers(ctx context.Context, p catalog.Perspective, model service.PlazaModel, group service.PlazaGroup, access bool, userRates map[int64]float64, priceErr error, endpoints map[int64]postgres.EndpointEvidence, now time.Time, names map[string]string) []catalog.Offer {
 	id := catalog.NewModelIdentity(model.Platform, model.Name)
 	out := make([]catalog.Offer, 0, len(model.CatalogOffers)+1)
 	for _, raw := range model.CatalogOffers {
@@ -29,7 +29,7 @@ func (s *Source) modelOffers(ctx context.Context, p catalog.Perspective, model s
 				binding := pricedBinding(bindingFor(id, group.ID, raw, b), group, userRates, p.Public())
 				if p.KeyID > 0 {
 					validator, ok := s.keysForCatalog.(keyCatalogValidator)
-					if !ok || !validator.CatalogKeyAllows(ctx, binding) {
+					if !ok || !validator.CatalogKeyAllows(ctx, binding, names) {
 						continue
 					}
 					endpoint, verified := projectEndpoint(p, id.Provider, b, endpoints[b.AccountID], now)

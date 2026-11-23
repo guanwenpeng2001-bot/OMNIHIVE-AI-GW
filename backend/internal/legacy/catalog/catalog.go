@@ -38,7 +38,7 @@ type KeyCatalogPort interface {
 }
 
 type keyCatalogValidator interface {
-	CatalogKeyAllows(context.Context, catalog.ModelBinding) bool
+	CatalogKeyAllows(context.Context, catalog.ModelBinding, map[string]string) bool
 	ValidateCatalogKey(context.Context) error
 }
 
@@ -165,7 +165,11 @@ func (s *Source) load(ctx context.Context, p catalog.Perspective, window catalog
 	} else {
 		resources, err = s.store.ProjectResources(ctx, p)
 		if err == nil {
-			groups, allowedGroups, err = s.scopedGroups(ctx, p, resources, keyGroup)
+			bindingCtx := ctx
+			if keyGroup > 0 {
+				bindingCtx = service.CatalogBindingDiscoveryContext(ctx)
+			}
+			groups, allowedGroups, err = s.scopedGroups(bindingCtx, p, resources, keyGroup)
 		}
 		if err == nil && admin {
 			var accounts []int64
@@ -207,7 +211,15 @@ func (s *Source) load(ctx context.Context, p catalog.Perspective, window catalog
 	modelAt := make(map[string]int)
 	metricIDs := map[postgres.MetricKey]string{}
 	for _, group := range groups {
+		var selectedNames map[string]string
+		if keyGroup > 0 {
+			selectedNames = eligibleCatalogNames(group.Models)
+		}
 		for _, model := range group.Models {
+			offers := s.modelOffers(ctx, p, model, group, allowedGroups[group.ID], userRates, priceErr, endpoints, now, selectedNames)
+			if keyGroup > 0 && !slices.ContainsFunc(offers, func(o catalog.Offer) bool { return o.Eligible && o.Access }) {
+				continue
+			}
 			identity := catalog.NewModelIdentity(model.Platform, model.Name)
 			id := identity.ID()
 			i, exists := modelAt[id]
@@ -216,7 +228,6 @@ func (s *Source) load(ctx context.Context, p catalog.Perspective, window catalog
 				modelAt[id] = i
 				out.Models = append(out.Models, catalog.Candidate{Provider: identity.Provider, Model: identity.Model})
 			}
-			offers := s.modelOffers(ctx, p, model, group, allowedGroups[group.ID], userRates, priceErr, endpoints, now)
 			out.Models[i].Offers = append(out.Models[i].Offers, offers...)
 			for _, offer := range model.CatalogOffers {
 				if offer.ChannelMappedModel != "" && offer.ChannelMappedModel != model.Name {
@@ -283,6 +294,24 @@ func (s *Source) load(ctx context.Context, p catalog.Perspective, window catalog
 	}
 	return out, nil
 }
+func eligibleCatalogNames(models []service.PlazaModel) map[string]string {
+	names := make(map[string]string, len(models))
+	for _, model := range models {
+		if !slices.ContainsFunc(model.CatalogOffers, func(offer service.PlazaCatalogOffer) bool {
+			return offer.Eligible && len(offer.Bindings) > 0
+		}) {
+			continue
+		}
+		id := catalog.StableID(model.Platform, model.Name)
+		if prior, exists := names[model.Name]; exists && prior != id {
+			names[model.Name] = ""
+		} else {
+			names[model.Name] = id
+		}
+	}
+	return names
+}
+
 func catalogPayer(ctx context.Context, p catalog.Perspective) int64 {
 	if a, ok := scope.From(ctx); ok && a.FundingUserID > 0 {
 		return a.FundingUserID

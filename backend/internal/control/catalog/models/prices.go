@@ -72,17 +72,5 @@ func (p ComparePrices) EstimateCatalogScenario(ctx context.Context, perspective 
 	case at.Before(asOf) && perspective.KeyID == 0:
 		result, err = p.EstimateHistorical(ctx, perspective, model, scenario, at)
 	}
-	state := result.State
-	switch result.Reason {
-	case pricing.Conflict:
-		state = "conflict"
-	case pricing.Partial:
-		state = "partial"
-	case pricing.Conditional:
-		state = "conditional"
-	}
-	if state == "estimated" {
-		state = "priced"
-	}
-	return result, state, string(result.Reason), err
+	return result, quotes.BillingState(result), string(result.Reason), err
 }

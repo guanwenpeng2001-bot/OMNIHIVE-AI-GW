@@ -199,6 +199,14 @@ func withModelAccessSnapshot(ctx context.Context, snapshot ModelAccessSnapshot) 
 	return WithVisibleModelKeyPolicy(ctx, snapshot.visibleKeyModels())
 }
 
+// CatalogBindingDiscoveryContext retains the catalog generation fence while the
+// scoped reader discovers identities. It applies the selected Key's rules to
+// the resolved provider and account bindings before those bindings are exposed.
+func CatalogBindingDiscoveryContext(ctx context.Context) context.Context {
+	policy, _ := ModelAccessFromContext(ctx)
+	return withModelAccessSnapshot(ctx, ModelAccessSnapshot{Generation: policy.Generation, RevisionKnown: policy.RevisionKnown})
+}
+
 func modelAccessAccountAllows(ctx context.Context, accountID int64, model string) bool {
 	if ctx == nil {
 		return true

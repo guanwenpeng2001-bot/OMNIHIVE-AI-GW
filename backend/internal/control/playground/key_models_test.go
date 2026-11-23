@@ -1,6 +1,7 @@
 package playground
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -80,4 +81,30 @@ func TestSelectedKeyModelCursorUsesSharedSecretAndRejectsTampering(t *testing.T)
 	require.Error(t, err)
 	_, err = New(nil, false, []byte("other key")).openKeyModelCursor(sealed)
 	require.Error(t, err)
+}
+
+func TestCatalogKeyBindingRequiresResolvedIdentityAndAdmittedAccount(t *testing.T) {
+	identityKey := catalog.NewModelIdentity(service.PlatformOpenAI, "shared")
+	group := &service.Group{ID: 7, Platform: service.PlatformComposite}
+	binding := catalog.ModelBinding{Identity: identityKey, AccountID: 23, BillingGroupID: group.ID, Action: "text.chat"}
+	selection := catalogKeySelection{
+		key: selectedKey{
+			key:     &service.APIKey{Group: group},
+			actions: []string{"text.chat"},
+			models: service.ModelAccessSnapshot{
+				KeyRestriction: &identity.EffectiveKeyModels{Ceiling: []string{identityKey.ID()}, Rule: []string{identityKey.Model}},
+			},
+		},
+		accounts: map[int64]struct{}{23: {}},
+	}
+	ctx := context.WithValue(t.Context(), catalogKeyContextKey{}, selection)
+	g := &Gateway{}
+	require.False(t, g.CatalogKeyAllows(ctx, binding, map[string]string{"shared": ""}))
+	names := map[string]string{"shared": identityKey.ID()}
+	require.True(t, g.CatalogKeyAllows(ctx, binding, names))
+	binding.AccountID++
+	require.False(t, g.CatalogKeyAllows(ctx, binding, names))
+	binding.AccountID--
+	binding.Action = "text.embed"
+	require.False(t, g.CatalogKeyAllows(ctx, binding, names))
 }
