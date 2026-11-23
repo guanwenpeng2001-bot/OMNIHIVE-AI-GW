@@ -138,7 +138,7 @@ func (s *forwardedIPMigrationRepoStub) SetMultiple(_ context.Context, values map
 }
 
 func (s *forwardedIPMigrationRepoStub) GetAll(context.Context) (map[string]string, error) {
-	panic("unexpected GetAll call")
+	return s.values, nil
 }
 
 func (s *forwardedIPMigrationRepoStub) Delete(context.Context, string) error {

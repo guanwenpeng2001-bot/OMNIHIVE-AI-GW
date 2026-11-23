@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
+import { listAdminCatalogModels } from '@/api/admin/modelCatalog'
 import type { DashboardStats } from '@/types'
 import DashboardView from '../DashboardView.vue'
 
@@ -26,11 +27,16 @@ vi.mock('@/api/admin', () => ({
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
+    activeScope: { workspaceId: null },
+    scopes: [{ workspace_id: '42', is_default: true }],
     showError: vi.fn()
   })
 }))
 
-vi.mock('vue-router', () => ({
+vi.mock('@/api/admin/modelCatalog', () => ({ listAdminCatalogModels: vi.fn().mockResolvedValue({ items: [] }) }))
+
+vi.mock('vue-router', async () => ({
+  RouterLink: (await import('@vue/test-utils')).RouterLinkStub,
   useRouter: () => ({
     push: vi.fn()
   })
@@ -130,6 +136,7 @@ describe('admin DashboardView', () => {
       Select: true, ModelDistributionChart: true, TokenUsageTrend: true, Line: true,
     } } })
     await flushPromises()
+    expect(listAdminCatalogModels).toHaveBeenCalledWith({ workspace_id: '42', availability: 'live', limit: 1 }, expect.any(AbortSignal))
     const text = wrapper.text()
     expect(text).not.toContain('history_before_coverage_floor_unverified')
     if (scope === 'unknown' || scope === 'legacy') {

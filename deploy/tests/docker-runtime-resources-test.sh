@@ -32,4 +32,8 @@ assert_count .goreleaser.yaml '      - backend/resources' 4
 assert_count .goreleaser.simple.yaml '      - backend/resources' 2
 assert_count .goreleaser.simple.yaml '      - "--platform=linux/arm64"' 1
 
+for config in .goreleaser.yaml .goreleaser.simple.yaml; do
+  assert_count "$config" '  - name_template: "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:v{{ .Version }}"' 1
+done
+
 printf 'docker runtime resources test passed\n'

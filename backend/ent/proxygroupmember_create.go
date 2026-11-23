@@ -58,14 +58,6 @@ func (_c *ProxyGroupMemberCreate) SetWorkspaceID(v int64) *ProxyGroupMemberCreat
 	return _c
 }
 
-// SetNillableWorkspaceID sets the "workspace_id" field if the given value is not nil.
-func (_c *ProxyGroupMemberCreate) SetNillableWorkspaceID(v *int64) *ProxyGroupMemberCreate {
-	if v != nil {
-		_c.SetWorkspaceID(*v)
-	}
-	return _c
-}
-
 // SetGroupID sets the "group_id" field.
 func (_c *ProxyGroupMemberCreate) SetGroupID(v int64) *ProxyGroupMemberCreate {
 	_c.mutation.SetGroupID(v)
@@ -138,10 +130,6 @@ func (_c *ProxyGroupMemberCreate) defaults() error {
 		}
 		v := proxygroupmember.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
-	}
-	if _, ok := _c.mutation.WorkspaceID(); !ok {
-		v := proxygroupmember.DefaultWorkspaceID
-		_c.mutation.SetWorkspaceID(v)
 	}
 	return nil
 }

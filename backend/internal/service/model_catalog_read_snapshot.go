@@ -11,6 +11,94 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/xai"
 )
 
+type catalogPanels struct {
+	channels         []Channel
+	groups           []Group
+	visible          map[int64]map[string]bool
+	observations     map[int64]map[string][]UpstreamModelMetadata
+	bindings         map[int64]map[string][]PlazaCatalogBinding
+	incompleteGroups map[int64]bool
+}
+
+// acquireCatalogPanels freezes the existing resolver and scopes the group
+// selection before preloading any account or model evidence.
+func acquireCatalogPanels(ctx context.Context, resolver *VisibleModelResolver, channels ChannelRepository, groups GroupRepository, permitted func(Group) bool, selection *PlazaCatalogSelection) (context.Context, catalogPanels, error) {
+	var out catalogPanels
+	ctx, err := resolver.freeze(ctx)
+	if err != nil {
+		return ctx, out, err
+	}
+	out.channels, err = channels.ListAll(ctx)
+	if err != nil {
+		return ctx, out, fmt.Errorf("list channels: %w", err)
+	}
+	active, err := groups.ListActive(ctx)
+	if err != nil {
+		return ctx, out, fmt.Errorf("list active groups: %w", err)
+	}
+	out.groups = make([]Group, 0, len(active))
+	for _, group := range active {
+		if permitted == nil || permitted(group) {
+			out.groups = append(out.groups, group)
+		}
+	}
+	ctx, err = plazaVisibleModelsForGroups(ctx, resolver, &out, selection)
+	return ctx, out, err
+}
+
+func (s *ModelPlazaService) FreezeCatalogRead(ctx context.Context) (context.Context, error) {
+	ctx, err := s.catalogResolver().freeze(ctx)
+	if err != nil {
+		return ctx, err
+	}
+	if s.billingService != nil && GatewayRequestPlanFromContext(ctx) == nil {
+		registry := ModelRegistrySnapshotFromContext(ctx)
+		var plan *GatewayRequestPlan
+		ctx, plan = captureGatewayRequestPlan(ctx, GatewayRequestSpec{PricingAt: catalogReadTime(ctx)}, nil, s.billingService, nil)
+		plan.registrySnapshot, plan.spec.ModelVersion = registry, registry.Version()
+		if plan.billing != s.billingService && plan.billing.pricingService != nil {
+			plan.billing.pricingService.registrySnapshot = registry
+		}
+		ctx = WithModelRegistrySnapshot(ctx, registry)
+	}
+	return ctx, nil
+}
+
+func (s *ModelPlazaService) ValidateCatalogRead(ctx context.Context) error {
+	return s.catalogResolver().validate(ctx)
+}
+
+func CatalogReadGeneration(ctx context.Context) (int64, bool) {
+	revision, _ := ctx.Value(visibleModelRevisionKey{}).(visibleModelRevision)
+	return revision.generation, revision.authoritative
+}
+
+type catalogReadTimeKey struct{}
+
+func WithCatalogReadTime(ctx context.Context, now time.Time) context.Context {
+	return context.WithValue(ctx, catalogReadTimeKey{}, now)
+}
+
+func catalogReadTime(ctx context.Context) time.Time {
+	if now, ok := ctx.Value(catalogReadTimeKey{}).(time.Time); ok {
+		return now
+	}
+	return time.Now().UTC()
+}
+
+func (s *ModelPlazaService) CatalogPriceRevision() string {
+	prices := s.pricingService
+	if s.billingService != nil && s.billingService.pricingService != nil {
+		prices = s.billingService.pricingService
+	}
+	if prices == nil {
+		return ""
+	}
+	prices.mu.RLock()
+	defer prices.mu.RUnlock()
+	return fmt.Sprintf("%s:%s", prices.localHash, prices.customFilesHash)
+}
+
 // ModelCatalogBatchAccountRepository keeps group membership on each account so
 // shared accounts are decoded once, without broadening the requested group set.
 type ModelCatalogBatchAccountRepository interface {

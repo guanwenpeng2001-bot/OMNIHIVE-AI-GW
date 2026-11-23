@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,14 +21,21 @@ import (
 
 // InitializeDefaultSettings 初始化默认设置
 func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
-	// 检查是否已有设置
-	_, err := s.settingRepo.GetValue(ctx, SettingKeyRegistrationEnabled)
-	if err == nil {
-		// 已有设置，不需要初始化
-		return nil
+	return s.SeedInitialSettings(ctx, false)
+}
+
+// SeedInitialSettings fills only missing keys. Existing values, including
+// explicit false, zero and empty strings, are never replaced on upgrade.
+func (s *SettingService) SeedInitialSettings(ctx context.Context, newInstallation bool) error {
+	if s == nil || s.settingRepo == nil {
+		return errors.New("setting repository not initialized")
 	}
-	if !errors.Is(err, ErrSettingNotFound) {
-		return fmt.Errorf("check existing settings: %w", err)
+	existing, err := s.settingRepo.GetAll(ctx)
+	if err != nil {
+		return fmt.Errorf("read existing settings: %w", err)
+	}
+	if len(existing) > 0 && !newInstallation {
+		return nil
 	}
 
 	oidcUsePKCEDefault := true
@@ -45,16 +53,24 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		return err
 	}
 	forwardedClientIPHeaders := []string{}
+	defaultConcurrency := defaultRegistryConcurrency
+	defaultBalance := defaultRegistryBalance
 	if s != nil && s.cfg != nil {
 		forwardedClientIPHeaders = s.cfg.ForwardedClientIPSettings().Headers
+		defaultConcurrency = s.cfg.Default.UserConcurrency
+		defaultBalance = s.cfg.Default.UserBalance
 	}
 	forwardedClientIPHeadersJSON, err := json.Marshal(forwardedClientIPHeaders)
 	if err != nil {
 		return fmt.Errorf("marshal default forwarded client IP headers: %w", err)
 	}
 
-	// 初始化默认设置
-	defaults := map[string]string{
+	defaults := s.installSettingDefaults(newInstallation)
+	if newInstallation {
+		defaults[SettingKeyDefaultBalance+"_install_seed_source"] = installSeedSourceForConfig(s.cfg, "DEFAULT_USER_BALANCE")
+		defaults[SettingKeyDefaultConcurrency+"_install_seed_source"] = installSeedSourceForConfig(s.cfg, "DEFAULT_USER_CONCURRENCY")
+	}
+	for key, value := range map[string]string{
 		SettingKeyRegistrationEnabled:                       "true",
 		SettingKeyEmailVerifyEnabled:                        "false",
 		SettingKeyRegistrationEmailSuffixWhitelist:          "[]",
@@ -123,8 +139,8 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOIDCConnectUserInfoEmailPath:              "",
 		SettingKeyOIDCConnectUserInfoIDPath:                 "",
 		SettingKeyOIDCConnectUserInfoUsernamePath:           "",
-		SettingKeyDefaultConcurrency:                        strconv.Itoa(s.cfg.Default.UserConcurrency),
-		SettingKeyDefaultBalance:                            strconv.FormatFloat(s.cfg.Default.UserBalance, 'f', 8, 64),
+		SettingKeyDefaultConcurrency:                        strconv.Itoa(defaultConcurrency),
+		SettingKeyDefaultBalance:                            strconv.FormatFloat(defaultBalance, 'f', 8, 64),
 		SettingKeyAffiliateRebateRate:                       strconv.FormatFloat(AffiliateRebateRateDefault, 'f', 8, 64),
 		SettingKeyAffiliateRebateFreezeHours:                strconv.Itoa(AffiliateRebateFreezeHoursDefault),
 		SettingKeyAffiliateRebateDurationDays:               strconv.Itoa(AffiliateRebateDurationDaysDefault),
@@ -206,7 +222,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeySubscriptionEnabled: "true",
 
 		// Model plaza feature (default disabled; opt-in, public unless require_auth)
-		SettingKeyModelPlazaEnabled:       "false",
+		SettingKeyModelPlazaEnabled:       strconv.FormatBool(newInstallation),
 		SettingKeyModelPlazaRequireAuth:   "false",
 		SettingKeyModelPlazaDescription:   "",
 		SettingKeyPluginManagementEnabled: "false",
@@ -266,9 +282,30 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOpenAIAdvancedSchedulerWeightSessionSticky:         "",
 
 		SettingKeyAllowUserViewErrorRequests: "false",
+	} {
+		defaults[key] = value
 	}
-
+	for key := range defaults {
+		if _, exists := existing[key]; exists {
+			delete(defaults, key)
+		}
+	}
+	if seed, ok := s.settingRepo.(interface {
+		SetMultipleIfAbsent(context.Context, map[string]string) error
+	}); ok {
+		return seed.SetMultipleIfAbsent(ctx, defaults)
+	}
 	return s.settingRepo.SetMultiple(ctx, defaults)
+}
+
+func installSeedSourceForConfig(cfg *config.Config, environmentKey string) string {
+	if _, configured := os.LookupEnv(environmentKey); configured {
+		return "environment"
+	}
+	if cfg != nil && (environmentKey == "DEFAULT_USER_BALANCE" && cfg.Default.UserBalance != 0 || environmentKey == "DEFAULT_USER_CONCURRENCY" && cfg.Default.UserConcurrency != 5) {
+		return "yaml"
+	}
+	return "default"
 }
 
 func parseForwardedClientIPHeadersSetting(value string) ([]string, error) {
@@ -386,7 +423,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	if concurrency, err := strconv.Atoi(settings[SettingKeyDefaultConcurrency]); err == nil {
 		result.DefaultConcurrency = concurrency
 	} else {
-		result.DefaultConcurrency = s.cfg.Default.UserConcurrency
+		result.DefaultConcurrency = defaultRegistryConcurrency
 	}
 
 	if rpm, err := strconv.Atoi(settings[SettingKeyDefaultUserRPMLimit]); err == nil && rpm >= 0 {
@@ -397,7 +434,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	if balance, err := strconv.ParseFloat(settings[SettingKeyDefaultBalance], 64); err == nil {
 		result.DefaultBalance = balance
 	} else {
-		result.DefaultBalance = s.cfg.Default.UserBalance
+		result.DefaultBalance = defaultRegistryBalance
 	}
 	if rebateRate, err := strconv.ParseFloat(settings[SettingKeyAffiliateRebateRate], 64); err == nil {
 		result.AffiliateRebateRate = clampAffiliateRebateRate(rebateRate)

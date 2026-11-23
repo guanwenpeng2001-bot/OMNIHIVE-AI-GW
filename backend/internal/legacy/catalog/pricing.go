@@ -1,6 +1,7 @@
 package legacy
 
 import (
+	"context"
 	"strings"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
@@ -8,6 +9,23 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/timezone"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
+
+// plazaPricePort projects the legacy plaza tariff schedule into catalog prices.
+type plazaPricePort struct {
+	plaza     *service.ModelPlazaService
+	model     service.PlazaModel
+	group     service.PlazaGroup
+	offer     service.PlazaCatalogOffer
+	userRates map[int64]float64
+}
+
+func (p plazaPricePort) Describe(ctx context.Context, in catalog.PriceInput) (catalog.Price, error) {
+	if in.Binding.BillingIdentity.Model == "" {
+		return catalog.Price{State: "unpriced", Reason: "billing_provider_undetermined"}, nil
+	}
+	model := p.plaza.DescribePlazaCatalogPrice(ctx, p.model, p.group, p.offer, in.Binding.BillingIdentity)
+	return priceFor(model, p.group, p.userRates, in.Perspective.Public()), nil
+}
 
 func priceFor(model service.PlazaModel, group service.PlazaGroup, userRates map[int64]float64, public bool) catalog.Price {
 	price := catalog.Price{State: "unpriced", Source: "unavailable", Additional: []catalog.RateBand{}, TimeBands: []catalog.TimeBand{}}

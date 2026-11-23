@@ -4,8 +4,10 @@ package service
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -66,4 +68,37 @@ func TestAdminService_UpdateUser_NoInvalidateWhenRPMLimitUnchanged(t *testing.T)
 	})
 	require.NoError(t, err)
 	require.Empty(t, invalidator.userIDs, "只改 username 不应触发认证缓存失效")
+}
+
+func TestAdminService_UpdateUser_BalanceRequiresDedicatedEndpoint(t *testing.T) {
+	balance, changed := 1.23456789, 0.0
+	for _, tc := range []struct {
+		name    string
+		balance *float64
+		reject  bool
+	}{
+		{"changed", &changed, true},
+		{"unchanged", &balance, false},
+		{"omitted", nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := &userRepoStub{user: &User{ID: 42, Username: "old", Balance: balance}}
+			repo := &rpmUserRepoStub{userRepoStub: base}
+			svc := &adminServiceImpl{userRepo: repo}
+			name := "new"
+			updated, err := svc.UpdateUser(t.Context(), 42, &UpdateUserInput{Username: &name, Balance: tc.balance})
+			if tc.reject {
+				require.EqualValues(t, http.StatusBadRequest, infraerrors.Code(err))
+				require.Equal(t, "BALANCE_UPDATE_REQUIRES_BALANCE_ENDPOINT", infraerrors.Reason(err))
+				require.ErrorContains(t, err, "POST /api/v1/admin/users/{id}/balance")
+				require.Nil(t, repo.lastUpdated)
+				require.Equal(t, "old", repo.user.Username)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, name, updated.Username)
+				require.Equal(t, balance, repo.lastUpdated.Balance)
+			}
+			require.Equal(t, balance, repo.user.Balance)
+		})
+	}
 }

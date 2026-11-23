@@ -49,7 +49,7 @@ describe('ByokCredentialFormModal provider-class policy guard', () => {
     })
 
     expect(wrapper.get('[data-testid="byok-policy-disabled-card"]').text()).toContain(
-      '当前工作空间尚未启用租户自有凭据 (BYOK) 供应商类别'
+      '当前工作空间尚未启用自带上游凭据 (BYOK) 供应商类别'
     )
     const submitBtn = wrapper.get('[data-testid="byok-submit-btn"]')
     expect((submitBtn.element as HTMLButtonElement).disabled).toBe(true)

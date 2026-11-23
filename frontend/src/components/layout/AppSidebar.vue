@@ -130,12 +130,12 @@
                 <!-- Direct Route Item -->
                 <router-link
                   v-else
-                  :id="tourIds[item.path]"
+                  :id="item.tourId || tourIds[item.path]"
                   :to="item.path"
                   :aria-current="isActive(item.path) ? 'page' : undefined"
                   :aria-label="item.label"
                   :title="sidebarCollapsed ? item.label : undefined"
-                  :data-tour="item.path === '/keys' ? 'sidebar-my-keys' : undefined"
+                  :data-tour="item.tourId || (item.path === '/keys' ? 'sidebar-my-keys' : undefined)"
                   :class="[
                     'oh-focus-ring relative flex items-center gap-2.5 rounded-oh-md px-2.5 py-1.5 text-[13px] transition-colors',
                     sidebarCollapsed ? 'justify-center px-0' : '',
@@ -264,7 +264,15 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore } from '@/stores'
 import { uniqueNavigationItems } from '@/router/navigationItems'
-import { getRegisteredNavigationItems, type NavSectionId } from '@/router/navigationRegistry'
+import {
+  ADMIN_CONSOLE_SECTIONS,
+  CORE_NAVIGATION_ITEMS,
+  USER_CONSOLE_SECTIONS,
+  getRegisteredNavigationItems,
+  type NavSectionId,
+  type ShellNavItemSpec
+} from '@/router/navigationRegistry'
+import type { RouteFeatureFlag } from '@/router/routePolicy'
 import Icon from '@/components/icons/Icon.vue'
 import { sanitizeSvg } from '@/utils/sanitize'
 import { sanitizeUrl } from '@/utils/url'
@@ -281,6 +289,7 @@ interface NavItem {
   label: string
   icon: IconName
   iconSvg?: string
+  tourId?: string
   hideInSimpleMode?: boolean
   featureFlag?: () => boolean | undefined
   expandOnly?: boolean
@@ -397,169 +406,114 @@ const customMenuItemsForAdmin = computed(() =>
     .sort((first, second) => first.sort_order - second.sort_order)
 )
 
-function extensionItemsFor(domain: NavDomain, section: NavSectionId): NavItem[] {
-  return getRegisteredNavigationItems()
-    .filter((ext) => ext.tier === domain && ext.section === section)
+const sidebarFeatureFlags: Partial<Record<RouteFeatureFlag, () => boolean | undefined>> = {
+  subscription: flagSubscription,
+  payment: flagPayment,
+  channelMonitor: flagChannelMonitor,
+  availableChannels: flagAvailableChannels,
+  affiliate: flagAffiliate,
+  riskControl: flagRiskControl,
+  opsMonitoring: flagOpsMonitoring,
+  adminPayment: flagAdminPayment
+}
+
+const registrySurfaceOverrides = computed<Record<string, Partial<NavItem>>>(() => ({
+  '/purchase': { path: '/purchase', label: purchaseNavLabel.value, hideInSimpleMode: true, featureFlag: flagPayment },
+  '/subscriptions': { path: '/subscriptions', label: t('nav.mySubscriptions'), hideInSimpleMode: true, featureFlag: flagSubscription },
+  '/admin/subscriptions': { path: '/admin/subscriptions', label: label('nav.subscriptions', '用户订阅分配'), hideInSimpleMode: true, featureFlag: flagSubscription },
+  '/admin/security-audit': {
+    path: '/admin/security-audit',
+    label: t('nav.securityAudit'),
+    icon: 'shield',
+    expandOnly: true,
+    featureFlag: flagRiskControl,
+    children: [
+      { path: '/admin/risk-control', label: label('nav.contentModeration', '风控策略中心'), icon: 'shield' },
+      { path: '/admin/prompt-audit', label: t('nav.promptAudit'), icon: 'shield' }
+    ]
+  }
+}))
+
+function resolveRegistrySpecLabel(spec: ShellNavItemSpec): string {
+  if (spec.path === '/purchase') return purchaseNavLabel.value
+  if (spec.labelKey) return t(spec.labelKey)
+  return isZh.value ? spec.fallbackLabelZh : spec.fallbackLabelEn
+}
+
+function mapRegistrySpecToNavItem(spec: ShellNavItemSpec): NavItem {
+  const override = registrySurfaceOverrides.value[spec.path]
+  const children = spec.children?.filter((child) => !child.hiddenInSidebar).map(mapRegistrySpecToNavItem)
+  return {
+    path: spec.path,
+    label: override?.label ?? resolveRegistrySpecLabel(spec),
+    icon: (spec.icon as IconName) || 'grid',
+    iconSvg: spec.iconSvg,
+    tourId: spec.tourId,
+    hideInSimpleMode: spec.hideInSimpleMode,
+    featureFlag: override?.featureFlag ?? (spec.featureFlag ? sidebarFeatureFlags[spec.featureFlag] : undefined),
+    expandOnly: spec.expandOnly,
+    ...(children && children.length > 0 ? { children } : {})
+  }
+}
+
+function registryItemsForSection(domain: NavDomain, section: NavSectionId): NavItem[] {
+  const allSpecs: ShellNavItemSpec[] = [
+    ...CORE_NAVIGATION_ITEMS,
+    ...getRegisteredNavigationItems()
+  ]
+  const seenPaths = new Set<string>()
+  const matching = allSpecs
+    .filter((item) => item.tier === domain && item.section === section && !item.hiddenInSidebar)
     .sort((a, b) => (a.order ?? 100) - (b.order ?? 100))
-    .map(
-      (ext): NavItem => ({
-        path: ext.path,
-        label: ext.labelKey ? t(ext.labelKey) : isZh.value ? ext.fallbackLabelZh : ext.fallbackLabelEn,
-        icon: (ext.icon as IconName) || 'grid',
-        iconSvg: ext.iconSvg,
-        hideInSimpleMode: ext.hideInSimpleMode
-      })
-    )
+    .filter((item) => {
+      if (seenPaths.has(item.path)) return false
+      seenPaths.add(item.path)
+      return true
+    })
+    .map(mapRegistrySpecToNavItem)
+
+  if (domain === 'user' && section === 'settings') {
+    return [
+      ...matching,
+      ...customMenuItemsForUser.value.map((item): NavItem => ({
+        path: `/custom/${item.id}`,
+        label: item.label,
+        icon: 'globe',
+        iconSvg: item.icon_svg
+      }))
+    ]
+  }
+
+  if (domain === 'admin' && section === 'settings') {
+    return [
+      ...matching,
+      ...customMenuItemsForAdmin.value.map((item): NavItem => ({
+        path: `/custom/${item.id}`,
+        label: item.label,
+        icon: 'globe',
+        iconSvg: item.icon_svg
+      }))
+    ]
+  }
+
+  return matching
 }
 
 const navigationGroups = computed((): NavGroup[] => [
-  {
-    key: 'user-overview',
+  ...USER_CONSOLE_SECTIONS.map((sec): NavGroup => ({
+    key: `user-${sec.id}`,
     domain: 'user',
-    section: 'overview',
-    label: isZh.value ? '概览' : 'OVERVIEW',
-    items: [
-      { path: '/dashboard', label: label('nav.dashboard', '控制台首页'), icon: 'grid' },
-      { path: '/keys', label: t('nav.apiKeys'), icon: 'key' },
-      { path: '/byok', label: label('nav.byok', isZh.value ? '自带密钥' : 'BYOK Credentials'), icon: 'shield' },
-      { path: '/workspaces', label: label('workspaces.title', '工作空间'), icon: 'users' },
-      ...extensionItemsFor('user', 'overview')
-    ]
-  },
-  {
-    key: 'user-models',
-    domain: 'user',
-    section: 'models',
-    label: isZh.value ? '模型与调用' : 'MODELS & RUN',
-    items: [
-      { path: '/model-plaza', label: label('nav.modelPlaza', '模型广场'), icon: 'cube' },
-      { path: '/playground', label: isZh.value ? 'Playground 调试台' : 'Playground', icon: 'play' },
-      ...extensionItemsFor('user', 'models')
-    ]
-  },
-  {
-    key: 'user-usage',
-    domain: 'user',
-    section: 'activity',
-    label: isZh.value ? '用量与任务' : 'USAGE & TASKS',
-    items: [
-      { path: '/requests', label: isZh.value ? '请求记录' : 'Requests', icon: 'document' },
-      { path: '/tasks', label: isZh.value ? '任务中心' : 'Task Center', icon: 'inbox' },
-      { path: '/usage', label: label('nav.usage', '用量记录'), icon: 'chart', hideInSimpleMode: true },
-      { path: '/batch-image', label: label('nav.batchImage', '批量生图'), icon: 'sparkles', hideInSimpleMode: true },
-      { path: '/available-channels', label: t('nav.availableChannels'), icon: 'server', hideInSimpleMode: true, featureFlag: flagAvailableChannels },
-      { path: '/monitor', label: t('nav.channelStatus'), icon: 'chart', featureFlag: flagChannelMonitor },
-      ...extensionItemsFor('user', 'activity')
-    ]
-  },
-  {
-    key: 'user-billing',
-    domain: 'user',
-    section: 'billing',
-    label: isZh.value ? '计费与额度' : 'BILLING & CREDITS',
-    items: [
-      { path: '/billing', label: isZh.value ? '费用与额度' : 'Costs & Quota', icon: 'calculator' },
-      { path: '/subscriptions', label: t('nav.mySubscriptions'), icon: 'creditCard', hideInSimpleMode: true, featureFlag: flagSubscription },
-      { path: '/purchase', label: purchaseNavLabel.value, icon: 'dollar', hideInSimpleMode: true, featureFlag: flagPayment },
-      { path: '/orders', label: t('nav.myOrders'), icon: 'document', hideInSimpleMode: true, featureFlag: flagPayment },
-      { path: '/redeem', label: t('nav.redeem'), icon: 'gift', hideInSimpleMode: true },
-      { path: '/affiliate', label: t('nav.affiliate'), icon: 'users', hideInSimpleMode: true, featureFlag: flagAffiliate },
-      ...extensionItemsFor('user', 'billing')
-    ]
-  },
-  {
-    key: 'user-settings',
-    domain: 'user',
-    section: 'settings',
-    label: isZh.value ? '账户与文档' : 'SETTINGS & DOCS',
-    items: [
-      { path: '/settings/mcp', label: isZh.value ? 'MCP 授权' : 'MCP Authorization', icon: 'link' },
-      { path: '/profile', label: t('nav.profile'), icon: 'user' },
-      { path: '/help', label: t('nav.helpGuide'), icon: 'book' },
-      ...customMenuItemsForUser.value.map((item): NavItem => ({ path: `/custom/${item.id}`, label: item.label, icon: 'globe', iconSvg: item.icon_svg })),
-      ...extensionItemsFor('user', 'settings')
-    ]
-  },
-  {
-    key: 'admin-operations',
+    section: sec.id,
+    label: isZh.value ? sec.eyebrowZh : sec.eyebrowEn,
+    items: registryItemsForSection('user', sec.id)
+  })),
+  ...ADMIN_CONSOLE_SECTIONS.map((sec): NavGroup => ({
+    key: `admin-${sec.id}`,
     domain: 'admin',
-    section: 'ops',
-    label: isZh.value ? '运行观测' : 'OPERATIONS',
-    items: [
-      { path: '/admin/dashboard', label: label('nav.dashboard', '总览仪表盘'), icon: 'grid' },
-      { path: '/admin/requests', label: isZh.value ? '请求诊断' : 'Request Diagnostics', icon: 'document' },
-      { path: '/admin/ops', label: label('nav.ops', '运维实时监控'), icon: 'chart', featureFlag: flagOpsMonitoring },
-      { path: '/admin/channels/monitor', label: t('nav.channelMonitor'), icon: 'chart', hideInSimpleMode: true, featureFlag: flagChannelMonitor },
-      { path: '/admin/usage', label: label('nav.usage', '用量记录'), icon: 'chart' },
-      ...extensionItemsFor('admin', 'ops')
-    ]
-  },
-  {
-    key: 'admin-channels',
-    domain: 'admin',
-    section: 'connections',
-    label: isZh.value ? '连接与路由' : 'CONNECTIONS & ROUTING',
-    items: [
-      { path: '/admin/accounts', label: label('nav.accounts', '上游账号'), icon: 'globe' },
-      { path: '/admin/connections/new', label: isZh.value ? '新建上游连接' : 'New Upstream Connection', icon: 'plus' },
-      { path: '/admin/pools', label: isZh.value ? '资源池' : 'Resource Pools', icon: 'server' },
-      { path: '/admin/routing', label: isZh.value ? '路由工作台' : 'Routing Workbench', icon: 'swap' },
-      { path: '/admin/groups', label: t('nav.groups'), icon: 'grid' },
-      { path: '/admin/channels/pricing', label: t('nav.channelPricing'), icon: 'dollar', hideInSimpleMode: true },
-      { path: '/admin/proxies', label: label('nav.ipNodes', 'IP 代理'), icon: 'server' },
-      { path: '/admin/proxy-groups', label: label('nav.ipGroups', 'IP 代理组'), icon: 'grid' },
-      ...extensionItemsFor('admin', 'connections')
-    ]
-  },
-  {
-    key: 'admin-billing',
-    domain: 'admin',
-    section: 'settlement',
-    label: isZh.value ? '结算与套餐' : 'SETTLEMENT & PLANS',
-    items: [
-      { path: '/admin/billing', label: isZh.value ? '对账与账本' : 'Reconciliation & Ledger', icon: 'calculator' },
-      { path: '/admin/orders', label: t('nav.orderManagement'), icon: 'document', hideInSimpleMode: true, featureFlag: flagAdminPayment },
-      { path: '/admin/orders/dashboard', label: label('nav.paymentDashboard', '支付大盘'), icon: 'chart', hideInSimpleMode: true, featureFlag: flagAdminPayment },
-      { path: '/admin/orders/plans', label: label('nav.paymentPlans', '订阅套餐'), icon: 'creditCard', hideInSimpleMode: true, featureFlag: flagAdminPayment },
-      { path: '/admin/subscriptions', label: label('nav.subscriptions', '订阅分配'), icon: 'creditCard', hideInSimpleMode: true, featureFlag: flagSubscription },
-      { path: '/admin/redeem', label: t('nav.redeemCodes'), icon: 'gift', hideInSimpleMode: true },
-      { path: '/admin/promo-codes', label: t('nav.promoCodes'), icon: 'gift', hideInSimpleMode: true },
-      { path: '/admin/affiliates/invites', label: label('nav.affiliateInviteRecords', '联盟邀请'), icon: 'users', hideInSimpleMode: true, featureFlag: flagAffiliate },
-      { path: '/admin/affiliates/rebates', label: label('nav.affiliateRebateRecords', '联盟返利'), icon: 'dollar', hideInSimpleMode: true, featureFlag: flagAffiliate },
-      { path: '/admin/affiliates/transfers', label: label('nav.affiliateTransferRecords', '提现审核'), icon: 'creditCard', hideInSimpleMode: true, featureFlag: flagAffiliate },
-      ...extensionItemsFor('admin', 'settlement')
-    ]
-  },
-  {
-    key: 'admin-governance',
-    domain: 'admin',
-    section: 'settings',
-    label: isZh.value ? '系统与治理' : 'GOVERNANCE & SYSTEM',
-    items: [
-      { path: '/admin/users', label: t('nav.users'), icon: 'users', hideInSimpleMode: true },
-      { path: '/admin/members', label: isZh.value ? '工作空间成员与授权' : 'Members & Access', icon: 'users', hideInSimpleMode: true },
-      { path: '/admin/audit', label: isZh.value ? '项目审计' : 'Project Audit', icon: 'shield' },
-      { path: '/admin/audit-logs', label: label('nav.auditLogs', '审计日志'), icon: 'shield', hideInSimpleMode: true },
-      {
-        path: '/admin/security-audit',
-        label: t('nav.securityAudit'),
-        icon: 'shield',
-        expandOnly: true,
-        featureFlag: flagRiskControl,
-        children: [
-          { path: '/admin/risk-control', label: label('nav.contentModeration', '风控中心'), icon: 'shield' },
-          { path: '/admin/prompt-audit', label: t('nav.promptAudit'), icon: 'shield' }
-        ]
-      },
-      { path: '/admin/announcements', label: t('nav.announcements'), icon: 'bell' },
-      { path: '/admin/plugins', label: t('nav.plugins'), icon: 'cube' },
-      { path: '/admin/backup', label: isZh.value ? '备份与恢复' : 'Backup & Restore', icon: 'download' },
-      { path: '/admin/settings', label: t('nav.settings'), icon: 'cog' },
-      { path: '/admin/settings/general', label: isZh.value ? '分区设置工作台' : 'Settings Workbench', icon: 'cog' },
-      ...customMenuItemsForAdmin.value.map((item): NavItem => ({ path: `/custom/${item.id}`, label: item.label, icon: 'globe', iconSvg: item.icon_svg })),
-      ...extensionItemsFor('admin', 'settings')
-    ]
-  }
+    section: sec.id,
+    label: isZh.value ? sec.eyebrowZh : sec.eyebrowEn,
+    items: registryItemsForSection('admin', sec.id)
+  }))
 ])
 
 function visibleItems(items: NavItem[]): NavItem[] {

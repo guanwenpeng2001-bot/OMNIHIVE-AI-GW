@@ -136,6 +136,18 @@ type projectAPIKeyCreator interface {
 	CreateInProject(ctx context.Context, key *APIKey, project int64) error
 }
 
+type legacyKeyManagementContextKey struct{}
+
+// WithLegacyKeyManagement scopes v1 management lookups to personal keys.
+func WithLegacyKeyManagement(ctx context.Context) context.Context {
+	return context.WithValue(ctx, legacyKeyManagementContextKey{}, true)
+}
+
+func IsLegacyKeyManagement(ctx context.Context) bool {
+	legacy, _ := ctx.Value(legacyKeyManagementContextKey{}).(bool)
+	return legacy
+}
+
 // APIKeyRateLimitData holds rate limit usage and window state for an API key.
 type APIKeyRateLimitData struct {
 	Usage5h       float64

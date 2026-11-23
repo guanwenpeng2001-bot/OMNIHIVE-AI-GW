@@ -34,7 +34,7 @@ func (h *AdminAPIKeyHandler) UpdateTPMLimit(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	key, err := h.adminService.AdminSetAPIKeyTPMLimit(c.Request.Context(), keyID, request.TPMLimit.Pointer())
+	key, err := h.adminService.AdminSetAPIKeyTPMLimit(service.WithLegacyKeyManagement(c.Request.Context()), keyID, request.TPMLimit.Pointer())
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -121,16 +121,17 @@ func (h *AdminAPIKeyHandler) UpdateGroup(c *gin.Context) {
 		return
 	}
 
+	ctx := service.WithLegacyKeyManagement(c.Request.Context())
 	var resetKey *service.APIKey
 	if req.ResetRateLimitUsage != nil && *req.ResetRateLimitUsage {
-		resetKey, err = h.adminService.AdminResetAPIKeyRateLimitUsage(c.Request.Context(), keyID)
+		resetKey, err = h.adminService.AdminResetAPIKeyRateLimitUsage(ctx, keyID)
 		if err != nil {
 			response.ErrorFrom(c, err)
 			return
 		}
 	}
 
-	result, err := h.adminService.AdminUpdateAPIKeyGroupID(c.Request.Context(), keyID, req.GroupID)
+	result, err := h.adminService.AdminUpdateAPIKeyGroupID(ctx, keyID, req.GroupID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -171,7 +172,7 @@ func (h *AdminAPIKeyHandler) SetStatus(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	key, err := h.adminService.AdminSetAPIKeyStatus(c.Request.Context(), keyID, req.Status)
+	key, err := h.adminService.AdminSetAPIKeyStatus(service.WithLegacyKeyManagement(c.Request.Context()), keyID, req.Status)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -187,7 +188,7 @@ func (h *AdminAPIKeyHandler) Delete(c *gin.Context) {
 		response.BadRequest(c, "Invalid API key ID")
 		return
 	}
-	if err := h.adminService.AdminDeleteAPIKey(c.Request.Context(), keyID); err != nil {
+	if err := h.adminService.AdminDeleteAPIKey(service.WithLegacyKeyManagement(c.Request.Context()), keyID); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -224,7 +225,7 @@ func (h *AdminAPIKeyHandler) RotateCredential(c *gin.Context) {
 	}
 	revokePrevious := req.RevokePrevious != nil && *req.RevokePrevious
 
-	issue, err := h.adminService.AdminRotateAPIKeyCredential(c.Request.Context(), keyID, graceTTL, revokePrevious)
+	issue, err := h.adminService.AdminRotateAPIKeyCredential(service.WithLegacyKeyManagement(c.Request.Context()), keyID, graceTTL, revokePrevious)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -281,8 +282,9 @@ func (h *AdminAPIKeyHandler) AdminUpdateAPIKeyBudget(c *gin.Context) {
 		State  *service.APIKeyBudgetState  `json:"state,omitempty"`
 	}{}
 
+	ctx := service.WithLegacyKeyManagement(c.Request.Context())
 	if req.Budget != nil {
-		saved, err := h.adminService.AdminSetAPIKeyBudgetPolicy(c.Request.Context(), keyID, *req.Budget)
+		saved, err := h.adminService.AdminSetAPIKeyBudgetPolicy(ctx, keyID, *req.Budget)
 		if err != nil {
 			response.ErrorFrom(c, err)
 			return
@@ -295,7 +297,7 @@ func (h *AdminAPIKeyHandler) AdminUpdateAPIKeyBudget(c *gin.Context) {
 		if subject, ok := middleware2.GetAuthSubjectFromContext(c); ok {
 			actorID = subject.UserID
 		}
-		state, err := h.adminService.AdminAdjustAPIKeyBudgetUsage(c.Request.Context(), &service.KeyBudgetAdjustmentCommand{
+		state, err := h.adminService.AdminAdjustAPIKeyBudgetUsage(ctx, &service.KeyBudgetAdjustmentCommand{
 			APIKeyID:    keyID,
 			ActorUserID: actorID,
 			DeltaUSD:    req.Adjustment.DeltaUSD,

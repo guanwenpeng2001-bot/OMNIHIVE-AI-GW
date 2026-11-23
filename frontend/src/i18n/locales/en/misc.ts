@@ -19,6 +19,8 @@ export default {
 
   // Version Badge
   version: {
+    checkUnavailable: 'Update check unavailable',
+    rollbackCheckUnavailable: 'Rollback version lookup unavailable',
     currentVersion: 'Current Version',
     latestVersion: 'Latest Version',
     upToDate: "You're running the latest version.",
@@ -157,13 +159,13 @@ export default {
     admin: {
       welcome: {
         title: 'Welcome to OmniHive Workbench',
-        description: '<div style="line-height: 1.75;"><p style="margin-bottom: 14px;">OmniHive is a unified AI compute & model routing gateway that lets you orchestrate upstream accounts and distribute API access from one console.</p><p style="margin-bottom: 10px;"><b>Core Capabilities:</b></p><ul style="margin-left: 18px; margin-bottom: 14px;"><li><b>Routing Groups</b> — Organize pools by protocol & SLA</li><li><b>Account Pool</b> — Connect upstream accounts with automatic failover</li><li><b>API Keys</b> — Issue scoped credentials with quota guardrails</li><li><b>Billing & Ledger</b> — Multipliers, subscriptions, and live telemetry</li></ul><p style="color: var(--brand-text, #92610a); font-weight: 600;">Complete your initial gateway setup in 3 minutes →</p></div>',
+        description: '<div style="line-height: 1.75;"><p style="margin-bottom: 14px;">OmniHive is a unified AI compute & model routing gateway that lets you orchestrate upstream connections and distribute API access from one console.</p><p style="margin-bottom: 10px;"><b>Core Capabilities:</b></p><ul style="margin-left: 18px; margin-bottom: 14px;"><li><b>Routing Groups</b> — Organize pools by protocol & SLA</li><li><b>Resource Pool</b> — Connect upstream connections with automatic failover</li><li><b>API Keys</b> — Issue scoped credentials with quota guardrails</li><li><b>Billing & Ledger</b> — Multipliers, subscriptions, and live telemetry</li></ul><p style="color: var(--brand-text, #92610a); font-weight: 600;">Complete your initial gateway setup in 3 minutes →</p></div>',
         nextBtn: 'Start Setup →',
         prevBtn: 'Skip'
       },
       groupManage: {
-        title: '01 · Group Management',
-        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 10px;"><b>What is a Group?</b></p><p style="margin-bottom: 10px;">Groups are the core routing pools in OmniHive:</p><ul style="margin-left: 18px; margin-bottom: 12px; font-size: 13px;"><li>Each group aggregates multiple upstream accounts</li><li>Independent billing multiplier & model access rules</li><li>Public or exclusive access visibility</li></ul><p style="margin-top: 12px; padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 6px; font-size: 12.5px;"><b>Tip:</b> Create separate pools for production SLA and high-throughput workloads</p><p style="margin-top: 14px; color: var(--brand-text, #92610a); font-weight: 600;">Click "Group Management" on the left sidebar →</p></div>'
+        title: '01 · Routing Groups',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 10px;"><b>What is a Group?</b></p><p style="margin-bottom: 10px;">Groups are the core routing pools in OmniHive:</p><ul style="margin-left: 18px; margin-bottom: 12px; font-size: 13px;"><li>Each group aggregates multiple upstream connections</li><li>Independent billing multiplier & model access rules</li><li>Public or exclusive access visibility</li></ul><p style="margin-top: 12px; padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 6px; font-size: 12.5px;"><b>Tip:</b> Create separate pools for production SLA and high-throughput workloads</p><p style="margin-top: 14px; color: var(--brand-text, #92610a); font-weight: 600;">Click "Routing Groups" on the left sidebar →</p></div>'
       },
       createGroup: {
         title: '➕ Create New Group',
@@ -191,7 +193,7 @@ export default {
       },
       groupSubmit: {
         title: '✅ Save Group',
-        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Confirm the information and click create to save the group.</p><p style="padding: 8px 12px; background: color-mix(in srgb, var(--brand, #f59e0b) 12%, var(--surface-2, #f4f4f5)); border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>⚠️ Note:</b> Platform type cannot be changed after creation, but other settings can be edited anytime</p><p style="padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 4px; font-size: 13px;"><b>📌 Next Step:</b> After creation, we\'ll add upstream accounts to this group</p><p style="margin-top: 12px; color: var(--brand-text, #92610a); font-weight: 600;">👉 Click "Create" button</p></div>'
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Confirm the information and click create to save the group.</p><p style="padding: 8px 12px; background: color-mix(in srgb, var(--brand, #f59e0b) 12%, var(--surface-2, #f4f4f5)); border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>⚠️ Note:</b> Platform type cannot be changed after creation, but other settings can be edited anytime</p><p style="padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 4px; font-size: 13px;"><b>📌 Next Step:</b> After creation, we\'ll add upstream connections to this group</p><p style="margin-top: 12px; color: var(--brand-text, #92610a); font-weight: 600;">👉 Click "Create" button</p></div>'
       },
       accountManage: {
         title: '🔗 Step 2: Add Account',
@@ -199,7 +201,7 @@ export default {
       },
       createAccount: {
         title: '➕ Add New Account',
-        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Click the button to start adding your first upstream account.</p><p style="padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 4px; font-size: 13px;"><b>💡 Tip:</b> Recommend using OAuth method - more secure and no manual key extraction needed</p><p style="margin-top: 12px; color: var(--brand-text, #92610a); font-weight: 600;">👉 Click "Add Account" button</p></div>'
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Click the button to start adding your first upstream connection.</p><p style="padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 4px; font-size: 13px;"><b>💡 Tip:</b> Recommend using OAuth method - more secure and no manual key extraction needed</p><p style="margin-top: 12px; color: var(--brand-text, #92610a); font-weight: 600;">👉 Click "Add Account" button</p></div>'
       },
       accountName: {
         title: '✏️ 1. Account Name',
@@ -283,6 +285,77 @@ export default {
         title: '🎉 Complete Creation',
         description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Click to confirm and create your API key.</p><div style="padding: 8px 12px; background: color-mix(in srgb, var(--bad, #dc2626) 10%, var(--surface-2, #f4f4f5)); border-left: 3px solid #ef4444; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>⚠️ Important:</b><ul style="margin: 8px 0 0 16px;"><li>Copy the key (sk-xxx) immediately after creation</li><li>Key is only shown once, need to regenerate if lost</li></ul></div><p style="padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 4px; font-size: 13px;"><b>🚀 How to Use:</b><br/>Enter the key and this site’s API address in an OpenAI-compatible client (Cline, Roo Code, Continue, Cursor, Codex and more — see the "Configure clients" section of the help guide) and start using!</p><p style="margin-top: 12px; color: var(--brand-text, #92610a); font-weight: 600;">👉 Click "Create" button</p></div>'
       }
+    },
+    request: {
+      pending: 'Access request submitted (Pending Workspace Admin review)',
+      approved: 'Access granted to "{project}". Switch now to call.',
+      declined: 'Access request was declined. You may update your note and submit a new request.',
+      modalTitle: 'Request Team Project Access',
+      subtitle: 'Your workspace administrator will review this request and assign a team project and actions.',
+      workspaceLabel: 'Workspace Membership',
+      projectLabel: 'Target Team Project (Optional)',
+      projectPlaceholder: 'Unspecified (Describe team or project name in your note)',
+      defaultProjectHint: 'The shared Default project is browse-only; pick a non-default team project or leave blank.',
+      noteLabel: 'Intended Use & Requested Capabilities (1–500 chars)',
+      notePlaceholder: 'Describe your team/project and required actions (e.g., playground.run, keys.create)…',
+      submitBtn: 'Submit Access Request',
+      submittingBtn: 'Submitting…',
+      refreshBtn: 'Refresh Status',
+      switchNowBtn: 'Switch to Project Now →',
+      loadMoreWorkspaces: 'Load more workspaces…',
+      loadMoreProjects: 'Load more projects…',
+      myRequestsTitle: 'My Project Access Requests',
+      noRequestsYet: 'No project access requests submitted in this workspace yet.',
+    },
+    checklist: {
+      title: 'Get Started with OmniHive',
+      branchPersonal: 'Personal Self-Service (Recommended)',
+      branchProject: 'Team Project Collaboration',
+      switchScopeBtn: 'Switch Scope',
+      switchToPersonalBtn: 'Switch to Personal Space',
+      personalScopeBanner: 'Active Scope: Personal Space (PER) · No project grant required; billed to your personal balance or plan',
+      prereqNoGroup: 'No available routing group assigned',
+      prereqInactiveSub: 'Subscription is inactive or expired',
+      prereqNoBalance: 'Insufficient personal balance ($0.00)',
+      ctaRedeem: 'Redeem Code',
+      ctaPurchase: 'Top Up or Buy Plan',
+      ctaSubscriptions: 'My Subscriptions',
+      personalStep1Title: '1. Create a Personal API Key',
+      personalStep1Desc: 'Create a personal key for your own calls in Personal Space without waiting for project approval.',
+      personalStep1Cta: 'Manage Personal Keys →',
+      personalStep2Title: '2. Configure Client or Copy Snippet (cURL/Claude/Codex)',
+      personalStep2Desc: 'Copy the gateway endpoint and credential-safe SDK snippet for your client.',
+      personalStep2ExpandCta: 'Expand Config',
+      personalStep3Title: '3. Make First Call & Verify Settlement Receipt',
+      personalStep3Desc: 'Completes automatically after your first call; inspect live token usage, latency, and settlement amount.',
+      personalStep3Cta: 'View Personal Requests & Usage →',
+      footerPrompt: 'Need team project budget or Model Playground?',
+      footerRequestCta: 'Request Project Access from Admin →',
+      projectStep1Title: '1. Request or Select an Authorized Team Project',
+      projectStep1Desc: 'Submit a project access request in your workspace or switch to an authorized team project.',
+      projectStep2Title: '2. Obtain or Issue a Project API Key',
+      projectStep2Desc: 'List or issue scoped project keys inside a team project with keys.read / keys.create.',
+      projectStep2Cta: 'Go to Project Keys →',
+      projectStep3Title: '3. Quote & Run in Model Playground',
+      projectStep3Desc: 'Playground binds to team project budget reservation and authoritative Sale Rate (requires playground.run).',
+      projectStep3Cta: 'Open Model Playground →',
+    },
+    adminSetup: {
+      eyebrow: '4-Stage Platform Setup Guide',
+      title: 'Connect Upstreams, Configure Sale Rates, and Verify Model Catalog to Enable Live Routing',
+      subtitle: 'Displayed while the platform has zero upstream connections (total_accounts = 0) or zero live models (live_models = 0).',
+      stage1Title: '1. Create Upstream Connection & Native Discovery',
+      stage1Desc: 'Preview Upstream Models from "1. Platform Candidates" & "2. Native Discovered" and Apply Snapshot to "3. Account Effective".',
+      stage1Cta: 'Upstream Connections →',
+      stage2Title: '2. Configure Resource Pools, Routing Groups & Sale Rates',
+      stage2Desc: 'Bind Resource Pools and Routing Groups, then configure Sale Rates in Channels & Pricing (distinct from pi Reference Price).',
+      stage2Cta: 'Channels & Pricing →',
+      stage3Title: '3. Verify Model Catalog & Public Publishing',
+      stage3Desc: 'Audit routable_but_unpriced models in Model Catalog (/admin/models) and confirm "4. Group Visible".',
+      stage3Cta: 'Model Catalog →',
+      stage4Title: '4. Enable Personal Self-Service Groups or Authorize Teams',
+      stage4Desc: 'Assign default personal routing groups or grant least-privilege project actions in Members & Access.',
+      stage4Cta: 'Members & Access →',
     }
   },
 

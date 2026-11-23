@@ -17,6 +17,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const adminKeyCreateWorkspaceID int64 = 17
+
 type adminKeyCreateUsers struct {
 	service.UserRepository
 	status string
@@ -66,6 +68,7 @@ func newAdminKeyCreateRouter(users *adminKeyCreateUsers, keys *adminKeyCreateKey
 	h := NewAdminAPIKeyHandler(adminSvc, svc)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(domain.WithDefaultWorkspaceID(c.Request.Context(), adminKeyCreateWorkspaceID))
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1})
 		c.Set(string(middleware.ContextKeyUserRole), service.RoleAdmin)
 	})
@@ -112,7 +115,7 @@ func TestAdminAPIKeyCreateCumoraContractAndSecretVisibility(t *testing.T) {
 		require.NotEqual(t, previous, secret)
 		previous = secret
 		require.Equal(t, int64(42), keys.keys[i].UserID, "the admin is not the owner")
-		require.Equal(t, domain.DefaultWorkspaceID, keys.keys[i].WorkspaceID)
+		require.Equal(t, adminKeyCreateWorkspaceID, keys.keys[i].WorkspaceID)
 		require.Equal(t, int64(7), *keys.keys[i].GroupID)
 		require.Equal(t, "cumora · Alice", keys.keys[i].Name)
 	}

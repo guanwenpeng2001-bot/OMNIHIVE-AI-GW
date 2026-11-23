@@ -420,6 +420,7 @@ stage_backend() {
   export PROMPT_AUDIT_TEST_POSTGRES_DSN="${base_pg_dsn/\/job_test/\/prompt_audit_test}"
   export BE09_TEST_ISOLATED_DSN="${base_pg_dsn/\/job_test/\/be09_rehearsal_test}"
   export BE09_TEST_JOURNAL_DSN="${base_pg_dsn/\/job_test/\/be09_journal_test}"
+  export BE6_SETTING_MIGRATION_DSN="$PG_DSN"
   export MIGRATION_INTEGRATION_TEST_DSN="$PG_DSN"
   export RETIREMENT_INTEGRATION_TEST_DSN="${base_pg_dsn}"
   export BACKUP_DATA_TEST_DSN="${base_pg_dsn/\/job_test/\/backup_data_test}"
@@ -483,6 +484,7 @@ ensure_frontend_dist() {
 }
 
 stage_frontend() {
+  node "${ROOT}/scripts/check-frontend-type-drift.mjs" || return $?
   cd "${ROOT}/frontend"
   require_command pnpm
   # The production bundle needs more heap than Node's 2 GB default on 7 GB hosts.

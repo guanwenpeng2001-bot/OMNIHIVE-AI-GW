@@ -50,8 +50,11 @@ paths:
           type: array
           items:
             type: string
+      - $ref: '#/components/parameters/CatalogAvailability'
+      - $ref: '#/components/parameters/CatalogBilling'
       - name: availability_state
         in: query
+        deprecated: true
         schema:
           type: string
           enum:
@@ -214,8 +217,12 @@ paths:
           type: array
           items:
             type: string
+      - $ref: '#/components/parameters/CatalogAvailability'
+      - $ref: '#/components/parameters/CatalogBilling'
+      - $ref: '#/components/parameters/CatalogKeyID'
       - name: availability_state
         in: query
+        deprecated: true
         schema:
           type: string
           enum:
@@ -273,6 +280,7 @@ paths:
     get:
       operationId: getProjectModel
       parameters:
+      - $ref: '#/components/parameters/CatalogKeyID'
       - name: catalog_version
         in: query
         schema:
@@ -339,6 +347,23 @@ paths:
               $ref: '#/components/schemas/CatalogCompareInput'
 components:
   parameters:
+    CatalogAvailability:
+      name: availability
+      in: query
+      schema:
+        $ref: '#/components/schemas/CatalogAvailabilityState'
+    CatalogBilling:
+      name: billing
+      in: query
+      schema:
+        $ref: '#/components/schemas/CatalogBillingState'
+    CatalogKeyID:
+      name: api_key_id
+      in: query
+      description: Select a Key the current actor can use in this project.
+      schema:
+        type: string
+        pattern: ^[1-9][0-9]*$
     CatalogModelID:
       name: id
       in: path
@@ -651,6 +676,150 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CatalogCapability'
+    CatalogSourceKind:
+      type: string
+      enum: [builtin_reviewed, platform_preset, builtin_supplement, pi_ai_reference, account_discovery, account_declaration, external_reference, heuristic]
+    CatalogSourceAxis:
+      type: object
+      required: [kinds, candidate, discovered]
+      properties:
+        kinds:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogSourceKind'
+        candidate:
+          type: [boolean, 'null']
+        discovered:
+          type: [boolean, 'null']
+          description: Native discovery membership in the authorized view. Null for public viewers.
+    CatalogAvailabilityState:
+      type: string
+      enum: [live, unavailable, requires_scope, unknown]
+    CatalogAvailability:
+      type: object
+      required: [state, publication, access]
+      properties:
+        state:
+          $ref: '#/components/schemas/CatalogAvailabilityState'
+        publication:
+          type: string
+          enum: [published, unpublished, unknown]
+        access:
+          type: string
+          enum: [allowed, denied, requires_scope, unknown]
+        reason:
+          type: string
+          enum: [candidate_only, published_without_eligible_binding, discovered_without_eligible_binding, scope_required, access_denied, no_eligible_binding, eligibility_incomplete]
+    CatalogBillingState:
+      type: string
+      enum: [priced, free, conditional, partial, conflict, unpriced, error, unknown]
+    CatalogBilling:
+      type: object
+      required: [state]
+      properties:
+        state:
+          $ref: '#/components/schemas/CatalogBillingState'
+        reason:
+          type: string
+          description: A stable display or quote reason code.
+        sale_price:
+          $ref: '#/components/schemas/CatalogSalePrice'
+        reference_price:
+          $ref: '#/components/schemas/CatalogReferencePrice'
+    CatalogSalePrice:
+      type: object
+      required: [source, scope, price_version, valid_from, valid_until, input_rate, output_rate, additional_rates, time_bands]
+      properties:
+        source:
+          type: string
+        scope:
+          type: string
+          enum: [public, authorized]
+        price_version:
+          type: [string, 'null']
+        valid_from:
+          type: [string, 'null']
+          format: date-time
+        valid_until:
+          type: [string, 'null']
+          format: date-time
+        input_rate:
+          anyOf:
+          - $ref: '#/components/schemas/CatalogRate'
+          - type: 'null'
+        output_rate:
+          anyOf:
+          - $ref: '#/components/schemas/CatalogRate'
+          - type: 'null'
+        additional_rates:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogRateBand'
+        time_bands:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogTimeBand'
+        context_basis:
+          type: string
+    CatalogFieldProvenance:
+      type: object
+      required: [field, state]
+      properties:
+        field:
+          type: string
+        state:
+          type: string
+          enum: [known, unknown, stale, conflict, suppressed]
+        source_kind:
+          $ref: '#/components/schemas/CatalogSourceKind'
+        artifact_version:
+          type: string
+        observed_at:
+          type: string
+          format: date-time
+        record_key:
+          type: string
+        provider:
+          type: string
+        profile:
+          type: string
+        match_rule:
+          type: string
+        trust:
+          type: string
+        scope:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        value: {}
+    CatalogCommonFacts:
+      type: object
+      required: [context_tokens, context_kind, max_output_tokens, embedding_dimensions, tools, vision, reasoning, prompt_caching, pdf, modalities]
+      properties:
+        context_tokens:
+          type: [string, 'null']
+        context_kind:
+          type: string
+          enum: [input, total, unspecified, '']
+        max_output_tokens:
+          type: [string, 'null']
+        embedding_dimensions:
+          type: [string, 'null']
+        tools:
+          type: [boolean, 'null']
+        vision:
+          type: [boolean, 'null']
+        reasoning:
+          type: [boolean, 'null']
+        prompt_caching:
+          type: [boolean, 'null']
+        pdf:
+          type: [boolean, 'null']
+        modalities:
+          type: [array, 'null']
+          items:
+            type: string
     ModelSummary:
       type: object
       required:
@@ -676,6 +845,14 @@ components:
       properties:
         id:
           type: string
+        canonical_id:
+          type: string
+        source:
+          $ref: '#/components/schemas/CatalogSourceAxis'
+        availability:
+          $ref: '#/components/schemas/CatalogAvailability'
+        billing:
+          $ref: '#/components/schemas/CatalogBilling'
         model:
           type: string
         display_name:
@@ -706,6 +883,7 @@ components:
             pattern: ^(0|[1-9][0-9]*)$
           - type: 'null'
         maturity:
+          deprecated: true
           type: string
           enum:
           - unknown
@@ -713,15 +891,18 @@ components:
           - experimental
           - deprecated
         catalog_state:
+          deprecated: true
           type: string
           enum:
           - listed
         availability_state:
+          deprecated: true
           type: string
           enum:
           - live
           - catalog_only
         access_state:
+          deprecated: true
           type: string
           enum:
           - allowed
@@ -729,6 +910,7 @@ components:
           - unknown
           - requires_scope
         route_state:
+          deprecated: true
           type: string
           enum:
           - eligible
@@ -736,6 +918,7 @@ components:
           - unknown
           - requires_scope
         price_state:
+          deprecated: true
           type: string
           enum:
           - priced
@@ -756,6 +939,7 @@ components:
             format: date-time
           - type: 'null'
         evidence_state:
+          deprecated: true
           type: string
           enum:
           - fresh
@@ -941,6 +1125,15 @@ components:
       - documentation_url
       - redactions
       properties:
+        scope_version:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+        provenance:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogFieldProvenance'
+        common_facts:
+          $ref: '#/components/schemas/CatalogCommonFacts'
         model:
           $ref: '#/components/schemas/ModelSummary'
         reference_price:
@@ -1005,6 +1198,9 @@ components:
       - as_of
       - catalog_version
       properties:
+        scope_version:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
         items:
           type: array
           items:
@@ -1019,26 +1215,16 @@ components:
         catalog_version:
           type: string
     CatalogPriceScenario:
-      type: object
-      required: []
-      properties:
-        input_tokens:
-          type: string
-          pattern: ^(0|[1-9][0-9]*)$
-        cached_input_tokens:
-          type: string
-          pattern: ^(0|[1-9][0-9]*)$
-        output_tokens:
-          type: string
-          pattern: ^(0|[1-9][0-9]*)$
-        requests:
-          type: string
-          pattern: ^(0|[1-9][0-9]*)$
+      $ref: '#/components/schemas/ExactPriceScenario'
     CatalogCompareInput:
       type: object
       required:
       - model_ids
       properties:
+        api_key_id:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          description: Accepted only by project compare for a Key the actor can use in that project.
         model_ids:
           type: array
           items:
@@ -1079,15 +1265,29 @@ components:
       - components
       - rounding_adjustment
       properties:
+        billing_state:
+          $ref: '#/components/schemas/CatalogBillingState'
+        reason:
+          description: Explains an unavailable estimate or describes the catalog billing state when no estimate was requested.
+          anyOf:
+          - $ref: '#/components/schemas/PriceEstimateReason'
+          - type: string
+        price_at:
+          type: string
+          format: date-time
         state:
           type: string
           enum:
           - estimated
+          - free
           - unpriced
         price_version:
           anyOf:
           - type: string
           - type: 'null'
+        source:
+          description: Origin of the sale tariff used for this estimate.
+          type: string
         estimated_charge:
           anyOf:
           - $ref: '#/components/schemas/CatalogMoney'
@@ -1145,6 +1345,9 @@ components:
       - as_of
       - rows
       properties:
+        scope_version:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
         catalog_version:
           type: string
         as_of:

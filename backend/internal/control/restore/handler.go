@@ -25,13 +25,13 @@ var ProviderSet = wire.NewSet(legacy.New, New)
 
 func Register(parent *gin.RouterGroup, h *Handler, session ...gin.HandlerFunc) {
 	g := parent.Group("/admin/restores", append([]gin.HandlerFunc{identityhttp.TenantHeaders}, session...)...)
-	g.POST("/previews", serve(201, h.preview))
-	g.POST("", serve(202, h.execute))
-	g.GET("/:id", serve(200, func(c *gin.Context, a rs.Actor) (any, error) {
+	g.POST("/previews", h.serve(201, h.preview))
+	g.POST("", h.serve(202, h.execute))
+	g.GET("/:id", h.serve(200, func(c *gin.Context, a rs.Actor) (any, error) {
 		return h.commands.Get(c.Request.Context(), a, c.Param("id"))
 	}))
 }
-func serve(status int, fn func(*gin.Context, rs.Actor) (any, error)) gin.HandlerFunc {
+func (h *Handler) serve(status int, fn func(*gin.Context, rs.Actor) (any, error)) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		who, ok := middleware.GetAuthSubjectFromContext(c)
 		if !ok || who.UserID <= 0 {
@@ -42,7 +42,17 @@ func serve(status int, fn func(*gin.Context, rs.Actor) (any, error)) gin.Handler
 		if c.GetString("auth_method") != service.AuditAuthMethodAdminAPIKey {
 			session = middleware.StepUpSessionKey(c, who.UserID)
 		}
-		data, err := fn(c, rs.Actor{ID: who.UserID, Workspace: domain.DefaultWorkspaceID, Session: session})
+		db := h.commands.Targets[rs.Production].DB
+		if db == nil {
+			fail(c, rs.Unavailable)
+			return
+		}
+		workspace, err := domain.ResolveDefaultWorkspaceID(c.Request.Context(), db)
+		if err != nil {
+			fail(c, rs.Unavailable)
+			return
+		}
+		data, err := fn(c, rs.Actor{ID: who.UserID, Workspace: workspace, Session: session})
 		if err != nil {
 			fail(c, err)
 			return

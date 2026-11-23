@@ -63,7 +63,7 @@ func (h *BackupHandler) TestS3Connection(c *gin.Context) {
 // ─── 定时备份 ───
 
 func (h *BackupHandler) GetSchedule(c *gin.Context) {
-	cfg, err := h.backupService.GetSchedule(c.Request.Context())
+	cfg, err := h.backupService.GetScheduleStatus(c.Request.Context())
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -77,12 +77,17 @@ func (h *BackupHandler) UpdateSchedule(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	cfg, err := h.backupService.UpdateSchedule(c.Request.Context(), req)
+	_, err := h.backupService.UpdateSchedule(c.Request.Context(), req)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, cfg)
+	status, err := h.backupService.GetScheduleStatus(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, status)
 }
 
 // ─── 备份操作 ───

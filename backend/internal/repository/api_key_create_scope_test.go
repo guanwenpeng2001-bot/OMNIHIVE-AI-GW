@@ -1,7 +1,6 @@
 package repository
 
 import (
-	"context"
 	"testing"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/apikeycredential"
@@ -16,7 +15,9 @@ import (
 // credential repository against a disposable in-memory database, with no DSN.
 func TestAPIKeyCreateScopedPersistence_SQLite(t *testing.T) {
 	repo, client := newAPIKeyRepoSQLite(t)
-	ctx := domain.WithWorkspaceScope(context.Background(), domain.DefaultWorkspaceID)
+	workspaceID, err := domain.ResolveDefaultWorkspaceID(t.Context(), client)
+	require.NoError(t, err)
+	ctx := domain.WithWorkspaceScope(t.Context(), workspaceID)
 	user := mustCreateAPIKeyRepoUser(t, ctx, client, "cumora-create@example.test")
 	group, err := client.Group.Create().SetName("provisioning-default").Save(ctx)
 	require.NoError(t, err)
@@ -35,13 +36,13 @@ func TestAPIKeyCreateScopedPersistence_SQLite(t *testing.T) {
 	require.NotEmpty(t, key.Key)
 	stored := client.APIKey.GetX(ctx, key.ID)
 	require.Equal(t, user.ID, stored.UserID)
-	require.Equal(t, domain.DefaultWorkspaceID, stored.WorkspaceID)
+	require.Equal(t, workspaceID, stored.WorkspaceID)
 	require.Equal(t, group.ID, *stored.GroupID)
 	require.Empty(t, stored.Key, "the key identity row must not persist plaintext")
 	credential := client.APIKeyCredential.Query().Where(apikeycredential.APIKeyIDEQ(key.ID)).OnlyX(ctx)
 	require.Equal(t, service.APIKeyCredentialDigest(key.Key), credential.CredentialDigest)
 	require.Equal(t, service.APIKeyCredentialDisplaySuffix(key.Key), credential.DisplaySuffix)
-	require.Equal(t, domain.DefaultWorkspaceID, credential.WorkspaceID)
+	require.Equal(t, workspaceID, credential.WorkspaceID)
 	require.Equal(t, domain.CredentialStatusCurrent, credential.Status)
 
 	resolved, err := repo.GetByKeyForAuth(ctx, key.Key)

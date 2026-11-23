@@ -20,6 +20,10 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
       - name: Use Homebrew Bash 4+
         shell: bash
         run: |
@@ -279,6 +283,7 @@ jobs:
           BE09_TEST_JOURNAL_DSN: postgres://omni_fixture@127.0.0.1:55480/be09_journal_test?sslmode=disable
           # Never migrated: exercises the first-boot path before the journal schema exists.
           RESTOREGATE_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/restoregate_test?sslmode=disable
+          BE6_SETTING_MIGRATION_DSN: postgres://omni_fixture@127.0.0.1:55486/job_test?sslmode=disable
           MIGRATION_INTEGRATION_TEST_DSN: postgres://omni_fixture@127.0.0.1:55486/job_test?sslmode=disable
           RETIREMENT_INTEGRATION_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/job_test?sslmode=disable
           UPSTREAM_BILLING_AUDIT_DSN: postgres://omni_fixture@127.0.0.1:55480/billing_audit_test?sslmode=disable

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/stretchr/testify/require"
@@ -14,6 +15,20 @@ type keyGroupCatalog struct{ details []catalog.Detail }
 
 func (r keyGroupCatalog) Snapshot(context.Context, catalog.Perspective, time.Time) (catalog.Snapshot, error) {
 	return catalog.Snapshot{Details: r.details}, nil
+}
+
+func TestProjectKeyExplicitGroupRequiresCatalogEligibility(t *testing.T) {
+	id := catalog.StableID("openai", "a")
+	store := NewWithCatalog(nil, keyGroupCatalog{[]catalog.Detail{
+		{Model: catalog.Summary{ID: id, Model: "a"}, EligibleGroups: []int64{7}},
+	}})
+	input := identity.ModelAccess{Mode: "allow_list", IDs: []string{id}}
+	require.NoError(t, store.checkExplicitGroupModels(t.Context(), identity.Access{}, 7, input))
+	var invalid *fault.Fault
+	err := store.checkExplicitGroupModels(t.Context(), identity.Access{}, 3, input)
+	require.ErrorAs(t, err, &invalid)
+	require.Equal(t, "/model_access/ids", invalid.Field)
+	require.ErrorIs(t, New(nil).checkExplicitGroupModels(t.Context(), identity.Access{}, 7, input), keyCatalogUnavailable)
 }
 
 func TestCatalogKeyGroupsRestrictsAutomaticSelection(t *testing.T) {

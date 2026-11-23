@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"os"
 	"strconv"
@@ -26,11 +27,16 @@ import (
 type Runtime struct {
 	*restore.Service
 	backup  *service.BackupService
+	journal *sql.DB // Verified journal for production fencing and backup history.
+	status  service.RestoreRuntimeStatus
 	closeDB func()
 }
 
 func New(db *sql.DB, cfg *config.Config, backup *service.BackupService, access identity.AccessEvaluator, totp *service.TotpService, users *service.UserService) (*Runtime, error) {
-	r := &Runtime{Service: &restore.Service{Access: access, StepUp: sessionGrant{users, totp}}, backup: backup}
+	r := &Runtime{
+		Service: &restore.Service{Access: access, StepUp: sessionGrant{users, totp}},
+		backup:  backup, status: service.RestoreRuntimeStatus{Status: "disabled"},
+	}
 	journal, isolated := os.Getenv("OMNIHIVE_RESTORE_JOURNAL_DSN"), os.Getenv("OMNIHIVE_RESTORE_ISOLATED_DSN")
 	if journal == "" && isolated == "" {
 		backup.SetRestoreControl(r)
@@ -63,7 +69,9 @@ func New(db *sql.DB, cfg *config.Config, backup *service.BackupService, access i
 	r.Targets = map[string]restore.Target{restore.Production: {DB: db, Database: repository.NewPgDumper(cfg, db)}, restore.Isolated: {DB: i, Database: repository.NewPgDumper(&config.Config{Database: isoCfg}, i)}}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err = r.Initialize(ctx); err != nil {
+	err = r.Initialize(ctx)
+	isolatedUnavailable := errors.Is(err, restore.ErrIsolatedTargetUnavailable)
+	if err != nil && !isolatedUnavailable {
 		closeDB()
 		return nil, err
 	}
@@ -82,10 +90,28 @@ func New(db *sql.DB, cfg *config.Config, backup *service.BackupService, access i
 			return nil, err
 		}
 	}
-	backup.SetRestoreControl(r)
+	r.journal = j
+	r.status = service.RestoreRuntimeStatus{Status: "available"}
 	r.closeDB = closeDB
+	if isolatedUnavailable {
+		r.Journal = nil
+		r.Targets = nil
+		r.Archives = nil
+		_ = i.Close()
+		r.closeDB = func() { _ = j.Close() }
+		r.status = service.RestoreRuntimeStatus{Status: "unavailable", Reason: "ISOLATED_TARGET_UNAVAILABLE"}
+		slog.Warn("restore unavailable at startup", "reason", r.status.Reason)
+	}
+	backup.SetRestoreControl(r)
 	return r, nil
 }
+
+func (r *Runtime) RestoreStatus() service.RestoreRuntimeStatus { return r.status }
+
+func (r *Runtime) Maintenance(next http.Handler) http.Handler {
+	return (&restore.Service{Journal: r.journal}).Maintenance(next)
+}
+
 func (r *Runtime) Close() {
 	if r.closeDB != nil {
 		r.closeDB()
@@ -163,11 +189,11 @@ func (r *Runtime) Snapshot(ctx context.Context, key string, dump io.ReadCloser) 
 }
 
 func (r *Runtime) CompletedArchive(ctx context.Context, id string) (*service.BackupRecord, error) {
-	if r.Journal == nil {
+	if r.journal == nil {
 		return nil, nil
 	}
 	var data []byte
-	err := r.Journal.QueryRowContext(ctx, `SELECT record FROM restore_journal.backups WHERE id=$1 AND record->>'status'='completed'`, id).Scan(&data)
+	err := r.journal.QueryRowContext(ctx, `SELECT record FROM restore_journal.backups WHERE id=$1 AND record->>'status'='completed'`, id).Scan(&data)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -182,18 +208,18 @@ func (r *Runtime) CompletedArchive(ctx context.Context, id string) (*service.Bac
 }
 
 func (r *Runtime) Forget(ctx context.Context, id string) error {
-	if r.Journal == nil {
+	if r.journal == nil {
 		return nil
 	}
-	_, err := r.Journal.ExecContext(ctx, "UPDATE restore_journal.backups SET removed_at=clock_timestamp() WHERE id=$1", id)
+	_, err := r.journal.ExecContext(ctx, "UPDATE restore_journal.backups SET removed_at=clock_timestamp() WHERE id=$1", id)
 	return err
 }
 
 func (r *Runtime) Project(ctx context.Context, records []service.BackupRecord, filter string) ([]service.BackupRecord, error) {
-	if r.Journal == nil {
+	if r.journal == nil {
 		return records, nil
 	}
-	rows, err := r.Journal.QueryContext(ctx, `SELECT DISTINCT ON(id) id,record,operation,state,stamp,reason FROM (
+	rows, err := r.journal.QueryContext(ctx, `SELECT DISTINCT ON(id) id,record,operation,state,stamp,reason FROM (
  SELECT b.id,p.record,coalesce(l.id,o.id) AS operation,CASE WHEN o.stage='manual_recovery' THEN 'unknown' ELSE o.state END AS state,o.updated_at AS stamp,o.report->>'reason' AS reason,o.created_at
  FROM restore_journal.operations o JOIN restore_journal.previews p ON p.id=o.preview_id JOIN restore_journal.backups b ON b.id=p.backup_id
  LEFT JOIN restore_journal.legacy_requests l ON l.production_id=o.id

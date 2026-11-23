@@ -53,21 +53,10 @@ var (
 	ErrBackupS3NotConfigured = infraerrors.BadRequest("BACKUP_S3_NOT_CONFIGURED", "backup S3 storage is not configured")
 	ErrBackupNotFound        = infraerrors.NotFound("BACKUP_NOT_FOUND", "backup record not found")
 	ErrBackupInProgress      = infraerrors.Conflict("BACKUP_IN_PROGRESS", "a backup is already in progress")
+	ErrBackupRecordStale     = infraerrors.Conflict("BACKUP_RECORD_STALE", "backup record was changed or deleted by another worker")
 	ErrRestoreInProgress     = infraerrors.Conflict("RESTORE_IN_PROGRESS", "a restore is already in progress")
 	ErrBackupRecordsCorrupt  = infraerrors.InternalServer("BACKUP_RECORDS_CORRUPT", "backup records data is corrupted")
 	ErrBackupS3ConfigCorrupt = infraerrors.InternalServer("BACKUP_S3_CONFIG_CORRUPT", "backup S3 config data is corrupted")
-
-	// ErrSecretEncryptionKeyNotConfigured is returned when an S3 SecretAccessKey
-	// would be encrypted with an auto-generated (ephemeral) key. That key is
-	// regenerated on every process start, so the persisted ciphertext becomes
-	// undecryptable after a restart/upgrade ("cipher: message authentication
-	// failed"), silently breaking S3 backup/image storage (#4524). Mirrors the
-	// existing guards for payments (payment.ProvideEncryptionKey) and TOTP
-	// enablement, which likewise refuse to depend on an auto-generated key.
-	ErrSecretEncryptionKeyNotConfigured = infraerrors.BadRequest(
-		"SECRET_ENCRYPTION_KEY_NOT_CONFIGURED",
-		"cannot store the S3 secret access key: no fixed secret encryption key is configured, so the auto-generated key would change on every restart and make the stored secret undecryptable after a restart or upgrade. Set a fixed TOTP_ENCRYPTION_KEY (e.g. generate one with `openssl rand -hex 32`) and try again",
-	)
 )
 
 // ─── 接口定义 ───
@@ -144,13 +133,54 @@ type BackupRecord struct {
 	ErrorMsg           string       `json:"error_message,omitempty"`
 	StartedAt          string       `json:"started_at"`
 	FinishedAt         string       `json:"finished_at,omitempty"`
-	ExpiresAt          string       `json:"expires_at,omitempty"`     // 过期时间
-	Progress           string       `json:"progress,omitempty"`       // "dumping", "uploading", ""
+	ExpiresAt          string       `json:"expires_at,omitempty"` // 过期时间
+	Progress           string       `json:"progress,omitempty"`   // "dumping", "uploading", ""
+	Checksum           string       `json:"checksum,omitempty"`
+	VerifiedAt         string       `json:"verified_at,omitempty"`
+	VerificationError  string       `json:"verification_error,omitempty"`
 	RestoreStatus      string       `json:"restore_status,omitempty"` // "", "running", "completed", "failed"
 	RestoreOperationID string       `json:"restore_operation_id,omitempty"`
 	RestoreError       string       `json:"restore_error,omitempty"`
 	RestoredAt         string       `json:"restored_at,omitempty"`
+	// AttemptID and Revision are database-only concurrency fences. They are not
+	// exposed in API records or duplicated into the historical record JSON.
+	AttemptID string `json:"-"`
+	Revision  int64  `json:"-"`
 }
+
+// BackupSchedulerRuntime is the scheduler's persisted operational projection.
+// All timestamps are RFC3339 to preserve the existing handler/API convention.
+type BackupSchedulerRuntime struct {
+	Loaded         bool   `json:"loaded"`
+	Health         string `json:"health"`
+	NextRunAt      string `json:"next_run_at,omitempty"`
+	LastAttemptAt  string `json:"last_attempt_at,omitempty"`
+	LastSuccessAt  string `json:"last_success_at,omitempty"`
+	LastVerifiedAt string `json:"last_verified_at,omitempty"`
+	LastError      string `json:"last_error,omitempty"`
+	LeaderRequired bool   `json:"leader_required"`
+	Timezone       string `json:"timezone"`
+}
+
+// BackupScheduleStatus is deliberately shared by GET and PUT so a schedule
+// configuration is never returned as healthy when it failed to load/apply.
+type BackupScheduleStatus struct {
+	BackupScheduleConfig
+	Runtime            BackupSchedulerRuntime `json:"runtime"`
+	LastVerifiedBackup *BackupRecord          `json:"last_verified_backup,omitempty"`
+	BackupSecretKey    BackupSecretKeyStatus  `json:"backup_secret_key"`
+	Restore            RestoreRuntimeStatus   `json:"restore"`
+}
+
+type RestoreRuntimeStatus struct {
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// BackupSchedulerAlertSink is a narrow adapter for Ops. The composition root
+// can map it to its alert/event system without coupling backup execution to an
+// Ops implementation; structured logs remain the safe fallback.
+type BackupSchedulerAlertSink func(context.Context, BackupSchedulerRuntime)
 
 // BackupDownloadPart 描述一个可下载的备份分卷。
 type BackupDownloadPart struct {
@@ -176,6 +206,8 @@ type BackupService struct {
 	// restart. Durable-secret writers must refuse to persist new secrets in that
 	// mode (#4524).
 	encryptionKeyConfigured bool
+	backupSecretCryptor     *backupSecretCryptor
+	secretPayloadRepo       BackupSecretPayloadRepository
 	storeFactory            BackupObjectStoreFactory
 	dumper                  DBDumper
 
@@ -189,9 +221,12 @@ type BackupService struct {
 
 	recordsMu sync.Mutex // 保护 records 的 load/save 操作
 
-	cronMu      sync.Mutex
-	cronSched   *cron.Cron
-	cronEntryID cron.EntryID
+	cronMu           sync.Mutex
+	cronSched        *cron.Cron
+	cronEntryID      cron.EntryID
+	schedulerMu      sync.Mutex
+	schedulerRuntime BackupSchedulerRuntime
+	alertSink        BackupSchedulerAlertSink
 
 	// lockCache/db elect a single leader for the scheduled backup across
 	// instances; instanceID identifies this process as the lock owner. Injected
@@ -216,10 +251,12 @@ func NewBackupService(
 	dumper DBDumper,
 ) *BackupService {
 	bgCtx, bgCancel := context.WithCancel(context.Background())
+	cryptor, _ := newBackupSecretCryptorFromEnv()
 	return &BackupService{
 		settingRepo:             settingRepo,
 		dbCfg:                   &cfg.Database,
 		encryptor:               encryptor,
+		backupSecretCryptor:     cryptor,
 		encryptionKeyConfigured: cfg.Totp.EncryptionKeyConfigured,
 		storeFactory:            storeFactory,
 		dumper:                  dumper,
@@ -227,6 +264,23 @@ func NewBackupService(
 		bgCancel:                bgCancel,
 		partSizeBytes:           defaultBackupPartSizeBytes,
 		instanceID:              uuid.NewString(),
+		schedulerRuntime:        BackupSchedulerRuntime{Health: "unknown", LeaderRequired: true, Timezone: time.Local.String()},
+	}
+}
+
+// SetSecretPayloadRepository is called by the composition root after migration
+// 342 is available. Keeping it as a setter avoids changing shared Wire files in
+// package branches while still making the dependency explicit and testable.
+func (s *BackupService) SetSecretPayloadRepository(repo BackupSecretPayloadRepository) {
+	if s == nil {
+		return
+	}
+	s.secretPayloadRepo = repo
+}
+
+func (s *BackupService) SetSchedulerAlertSink(sink BackupSchedulerAlertSink) {
+	if s != nil {
+		s.alertSink = sink
 	}
 }
 
@@ -243,6 +297,17 @@ func (s *BackupService) SetLeaderLock(lockCache LeaderLockCache, db *sql.DB) {
 
 // Start 启动定时备份调度器并清理孤立记录
 func (s *BackupService) Start() {
+	if cryptor, err := newBackupSecretCryptorFromEnv(); err != nil {
+		logger.LegacyPrintf("service.backup", "[Backup] BACKUP_SECRET_ENCRYPTION_KEY is invalid; legacy backup secrets remain readable until it is corrected")
+		s.backupSecretCryptor = &backupSecretCryptor{}
+	} else {
+		s.backupSecretCryptor = cryptor
+		if !cryptor.configured() {
+			logger.LegacyPrintf("service.backup", "[Backup] BACKUP_SECRET_ENCRYPTION_KEY is not configured; continuing with legacy TOTP-encrypted backup secrets; migration is required before changing credentials")
+		} else if err := s.migrateLegacyBackupSecret(context.Background()); err != nil {
+			logger.LegacyPrintf("service.backup", "[Backup] backup secret migration pending or failed; legacy fallback remains active")
+		}
+	}
 	s.cronSched = cron.New()
 	s.cronSched.Start()
 
@@ -257,13 +322,29 @@ func (s *BackupService) Start() {
 	schedule, err := s.GetSchedule(ctx)
 	if err != nil {
 		logger.LegacyPrintf("service.backup", "[Backup] 加载定时备份配置失败: %v", err)
+		s.setSchedulerRuntime(ctx, func(runtime *BackupSchedulerRuntime) {
+			runtime.Loaded = false
+			runtime.Health = "error"
+			runtime.LastError = "schedule configuration could not be loaded"
+		})
 		return
 	}
 	if schedule.Enabled && schedule.CronExpr != "" {
 		if err := s.applyCronSchedule(schedule); err != nil {
 			logger.LegacyPrintf("service.backup", "[Backup] 应用定时备份配置失败: %v", err)
+			s.setSchedulerRuntime(ctx, func(runtime *BackupSchedulerRuntime) {
+				runtime.Loaded = false
+				runtime.Health = "error"
+				runtime.LastError = "schedule could not be applied"
+			})
+			return
 		}
 	}
+	s.setSchedulerRuntime(ctx, func(runtime *BackupSchedulerRuntime) {
+		runtime.Loaded = true
+		runtime.Health = "healthy"
+		runtime.LastError = ""
+	})
 }
 
 // recoverStaleRecords 启动时将孤立的 running 记录标记为 failed，并清理已上传对象。
@@ -374,7 +455,21 @@ func (s *BackupService) Stop() {
 // and secrets encrypted with it cannot be recovered after a restart, so callers
 // that persist durable secrets must refuse to do so (#4524).
 func (s *BackupService) EncryptionKeyConfigured() bool {
+	// Compatibility for the image-storage service, whose separate migration is
+	// outside this package. Backup S3 writes use backupSecretCryptor directly.
 	return s != nil && s.encryptionKeyConfigured
+}
+
+func (s *BackupService) BackupSecretKeyStatus(ctx context.Context) BackupSecretKeyStatus {
+	if s == nil || s.backupSecretCryptor == nil || !s.backupSecretCryptor.configured() {
+		return BackupSecretKeyStatus{Source: "legacy_totp", MigrationRequired: true}
+	}
+	if s.secretPayloadRepo != nil {
+		if envelope, err := s.secretPayloadRepo.Get(ctx, settingKeyBackupS3Config); err == nil && envelope != nil {
+			return BackupSecretKeyStatus{Source: "backup_secret_encryption_key", Configured: true, KeyID: envelope.KeyID}
+		}
+	}
+	return BackupSecretKeyStatus{Source: "backup_secret_encryption_key", Configured: true, MigrationRequired: true, KeyID: s.backupSecretCryptor.keyID()}
 }
 
 func (s *BackupService) GetS3Config(ctx context.Context) (*BackupS3Config, error) {
@@ -393,31 +488,47 @@ func (s *BackupService) GetS3Config(ctx context.Context) (*BackupS3Config, error
 func (s *BackupService) UpdateS3Config(ctx context.Context, cfg BackupS3Config) (*BackupS3Config, error) {
 	// 如果没提供 secret，保留原有值
 	if cfg.SecretAccessKey == "" {
-		old, _ := s.loadS3Config(ctx)
+		old, err := s.loadS3Config(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("load existing s3 config: %w", err)
+		}
 		if old != nil {
 			cfg.SecretAccessKey = old.SecretAccessKey
 		}
 	}
 	if cfg.SecretAccessKey != "" {
-		// 拒绝用自动生成的临时密钥加密：该密钥每次重启都会变化，落库的密文在
-		// 重启/升级后无法解密（#4524）。与支付、TOTP 的处理保持一致。
-		if !s.encryptionKeyConfigured {
-			return nil, ErrSecretEncryptionKeyNotConfigured
+		if s.backupSecretCryptor == nil || !s.backupSecretCryptor.configured() {
+			return nil, ErrBackupSecretKeyNotConfigured
 		}
-		// 加密 SecretAccessKey
-		encrypted, err := s.encryptor.Encrypt(cfg.SecretAccessKey)
+		if s.secretPayloadRepo == nil {
+			return nil, infraerrors.ServiceUnavailable("BACKUP_SECRET_STORAGE_UNAVAILABLE", "backup secret envelope storage is not available")
+		}
+		// Keep the legacy ciphertext in the settings JSON through the rollback
+		// window. The envelope is authoritative for v0.3.4 reads.
+		legacyCiphertext, err := s.encryptor.Encrypt(cfg.SecretAccessKey)
 		if err != nil {
-			return nil, fmt.Errorf("encrypt secret: %w", err)
+			return nil, fmt.Errorf("encrypt legacy rollback secret: %w", err)
 		}
-		cfg.SecretAccessKey = encrypted
-	}
-
-	data, err := json.Marshal(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("marshal s3 config: %w", err)
-	}
-	if err := s.settingRepo.Set(ctx, settingKeyBackupS3Config, string(data)); err != nil {
-		return nil, fmt.Errorf("save s3 config: %w", err)
+		envelope, err := s.backupSecretCryptor.seal(cfg.SecretAccessKey, backupS3SecretAAD)
+		if err != nil {
+			return nil, err
+		}
+		cfg.SecretAccessKey = legacyCiphertext
+		data, err := json.Marshal(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("marshal s3 config: %w", err)
+		}
+		if err := s.secretPayloadRepo.Save(ctx, settingKeyBackupS3Config, string(data), envelope); err != nil {
+			return nil, fmt.Errorf("save backup secret envelopes: %w", err)
+		}
+	} else {
+		data, err := json.Marshal(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("marshal s3 config: %w", err)
+		}
+		if err := s.settingRepo.Set(ctx, settingKeyBackupS3Config, string(data)); err != nil {
+			return nil, fmt.Errorf("save s3 config: %w", err)
+		}
 	}
 
 	// 清除缓存的 S3 客户端
@@ -433,7 +544,10 @@ func (s *BackupService) UpdateS3Config(ctx context.Context, cfg BackupS3Config) 
 func (s *BackupService) TestS3Connection(ctx context.Context, cfg BackupS3Config) error {
 	// 如果没提供 secret，用已保存的
 	if cfg.SecretAccessKey == "" {
-		old, _ := s.loadS3Config(ctx)
+		old, err := s.loadS3Config(ctx)
+		if err != nil {
+			return fmt.Errorf("load existing s3 config: %w", err)
+		}
 		if old != nil {
 			cfg.SecretAccessKey = old.SecretAccessKey
 		}
@@ -467,6 +581,62 @@ func (s *BackupService) GetSchedule(ctx context.Context) (*BackupScheduleConfig,
 	return &cfg, nil
 }
 
+func (s *BackupService) GetScheduleStatus(ctx context.Context) (*BackupScheduleStatus, error) {
+	cfg, err := s.GetSchedule(ctx)
+	if err != nil {
+		return nil, err
+	}
+	status := &BackupScheduleStatus{BackupScheduleConfig: *cfg, Runtime: s.getSchedulerRuntime(ctx), BackupSecretKey: s.BackupSecretKeyStatus(ctx)}
+	status.Restore = RestoreRuntimeStatus{Status: "disabled"}
+	if control, ok := s.boundRestoreControl().(interface{ RestoreStatus() RestoreRuntimeStatus }); ok {
+		status.Restore = control.RestoreStatus()
+	}
+	s.applySchedulerAlertThreshold(cfg, &status.Runtime)
+	if records, err := s.ListBackups(ctx); err == nil {
+		for i := range records {
+			if records[i].VerifiedAt == "" {
+				continue
+			}
+			if status.LastVerifiedBackup == nil || records[i].VerifiedAt > status.LastVerifiedBackup.VerifiedAt {
+				copy := records[i]
+				status.LastVerifiedBackup = &copy
+			}
+		}
+	}
+	return status, nil
+}
+
+func (s *BackupService) applySchedulerAlertThreshold(cfg *BackupScheduleConfig, runtime *BackupSchedulerRuntime) {
+	if cfg == nil || runtime == nil || !cfg.Enabled {
+		return
+	}
+	if runtime.NextRunAt == "" {
+		runtime.Health, runtime.LastError = "error", "schedule enabled but next run is unavailable"
+		return
+	}
+	if runtime.LastSuccessAt == "" {
+		return
+	}
+	lastSuccess, err := time.Parse(time.RFC3339, runtime.LastSuccessAt)
+	if err != nil {
+		return
+	}
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	schedule, err := parser.Parse(cfg.CronExpr)
+	if err != nil {
+		return
+	}
+	first := schedule.Next(lastSuccess)
+	period := schedule.Next(first).Sub(first)
+	threshold := 48 * time.Hour
+	if period > 0 && 2*period > threshold {
+		threshold = 2 * period
+	}
+	if time.Since(lastSuccess) > threshold {
+		runtime.Health, runtime.LastError = "degraded", "no verified backup within the scheduler alert window"
+	}
+}
+
 func (s *BackupService) UpdateSchedule(ctx context.Context, cfg BackupScheduleConfig) (*BackupScheduleConfig, error) {
 	if cfg.Enabled && cfg.CronExpr == "" {
 		return nil, infraerrors.BadRequest("INVALID_CRON", "cron expression is required when schedule is enabled")
@@ -490,11 +660,21 @@ func (s *BackupService) UpdateSchedule(ctx context.Context, cfg BackupScheduleCo
 	// 应用或停止定时任务
 	if cfg.Enabled {
 		if err := s.applyCronSchedule(&cfg); err != nil {
+			s.setSchedulerRuntime(ctx, func(runtime *BackupSchedulerRuntime) {
+				runtime.Loaded = false
+				runtime.Health = "error"
+				runtime.LastError = "schedule could not be applied"
+			})
 			return nil, err
 		}
 	} else {
 		s.removeCronSchedule()
 	}
+	s.setSchedulerRuntime(ctx, func(runtime *BackupSchedulerRuntime) {
+		runtime.Loaded = true
+		runtime.Health = "healthy"
+		runtime.LastError = ""
+	})
 
 	return &cfg, nil
 }
@@ -507,19 +687,23 @@ func (s *BackupService) applyCronSchedule(cfg *BackupScheduleConfig) error {
 		return fmt.Errorf("cron scheduler not initialized")
 	}
 
-	// 移除旧任务
-	if s.cronEntryID != 0 {
-		s.cronSched.Remove(s.cronEntryID)
-		s.cronEntryID = 0
-	}
-
 	entryID, err := s.cronSched.AddFunc(cfg.CronExpr, func() {
 		s.runScheduledBackup()
 	})
 	if err != nil {
 		return infraerrors.BadRequest("INVALID_CRON", fmt.Sprintf("failed to schedule: %v", err))
 	}
+	if s.cronEntryID != 0 {
+		s.cronSched.Remove(s.cronEntryID)
+	}
 	s.cronEntryID = entryID
+	entry := s.cronSched.Entry(entryID)
+	s.setSchedulerRuntime(context.Background(), func(runtime *BackupSchedulerRuntime) {
+		runtime.Loaded = true
+		runtime.Health = "healthy"
+		runtime.NextRunAt = entry.Next.Format(time.RFC3339)
+		runtime.LastError = ""
+	})
 	logger.LegacyPrintf("service.backup", "[Backup] 定时备份已启用: %s", cfg.CronExpr)
 	return nil
 }
@@ -532,6 +716,12 @@ func (s *BackupService) removeCronSchedule() {
 		s.cronEntryID = 0
 		logger.LegacyPrintf("service.backup", "[Backup] 定时备份已停用")
 	}
+	s.setSchedulerRuntime(context.Background(), func(runtime *BackupSchedulerRuntime) {
+		runtime.NextRunAt = ""
+		runtime.Loaded = true
+		runtime.Health = "healthy"
+		runtime.LastError = ""
+	})
 }
 
 func (s *BackupService) runScheduledBackup() {
@@ -540,7 +730,6 @@ func (s *BackupService) runScheduledBackup() {
 
 	ctx, cancel := context.WithTimeout(s.bgCtx, 30*time.Minute)
 	defer cancel()
-
 	// 多实例保护: 集群部署时只让 leader 执行定时备份, 避免每个实例各自对同一个
 	// 数据库跑一次全量 dump、上传时峰值内存翻倍、以及多份同名对象互相覆盖。
 	// 手动触发的备份 (CreateBackup/StartBackup) 不受此限, 运维仍可随时在任一节点强制备份。
@@ -550,11 +739,19 @@ func (s *BackupService) runScheduledBackup() {
 		return
 	}
 	defer release()
+	s.setSchedulerRuntimeGlobal(ctx, func(runtime *BackupSchedulerRuntime) {
+		runtime.LastAttemptAt = time.Now().Format(time.RFC3339)
+		runtime.LastError = ""
+	})
 
 	// 读取定时备份配置中的过期天数
 	schedule, err := s.GetSchedule(ctx)
 	if err != nil {
 		logger.LegacyPrintf("service.backup", "[Backup] 加载备份配置失败: %v", err)
+		s.setSchedulerRuntimeGlobal(ctx, func(runtime *BackupSchedulerRuntime) {
+			runtime.Health = "error"
+			runtime.LastError = "schedule configuration could not be loaded"
+		})
 		return
 	}
 	expireDays := schedule.RetainDays
@@ -567,8 +764,25 @@ func (s *BackupService) runScheduledBackup() {
 		} else {
 			logger.LegacyPrintf("service.backup", "[Backup] 定时备份失败: %v", err)
 		}
+		s.setSchedulerRuntimeGlobal(ctx, func(runtime *BackupSchedulerRuntime) {
+			runtime.Health = "error"
+			runtime.LastError = "scheduled backup failed"
+		})
 		return
 	}
+	if record.VerifiedAt == "" {
+		s.setSchedulerRuntimeGlobal(ctx, func(runtime *BackupSchedulerRuntime) {
+			runtime.Health = "error"
+			runtime.LastError = "scheduled backup completed without remote verification"
+		})
+		return
+	}
+	s.setSchedulerRuntimeGlobal(ctx, func(runtime *BackupSchedulerRuntime) {
+		runtime.Health = "healthy"
+		runtime.LastSuccessAt = record.FinishedAt
+		runtime.LastVerifiedAt = record.VerifiedAt
+		runtime.LastError = ""
+	})
 	logger.LegacyPrintf("service.backup", "[Backup] 定时备份完成: id=%s size=%d", record.ID, record.SizeBytes)
 
 	// 清理过期备份（复用已加载的 schedule）
@@ -653,6 +867,17 @@ func (s *BackupService) CreateBackup(ctx context.Context, triggeredBy string, ex
 		record.Status = "failed"
 		record.ErrorMsg = err.Error()
 		record.FinishedAt = time.Now().Format(time.RFC3339)
+		_ = s.saveRecord(ctx, record)
+		return record, err
+	}
+	if err := s.verifyRemoteBackup(ctx, record, objectStore); err != nil {
+		record.Status = "failed"
+		record.VerificationError = "remote backup verification failed"
+		record.ErrorMsg = record.VerificationError
+		record.FinishedAt = time.Now().Format(time.RFC3339)
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), backupObjectCleanupTimeout)
+		_ = deleteBackupObjectKeys(cleanupCtx, objectStore, record)
+		cleanupCancel()
 		_ = s.saveRecord(ctx, record)
 		return record, err
 	}
@@ -789,6 +1014,18 @@ func (s *BackupService) executeBackup(record *BackupRecord, objectStore BackupOb
 		_ = s.saveRecord(context.Background(), record)
 		return
 	}
+	if err := s.verifyRemoteBackup(ctx, record, objectStore); err != nil {
+		record.Status = "failed"
+		record.ErrorMsg = "remote backup verification failed"
+		record.VerificationError = record.ErrorMsg
+		record.Progress = ""
+		record.FinishedAt = time.Now().Format(time.RFC3339)
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), backupObjectCleanupTimeout)
+		_ = deleteBackupObjectKeys(cleanupCtx, objectStore, record)
+		cleanupCancel()
+		_ = s.saveRecord(context.Background(), record)
+		return
+	}
 
 	record.SizeBytes = sizeBytes
 	record.Status = "completed"
@@ -852,6 +1089,11 @@ func (s *BackupService) uploadBackupArchive(ctx context.Context, record *BackupR
 			return errors.Join(fmt.Errorf("backup upload: %w", err), cleanupErr)
 		}
 		record.Parts = nil
+		checksum, err := backupFileSHA256(archivePath)
+		if err != nil {
+			return fmt.Errorf("checksum backup archive: %w", err)
+		}
+		record.Checksum = checksum
 		return nil
 	}
 
@@ -895,6 +1137,59 @@ func (s *BackupService) uploadBackupArchive(ctx context.Context, record *BackupR
 		}
 	}
 	return nil
+}
+
+// verifyRemoteBackup makes upload success meaningful: every object is read back
+// from the remote store and checked against the locally calculated size/hash.
+// A completed record is therefore safe to use as a release preflight backup.
+func (s *BackupService) verifyRemoteBackup(ctx context.Context, record *BackupRecord, objectStore BackupObjectStore) error {
+	if record == nil {
+		return errors.New("backup record is required")
+	}
+	verify := func(key, wantChecksum string, wantSize int64) error {
+		body, err := objectStore.Download(ctx, key)
+		if err != nil {
+			return fmt.Errorf("remote object %q is unavailable: %w", key, err)
+		}
+		defer func() { _ = body.Close() }()
+		hash := sha256.New()
+		n, err := io.Copy(hash, body)
+		if err != nil {
+			return fmt.Errorf("read remote object %q: %w", key, err)
+		}
+		if wantSize > 0 && n != wantSize {
+			return fmt.Errorf("remote object %q size mismatch", key)
+		}
+		if wantChecksum == "" || hex.EncodeToString(hash.Sum(nil)) != wantChecksum {
+			return fmt.Errorf("remote object %q checksum mismatch", key)
+		}
+		return nil
+	}
+	if len(record.Parts) > 0 {
+		for _, part := range record.Parts {
+			if err := verify(part.S3Key, part.SHA256, part.SizeBytes); err != nil {
+				return err
+			}
+		}
+	} else if err := verify(record.S3Key, record.Checksum, record.SizeBytes); err != nil {
+		return err
+	}
+	record.VerifiedAt = time.Now().Format(time.RFC3339)
+	record.VerificationError = ""
+	return nil
+}
+
+func backupFileSHA256(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = file.Close() }()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func (s *BackupService) buildBackupPartKey(root string, index int) string {
@@ -1243,8 +1538,18 @@ func (s *BackupService) DeleteBackup(ctx context.Context, backupID string) error
 		// 后台上传仍可能依赖 Parts 计划；删除对象会让随后完成的记录引用失效卷。
 		return ErrBackupInProgress
 	}
+	if s.db != nil {
+		// Persist the terminal tombstone before deleting remote data. A worker
+		// holding an older attempt/revision can no longer turn this row back into
+		// a completed record if it finishes after the object is gone.
+		if err := s.tombstoneBackupRecord(ctx, found); err != nil {
+			return err
+		}
+	}
 
-	// 从对象存储删除所有单文件或分卷对象。删除不完整时保留记录，便于重试。
+	// 从对象存储删除所有单文件或分卷对象。 Database-backed rows are already
+	// tombstoned, deliberately favoring no false restorable evidence over a
+	// stale worker resurrecting a record when remote deletion is interrupted.
 	if err := s.deleteBackupObjects(ctx, found); err != nil {
 		return err
 	}
@@ -1253,6 +1558,9 @@ func (s *BackupService) DeleteBackup(ctx context.Context, backupID string) error
 		if err := control.Forget(ctx, backupID); err != nil {
 			return err
 		}
+	}
+	if s.db != nil {
+		return nil
 	}
 	return s.saveRecordsLocked(ctx, remaining)
 }
@@ -1311,24 +1619,92 @@ func (s *BackupService) GetBackupDownloadURL(ctx context.Context, backupID strin
 
 func (s *BackupService) loadS3Config(ctx context.Context) (*BackupS3Config, error) {
 	raw, err := s.settingRepo.GetValue(ctx, settingKeyBackupS3Config)
-	if err != nil || raw == "" {
-		return nil, nil //nolint:nilnil // no config is a valid state
+	if err != nil {
+		if errors.Is(err, ErrSettingNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("load backup s3 config: %w", err)
+	}
+	if raw == "" {
+		// An envelope without its non-secret config envelope is inconsistent;
+		// check storage before treating this as a confirmed no-secret state.
+		if s.secretPayloadRepo != nil {
+			envelope, envelopeErr := s.secretPayloadRepo.Get(ctx, settingKeyBackupS3Config)
+			if envelopeErr != nil {
+				return nil, fmt.Errorf("load backup secret envelope: %w", envelopeErr)
+			}
+			if envelope != nil {
+				return nil, ErrBackupS3ConfigCorrupt
+			}
+		}
+		return nil, nil //nolint:nilnil // confirmed no config is a valid state
 	}
 	var cfg BackupS3Config
 	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
 		return nil, ErrBackupS3ConfigCorrupt
 	}
-	// 解密 SecretAccessKey
+	if s.secretPayloadRepo != nil {
+		envelope, envelopeErr := s.secretPayloadRepo.Get(ctx, settingKeyBackupS3Config)
+		if envelopeErr != nil {
+			return nil, fmt.Errorf("load backup secret envelope: %w", envelopeErr)
+		}
+		if envelope != nil {
+			plaintext, err := s.backupSecretCryptor.open(*envelope, backupS3SecretAAD)
+			if err != nil {
+				return nil, ErrBackupSecretUnreadable
+			}
+			cfg.SecretAccessKey = plaintext
+			return &cfg, nil
+		}
+	}
+	// Legacy fallback is intentionally narrow: legacy TOTP ciphertext is still
+	// accepted for an upgrade/rollback window, but an authentication failure is
+	// never reinterpreted as plaintext.
 	if cfg.SecretAccessKey != "" {
 		decrypted, err := s.encryptor.Decrypt(cfg.SecretAccessKey)
 		if err != nil {
-			// 兼容未加密的旧数据：如果解密失败，保持原值
-			logger.LegacyPrintf("service.backup", "[Backup] S3 SecretAccessKey 解密失败（可能是旧的未加密数据）: %v", err)
-		} else {
-			cfg.SecretAccessKey = decrypted
+			return nil, ErrBackupSecretUnreadable
 		}
+		cfg.SecretAccessKey = decrypted
 	}
 	return &cfg, nil
+}
+
+func (s *BackupService) migrateLegacyBackupSecret(ctx context.Context) error {
+	if s == nil || s.secretPayloadRepo == nil || s.backupSecretCryptor == nil || !s.backupSecretCryptor.configured() {
+		return nil
+	}
+	envelope, err := s.secretPayloadRepo.Get(ctx, settingKeyBackupS3Config)
+	if err != nil {
+		return err
+	}
+	if envelope != nil {
+		return nil
+	}
+	raw, err := s.settingRepo.GetValue(ctx, settingKeyBackupS3Config)
+	if err != nil || strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var legacy BackupS3Config
+	if err := json.Unmarshal([]byte(raw), &legacy); err != nil {
+		return ErrBackupS3ConfigCorrupt
+	}
+	if legacy.SecretAccessKey == "" {
+		return nil
+	}
+	plaintext, err := s.encryptor.Decrypt(legacy.SecretAccessKey)
+	if err != nil {
+		_ = s.secretPayloadRepo.SetMigrationState(ctx, settingKeyBackupS3Config, "error", s.backupSecretCryptor.keyID(), backupSecretMigrationMessage(err))
+		return ErrBackupSecretUnreadable
+	}
+	newEnvelope, err := s.backupSecretCryptor.seal(plaintext, backupS3SecretAAD)
+	if err != nil {
+		return err
+	}
+	if err := s.secretPayloadRepo.Save(ctx, settingKeyBackupS3Config, raw, newEnvelope); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *BackupService) getOrCreateStore(ctx context.Context, cfg *BackupS3Config) (BackupObjectStore, error) {
@@ -1357,7 +1733,111 @@ func (s *BackupService) buildS3Key(cfg *BackupS3Config, fileName string) string 
 	if prefix == "" {
 		prefix = "backups"
 	}
-	return fmt.Sprintf("%s/%s/%s", prefix, time.Now().Format("2006/01/02"), fileName)
+	// Scope new objects to a deterministic deployment identity. This prevents
+	// two databases that accidentally share a bucket/prefix from overwriting one
+	// another; existing record keys remain untouched for restore compatibility.
+	identity := "unknown"
+	if s != nil && s.dbCfg != nil {
+		sum := sha256.Sum256([]byte(s.dbCfg.Host + "\x00" + s.dbCfg.DBName))
+		identity = hex.EncodeToString(sum[:])[:12]
+	}
+	return fmt.Sprintf("%s/%s/%s/%s", prefix, identity, time.Now().Format("2006/01/02"), fileName)
+}
+
+func (s *BackupService) getSchedulerRuntime(ctx context.Context) BackupSchedulerRuntime {
+	s.schedulerMu.Lock()
+	runtime := s.schedulerRuntime
+	s.schedulerMu.Unlock()
+	if runtime.Timezone == "" {
+		runtime.Timezone = time.Local.String()
+	}
+	if s == nil || s.db == nil {
+		return runtime
+	}
+	var nextRun, lastAttempt, lastSuccess, lastVerified sql.NullTime
+	var lastError sql.NullString
+	var loaded bool
+	var health string
+	err := s.db.QueryRowContext(ctx, `SELECT loaded, health, next_run_at, last_attempt_at, last_success_at, last_verified_at, last_error FROM backup_scheduler_state WHERE state_key = 'backup_scheduler'`).Scan(&loaded, &health, &nextRun, &lastAttempt, &lastSuccess, &lastVerified, &lastError)
+	if err != nil {
+		return runtime
+	}
+	runtime.Loaded, runtime.Health = loaded, health
+	if nextRun.Valid {
+		runtime.NextRunAt = nextRun.Time.Format(time.RFC3339)
+	}
+	if lastAttempt.Valid {
+		runtime.LastAttemptAt = lastAttempt.Time.Format(time.RFC3339)
+	}
+	if lastSuccess.Valid {
+		runtime.LastSuccessAt = lastSuccess.Time.Format(time.RFC3339)
+	}
+	if lastVerified.Valid {
+		runtime.LastVerifiedAt = lastVerified.Time.Format(time.RFC3339)
+	}
+	if lastError.Valid {
+		runtime.LastError = lastError.String
+	}
+	return runtime
+}
+
+func (s *BackupService) setSchedulerRuntime(ctx context.Context, update func(*BackupSchedulerRuntime)) {
+	s.setSchedulerRuntimeWithPersistence(ctx, false, update)
+}
+
+// setSchedulerRuntimeGlobal is reserved for the instance that won the
+// scheduled-backup leader lock. Startup/configuration observations remain
+// local, so a follower cannot overwrite healthy evidence from the leader.
+func (s *BackupService) setSchedulerRuntimeGlobal(ctx context.Context, update func(*BackupSchedulerRuntime)) {
+	s.setSchedulerRuntimeWithPersistence(ctx, true, update)
+}
+
+func (s *BackupService) setSchedulerRuntimeWithPersistence(ctx context.Context, persist bool, update func(*BackupSchedulerRuntime)) {
+	if s == nil {
+		return
+	}
+	s.schedulerMu.Lock()
+	update(&s.schedulerRuntime)
+	runtime := s.schedulerRuntime
+	if runtime.Timezone == "" {
+		runtime.Timezone = time.Local.String()
+		s.schedulerRuntime.Timezone = runtime.Timezone
+	}
+	s.schedulerMu.Unlock()
+	if runtime.Health == "error" || runtime.Health == "degraded" {
+		logger.LegacyPrintf("service.backup", "[Backup] scheduler alert health=%s error=%s", runtime.Health, runtime.LastError)
+		if s.alertSink != nil {
+			s.alertSink(ctx, runtime)
+		}
+	}
+	if !persist || s.db == nil {
+		return
+	}
+	parse := func(value string) any {
+		if value == "" {
+			return nil
+		}
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			return nil
+		}
+		return parsed
+	}
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO backup_scheduler_state (state_key, loaded, health, next_run_at, last_attempt_at, last_success_at, last_verified_at, last_error, updated_at)
+VALUES ('backup_scheduler', $1, $2, $3, $4, $5, $6, NULLIF($7, ''), now())
+ON CONFLICT (state_key) DO UPDATE SET
+loaded = CASE WHEN EXCLUDED.last_attempt_at IS NULL OR backup_scheduler_state.last_attempt_at IS NULL OR EXCLUDED.last_attempt_at >= backup_scheduler_state.last_attempt_at THEN EXCLUDED.loaded ELSE backup_scheduler_state.loaded END,
+health = CASE WHEN EXCLUDED.last_attempt_at IS NULL OR backup_scheduler_state.last_attempt_at IS NULL OR EXCLUDED.last_attempt_at >= backup_scheduler_state.last_attempt_at THEN EXCLUDED.health ELSE backup_scheduler_state.health END,
+next_run_at = CASE WHEN EXCLUDED.last_attempt_at IS NULL OR backup_scheduler_state.last_attempt_at IS NULL OR EXCLUDED.last_attempt_at >= backup_scheduler_state.last_attempt_at THEN EXCLUDED.next_run_at ELSE backup_scheduler_state.next_run_at END,
+last_attempt_at = CASE WHEN backup_scheduler_state.last_attempt_at IS NULL OR (EXCLUDED.last_attempt_at IS NOT NULL AND EXCLUDED.last_attempt_at > backup_scheduler_state.last_attempt_at) THEN EXCLUDED.last_attempt_at ELSE backup_scheduler_state.last_attempt_at END,
+last_success_at = CASE WHEN backup_scheduler_state.last_success_at IS NULL OR (EXCLUDED.last_success_at IS NOT NULL AND EXCLUDED.last_success_at > backup_scheduler_state.last_success_at) THEN EXCLUDED.last_success_at ELSE backup_scheduler_state.last_success_at END,
+last_verified_at = CASE WHEN backup_scheduler_state.last_verified_at IS NULL OR (EXCLUDED.last_verified_at IS NOT NULL AND EXCLUDED.last_verified_at > backup_scheduler_state.last_verified_at) THEN EXCLUDED.last_verified_at ELSE backup_scheduler_state.last_verified_at END,
+last_error = CASE WHEN EXCLUDED.last_attempt_at IS NULL OR backup_scheduler_state.last_attempt_at IS NULL OR EXCLUDED.last_attempt_at >= backup_scheduler_state.last_attempt_at THEN EXCLUDED.last_error ELSE backup_scheduler_state.last_error END,
+updated_at = now()`, runtime.Loaded, runtime.Health, parse(runtime.NextRunAt), parse(runtime.LastAttemptAt), parse(runtime.LastSuccessAt), parse(runtime.LastVerifiedAt), runtime.LastError)
+	if err != nil {
+		logger.LegacyPrintf("service.backup", "[Backup] scheduler health persistence failed")
+	}
 }
 
 // loadRecords 加载备份记录，区分"无数据"和"数据损坏"
@@ -1369,6 +1849,29 @@ func (s *BackupService) loadRecords(ctx context.Context) ([]BackupRecord, error)
 
 // loadRecordsLocked 在已持有 recordsMu 锁的情况下加载记录
 func (s *BackupService) loadRecordsLocked(ctx context.Context) ([]BackupRecord, error) {
+	if s.db != nil {
+		rows, err := s.db.QueryContext(ctx, `SELECT record, attempt_id, revision FROM backup_jobs WHERE status <> 'deleted' ORDER BY started_at DESC`)
+		if err != nil {
+			return nil, fmt.Errorf("load backup jobs: %w", err)
+		}
+		defer func() { _ = rows.Close() }()
+		var records []BackupRecord
+		for rows.Next() {
+			var raw []byte
+			var record BackupRecord
+			if err := rows.Scan(&raw, &record.AttemptID, &record.Revision); err != nil {
+				return nil, fmt.Errorf("scan backup job: %w", err)
+			}
+			if err := json.Unmarshal(raw, &record); err != nil {
+				return nil, ErrBackupRecordsCorrupt
+			}
+			records = append(records, record)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("iterate backup jobs: %w", err)
+		}
+		return records, nil
+	}
 	raw, err := s.settingRepo.GetValue(ctx, settingKeyBackupRecords)
 	if err != nil && !errors.Is(err, ErrSettingNotFound) {
 		return nil, fmt.Errorf("load backup records: %w", err)
@@ -1385,6 +1888,14 @@ func (s *BackupService) loadRecordsLocked(ctx context.Context) ([]BackupRecord, 
 
 // saveRecordsLocked 在已持有 recordsMu 锁的情况下保存记录
 func (s *BackupService) saveRecordsLocked(ctx context.Context, records []BackupRecord) error {
+	if s.db != nil {
+		for i := range records {
+			if err := s.saveRecordDB(ctx, &records[i]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	data, err := json.Marshal(records)
 	if err != nil {
 		return err
@@ -1396,6 +1907,9 @@ func (s *BackupService) saveRecordsLocked(ctx context.Context, records []BackupR
 func (s *BackupService) saveRecord(ctx context.Context, record *BackupRecord) error {
 	s.recordsMu.Lock()
 	defer s.recordsMu.Unlock()
+	if s.db != nil {
+		return s.saveRecordDB(ctx, record)
+	}
 
 	records, err := s.loadRecordsLocked(ctx)
 	if err != nil {
@@ -1418,6 +1932,89 @@ func (s *BackupService) saveRecord(ctx context.Context, record *BackupRecord) er
 	// Retention removes objects and metadata together. Dropping metadata here
 	// would leave retained objects inaccessible to restore and cleanup.
 	return s.saveRecordsLocked(ctx, records)
+}
+
+func (s *BackupService) saveRecordDB(ctx context.Context, record *BackupRecord) error {
+	if record == nil {
+		return errors.New("backup record is required")
+	}
+	raw, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	parse := func(value string) any {
+		if value == "" {
+			return nil
+		}
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			return nil
+		}
+		return parsed
+	}
+	manifest, err := json.Marshal(struct {
+		S3Key    string       `json:"s3_key,omitempty"`
+		Parts    []BackupPart `json:"parts,omitempty"`
+		Checksum string       `json:"checksum,omitempty"`
+	}{record.S3Key, record.Parts, record.Checksum})
+	if err != nil {
+		return err
+	}
+	if record.AttemptID == "" {
+		record.AttemptID = uuid.NewString()
+		record.Revision = 1
+		result, execErr := s.db.ExecContext(ctx, `
+INSERT INTO backup_jobs (id, triggered_by, status, attempt_id, revision, progress, started_at, finished_at, expires_at, error_message, object_manifest, verified_at, record, updated_at)
+VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),$7,$8,$9,NULLIF($10,''),$11::jsonb,$12,$13::jsonb,now())
+ON CONFLICT (id) DO NOTHING`,
+			record.ID, record.TriggeredBy, record.Status, record.AttemptID, record.Revision, record.Progress, parse(record.StartedAt), parse(record.FinishedAt), parse(record.ExpiresAt), record.ErrorMsg, manifest, parse(record.VerifiedAt), raw)
+		if execErr != nil {
+			return fmt.Errorf("create backup job: %w", execErr)
+		}
+		written, rowsErr := result.RowsAffected()
+		if rowsErr != nil {
+			return fmt.Errorf("create backup job rows affected: %w", rowsErr)
+		}
+		if written != 1 {
+			return ErrBackupRecordStale
+		}
+		return nil
+	}
+	if record.Revision < 1 {
+		return ErrBackupRecordStale
+	}
+	result, err := s.db.ExecContext(ctx, `
+UPDATE backup_jobs SET triggered_by=$1,status=$2,progress=NULLIF($3,''),finished_at=$4,
+expires_at=$5,error_message=NULLIF($6,''),object_manifest=$7::jsonb,verified_at=$8,record=$9::jsonb,updated_at=now(),revision=revision+1,
+deleted_at=CASE WHEN $2 = 'deleted' THEN COALESCE(deleted_at, now()) ELSE deleted_at END
+WHERE id=$10 AND attempt_id=$11 AND revision=$12 AND status <> 'deleted'`,
+		record.TriggeredBy, record.Status, record.Progress, parse(record.FinishedAt), parse(record.ExpiresAt), record.ErrorMsg, manifest, parse(record.VerifiedAt), raw,
+		record.ID, record.AttemptID, record.Revision)
+	if err != nil {
+		return fmt.Errorf("save backup job: %w", err)
+	}
+	written, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("save backup job rows affected: %w", err)
+	}
+	if written != 1 {
+		return ErrBackupRecordStale
+	}
+	record.Revision++
+	return nil
+}
+
+func (s *BackupService) tombstoneBackupRecord(ctx context.Context, record *BackupRecord) error {
+	if record == nil {
+		return errors.New("backup record is required")
+	}
+	if record.Status == "deleted" {
+		return ErrBackupNotFound
+	}
+	record.Status = "deleted"
+	record.Progress = ""
+	record.ErrorMsg = "deleted"
+	return s.saveRecordDB(ctx, record)
 }
 
 func (s *BackupService) cleanupOldBackups(ctx context.Context, schedule *BackupScheduleConfig) error {
@@ -1473,9 +2070,18 @@ func (s *BackupService) cleanupOldBackups(ctx context.Context, schedule *BackupS
 	var cleanupErrs []error
 	deletedCount := 0
 	for _, r := range toDelete {
+		if s.db != nil {
+			if err := s.tombstoneBackupRecord(ctx, &r); err != nil {
+				cleanupErrs = append(cleanupErrs, fmt.Errorf("tombstone backup job %s: %w", r.ID, err))
+				continue
+			}
+		}
 		if err := s.deleteBackupObjects(ctx, &r); err != nil {
-			// 对象删除失败时保留记录，避免丢失后续重试所需的 key。
-			toKeep = append(toKeep, r)
+			// A database row remains tombstoned after object deletion starts: this
+			// prevents a late worker from advertising deleted data as verified.
+			if s.db == nil {
+				toKeep = append(toKeep, r)
+			}
 			cleanupErrs = append(cleanupErrs, fmt.Errorf("cleanup backup %s: %w", r.ID, err))
 			continue
 		}
@@ -1483,8 +2089,10 @@ func (s *BackupService) cleanupOldBackups(ctx context.Context, schedule *BackupS
 	}
 
 	if len(toDelete) > 0 {
-		if err := s.saveRecordsLocked(ctx, toKeep); err != nil {
-			cleanupErrs = append(cleanupErrs, fmt.Errorf("save backup records after cleanup: %w", err))
+		if s.db == nil {
+			if err := s.saveRecordsLocked(ctx, toKeep); err != nil {
+				cleanupErrs = append(cleanupErrs, fmt.Errorf("save backup records after cleanup: %w", err))
+			}
 		}
 		if deletedCount > 0 {
 			logger.LegacyPrintf("service.backup", "[Backup] 自动清理了 %d 个过期备份", deletedCount)

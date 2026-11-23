@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick, reactive } from 'vue'
 import { identityScoped } from '@/router/identityScope'
@@ -298,6 +298,8 @@ const IconStub = {
   template: '<span data-test="icon">{{ name }}</span>',
 }
 
+const mountedViewWrappers: VueWrapper[] = []
+
 const mountView = async (scoped = false) => {
   const wrapper = mount(scoped ? identityScoped(KeysView, false) : KeysView, {
     global: {
@@ -325,6 +327,7 @@ const mountView = async (scoped = false) => {
       },
     },
   })
+  mountedViewWrappers.push(wrapper)
   await flushPromises()
   await nextTick()
   return wrapper
@@ -349,6 +352,12 @@ const historyError = { status: 409, reason: 'USAGE_HISTORY_INCOMPLETE', metadata
 const usageResponse = { stats: { 1: { today_actual_cost: 12.3456, total_actual_cost: 45.6789, by_platform: [{ platform: 'grok', today_actual_cost: 12.3456, total_actual_cost: 45.6789 }] } } }
 
 describe('user KeysView column settings', () => {
+  afterEach(() => {
+    while (mountedViewWrappers.length > 0) {
+      mountedViewWrappers.pop()?.unmount()
+    }
+  })
+
   beforeEach(() => {
     localStorage.clear()
     vi.restoreAllMocks()
@@ -379,6 +388,28 @@ describe('user KeysView column settings', () => {
     getAvailableGroups.mockResolvedValue([])
     getUserGroupRates.mockResolvedValue({})
     isCurrentStep.mockReturnValue(false)
+  })
+
+  it('filters project ownership markers before rendering personal keys or fetching their usage', async () => {
+    const personal = { ...createApiKey(), project_id: null, workspace_id: null }
+    const markers = [
+      { workspace_id: '14' }, { project_id: 23 }, { project_key_policy: {} }, { kind: 'project_policy' },
+      { project_key_policy_id: '29' }, { owner_type: 'project' }, { scope_type: 'project' }
+    ]
+    listKeys.mockResolvedValue({
+      items: [personal, ...markers.map((marker, i) => ({ ...personal, ...marker, name: 'Project key', id: i + 20 }))],
+      total: markers.length + 1, pages: 1
+    })
+    const wrapper = await mountView()
+    expect(wrapper.getComponent(DataTableStub).props('data')).toEqual([personal])
+    expect(getDashboardApiKeysUsage).toHaveBeenCalledWith([personal.id], expect.any(Object))
+  })
+
+  it('opens the personal key form when requested by onboarding', async () => {
+    const wrapper = await mountView()
+    await wrapper.setProps({ createPersonal: true })
+    expect(wrapper.find('#key-form').exists()).toBe(true)
+    expect(createKey).not.toHaveBeenCalled()
   })
 
   it('refreshes the complete available list and preselects the only group on every create', async () => {
@@ -638,10 +669,12 @@ describe('user KeysView column settings', () => {
       vi.spyOn(gatewayUrl, 'buildGatewayUrl').mockImplementation((path) => `${prefix}${path}`)
       const wrapper = await mountView()
       const gatewayRoot = new URL(prefix, window.location.origin).href
-      expect(wrapper.get('section code').text()).toBe(`${gatewayRoot}/v1`)
-      await wrapper.get('section button').trigger('click')
+      const endpoints = wrapper.findAll('.oh-endpoint-item')
+      const openaiRow = endpoints.find(row => row.text().includes(englishDashboard.keys.payAsYouGo.openai))!
+      expect(openaiRow.get('code').text()).toBe(`${gatewayRoot}/v1`)
+      await openaiRow.get('button').trigger('click')
       expect(copyToClipboard).toHaveBeenCalledWith(`${gatewayRoot}/v1`, englishDashboard.keys.payAsYouGo.copied)
-      const geminiRow = wrapper.findAll('section dl > div').find(row => row.text().includes(englishDashboard.keys.payAsYouGo.gemini))!
+      const geminiRow = endpoints.find(row => row.text().includes(englishDashboard.keys.payAsYouGo.gemini))!
       expect(geminiRow.get('code').text()).toBe(`${gatewayRoot}/v1beta`)
       await geminiRow.get('button').trigger('click')
       expect(copyToClipboard).toHaveBeenLastCalledWith(`${gatewayRoot}/v1beta`, englishDashboard.keys.payAsYouGo.copied)
@@ -948,6 +981,14 @@ describe('user KeysView column settings', () => {
     }, undefined)
     expect(wrapper.text()).toContain('sk-created-once')
     expect(wrapper.text()).toContain('keys.secretOnce.warning')
+    const snippets = wrapper.get('[data-testid="secret-dialog-open-snippets-btn"]')
+    expect(snippets.attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-testid="confirm-secret-saved-checkbox"]').setValue(true)
+    await snippets.trigger('click')
+    const modal = wrapper.getComponent({ name: 'UseKeyModal' })
+    expect(modal.props('show')).toBe(true)
+    expect(modal.props('apiKey')).toBe('sk-created-once')
+    expect(wrapper.find('[data-testid="key-secret-once-dialog"]').exists()).toBe(false)
     wrapper.unmount()
   })
 

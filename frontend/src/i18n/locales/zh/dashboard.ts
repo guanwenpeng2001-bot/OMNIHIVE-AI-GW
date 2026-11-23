@@ -177,6 +177,7 @@ export default {
       success: 'API 密钥轮换成功'
     },
     secretOnce: {
+      openSnippets: '查看客户端与 cURL 接入代码 →',
       title: '请复制新密钥',
       warning: '该密钥只显示一次，请立即复制保存；关闭后无法再次查看。',
       graceUntil: '旧密钥将于 {time} 失效。',
@@ -220,8 +221,7 @@ export default {
       note: '这些环境变量将在当前终端会话中生效。如需永久配置，请将其添加到 ~/.bashrc、~/.zshrc 或相应的配置文件中。',
       claudeSettingsHint: '用户级持久配置。此文件包含 API 密钥，请勿提交到项目仓库。',
       noGroupTitle: '请先分配分组',
-      noGroupDescription:
-        '此 API 密钥尚未分配分组，请先在密钥列表中点击分组列进行分配，然后才能查看使用配置。',
+      noGroupDescription: '选择路由分组可查看对应平台的配置，也可使用下方兼容示例。',
       baseUrlMissing: '本站尚未配置公开 API 地址（api_base_url），无法生成接入配置。请联系管理员配置后重试。',
       generationEntryHint:
         '以上配置只针对文本/视觉输入协议（Messages、Responses、Chat Completions）。图片、视频、语音等生成类请求请使用 /v1/images/*、/v1/videos/*、/v1/tts、/v1/stt 等媒体入口，不要通过 Messages 端点发生成请求。',
@@ -1292,5 +1292,4 @@ export default {
       adjustment: '调账',
     },
   },
-  // Admin
 }

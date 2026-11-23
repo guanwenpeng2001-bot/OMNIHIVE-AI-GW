@@ -87,6 +87,7 @@ type Line struct {
 
 type Result struct {
 	State              string       `json:"state"`
+	Reason             Outcome      `json:"reason,omitempty"`
 	PriceVersion       *string      `json:"price_version"`
 	Source             *string      `json:"source"`
 	Charge             *money.Money `json:"estimated_charge"`

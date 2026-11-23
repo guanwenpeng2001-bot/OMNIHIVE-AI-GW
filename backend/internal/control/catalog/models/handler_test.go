@@ -10,14 +10,18 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/require"
-
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/stretchr/testify/require"
 )
+
+func fixtureDefault(c *gin.Context) {
+	c.Request = c.Request.WithContext(domain.WithDefaultWorkspaceID(c.Request.Context(), 17))
+	c.Next()
+}
 
 type fixtureCatalog struct{ revision string }
 
@@ -38,6 +42,7 @@ func (s *fixtureCatalog) Snapshot(_ context.Context, p catalog.Perspective, at t
 func TestCatalogCursorBindsCurrentSnapshotAndFilters(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(fixtureDefault)
 	source := &fixtureCatalog{revision: "one"}
 	Register(r.Group("/api/v2"), New(source, nil, &config.Config{}), nil, nil)
 	const path = "/api/v2/public/models"
@@ -67,23 +72,14 @@ func TestCatalogCursorBindsCurrentSnapshotAndFilters(t *testing.T) {
 	read("?provider=openai&cursor="+token, 410)
 }
 
-func TestCatalogExactCompareEstimate(t *testing.T) {
-	rate := func(unit money.Unit, amount string) *money.Rate {
-		r, err := money.NewRate("USD", amount, unit, "1000000")
-		require.NoError(t, err)
-		return &r
-	}
-	v := "ref"
-	d := catalog.Detail{PriceVersion: &v, Model: catalog.Summary{Input: rate("input_token", "1.25"), Output: rate("output_token", "10")},
-		AdditionalRates: []catalog.RateBand{{Kind: "cache_read", Rate: *rate("cache_read_token", "0.5")}}}
+func TestCatalogCompareScenarioUsesExactQuantities(t *testing.T) {
 	qs, err := scenarioQuantities(scenario{Input: "1000", Cached: "100", Output: "100", Requests: "2"})
 	require.NoError(t, err)
-	result := simpleEstimate(d, qs)
-	require.Equal(t, "estimated", result.State)
-	require.Equal(t, "0.00435000", result.Charge.String())
-	require.Len(t, result.Components, 3)
-	require.Equal(t, "1800", result.Components[0].Quantity)
-	require.Equal(t, "200", result.Components[1].Quantity)
+	var amounts []string
+	for _, q := range qs {
+		amounts = append(amounts, q.Amount().String())
+	}
+	require.Equal(t, []string{"1800", "200", "200", "2"}, amounts)
 	_, err = scenarioQuantities(scenario{Input: "1000", Cached: "1001"})
 	require.Error(t, err)
 }
@@ -108,6 +104,7 @@ func TestCatalogDetailResolvesCanonicalModelSlugs(t *testing.T) {
 	modelID := catalog.StableID("openai", "auto/gemini-3.8-flash")
 	for _, rawPath := range []bool{false, true} {
 		router := gin.New()
+		router.Use(fixtureDefault)
 		router.UseRawPath = rawPath
 		auth := func(c *gin.Context) {
 			c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1})
@@ -148,6 +145,7 @@ func (multimodalCatalog) Snapshot(_ context.Context, p catalog.Perspective, at t
 func TestCatalogOnlyMultimodalHTTPFilters(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(fixtureDefault)
 	Register(r.Group("/api/v2"), New(multimodalCatalog{}, nil, &config.Config{}), nil, nil)
 	res := httptest.NewRecorder()
 	r.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/api/v2/public/models?modality=video&action=video.generate", nil))
@@ -189,6 +187,7 @@ func (availabilityCatalog) Snapshot(_ context.Context, _ catalog.Perspective, at
 
 func TestAvailabilityAndModalityPagination(t *testing.T) {
 	engine := gin.New()
+	engine.Use(fixtureDefault)
 	Register(engine.Group("/api/v2"), New(availabilityCatalog{}, nil, &config.Config{}), nil, nil)
 	read := func(query string, status int) page {
 		t.Helper()

@@ -564,8 +564,13 @@ func (s *SettingService) GetModelPlazaRuntime(ctx context.Context) ModelPlazaRun
 	if err != nil {
 		return ModelPlazaRuntime{Enabled: false}
 	}
+	enabled := vals[SettingKeyModelPlazaEnabled]
+	requireAuth, configured := vals[SettingKeyModelPlazaRequireAuth]
+	if enabled != "true" && enabled != "false" || configured && requireAuth != "true" && requireAuth != "false" {
+		return ModelPlazaRuntime{}
+	}
 	return ModelPlazaRuntime{
-		Enabled:     vals[SettingKeyModelPlazaEnabled] == "true",
+		Enabled:     enabled == "true",
 		RequireAuth: vals[SettingKeyModelPlazaRequireAuth] == "true",
 		Description: vals[SettingKeyModelPlazaDescription],
 	}

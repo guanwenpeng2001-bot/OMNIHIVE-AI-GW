@@ -88,7 +88,7 @@ func (s *grokImportProbeStub) snapshot() (map[int64]int, int, bool) {
 
 func newGrokOAuthImportAccount(id int64) *service.Account {
 	return &service.Account{
-		ID:       id,
+		ID: id, WorkspaceID: 17,
 		Status:   service.StatusActive,
 		Platform: service.PlatformGrok,
 		Type:     service.AccountTypeOAuth,

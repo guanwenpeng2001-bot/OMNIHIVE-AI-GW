@@ -19,7 +19,15 @@ func (r *Runtime) startLegacy(ctx context.Context, actor int64, backupID, key, s
 	if r.Journal == nil {
 		return nil, rs.Unavailable
 	}
-	a := rs.Actor{ID: actor, Workspace: domain.DefaultWorkspaceID, Session: session}
+	db := r.Targets[rs.Production].DB
+	if db == nil {
+		return nil, rs.Unavailable
+	}
+	workspace, err := domain.ResolveDefaultWorkspaceID(ctx, db)
+	if err != nil {
+		return nil, rs.Unavailable
+	}
+	a := rs.Actor{ID: actor, Workspace: workspace, Session: session}
 	for _, action := range []string{rs.PreviewAction, rs.ExecuteAction} {
 		if _, err := r.Access.Evaluate(ctx, actor, a.Workspace, 0, action); err != nil {
 			return nil, err

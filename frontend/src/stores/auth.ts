@@ -8,9 +8,11 @@ import { ref, computed, readonly, onScopeDispose } from 'vue'
 import {
   captureAuthSession, isAuthSessionCurrent, authSessionChangedError,
   advanceAuthSession, authStorage, clearPersistedAuthCredentials,
+  clearPersistedScopeSelection,
   ALL_AUTH_STORAGE_WATCH_KEYS, AUTH_SESSION_EVENT
 } from '@/api/tokenRefresh'
 import { authAPI, isTotp2FARequired, passkeyAPI, type LoginResponse } from '@/api'
+import { readPersistedScopeDetails } from './consoleScope'
 import type {
   User,
   LoginRequest,
@@ -371,6 +373,17 @@ export const useAuthStore = defineStore('auth', () => {
    */
   function setAuthFromResponse(response: AuthResponse): void {
     identityRevision++
+    const nextActorId =
+      response.user?.id !== undefined && response.user?.id !== null
+        ? String(response.user.id).trim()
+        : ''
+    const previousUserId = user.value?.id !== undefined && user.value?.id !== null ? String(user.value.id).trim() : ''
+    if (previousUserId && nextActorId && previousUserId !== nextActorId) {
+      clearPersistedScopeSelection()
+    } else if (nextActorId) {
+      // Clear any persisted scope bound to a different prior user.
+      readPersistedScopeDetails(nextActorId)
+    }
     stopTokenRefresh()
     refreshTokenValue.value = null
     tokenExpiresAt.value = null
@@ -419,6 +432,8 @@ export const useAuthStore = defineStore('auth', () => {
       const response = await authAPI.register(userData)
       if (revision !== identityRevision) throw authSessionChangedError()
 
+      // Newly registered accounts always start in Personal mode.
+      clearPersistedScopeSelection()
       // Use the common helper to set auth state
       setAuthFromResponse(response)
 
@@ -447,6 +462,7 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
     runMode.value = 'standard'
     authStorage.user.remove()
+    clearPersistedScopeSelection()
 
     token.value = newToken
     authStorage.token.set(newToken)

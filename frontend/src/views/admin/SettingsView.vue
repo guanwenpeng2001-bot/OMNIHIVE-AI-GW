@@ -23,6 +23,9 @@
             </div>
 
             <div class="contents sm:flex sm:flex-wrap sm:items-center sm:gap-2">
+              <RouterLink to="/admin/settings/diagnostics" class="btn btn-secondary btn-sm">
+                {{ t('settingsDiagnostics.title') }}
+              </RouterLink>
               <!-- 设置项实时快速检索框 -->
               <div
                 class="order-last flex w-full items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors focus-within:border-[var(--ring)] sm:order-none sm:w-auto"
@@ -258,6 +261,7 @@
 </template>
 
 <script setup lang="ts">
+import { RouterLink } from 'vue-router'
 import { computed, ref, watch } from "vue";
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import AppLayout from "@/components/layout/AppLayout.vue";

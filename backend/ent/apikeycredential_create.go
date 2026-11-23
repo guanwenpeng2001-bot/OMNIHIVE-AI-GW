@@ -57,14 +57,6 @@ func (_c *APIKeyCredentialCreate) SetWorkspaceID(v int64) *APIKeyCredentialCreat
 	return _c
 }
 
-// SetNillableWorkspaceID sets the "workspace_id" field if the given value is not nil.
-func (_c *APIKeyCredentialCreate) SetNillableWorkspaceID(v *int64) *APIKeyCredentialCreate {
-	if v != nil {
-		_c.SetWorkspaceID(*v)
-	}
-	return _c
-}
-
 // SetCredentialDigest sets the "credential_digest" field.
 func (_c *APIKeyCredentialCreate) SetCredentialDigest(v string) *APIKeyCredentialCreate {
 	_c.mutation.SetCredentialDigest(v)
@@ -188,10 +180,6 @@ func (_c *APIKeyCredentialCreate) defaults() error {
 		}
 		v := apikeycredential.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
-	}
-	if _, ok := _c.mutation.WorkspaceID(); !ok {
-		v := apikeycredential.DefaultWorkspaceID
-		_c.mutation.SetWorkspaceID(v)
 	}
 	if _, ok := _c.mutation.DisplaySuffix(); !ok {
 		v := apikeycredential.DefaultDisplaySuffix

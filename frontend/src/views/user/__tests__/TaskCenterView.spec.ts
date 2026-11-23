@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { useConsoleScopeStore } from '@/stores/consoleScope'
 import { flushPromises, mount } from '@vue/test-utils'
 import { identityApi } from '@/features/console/scope'
 import TaskCenterView from '../TaskCenterView.vue'
@@ -109,9 +111,11 @@ function sampleTaskDetail(overrides: Partial<ImageTaskDetail> = {}): ImageTaskDe
   }
 }
 
-describe('TaskCenterView BE-15 workflows and honest states', () => {
+describe('TaskCenterView project task workflows and status', () => {
   beforeEach(() => {
     localStorage.clear()
+    setActivePinia(createPinia())
+    useConsoleScopeStore().selectWorkspaceScope('1', '5')
     vi.resetAllMocks()
     vi.spyOn(identityApi, 'listScopes').mockResolvedValue({
       items: [
@@ -297,6 +301,7 @@ describe('TaskCenterView BE-15 workflows and honest states', () => {
   })
 
   it('renders no-scope state without falling back to hardcoded workspace/project 1 when scopes are empty', async () => {
+    useConsoleScopeStore().selectPersonalScope()
     vi.spyOn(identityApi, 'listScopes').mockResolvedValue({
       items: [{ workspace_id: '9', workspace_name: 'Empty', workspace_state: 'active', projects: [] }],
       next_cursor: null,

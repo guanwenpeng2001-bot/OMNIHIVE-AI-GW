@@ -93,8 +93,12 @@ func TestRestoreHTTPAndLegacy(t *testing.T) {
 	enc, e := repository.NewAESEncryptor(pcfg)
 	require.NoError(t, e)
 	objects := &storage{files: map[string][]byte{}}
+	t.Setenv("BACKUP_SECRET_ENCRYPTION_KEY", strings.Repeat("a1", 32))
+	t.Setenv("BACKUP_SECRET_ENCRYPTION_KEY_PREVIOUS", "")
 	newBackup := func() *service.BackupService {
-		return service.NewBackupService(settings, pcfg, enc, func(context.Context, *service.BackupS3Config) (service.BackupObjectStore, error) { return objects, nil }, repository.NewPgDumper(pcfg, prod))
+		backup := service.NewBackupService(settings, pcfg, enc, func(context.Context, *service.BackupS3Config) (service.BackupObjectStore, error) { return objects, nil }, repository.NewPgDumper(pcfg, prod))
+		backup.SetSecretPayloadRepository(repository.NewBackupSecretPayloadRepository(prod))
+		return backup
 	}
 	backup := newBackup()
 	_, e = backup.UpdateS3Config(ctx, service.BackupS3Config{Bucket: "fixture", AccessKeyID: "fixture", SecretAccessKey: "fixture"})

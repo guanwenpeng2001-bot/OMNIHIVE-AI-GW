@@ -27,6 +27,7 @@
 
       <UsageStatsState v-else-if="!stats" :state="chartError ? 'error' : 'unknown'" />
       <template v-else-if="stats">
+        <AdminSetupBanner :total-accounts="stats.total_accounts" :live-models="liveModelSampleSize" />
         <p
           v-if="summaryScope !== 'all_time'"
           class="inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs text-gray-600 dark:text-gray-300"
@@ -540,7 +541,10 @@ const reportQueryContext = { timezone: reportTimeZone }
 
 import UsageStatsState from '@/components/common/UsageStatsState.vue'
 import { historyGapFromError, withTrendGaps, type HistoryGap } from '@/views/trendGaps'
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import AdminSetupBanner from '@/features/onboarding/AdminSetupBanner.vue'
+import { listAdminCatalogModels } from '@/api/admin/modelCatalog'
+import { resolveCatalogWorkspace } from '@/features/catalog/adminWorkspace'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
@@ -602,6 +606,7 @@ const appStore = useAppStore()
 const router = useRouter()
 const { openDrawer } = useThemeDirection()
 const { canUseBatchImage, refreshBatchImageAccess } = useBatchImageAccess()
+const liveModelSampleSize = ref<number | null>(null)
 const stats = ref<DashboardStats | null>(null)
 const activeAccountRate = computed(() => {
   const total = stats.value?.total_accounts ?? 0
@@ -660,7 +665,7 @@ function openPulseDiagnosisDrawer() {
     isZh.value ? '蜂巢运行脉搏 · 实时诊断' : 'OmniHive Runtime Pulse · Live Diagnostics',
     `<p class="mb-4 text-xs opacity-60">${isZh.value ? '当前总览快照；平均延迟沿用总览统计范围，实时链路状态请进入运维监控。' : 'Current overview snapshot; average latency follows the overview window. Open Ops Monitor for live link telemetry.'}</p>
     <dl class="space-y-3">${metrics.map(([label, value]) => `<div class="flex items-center justify-between gap-4 border-b pb-2" style="border-color:var(--border)"><dt>${label}</dt><dd class="font-mono font-semibold tabular-nums">${escapeHtml(value)}</dd></div>`).join('')}</dl>`,
-    `<div class="flex flex-wrap gap-2"><button type="button" class="btn btn-primary btn-sm" data-drawer-nav="/admin/ops">${isZh.value ? '运维实时监控' : 'Ops Monitor'}</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-nav="/admin/accounts">${isZh.value ? '上游账号池' : 'Upstream Accounts'}</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-nav="/admin/channels/monitor">${isZh.value ? '渠道监控' : 'Channel Monitor'}</button></div>`
+    `<div class="flex flex-wrap gap-2"><button type="button" class="btn btn-primary btn-sm" data-drawer-nav="/admin/ops">${isZh.value ? '运维实时监控' : 'Ops Monitor'}</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-nav="/admin/accounts">${isZh.value ? '上游连接' : 'Upstream Connections'}</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-nav="/admin/channels/monitor">${isZh.value ? '渠道监控' : 'Channel Monitor'}</button></div>`
   )
 }
 const rankingError = ref(false)
@@ -1061,6 +1066,20 @@ onUnmounted(() => {
   rankingLoadSeq++
   clearInterval(refreshTimer)
 })
+
+watch(() => appStore.activeScope.workspaceId, async (_id, _previous, onCleanup) => {
+  const controller = new AbortController()
+  onCleanup(() => controller.abort())
+  liveModelSampleSize.value = null
+  try {
+    const workspace = await resolveCatalogWorkspace(appStore)
+    if (!workspace || controller.signal.aborted) return
+    const page = await listAdminCatalogModels({ workspace_id: workspace, availability: 'live', limit: 1 }, controller.signal)
+    if (!controller.signal.aborted) liveModelSampleSize.value = page.items.length
+  } catch {
+    // Unknown availability keeps the setup checklist visible.
+  }
+}, { immediate: true })
 
 onMounted(() => {
   void refreshBatchImageAccess()

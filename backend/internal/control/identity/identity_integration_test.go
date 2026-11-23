@@ -23,6 +23,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
 	workspace "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
 	domain "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
@@ -131,7 +132,20 @@ func TestProjectIdentity(t *testing.T) {
 	}
 	wp := fmt.Sprintf("/api/v2/workspaces/%d", w)
 	pp := wp + "/projects/" + strconv.FormatInt(p.ID, 10)
-	code, b := call(engine, "GET", pp+"/access", "", "", "")
+	keyPath := pp + "/keys"
+	payload, err := json.Marshal(args)
+	require.NoError(t, err)
+	code, b := call(engine, "POST", keyPath, string(payload), "Idempotency-Key", "key-1")
+	require.Equal(t, 200, code)
+	replayed := b["data"].(map[string]any)
+	require.Nil(t, replayed["credential"])
+	require.Equal(t, "project_policy", replayed["kind"])
+	require.Equal(t, "active", replayed["state"])
+	code, b = call(engine, "GET", keyPath, "", "", "")
+	require.Equal(t, 200, code)
+	row := b["data"].(map[string]any)["items"].([]any)[0].(map[string]any)
+	require.Equal(t, replayed, row)
+	code, b = call(engine, "GET", pp+"/access", "", "", "")
 	require.Equal(t, 200, code)
 	require.Equal(t, strconv.FormatInt(member, 10), b["data"].(map[string]any)["actor_id"])
 	code, _ = call(engine, "GET", wp+"/operations/export1", "", "", "")
@@ -176,6 +190,91 @@ func TestProjectIdentity(t *testing.T) {
 	rc := testresources.RedisClient(t, &redis.Options{Addr: addr})
 	cfg.APIKeyAuth.L2TTLSeconds = 600
 	repo := repository.NewAPIKeyRepository(ent, db)
+	groups := repository.NewGroupRepository(ent, db)
+	keyService := service.NewAPIKeyService(repo, repository.NewUserRepository(ent, db), groups, nil, nil, nil, cfg)
+	keyService.SetCredentialRepository(repository.NewAPIKeyCredentialRepository(db))
+	legacyKeys := gin.New()
+	v1 := legacyKeys.Group("/api/v1", func(c *gin.Context) {
+		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: actor})
+		c.Request = c.Request.WithContext(workspace.WithDefaultWorkspaceID(c.Request.Context(), w))
+	}, middleware.DefaultWorkspaceScope())
+	ownerKeys := handler.NewAPIKeyHandler(keyService)
+	const v1Keys = "/api/v1/keys"
+	v1.GET("/keys", ownerKeys.List)
+	v1.POST("/keys", ownerKeys.Create)
+	v1.GET("/keys/:id", ownerKeys.GetByID)
+	v1.PUT("/keys/:id", ownerKeys.Update)
+	v1.DELETE("/keys/:id", ownerKeys.Delete)
+	v1.POST("/keys/:id/credentials/rotate", ownerKeys.RotateCredential)
+	v1.POST("/keys/:id/credentials/revoke", ownerKeys.RevokeCredential)
+	rules := handler.NewModelAccessHandler(service.NewModelAccessService(repository.NewModelAccessRepository(db)), nil, keyService)
+	v1.GET("/keys/:id/model-access", rules.Rule("keys", true, false))
+	v1.PUT("/keys/:id/model-access", rules.Rule("keys", true, true))
+	v1.POST("/keys/:id/model-access/preview", rules.Preview("keys", true))
+
+	groupID := id("INSERT INTO groups(workspace_id,name,platform) VALUES($1,$2,'openai') RETURNING id", w, uuid.NewString())
+	code, b = call(legacyKeys, "POST", v1Keys, fmt.Sprintf(`{"name":"Personal","group_id":%d}`, groupID), "", "")
+	require.Equal(t, 200, code, "%v", b)
+	personalID := int64(b["data"].(map[string]any)["api_key"].(map[string]any)["id"].(float64))
+	personalPath := fmt.Sprintf("%s/%d", v1Keys, personalID)
+	require.Equal(t, def, id("SELECT project_id FROM project_resources WHERE kind='api_keys' AND resource_id=$1", personalID))
+
+	legacyProjectID := id("INSERT INTO api_keys(workspace_id,user_id,group_id,name) VALUES($1,$2,$3,'legacy project') RETURNING id", w, member, groupID)
+	exec("INSERT INTO project_resources(kind,resource_id,workspace_id,project_id) VALUES('api_keys',$1,$2,$3)", legacyProjectID, w, p.ID)
+	unmappedID := id("INSERT INTO api_keys(workspace_id,user_id,name) VALUES($1,$2,'personal before backfill') RETURNING id", w, member)
+	for _, query := range []string{"?page_size=1", "?page_size=1&sort_by=current_concurrency"} {
+		code, b = call(legacyKeys, "GET", v1Keys+query, "", "", "")
+		require.Equal(t, 200, code, "%v", b)
+		data := b["data"].(map[string]any)
+		require.EqualValues(t, 2, data["total"])
+		all := map[int64]bool{}
+		for _, page := range []string{"&page=1", "&page=2"} {
+			code, b = call(legacyKeys, "GET", v1Keys+query+page, "", "", "")
+			require.Equal(t, 200, code, "%v", b)
+			rows := b["data"].(map[string]any)["items"].([]any)
+			require.Len(t, rows, 1)
+			all[int64(rows[0].(map[string]any)["id"].(float64))] = true
+		}
+		require.Equal(t, map[int64]bool{personalID: true, unmappedID: true}, all)
+	}
+	projectV1Path := fmt.Sprintf("%s/%d", v1Keys, key.ID)
+	for _, attempt := range []struct{ method, suffix, body string }{
+		{"GET", "", ""},
+		{"PUT", "", `{"status":"inactive"}`},
+		{"PUT", "", `{"quota":10}`},
+		{"DELETE", "", ""},
+		{"POST", "/credentials/rotate", "{}"},
+		{"POST", "/credentials/revoke", ""},
+		{"GET", "/model-access", ""},
+		{"PUT", "/model-access", "{}"},
+		{"POST", "/model-access/preview", "{}"},
+	} {
+		code, b = call(legacyKeys, attempt.method, projectV1Path+attempt.suffix, attempt.body, "", "")
+		require.Equal(t, 404, code, "%s %s: %v", attempt.method, attempt.suffix, b)
+	}
+	code, _ = call(legacyKeys, "GET", fmt.Sprintf("%s/%d", v1Keys, legacyProjectID), "", "", "")
+	require.Equal(t, 404, code)
+	newGroupID := id("INSERT INTO groups(workspace_id,name,platform) VALUES($1,$2,'openai') RETURNING id", w, uuid.NewString())
+	legacyCtx := service.WithLegacyKeyManagement(workspace.WithWorkspaceScope(ctx, w))
+	migrated, err := repo.UpdateGroupIDByUserAndGroup(legacyCtx, member, groupID, newGroupID)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, migrated)
+	require.Equal(t, groupID, id("SELECT group_id FROM api_keys WHERE id=$1", legacyProjectID))
+	require.Equal(t, newGroupID, id("SELECT group_id FROM api_keys WHERE id=$1", personalID))
+	code, _ = call(legacyKeys, "GET", personalPath, "", "", "")
+	require.Equal(t, 200, code)
+	code, b = call(legacyKeys, "PUT", personalPath, `{"name":"Personal renamed","quota":10}`, "", "")
+	require.Equal(t, 200, code, "%v", b)
+	require.Equal(t, "Personal renamed", b["data"].(map[string]any)["name"])
+	code, _ = call(legacyKeys, "POST", personalPath+"/credentials/rotate", "{}", "", "")
+	require.Equal(t, 200, code)
+	code, _ = call(legacyKeys, "POST", personalPath+"/credentials/revoke", "", "", "")
+	require.Equal(t, 200, code)
+	code, _ = call(legacyKeys, "DELETE", personalPath, "", "", "")
+	require.Equal(t, 200, code)
+	code, _ = call(legacyKeys, "GET", personalPath, "", "", "")
+	require.Equal(t, 404, code)
+
 	userKey := &service.APIKey{UserID: member, Name: "legacy user key", Key: uuid.NewString(), Status: service.StatusActive}
 	require.NoError(t, repo.Create(workspace.WithWorkspaceScope(ctx, w), userKey))
 	require.Equal(t, def, id("SELECT project_id FROM project_resources WHERE workspace_id=$1 AND kind='api_keys' AND resource_id=$2", w, userKey.ID))
@@ -241,6 +340,17 @@ func TestProjectIdentity(t *testing.T) {
 	require.Equal(t, 200, code)
 	code, _ = call(newGateway, "POST", "/v1/chat/completions", `{"model":"m1"}`, "x-api-key", *key.Credential)
 	require.Equal(t, 403, code)
+	actor = admin
+	code, b = call(engine, "GET", grantsPath, "", "", "")
+	require.Equal(t, 200, code)
+	version := b["data"].(map[string]any)["version"].(string)
+	code, b = call(engine, "PUT", grantsPath, `{"project_ids":[],"actions":[]}`, "If-Match", strconv.Quote(version))
+	require.Equal(t, 200, code, "%v", b)
+	actor = member
+	code, _ = call(engine, "GET", keyPath, "", "", "")
+	require.Equal(t, 404, code)
+	code, _ = call(legacyKeys, "PUT", projectV1Path, `{"status":"inactive"}`, "", "")
+	require.Equal(t, 404, code)
 	exec("DELETE FROM workspace_members WHERE workspace_id=$1 AND user_id=$2", w, member)
 	code, _ = call(engine, "GET", pp+"/access", "", "", "")
 	require.Equal(t, 404, code)

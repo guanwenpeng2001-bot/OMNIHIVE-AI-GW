@@ -333,8 +333,6 @@ var (
 	DefaultUpdatedAt func() time.Time
 	// UpdateDefaultUpdatedAt holds the default value on update for the "updated_at" field.
 	UpdateDefaultUpdatedAt func() time.Time
-	// DefaultWorkspaceID holds the default value on creation for the "workspace_id" field.
-	DefaultWorkspaceID int64
 	// DefaultTpmLimit holds the default value on creation for the "tpm_limit" field.
 	DefaultTpmLimit int64
 	// TpmLimitValidator is a validator for the "tpm_limit" field. It is called by the builders before save.

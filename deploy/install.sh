@@ -32,7 +32,6 @@ NC='\033[0m' # No Color
 
 # Configuration
 GITHUB_REPO="guanwenpeng2001-bot/OMNIHIVE-AI-GW"
-MINIMUM_ROLLBACK_VERSION="0.2.5"
 INSTALL_DIR="/opt/omnihive"
 SERVICE_NAME="omnihive"
 SERVICE_USER="omnihive"
@@ -479,10 +478,6 @@ check_dependencies() {
         missing+=("tar")
     fi
 
-    if ! command -v python3 &> /dev/null; then
-        missing+=("python3")
-    fi
-
     if ! command -v sha256sum &> /dev/null && ! command -v shasum &> /dev/null; then
         missing+=("sha256sum (or shasum)")
     fi
@@ -676,46 +671,6 @@ verify_release_checksum() {
     [ "${digest%% *}" = "$expected" ]
 }
 
-verify_release_manifest() {
-    python3 - "$1" "$LATEST_VERSION" "$MINIMUM_ROLLBACK_VERSION" <<'PYTHON'
-import json
-import re
-import sys
-
-number = r"(?:0|[1-9][0-9]*)"
-label = r"[0-9A-Za-z-]+"
-version_pattern = re.compile(
-    rf"v?({number})[.]({number})[.]({number})(?:-({label}(?:[.]{label})*))?(?:[+]({label}(?:[.]{label})*))?"
-)
-
-def release_version(value, stable=False):
-    match = version_pattern.fullmatch(value) if isinstance(value, str) else None
-    if match is None or (stable and (match[4] or match[5])):
-        raise ValueError(f"Invalid release version {value!r}")
-    if any(part.isdigit() and len(part) > 1 and part.startswith("0") for part in (match[4] or "").split(".")):
-        raise ValueError(f"Invalid prerelease version {value!r}")
-    return tuple(map(int, match.groups()[:3])) + (match[4], match[5])
-
-try:
-    with open(sys.argv[1], "rb") as manifest_file:
-        data = manifest_file.read(65537)
-    if len(data) > 65536:
-        raise ValueError("Release manifest exceeds the size limit")
-    manifest = json.loads(data)
-    if not isinstance(manifest, dict) or manifest.get("product") != "omnihive":
-        raise ValueError("Wrong product in release manifest. Expected omnihive.")
-    target = release_version(sys.argv[2])
-    if release_version(manifest.get("version")) != target:
-        raise ValueError("Release manifest version does not match the requested release")
-    floor = max(release_version(sys.argv[3], stable=True), release_version(manifest.get("minimum_rollback_version"), stable=True))
-    if target[:3] < floor[:3] or (target[:3] == floor[:3] and target[3]):
-        floor_label = ".".join(map(str, floor[:3]))
-        raise ValueError(f"Release {sys.argv[2]} is below the database rollback compatibility floor {floor_label}")
-except (OSError, ValueError) as error:
-    sys.exit(str(error))
-PYTHON
-}
-
 # Download, verify and extract the official release before touching the installation.
 download_and_extract() {
     if ! [[ "$LATEST_VERSION" =~ ^v?[0-9]+[.][0-9]+[.][0-9]+([-+][0-9A-Za-z.+-]+)?$ ]]; then
@@ -759,7 +714,20 @@ download_and_extract() {
         print_error "Could not verify the OmniHive release manifest checksum."
         return 1
     fi
-    verify_release_manifest "$TEMP_DIR/$manifest_name" || return 1
+
+    # When available, reject incompatible targets before downloading executable
+    # bytes. The second check below re-reads the DB immediately before install.
+    local checker="$INSTALL_DIR/omnihivectl"
+    local -a check_args=(release check --target "$LATEST_VERSION" --manifest "$TEMP_DIR/$manifest_name" --checksums "$checksums" --json)
+    if [ -z "${OMNIHIVE_RELEASE_DSN:-}" ] && [ ! -f "$INSTALL_DIR/omnihive" ] && [ ! -f "$INSTALL_DIR/sub2api" ] && [ ! -f "$INSTALL_DIR/data/config.yaml" ] && [ ! -f "$CONFIG_DIR/config.yaml" ] && [ ! -f "$INSTALL_DIR/data/.installed" ] && [ ! -f "$INSTALL_DIR/.installed" ]; then
+        check_args+=(--fresh)
+    fi
+    if [ -x "$checker" ] && [ ! -L "$checker" ] && "$checker" release check --help >/dev/null 2>&1; then
+        "$checker" "${check_args[@]}" || return 1
+    else
+        print_info "Release eligibility: legacy/bootstrap mode (bundled verified omnihivectl)."
+        checker=""
+    fi
 
     print_info "$(msg 'downloading') ${candidate}..."
     if ! curl -qfsSL "$release_url/$candidate" -o "$TEMP_DIR/$candidate"; then
@@ -787,6 +755,18 @@ download_and_extract() {
         return 1
     fi
 
+    # The Go resolver owns SemVer and DB policy. A checksum-verified bundled CLI
+    # bootstraps fresh installs and older installations without release check.
+    if [ -z "$checker" ]; then
+        checker="$extracted/omnihivectl"
+    fi
+    if [ ! -f "$checker" ] || [ -L "$checker" ]; then
+        print_error "Release eligibility checker unavailable; install a current omnihivectl before retrying."
+        return 1
+    fi
+    chmod +x "$checker" || return 1
+    "$checker" "${check_args[@]}" || return 1
+
     mkdir -p "$INSTALL_DIR" || return 1
     if [ -n "${1:-}" ]; then
         cp "$2" "$1" || return 1
@@ -800,6 +780,9 @@ download_and_extract() {
     fi
     if [ "$SERVICE_NAME" = "$LEGACY_SERVICE_NAME" ]; then
         ln -sfn omnihive "$INSTALL_DIR/sub2api"
+    fi
+    if [ -f "$extracted/omnihivectl" ] && [ ! -L "$extracted/omnihivectl" ]; then
+        install -m 0755 "$extracted/omnihivectl" "$INSTALL_DIR/omnihivectl" || return 1
     fi
 
     # Ship readable pricing resources alongside the embedded defaults.

@@ -381,6 +381,19 @@ func TestLoadReturnsErrorForMissingConfigFile(t *testing.T) {
 	require.ErrorContains(t, err, "read config error")
 }
 
+func TestLoadForInitialSetupAllowsConfigFileThatSetupWillWrite(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("CONFIG_FILE", filepath.Join(t.TempDir(), "config.yaml"))
+	t.Setenv("DEFAULT_USER_CONCURRENCY", "17")
+
+	cfg, err := LoadForInitialSetup()
+	require.NoError(t, err)
+	require.Equal(t, 17, cfg.Default.UserConcurrency)
+
+	_, err = LoadForBootstrap()
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
 func TestLoadForBootstrapAllowsMissingJWTSecret(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

@@ -9,3 +9,4 @@ export type {
   PlatformQuotaItem, PlatformQuotaUpdateItem, PlatformQuotaPlatform,
   PlatformQuotaWindow, PlatformQuotasResponse
 } from '@/api/admin/users'
+export type { AdminUpdateAccountRequest } from '@/api/admin/accounts'

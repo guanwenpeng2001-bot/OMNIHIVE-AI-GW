@@ -9,6 +9,7 @@ export type SettingsSectionId =
   | 'email'
   | 'features'
   | 'agreement'
+  | 'diagnostics'
 
 export interface SettingsSectionMeta {
   id: SettingsSectionId
@@ -113,6 +114,16 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     description: 'Terms and privacy agreement enforcement mode on sign-in.',
     descriptionZh: '登录与注册时的服务条款和隐私协议展示方式。',
     fields: ['login_agreement_enabled', 'login_agreement_mode']
+  },
+  {
+    id: 'diagnostics',
+    label: 'Config Diagnostics',
+    labelZh: '配置来源诊断',
+    description:
+      'Effective configuration values, source precedence, hard/soft gates, seed provenance, and override resets.',
+    descriptionZh:
+      '核查各项配置的当前生效值、解析来源、部署硬门控与软开关关系、初始播种记录及覆盖重置。',
+    fields: []
   }
 ]
 

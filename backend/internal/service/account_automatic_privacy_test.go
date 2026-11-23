@@ -29,7 +29,7 @@ func (admin *automaticPrivacyAdmin) EnsureAntigravityPrivacy(context.Context, *A
 }
 
 func TestAutomaticPrivacyPreservesAntigravityResponseMode(t *testing.T) {
-	account := &Account{ID: 42, Status: StatusActive, Platform: PlatformAntigravity, Type: AccountTypeOAuth, Extra: map[string]any{"existing": true}}
+	account := &Account{ID: 42, WorkspaceID: 17, Status: StatusActive, Platform: PlatformAntigravity, Type: AccountTypeOAuth, Extra: map[string]any{"existing": true}}
 	fresh := *account
 	admin := &automaticPrivacyAdmin{fresh: &fresh}
 	EnsureAutomaticAccountPrivacy(context.Background(), admin, account)
@@ -41,7 +41,7 @@ func TestAutomaticPrivacyChecksEnqueueAndFreshStatus(t *testing.T) {
 	for _, platform := range []string{PlatformOpenAI, PlatformAntigravity} {
 		for _, state := range []string{StatusActive, "inactive", StatusError, "queued-inactive", "queued-error", "read-failure", "missing"} {
 			t.Run(platform+"/"+state, func(t *testing.T) {
-				account := &Account{ID: 42, Status: StatusActive, Platform: platform, Type: AccountTypeOAuth}
+				account := &Account{ID: 42, WorkspaceID: 17, Status: StatusActive, Platform: platform, Type: AccountTypeOAuth}
 				fresh := *account
 				admin := &automaticPrivacyAdmin{fresh: &fresh}
 				switch state {

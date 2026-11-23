@@ -251,7 +251,7 @@ func resolveQianwenConditions(resolved *ResolvedPricing, input CostInput) (*Reso
 	}
 	selected := p.Clone()
 	applyQianwenMode(&selected, mode)
-	r := input.Resolver.resolveConfiguredPricing(&selected, input.Model, resolved.Source)
+	r := input.Resolver.resolveConfiguredPricingFor(&selected, PricingInput{Model: input.Model, Provider: input.Provider, At: input.PricingAt}, resolved.Source)
 	r.longContextPricingEnabled = false
 	return r, nil
 }

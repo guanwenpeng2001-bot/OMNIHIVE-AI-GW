@@ -8,10 +8,10 @@ import (
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 )
 
 type Project struct {
+	IsDefault   bool   `json:"is_default"`
 	ID          int64  `json:"id,string"`
 	WorkspaceID int64  `json:"workspace_id,string"`
 	Name        string `json:"name"`
@@ -73,28 +73,7 @@ type KeyPolicy struct {
 }
 
 func (p *KeyPolicy) Allows(action string, models []string) bool {
-	if !slices.Contains(p.Actions, action) {
-		return false
-	}
-	if action == "models.read" || action == "usage.read" || action == "tasks.read" {
-		return true
-	}
-	switch p.Mode {
-	case "inherit":
-		return true
-	case "allow_list":
-		if len(models) == 0 {
-			return false
-		}
-		for _, m := range models {
-			if !slices.Contains(p.Models, m) && (p.Platform == "" || !slices.Contains(p.Models, catalog.StableID(p.Platform, m))) {
-				return false
-			}
-		}
-		return true
-	default:
-		return false
-	}
+	return AllowsIssuedKeyModel(p, action, models)
 }
 
 const ProjectKeyPrefix = "oh_p_"
@@ -148,8 +127,9 @@ type Page struct {
 }
 
 type Workspace struct {
-	ID   int64  `json:"workspace_id,string"`
-	Name string `json:"name"`
+	IsDefault bool   `json:"is_default"`
+	ID        int64  `json:"workspace_id,string"`
+	Name      string `json:"name"`
 }
 
 type GrantVersion struct {
@@ -159,16 +139,23 @@ type GrantVersion struct {
 }
 
 type Member struct {
-	ID       int64  `json:"id,string"`
-	UserID   int64  `json:"user_id,string"`
-	Email    string `json:"email"`
-	Username string `json:"username"`
-	Role     string `json:"role"`
-	Status   string `json:"status"`
-	Version  int64  `json:"version,string"`
+	RoleSource string `json:"role_source"`
+	ID         int64  `json:"id,string"`
+	UserID     int64  `json:"user_id,string"`
+	Email      string `json:"email"`
+	Username   string `json:"username"`
+	Role       string `json:"role"`
+	Status     string `json:"status"`
+	Version    int64  `json:"version,string"`
+}
+
+type ProjectGrant struct {
+	ProjectID int64    `json:"project_id,string"`
+	Actions   []string `json:"actions"`
 }
 
 type MemberGrants struct {
+	ProjectGrants []ProjectGrant `json:"project_grants"`
 	GrantVersion
 	ProjectIDs []string `json:"project_ids"`
 	Actions    []string `json:"actions"`

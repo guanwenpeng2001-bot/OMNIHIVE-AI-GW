@@ -16,7 +16,7 @@ func TestLoadCatalogAndAffinityDefaults(t *testing.T) {
 	t.Setenv("GATEWAY_AFFINITY_HMAC_KEY_VERSION", "")
 	cfg, err := Load()
 	require.NoError(t, err)
-	require.True(t, cfg.ModelCatalogRefreshEnabled)
+	require.False(t, cfg.ModelCatalogRefreshEnabled)
 	require.True(t, cfg.Gateway.SessionAffinityEnabled)
 	require.Empty(t, cfg.Gateway.AffinityHMACKey)
 	require.Empty(t, cfg.Gateway.AffinityHMACKeyVersion)

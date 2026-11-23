@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testresources"
@@ -37,7 +36,9 @@ func TestVerificationQueuePostgres(t *testing.T) {
 		_, err := db.ExecContext(ctx, statement, args...)
 		require.NoError(t, err)
 	}
-	exec(`CREATE TABLE identity_actions(action text PRIMARY KEY, category text);
+	exec(`CREATE TABLE workspaces(id bigint PRIMARY KEY,is_default boolean); INSERT INTO workspaces VALUES(1,true);
+ CREATE FUNCTION resolve_default_workspace_id() RETURNS bigint LANGUAGE sql AS 'SELECT 1::bigint';
+ CREATE TABLE identity_actions(action text PRIMARY KEY, category text);
 		CREATE TABLE users (id bigint PRIMARY KEY,status text,role text,deleted_at timestamptz);
 		INSERT INTO users VALUES (1,'active','admin',NULL)`)
 	migration, err := migrations.FS.ReadFile("316_catalog_verification.sql")
@@ -98,7 +99,7 @@ func TestVerificationQueuePostgres(t *testing.T) {
 	require.Nil(t, job)
 	for _, j := range running {
 		require.NoError(t, store.finish(ctx, j, probeResult{state: success, reason: "MODEL_OBSERVED", samples: 1}))
-		op, err := store.ReadOperation(ctx, domain.DefaultWorkspaceID, 1, "cv_"+j.id.String())
+		op, err := store.ReadOperation(ctx, 1, 1, "cv_"+j.id.String())
 		require.NoError(t, err)
 		require.Equal(t, "unknown", op.State)
 		require.Equal(t, "WORKER_LEASE_EXPIRED", op.Result.(*Observation).Reason)

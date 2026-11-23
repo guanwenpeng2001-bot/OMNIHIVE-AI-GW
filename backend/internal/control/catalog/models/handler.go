@@ -3,7 +3,6 @@ package models
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -22,11 +21,9 @@ import (
 	identityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
-	legacy "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog/postgres"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
@@ -36,11 +33,12 @@ type plazaSettings interface {
 }
 
 type Handler struct {
-	settings  plazaSettings
-	reader    catalog.CatalogReader
-	access    identity.AccessEvaluator
-	cursorKey [32]byte
-	quotes    quotes.Service
+	settings      plazaSettings
+	reader        catalog.CatalogReader
+	access        identity.AccessEvaluator
+	cursorKey     [32]byte
+	quotes        quotes.Service
+	comparePrices ComparePricePort
 }
 
 func New(reader catalog.CatalogReader, access identity.AccessEvaluator, cfg *config.Config) *Handler {
@@ -49,48 +47,18 @@ func New(reader catalog.CatalogReader, access identity.AccessEvaluator, cfg *con
 		quotes:    quotes.Service{Catalog: reader}}
 }
 
-func NewWithPricing(reader catalog.CatalogReader, access identity.AccessEvaluator, cfg *config.Config, db *sql.DB) *Handler {
-	h := New(reader, access, cfg)
-	if db != nil {
-		h.settings = plazaDBSettings{db}
-		published := pricing.VersionStore{DB: db}
-		h.quotes = quotes.Service{
-			Catalog:   reader,
-			Published: published,
-			Keys:      scopedKeyPriceResolver{db: db, access: access, store: published},
-		}
-	}
-	return h
+func (h *Handler) SetComparePricePort(port ComparePricePort) {
+	h.comparePrices = port
 }
 
-// The production constructor already receives the settings database. Preserve
-// New's nil-settings behavior for embedded callers and existing tests.
-type plazaDBSettings struct{ db *sql.DB }
-
-func (s plazaDBSettings) GetModelPlazaRuntime(ctx context.Context) service.ModelPlazaRuntime {
-	runtime := service.ModelPlazaRuntime{Enabled: true}
-	rows, err := s.db.QueryContext(ctx, `SELECT key,value FROM settings WHERE key IN ('model_plaza_enabled','model_plaza_require_auth')`)
-	if err != nil {
-		return service.ModelPlazaRuntime{}
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var key, value string
-		if rows.Scan(&key, &value) != nil {
-			return service.ModelPlazaRuntime{}
-		}
-		if key == "model_plaza_enabled" {
-			runtime.Enabled = value == "true"
-		}
-		if key == "model_plaza_require_auth" {
-			runtime.RequireAuth = value == "true"
-		}
-	}
-	if rows.Err() != nil {
-		return service.ModelPlazaRuntime{}
-	}
-	return runtime
+func (h *Handler) SetQuoteService(quoteService quotes.Service) {
+	h.quotes = quoteService
 }
+
+func (h *Handler) SetPlazaSettings(settings *service.SettingService) {
+	h.settings = settings
+}
+
 func (h *Handler) publicGuard(session []gin.HandlerFunc) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if h.settings == nil {
@@ -115,78 +83,8 @@ func (h *Handler) publicGuard(session []gin.HandlerFunc) gin.HandlerFunc {
 	}
 }
 
-type scopedKeyPriceResolver struct {
-	db     *sql.DB
-	access identity.AccessEvaluator
-	store  pricing.VersionStore
-}
-
-func (r scopedKeyPriceResolver) ResolveKeyPrice(ctx context.Context, p catalog.Perspective, keyID int64, d catalog.Detail, protocol, action string, usage pricing.Usage, at time.Time) (pricing.Version, error) {
-	if r.db == nil || p.Workspace <= 0 || p.Project <= 0 || keyID <= 0 {
-		return pricing.Version{}, fault.NotFound
-	}
-	if _, err := r.access.Evaluate(ctx, p.Actor, p.Workspace, p.Project, "models.read"); err != nil {
-		return pricing.Version{}, err
-	}
-	var exists bool
-	err := r.db.QueryRowContext(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM api_keys k
-			WHERE k.id = $1
-			  AND k.deleted_at IS NULL
-			  AND k.status = 'active'
-			  AND (
-				EXISTS (
-					SELECT 1 FROM project_key_policies pkp
-					WHERE pkp.api_key_id = k.id AND pkp.workspace_id = $2 AND pkp.project_id = $3
-				)
-				OR EXISTS (
-					SELECT 1 FROM project_resources pr
-					WHERE pr.kind = 'api_keys' AND pr.resource_id = k.id AND pr.workspace_id = $2 AND pr.project_id = $3
-				)
-				OR (
-					k.workspace_id = $2
-					AND EXISTS (
-						SELECT 1 FROM projects d
-						WHERE d.workspace_id = $2 AND d.id = $3 AND d.is_default
-					)
-					AND NOT EXISTS (
-						SELECT 1 FROM project_key_policies pkp2
-						WHERE pkp2.api_key_id = k.id AND pkp2.workspace_id = $2 AND pkp2.project_id <> $3
-					)
-					AND NOT EXISTS (
-						SELECT 1 FROM project_resources pr2
-						WHERE pr2.kind = 'api_keys' AND pr2.resource_id = k.id AND pr2.workspace_id = $2 AND pr2.project_id <> $3
-					)
-					AND NOT EXISTS (
-						SELECT 1 FROM identity_scope_quarantine q
-						WHERE q.kind = 'api_keys' AND q.resource_id = k.id
-					)
-				)
-			  )
-		)`, keyID, p.Workspace, p.Project).Scan(&exists)
-	if err != nil {
-		return pricing.Version{}, err
-	}
-	if !exists {
-		return pricing.Version{}, fault.NotFound
-	}
-	versions, err := r.store.At(ctx, quotes.PublicationScope(p, d.Model.ID), at)
-	if err != nil {
-		return pricing.Version{}, err
-	}
-	if resolved, err := pricing.Resolve(pricing.Candidates{Published: versions}, at); err != nil {
-		return pricing.Version{}, err
-	} else if resolved != nil {
-		return *resolved, nil
-	}
-	return quotes.Reference(d, at)
-}
-
 var ProviderSet = wire.NewSet(
-	postgres.New, legacy.NewSource, catalog.NewReader, NewWithPricing,
-	wire.Bind(new(catalog.Acquisition), new(*legacy.Source)),
+	postgres.New, catalog.NewReader,
 	wire.Bind(new(catalog.CatalogPublisher), new(*postgres.Store)),
 	wire.Bind(new(catalog.CatalogReader), new(*catalog.Reader)),
 )
@@ -216,6 +114,9 @@ func (h *Handler) serve(fn endpoint) gin.HandlerFunc {
 		}
 		p, err := h.perspective(ctx, c)
 		if err == nil {
+			if !p.Public() {
+				c.Header("Cache-Control", "private, no-store")
+			}
 			var data any
 			data, err = fn(ctx, p, c)
 			if err == nil && !p.Public() {
@@ -237,7 +138,11 @@ func (h *Handler) serve(fn endpoint) gin.HandlerFunc {
 func (h *Handler) perspective(ctx context.Context, c *gin.Context) (catalog.Perspective, error) {
 	workspace := c.Param("workspace_id")
 	if workspace == "" {
-		return catalog.Perspective{Workspace: domain.DefaultWorkspaceID}, nil
+		id := domain.ResolvedDefaultWorkspaceID(ctx)
+		if id <= 0 {
+			return catalog.Perspective{}, &fault.Fault{Status: 503, Reason: "SCOPE_UNAVAILABLE", Message: "The Default workspace is unavailable."}
+		}
+		return catalog.Perspective{Workspace: id}, nil
 	}
 	subject, ok := middleware.GetAuthSubjectFromContext(c)
 	if !ok || subject.UserID <= 0 {
@@ -251,8 +156,20 @@ func (h *Handler) perspective(ctx context.Context, c *gin.Context) (catalog.Pers
 	if err != nil {
 		return catalog.Perspective{}, err
 	}
-	return catalog.Perspective{Actor: a.ActorID, Workspace: a.WorkspaceID, Project: a.ProjectID,
+	return catalog.Perspective{Actor: a.ActorID, Workspace: a.WorkspaceID, Project: a.ProjectID, Kind: catalog.PerspectiveProject,
 		AccessVersion: a.Version, EndpointMetadata: a.Require("connections.read") == nil}, nil
+}
+
+func withSelectedKey(p catalog.Perspective, value string) (catalog.Perspective, error) {
+	if value == "" {
+		return p, nil
+	}
+	key := positiveID(value)
+	if p.Public() || key <= 0 {
+		return catalog.Perspective{}, fault.Invalid("/api_key_id")
+	}
+	p.Kind, p.KeyID = catalog.PerspectiveSelectedKey, key
+	return p, nil
 }
 
 func positiveID(s string) int64 {
@@ -277,6 +194,13 @@ func (h *Handler) detail(ctx context.Context, p catalog.Perspective, c *gin.Cont
 		return nil, err
 	}
 	for field, v := range q {
+		if field == "api_key_id" && len(v) == 1 && v[0] != "" {
+			p, err = withSelectedKey(p, v[0])
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
 		if field != "catalog_version" || len(v) != 1 || !isIdentifier(v[0], "cat_", 64) {
 			return nil, fault.Invalid("/" + field)
 		}
@@ -294,19 +218,8 @@ func (h *Handler) detail(ctx context.Context, p catalog.Perspective, c *gin.Cont
 	if version := q.Get("catalog_version"); version != "" && version != snapshot.Version {
 		return nil, snapshotExpired
 	}
-	var modelMatch *catalog.Detail
-	ambiguous := false
-	for _, d := range snapshot.Details {
-		if d.Model.ID == id || (slug && d.Model.Provider == provider && d.Model.Model == model) {
-			return d, nil
-		}
-		if slug && d.Model.Model == id {
-			ambiguous = modelMatch != nil
-			modelMatch = &d
-		}
-	}
-	if modelMatch != nil && !ambiguous {
-		return *modelMatch, nil
+	if d, ok := snapshot.Find(id); ok {
+		return d, nil
 	}
 	return nil, fault.NotFound
 }
@@ -330,7 +243,7 @@ func writeFault(c *gin.Context, err error) {
 	switch f.Status {
 	case 401, 403, 404:
 		category = "access"
-	case 410:
+	case 409, 410:
 		category = "conflict"
 	case 503:
 		category, retry = "dependency", "retry_later"

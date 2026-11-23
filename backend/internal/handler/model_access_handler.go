@@ -40,7 +40,7 @@ func (h *ModelAccessHandler) Preview(resource string, own bool) gin.HandlerFunc 
 			response.BadRequest(ctx, "Invalid model access rule")
 			return
 		}
-		impact, err := h.service.Preview(ctx.Request.Context(), resource, identifier, owner, rule, h.gateway, h.keys)
+		impact, err := h.service.Preview(service.WithLegacyKeyManagement(ctx.Request.Context()), resource, identifier, owner, rule, h.gateway, h.keys)
 		if err != nil {
 			response.ErrorFrom(ctx, err)
 			return
@@ -107,18 +107,19 @@ func (h *ModelAccessHandler) Rule(resource string, own bool, write bool) gin.Han
 			}
 			owner = subject.UserID
 		}
+		requestCtx := service.WithLegacyKeyManagement(ctx.Request.Context())
 		if write {
 			var rule service.ModelAccessRule
 			if err := ctx.ShouldBindJSON(&rule); err != nil {
 				response.BadRequest(ctx, "Invalid model access rule")
 				return
 			}
-			if err := h.service.SaveRule(ctx.Request.Context(), resource, identifier, owner, rule); err != nil {
+			if err := h.service.SaveRule(requestCtx, resource, identifier, owner, rule); err != nil {
 				response.ErrorFrom(ctx, err)
 				return
 			}
 		}
-		rule, err := h.service.Rule(ctx.Request.Context(), resource, identifier, owner)
+		rule, err := h.service.Rule(requestCtx, resource, identifier, owner)
 		if err != nil {
 			response.ErrorFrom(ctx, err)
 			return

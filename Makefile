@@ -74,6 +74,7 @@ test-frontend: test-frontend-check
 
 .PHONY: test-frontend-check test-shell
 test-frontend-check:
+	@node scripts/check-frontend-type-drift.mjs
 	@pnpm --dir frontend run lint:check
 	@pnpm --dir frontend run typecheck
 	@pnpm --dir frontend run check:i18n

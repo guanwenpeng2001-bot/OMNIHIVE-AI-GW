@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/lib/pq"
 )
@@ -101,6 +103,9 @@ func lockAccessResource(ctx context.Context, tx *sql.Tx, resource string, identi
 		args = append(args, owner)
 	}
 	var found int64
+	if resource == "keys" && service.IsLegacyKeyManagement(ctx) {
+		ownerFilter += " AND " + fmt.Sprintf(personalAPIKeyPredicate, "api_keys.id")
+	}
 	err = tx.QueryRowContext(ctx, fmt.Sprintf("SELECT id FROM %s WHERE id=$1 AND workspace_id=$2 AND deleted_at IS NULL%s FOR UPDATE", table, ownerFilter), args...).Scan(&found)
 	return modelAccessError(err)
 }
@@ -228,7 +233,10 @@ func (r *modelAccessRepository) SaveRule(ctx context.Context, resource string, i
 // One SQL statement takes a consistent snapshot of all applicable rules and
 // named sets. No scheduler or credential cache can retain an old policy.
 func readModelAccessSnapshot(ctx context.Context, executor sqlExecutor, keyID int64) (service.ModelAccessSnapshot, error) {
-	snapshot := service.ModelAccessSnapshot{Accounts: map[int64][]string{}, AccountExcludes: map[int64][]string{}}
+	snapshot := service.ModelAccessSnapshot{
+		Accounts: map[int64][]string{}, AccountExcludes: map[int64][]string{},
+		AccountRestrictions: map[int64]identity.EffectiveKeyModels{},
+	}
 	generation, err := readAccessGeneration(ctx, executor)
 	if err != nil {
 		return snapshot, err
@@ -265,13 +273,19 @@ func readModelAccessSnapshot(ctx context.Context, executor sqlExecutor, keyID in
 				return snapshot, err
 			}
 		}
+		if rule.AccessGroupID != nil && named == nil {
+			named = []string{}
+		}
 		resolved := service.ResolveModelAccessRule(rule, named)
+		restriction := identity.EffectiveKeyModels{Rule: rule.Models, Named: named, Exclude: rule.Exclude}
 		if accountID.Valid {
 			snapshot.Accounts[accountID.Int64] = resolved
 			snapshot.AccountExcludes[accountID.Int64] = rule.Exclude
+			snapshot.AccountRestrictions[accountID.Int64] = restriction
 		} else {
 			snapshot.Key = resolved
 			snapshot.KeyExclude = rule.Exclude
+			snapshot.KeyRestriction = &restriction
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -279,10 +293,19 @@ func readModelAccessSnapshot(ctx context.Context, executor sqlExecutor, keyID in
 	}
 	_ = rows.Close()
 	if keyID != 0 {
-		groupRows, readErr := executor.QueryContext(ctx, `SELECT resource_group.model_allowlist, CASE WHEN project.api_key_id IS NOT NULL THEN coalesce(resource_group.platform,'') ELSE '' END
- FROM api_keys api_key LEFT JOIN groups resource_group ON resource_group.id=api_key.group_id AND resource_group.workspace_id=api_key.workspace_id
- LEFT JOIN project_key_policies project ON project.api_key_id=api_key.id AND project.workspace_id=api_key.workspace_id
- WHERE api_key.id=$1 AND api_key.workspace_id=$2 AND api_key.deleted_at IS NULL`, keyID, domain.ResourceWorkspaceID(ctx))
+		var project int64
+		if a, ok := scope.From(ctx); ok && a.KeyID == keyID {
+			project = a.ProjectID
+		}
+		groupRows, readErr := executor.QueryContext(ctx, `SELECT g.model_allowlist,coalesce(g.platform,''),issued.model_mode,issued.models
+ FROM api_keys k`+identity.KeyAttributionJoins+`
+ LEFT JOIN groups g ON g.id=k.group_id AND g.workspace_id=k.workspace_id
+ LEFT JOIN project_resources gr ON gr.kind='groups' AND gr.resource_id=g.id
+ WHERE k.id=$1 AND k.workspace_id=$2 AND k.deleted_at IS NULL AND ($3=0 OR key_project.id=$3)
+ AND (k.group_id IS NULL OR (g.id IS NOT NULL AND (gr.workspace_id IS NULL OR gr.workspace_id=k.workspace_id)
+   AND coalesce(gr.project_id,default_project.id)=key_project.id
+   AND NOT EXISTS (SELECT 1 FROM identity_scope_quarantine q WHERE q.kind='groups' AND q.resource_id=g.id)))
+ AND `+identity.ValidKeyAttribution, keyID, domain.ResourceWorkspaceID(ctx), project)
 		if readErr != nil {
 			return snapshot, readErr
 		}
@@ -295,10 +318,19 @@ func readModelAccessSnapshot(ctx context.Context, executor sqlExecutor, keyID in
 			return snapshot, service.ErrModelAccessNotFound
 		}
 		var encoded []byte
-		readErr = groupRows.Scan(&encoded, &snapshot.ProjectKeyPlatform)
+		var mode sql.NullString
+		var ceiling []string
+		readErr = groupRows.Scan(&encoded, &snapshot.ProjectKeyPlatform, &mode, pq.Array(&ceiling))
 		_ = groupRows.Close()
 		if readErr != nil {
 			return snapshot, readErr
+		}
+		if snapshot.KeyRestriction == nil {
+			snapshot.KeyRestriction = &identity.EffectiveKeyModels{}
+		}
+		if mode.Valid {
+			snapshot.RestrictedKey = true
+			snapshot.KeyRestriction.Ceiling = identity.IssuedModelCeiling(mode.String, ceiling)
 		}
 		if len(encoded) > 0 {
 			if readErr = json.Unmarshal(encoded, &snapshot.KeyGroup); readErr != nil {

@@ -9,8 +9,8 @@ import en from '@/i18n/locales/en/dashboard'
 import zh from '@/i18n/locales/zh/dashboard'
 
 const { showError } = vi.hoisted(() => ({ showError: vi.fn() }))
-vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError }) }))
-vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }) }))
+vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError, activeScope: { workspaceId: '72' }, scopes: [] }) }))
+vi.mock('vue-router', async () => ({ RouterLink: (await import('@vue/test-utils')).RouterLinkStub, useRouter: () => ({ push: vi.fn() }) }))
 vi.mock('@/composables/useBatchImageAccess', () => ({ useBatchImageAccess: () => ({ canUseBatchImage: false, refreshBatchImageAccess: vi.fn() }) }))
 // No mock of client.ts, Axios interceptors, or dashboard API functions.
 const originalAdapter = apiClient.defaults.adapter
@@ -22,7 +22,7 @@ const adapter: AxiosAdapter = async config => {
     const response = { status, statusText: 'Failure', headers: {}, config, data: { code: status, reason, message: 'History unavailable', metadata: { raw_retained_from: '2026-03-05T00:00:00Z' } } }
     throw new AxiosError('Request failed', 'ERR_BAD_RESPONSE', config, {}, response)
   }
-  const data = config.url?.endsWith('/stats') ? { coverage: { complete: false, reason: 'raw_history_unavailable', raw_retained_from: '2026-03-05T00:00:00Z' } } : { trend: [], ranking: [] }
+  const data = config.url?.endsWith('/models') ? { items: [] } : config.url?.endsWith('/stats') ? { coverage: { complete: false, reason: 'raw_history_unavailable', raw_retained_from: '2026-03-05T00:00:00Z' } } : { trend: [], ranking: [] }
   return { status: 200, statusText: 'OK', headers: {}, config, data: { code: 0, data } }
 }
 describe('real client to dashboard error chain', () => {

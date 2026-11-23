@@ -10,7 +10,6 @@ import { keysAPI } from '@/api'
 import { classifyConsoleError, type ConsoleAsyncNotice } from '@/features/console/asyncState'
 import { catalogApi, type CatalogModelItem } from '@/features/console/catalogApi'
 import ConsoleAsyncBanner from '@/features/console/components/ConsoleAsyncBanner.vue'
-import ConsoleScopeBar from '@/features/console/components/ConsoleScopeBar.vue'
 import { EM_DASH, formatNullableInteger } from '@/features/console/format'
 import { identityApi, useConsoleScope } from '@/features/console/scope'
 import { tasksApi } from '@/features/tasks/api'
@@ -586,15 +585,6 @@ async function handleCreateTask(payload: ImageTaskCreateInput): Promise<void> {
   }
 }
 
-function handleScopeSelect(payload: { workspaceId: string; projectId: string | null }): void {
-  drawerOpen.value = false
-  selectedDetail.value = null
-  cursorStack.value = []
-  activeCursor.value = undefined
-  scope.selectWorkspaceProject(payload.workspaceId, payload.projectId)
-  void loadTasks({ refresh: false })
-}
-
 onMounted(() => {
   void loadTasks({ refresh: false })
 })
@@ -603,20 +593,6 @@ onMounted(() => {
 <template>
   <AppLayout>
     <div data-testid="task-center-view" class="w-full space-y-4">
-      <ConsoleScopeBar
-        :workspaces="scope.scopes.value"
-        :projects="scope.availableProjects.value"
-        :workspace-id="scope.activeWorkspaceId.value"
-        :project-id="scope.activeProjectId.value"
-        :loading="scope.loading.value || loading"
-        :refreshing="scope.refreshing.value || refreshing"
-        :last-synced-at="asOf || scope.lastSyncedAt.value"
-        active-surface="tasks"
-        @select-scope="handleScopeSelect"
-        @refresh="loadTasks({ refresh: true, cursor: activeCursor })"
-        @navigate="navigateTo"
-      />
-
       <!-- Header -->
       <header class="flex flex-wrap items-center justify-between gap-3 rounded-[var(--oh-r-md,8px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] px-4 py-3">
         <div>

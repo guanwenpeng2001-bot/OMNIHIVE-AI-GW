@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PASSWORD_CHARSET, generateSecurePassword } from '../securePassword'
 
-describe('generateSecurePassword CSPRNG & rejection sampling (FE-FAKE-03)', () => {
+describe('generateSecurePassword CSPRNG & rejection sampling', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()

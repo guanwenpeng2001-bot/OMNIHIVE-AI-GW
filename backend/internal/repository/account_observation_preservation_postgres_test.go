@@ -9,6 +9,7 @@ import (
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testresources"
 	"github.com/stretchr/testify/require"
@@ -39,7 +40,8 @@ CREATE TABLE scheduler_outbox (LIKE public.scheduler_outbox INCLUDING ALL);`)
 				SetPlatform(service.PlatformCommandCode).SetType(service.AccountTypeAPIKey).
 				SetStatus(service.StatusActive).SetSchedulable(originallySchedulable).
 				SetCredentials(map[string]any{"api_key": "synthetic-key", "model_mapping": map[string]any{"alias": "chosen-model"}}).
-				SetExtra(map[string]any{"commandcode_monthlyCredits": 1, "independent_observation": "old"}).Save(ctx)
+				SetExtra(map[string]any{"commandcode_monthlyCredits": 1, "independent_observation": "old"}).
+				Save(domain.WithWorkspaceScope(ctx, 17))
 			require.NoError(t, err)
 			stale := accountEntityToService(entity)
 			attempted := time.Now().UTC().Format(time.RFC3339Nano)

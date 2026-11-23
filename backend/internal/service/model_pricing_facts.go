@@ -145,14 +145,8 @@ func (d *ModelPricingDescriptor) UnitPrice(unit, dimension, conditions string) (
 // ResolveDescriptor uses the same group/channel precedence as billing. It never
 // publishes pricing into the capability registry or guesses sibling lifecycles.
 func (r *ModelPricingResolver) ResolveDescriptor(ctx context.Context, input PricingInput) (*ModelPricingDescriptor, error) {
-	pricingAt := time.Now()
-	if plan := GatewayRequestPlanFromContext(ctx); plan != nil && !plan.Snapshot().PricingAt.IsZero() {
-		pricingAt = plan.Snapshot().PricingAt
-	}
-	platform := ""
-	if input.Group != nil {
-		platform = channelLookupPlatform(ctx, input.Group.Platform)
-	}
+	pricingAt := pricingInstant(ctx, input.At)
+	platform := pricingPlatform(ctx, input)
 	descriptor := &ModelPricingDescriptor{Model: input.Model, Platform: platform, PricingAt: pricingAt}
 	configured, found, err := r.configuredPriceDescriptor(ctx, input)
 	if err != nil {
@@ -169,7 +163,7 @@ func (r *ModelPricingResolver) ResolveDescriptor(ctx context.Context, input Pric
 	base := resolved.BasePricing
 	var upstream *ModelPricing
 	if r.billingService != nil {
-		upstream, _ = r.billingService.forGatewayRequest(ctx).GetModelPricing(input.Model)
+		upstream, _ = r.billingService.forGatewayRequest(ctx).getProviderModelPricingAt(platform, input.Model, pricingAt)
 	}
 	prices := []ModelUnitPrice{{Unit: "token", Dimension: "input", Currency: "USD", Sales: clonePriceNumber(&base.InputPricePerToken)}, {Unit: "token", Dimension: "output", Currency: "USD", Sales: clonePriceNumber(&base.OutputPricePerToken)}}
 	if upstream != nil {
@@ -181,14 +175,8 @@ func (r *ModelPricingResolver) ResolveDescriptor(ctx context.Context, input Pric
 }
 
 func (r *ModelPricingResolver) configuredPriceDescriptor(ctx context.Context, input PricingInput) (*ModelPricingDescriptor, bool, error) {
-	pricingAt := time.Now()
-	if plan := GatewayRequestPlanFromContext(ctx); plan != nil && !plan.Snapshot().PricingAt.IsZero() {
-		pricingAt = plan.Snapshot().PricingAt
-	}
-	platform := ""
-	if input.Group != nil {
-		platform = channelLookupPlatform(ctx, input.Group.Platform)
-	}
+	pricingAt := pricingInstant(ctx, input.At)
+	platform := pricingPlatform(ctx, input)
 	descriptor := &ModelPricingDescriptor{configured: true, Model: input.Model, Platform: platform, PricingAt: pricingAt}
 	var cards []ChannelModelPricing
 	if input.Group != nil {
@@ -247,12 +235,44 @@ func (r *ModelPricingResolver) configuredPriceDescriptor(ctx context.Context, in
 	if r.billingService != nil {
 		billing := r.billingService.forGatewayRequest(ctx)
 		if billing.pricingService != nil {
-			descriptor.Variants = billing.pricingService.modelPriceVariants(input.Model, platform)
+			media := input.Mode == BillingModeImage || input.Mode == BillingModeVideo
+			if input.shadowLegacy || platform == "" {
+				descriptor.Variants = billing.pricingService.modelPriceVariants(input.Model, platform)
+				if !input.shadowLegacy && media {
+					descriptor.Source = legacyMediaVariantSource
+				} else if !input.shadowLegacy && IsGPTImageGenerationModel(input.Model) {
+					descriptor.Source = legacyGPTImageSource
+				}
+			} else {
+				card, err := billing.pricingService.providerModelPricing(platform, input.Model, true)
+				if err != nil {
+					return nil, false, err
+				}
+				if card != nil {
+					descriptor.Variants = matchingPriceVariants(card, input.Model)
+					if card.staticTariff {
+						descriptor.Source = PricingSourceStaticFallback
+					}
+				}
+				// The legacy media calculators could resolve an exact global variant
+				// after the group and channel paths. Preserve that binding when the
+				// provider has no applicable media card.
+				if media && len(descriptor.Variants) == 0 && (card == nil || !card.tariffDeleted &&
+					(input.Mode != BillingModeImage || !hasScopedImageRate(card))) {
+					descriptor.Variants = billing.pricingService.modelPriceVariants(input.Model, "")
+					descriptor.Source = legacyMediaVariantSource
+				} else if card == nil && IsGPTImageGenerationModel(input.Model) {
+					descriptor.Variants = billing.pricingService.modelPriceVariants(input.Model, "")
+					descriptor.Source = legacyGPTImageSource
+				}
+			}
 			if len(descriptor.Variants) > 0 {
 				if err := descriptor.normalizeVariants(); err != nil {
 					return nil, false, err
 				}
-				descriptor.Source = PricingSourceLiteLLM
+				if descriptor.Source == "" {
+					descriptor.Source = PricingSourceLiteLLM
+				}
 				return descriptor, true, nil
 			}
 		}
@@ -267,9 +287,14 @@ func (s *PricingService) modelPriceVariants(model, platform string) []ModelPrice
 	if entry == nil || platform != "" && entry.LiteLLMProvider != platform {
 		return nil
 	}
+	return matchingPriceVariants(entry, model)
+}
+
+func matchingPriceVariants(entry *LiteLLMModelPricing, model string) []ModelPriceVariant {
+	_, native := qualifiedTariffName(strings.ToLower(strings.TrimSpace(model)))
 	var matches []ModelPriceVariant
 	for _, variant := range entry.PriceVariants {
-		if priceVariantMatches(variant, model) {
+		if priceVariantMatches(variant, model) || priceVariantMatches(variant, native) {
 			matches = append(matches, cloneModelPriceVariants([]ModelPriceVariant{variant})...)
 		}
 	}
@@ -280,6 +305,7 @@ func (s *PricingService) modelPriceVariants(model, platform string) []ModelPrice
 // full catalog scan on every request. Conflicting identities are rejected.
 func indexModelPriceVariants(prices map[string]*LiteLLMModelPricing) error {
 	aliases := make(map[string]*LiteLLMModelPricing)
+	conflicts := make(map[string]bool)
 	for _, entry := range prices {
 		for _, variant := range entry.PriceVariants {
 			names := append([]string{variant.ID, variant.Canonical}, variant.Aliases...)
@@ -288,18 +314,37 @@ func indexModelPriceVariants(prices map[string]*LiteLLMModelPricing) error {
 				if name == "" {
 					continue
 				}
+				if entry.tariffOwner != "" {
+					_, native := qualifiedTariffName(name)
+					qualified := entry.tariffOwner + "/" + native
+					if existing := prices[qualified]; existing != nil && existing != entry {
+						return fmt.Errorf("conflicting price identity %s", qualified)
+					}
+					if existing := aliases[qualified]; existing != nil && existing != entry {
+						return fmt.Errorf("ambiguous price alias %s", qualified)
+					}
+					aliases[qualified] = entry
+				}
 				if existing := prices[name]; existing != nil && existing != entry {
-					return fmt.Errorf("conflicting price identity %s", name)
+					if entry.tariffOwner == "" || existing.tariffOwner == "" || entry.tariffOwner == existing.tariffOwner {
+						return fmt.Errorf("conflicting price identity %s", name)
+					}
+					continue
 				}
 				if existing := aliases[name]; existing != nil && existing != entry {
-					return fmt.Errorf("ambiguous price alias %s", name)
+					if entry.tariffOwner == "" || existing.tariffOwner == "" || entry.tariffOwner == existing.tariffOwner {
+						return fmt.Errorf("ambiguous price alias %s", name)
+					}
+					conflicts[name] = true
 				}
 				aliases[name] = entry
 			}
 		}
 	}
 	for name, entry := range aliases {
-		prices[name] = entry
+		if !conflicts[name] {
+			prices[name] = entry
+		}
 	}
 	return nil
 }

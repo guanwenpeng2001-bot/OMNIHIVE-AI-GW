@@ -16,11 +16,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/journal"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/protocol"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/routing/trace"
-	execcompat "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/execution"
 	keycompat "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/billing/readmodel"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/byok"
@@ -95,6 +93,7 @@ type prepared struct {
 	scenario  policy.Scenario
 	decision  trace.DecisionTrace
 	account   int64
+	price     service.PlaygroundPrice
 }
 
 func (g *Gateway) prepare(ctx context.Context, a identity.Access, s pg.Submit, ip string, replay bool) (prepared, error) {
@@ -104,60 +103,10 @@ func (g *Gateway) prepare(ctx context.Context, a identity.Access, s pg.Submit, i
 			return p, err
 		}
 	}
-	if g == nil || g.DB == nil || g.Plans == nil || g.Routes == nil || g.Keys == nil || g.Scopes == nil || g.Policies == nil || g.Catalog == nil || g.Access == nil {
+	if g == nil || g.Plans == nil || g.Routes == nil || g.Policies == nil {
 		return p, pg.Unavailable
 	}
-	owner, err := g.Policies.KeyOwner(ctx, a.WorkspaceID, a.ProjectID, s.Key)
-	if err != nil {
-		return p, err
-	}
-	if owner != a.ActorID && (s.Payer != owner || a.Require("keys.act_as") != nil) {
-		return p, fault.NotFound
-	}
-	if s.Payer != 0 && s.Payer != owner {
-		return p, fault.Invalid("/payer_user_id")
-	}
-	var digest string
-	var project bool
-	err = g.DB.QueryRowContext(ctx, `SELECT credential_digest,status='project' FROM api_key_credentials WHERE workspace_id=$1 AND api_key_id=$2
- AND status IN ('current','project') AND revoked_at IS NULL AND (valid_until IS NULL OR valid_until>now()) ORDER BY id DESC LIMIT 1`, a.WorkspaceID, s.Key).Scan(&digest, &project)
-	if errors.Is(err, sql.ErrNoRows) {
-		return p, fault.NotFound
-	}
-	if err != nil {
-		return p, err
-	}
-	var k *service.APIKey
-	var base scope.Authorized
-	var keyPolicy *identity.KeyPolicy
-	if project {
-		pol, e := g.Scopes.ProjectCredential(ctx, digest)
-		if e != nil {
-			return p, e
-		}
-		if pol == nil {
-			return p, fault.NotFound
-		}
-		keyPolicy = pol
-		base = pol.Scope
-		k, err = keycompat.ProjectKey(ctx, g.Keys, pol)
-	} else {
-		base, err = g.Scopes.LegacyScope(ctx, a.WorkspaceID, s.Key, owner, digest)
-		if err == nil {
-			k, err = g.Keys.GetByID(ctx, s.Key)
-		}
-	}
-	if err != nil {
-		return p, err
-	}
-	if base.WorkspaceID != a.WorkspaceID || base.ProjectID != a.ProjectID || base.KeyID != s.Key || base.KeyOwnerID != owner || base.FundingUserID != owner || base.Version != a.Version || k == nil || k.User == nil || k.Group == nil {
-		return p, fault.NotFound
-	}
-	snap, err := g.Catalog.Snapshot(ctx, catalog.Perspective{Actor: a.ActorID, Workspace: a.WorkspaceID, Project: a.ProjectID, AccessVersion: a.Version, EndpointMetadata: true}, time.Now().UTC())
-	if err != nil {
-		return p, err
-	}
-	model, err := selectModel(snap, s.Model, replay)
+	selected, models, model, err := g.checkRunModel(ctx, a, s, time.Now().UTC())
 	if err != nil {
 		return p, err
 	}
@@ -165,12 +114,34 @@ func (g *Gateway) prepare(ctx context.Context, a identity.Access, s pg.Submit, i
 	if err != nil {
 		return p, err
 	}
-	ctx = domain.WithWorkspaceScope(ctx, a.WorkspaceID)
-	ownerCtx := execcompat.BindCredential((execcompat.Validator{DB: g.DB, Scopes: g.Scopes}).Install(ctx), digest, s.Action, ip, project, k.Group.ID)
-	frozen := base
-	frozen.ActorID = a.ActorID
-	check := func(ctx context.Context, actual scope.Authorized, model string) error {
-		if actual != frozen {
+	k, frozen := selected.key, selected.scope
+	sub, err := g.checkSelectedFunding(selected.ctx, k, ip)
+	if err != nil {
+		return p, err
+	}
+	policyModel := model.Model.ID
+	// The routing journal also consumes historical native entries while
+	// its policy graph is migrated to the effective Key evaluator.
+	if rule := selected.models.KeyRestriction; rule != nil && rule.Ceiling != nil && !slices.Contains(rule.Ceiling, policyModel) {
+		if i := slices.IndexFunc(rule.Ceiling, models.matches(model)); i >= 0 {
+			policyModel = rule.Ceiling[i]
+		}
+	}
+	scenario := policy.Scenario{Project: strconv.FormatInt(a.ProjectID, 10), Key: strconv.FormatInt(k.ID, 10), Model: policyModel, Action: s.Action, Protocol: s.Protocol, Input: strconv.Itoa(native.InputBound), Output: strconv.Itoa(native.OutputBound)}
+	if native.Tools {
+		scenario.Required = []string{"tools"}
+	}
+	funding := "wallet"
+	if sub != nil {
+		funding = "subscription"
+	}
+	ctx = context.WithValue(selected.ctx, ctxkey.Group, k.Group)
+	decision, account, price, err := g.route(ctx, frozen, k, scenario, models.snapshot.Version, model, models.accounts, funding)
+	if err != nil {
+		return p, err
+	}
+	check := func(ctx context.Context, actual scope.Authorized, nativeModel string) error {
+		if actual != frozen || nativeModel != model.Model.Model {
 			return journal.ErrScope
 		}
 		action := "playground.run"
@@ -181,51 +152,33 @@ func (g *Gateway) prepare(ctx context.Context, a identity.Access, s pg.Submit, i
 		if err != nil {
 			return err
 		}
-		if fresh.Version != a.Version || fresh.Require("playground.run") != nil || (s.Options.Raw && fresh.Require("playground.raw") != nil) || (owner != a.ActorID && fresh.Require("keys.act_as") != nil) {
+		if fresh.Version != a.Version || fresh.Require("playground.run") != nil ||
+			s.Options.Raw && fresh.Require("playground.raw") != nil ||
+			s.Options.Retain && fresh.Require("requests.content.read") != nil {
 			return fault.Forbidden
 		}
-		// Keep dispatch cancellation while using the credential validator bound to the owner.
-		bound := execcompat.BindCredential((execcompat.Validator{DB: g.DB, Scopes: g.Scopes}).Install(ctx), digest, s.Action, ip, project, k.Group.ID)
-		return journal.Authorize(bound, base, model)
+		in := s
+		in.Model = model.Model.ID
+		key, current, actualModel, err := g.checkRunModel(ctx, fresh, in, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		if key.scope != frozen || key.digest != selected.digest || key.key.Group.ID != k.Group.ID ||
+			actualModel.Model.Model != nativeModel ||
+			!slices.ContainsFunc(actualModel.Endpoints, func(ep catalog.Endpoint) bool { return current.accounts[ep.ID] == account }) {
+			return journal.ErrScope
+		}
+		activeSub, err := g.checkSelectedFunding(ctx, key.key, ip)
+		if err != nil {
+			return err
+		}
+		if (activeSub == nil) != (sub == nil) || sub != nil && activeSub.ID != sub.ID {
+			return journal.ErrScope
+		}
+		return nil
 	}
-	if err = journal.Authorize(ownerCtx, base, model.Model.Model); err != nil {
-		return p, fault.Forbidden
-	}
-	facts := keycompat.KeyFacts(k, true)
-	if f := identity.EvaluateKey(facts); f != nil {
-		return p, f
-	}
-	if k.Group.IsSubscriptionType() && g.Subscriptions == nil {
-		return p, pg.Unavailable
-	}
-	sub, f := identity.EvaluateFunding(ctx, facts, k.User.Balance > 0, identity.FundingChecks{LimitsFirst: true}, keycompat.Subscriptions(k, g.Subscriptions))
-	if f != nil {
-		return p, f
-	}
-	ctx, err = g.Keys.AttachModelAccessPolicy(ctx, k.ID)
-	if err != nil {
-		return p, err
-	}
-	ctx = scope.With(context.WithValue(ctx, ctxkey.Group, k.Group), frozen)
 	ctx = journal.WithReauthorization(ctx, check)
-	policyModel := model.Model.ID
-	// Earlier project credentials may explicitly select native model names.
-	if keyPolicy != nil && keyPolicy.Mode == "allow_list" && !slices.Contains(keyPolicy.Models, policyModel) && slices.Contains(keyPolicy.Models, model.Model.Model) {
-		policyModel = model.Model.Model
-	}
-	scenario := policy.Scenario{Project: strconv.FormatInt(a.ProjectID, 10), Key: strconv.FormatInt(k.ID, 10), Model: policyModel, Action: s.Action, Protocol: s.Protocol, Input: strconv.Itoa(native.InputBound), Output: strconv.Itoa(native.OutputBound)}
-	if native.Tools {
-		scenario.Required = []string{"tools"}
-	}
-	funding := "wallet"
-	if sub != nil {
-		funding = "subscription"
-	}
-	decision, account, err := g.route(ctx, frozen, k.Group.ID, scenario, snap.Version, model, funding)
-	if err != nil {
-		return p, err
-	}
-	return prepared{ctx, k, sub, frozen, native, model.Model.Model, ip, scenario, decision, account}, nil
+	return prepared{ctx, k, sub, frozen, native, model.Model.Model, ip, scenario, decision, account, price}, nil
 }
 
 type runJournal struct {
@@ -267,7 +220,15 @@ func (j runJournal) Dispatch(ctx context.Context, e journal.AdmittedExecution, n
 	}
 	return a, nil
 }
-func (g *Gateway) admit(p prepared, r pg.Summary, reg *journal.Registration) (context.Context, *service.GatewayRequestPlan, func(), error) {
+func (g *Gateway) admit(p *prepared, r pg.Summary, reg *journal.Registration) (context.Context, *service.GatewayRequestPlan, func(), error) {
+	if p.funding != nil {
+		// Advance subscription windows only after the run wins its claim.
+		sub, denial := keycompat.Subscriptions(p.key, g.Subscriptions).Validate(p.ctx, p.funding)
+		if denial != nil {
+			return nil, nil, nil, denial
+		}
+		p.funding = sub
+	}
 	j := runJournal{journal.New(g.DB), r, p.account, g.DB, func(ctx context.Context) error {
 		fresh, err := g.Policies.PlanExecution(ctx, p.frozen, p.scenario, service.GatewayRequestRoutingLayer(p.ctx), p.decision.Seed)
 		if err != nil {
@@ -285,8 +246,9 @@ func (g *Gateway) admit(p prepared, r pg.Summary, reg *journal.Registration) (co
 	ctx = service.WithProjectBudgetCoordinator(ctx, readmodel.Store{DB: g.DB})
 	ctx = service.WithPrefetchedStickySession(ctx, p.account, p.key.Group.ID, true)
 	ctx = service.WithRequiredAccount(ctx, p.account)
+	ctx = service.WithPlaygroundPrice(ctx, p.price)
 
-	spec := service.GatewayRequestSpec{ExecutionKind: "playground", Registration: reg, WorkspaceID: p.frozen.WorkspaceID, UserID: p.key.UserID, APIKeyID: p.key.ID, BillingGroupID: p.key.Group.ID, Route: strings.Split(p.native.Path, "?")[0], Action: "text.chat", Protocol: p.native.Protocol, Model: p.model, ModelVersion: p.decision.CatalogVersion, PriceVersion: p.decision.PriceVersion}
+	spec := service.GatewayRequestSpec{ExecutionKind: "playground", Registration: reg, WorkspaceID: p.frozen.WorkspaceID, UserID: p.key.UserID, APIKeyID: p.key.ID, BillingGroupID: p.key.Group.ID, Route: strings.Split(p.native.Path, "?")[0], Action: "text.chat", Protocol: p.native.Protocol, Model: p.model, ModelVersion: p.decision.CatalogVersion, PriceVersion: p.decision.PriceVersion, PricingAt: p.price.At()}
 	ctx, plan := g.Plans.CaptureRequestPlan(ctx, spec)
 	ex, err := plan.AdmittedExecution()
 	closePlan := func() {

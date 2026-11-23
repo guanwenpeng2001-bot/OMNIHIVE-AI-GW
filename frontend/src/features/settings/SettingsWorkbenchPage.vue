@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, toRaw, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api'
 import type { SystemSettings } from '@/api/admin/settings'
@@ -18,6 +18,8 @@ import {
 } from '@/components/ui'
 import type { UiTabItem } from '@/components/ui'
 import { classifyAsyncError } from '@/features/shared/asyncState'
+import ConfigDiagnosticsView from '@/views/admin/settings/ConfigDiagnosticsView.vue'
+import type { DiagnosticsSyncSnapshot } from '@/views/admin/settings/useConfigDiagnostics'
 import {
   SETTINGS_SECTIONS,
   buildSectionPatch,
@@ -36,13 +38,15 @@ const props = withDefaults(
   { initialSection: 'general' }
 )
 
-const { locale } = useI18n()
+const { t, locale } = useI18n()
 const isZh = computed(() => String(locale?.value || 'zh').toLowerCase().startsWith('zh'))
 
-const activeSection = ref<SettingsSectionId>(props.initialSection)
+const emit = defineEmits<{ 'select-section': [section: string] }>()
+const activeSection = computed(() => props.initialSection)
 const sectionFilter = ref('')
 
-const loading = ref(true)
+const hasLoadedSettings = ref(false)
+const loading = ref(props.initialSection !== 'diagnostics')
 const refreshing = ref(false)
 const saving = ref(false)
 const testingSmtp = ref(false)
@@ -53,9 +57,19 @@ const draft = ref<SettingsDraft>({})
 const fieldErrors = ref<Record<string, string>>({})
 
 const loadError = ref<{ state: 'error' | 'forbidden' | 'unknown'; message: string; requestId?: string } | null>(null)
+const refreshError = ref<{ message: string; requestId?: string } | null>(null)
+const saveError = ref<{ message: string; requestId?: string } | null>(null)
 const mutationConflict = ref<{ message: string; requestId?: string } | null>(null)
 const mutationUnknown = ref<{ message: string; requestId?: string } | null>(null)
 const confirmedMessage = ref<string | null>(null)
+
+const diagnosticsRef = ref<{ reload: () => Promise<void> } | null>(null)
+const diagnosticsSync = ref<DiagnosticsSyncSnapshot>({
+  syncState: 'loading',
+  refreshing: false,
+  unhealthyCount: 0,
+  generatedAt: ''
+})
 
 const dirtySections = computed(() => getDirtySections(baseline.value, draft.value))
 const activeSectionDirty = computed(() => isSectionDirty(activeSection.value, baseline.value, draft.value))
@@ -96,25 +110,35 @@ function hydrateSettings(data: SystemSettings): void {
 }
 
 async function loadSettings(isRefresh = false): Promise<void> {
-  if (isRefresh) {
+  if (isRefresh && hasLoadedSettings.value) {
     refreshing.value = true
   } else {
     loading.value = true
   }
   loadError.value = null
+  refreshError.value = null
+  saveError.value = null
   mutationConflict.value = null
   mutationUnknown.value = null
 
   try {
     const data = await adminAPI.settings.getSettings()
     hydrateSettings(data)
+    hasLoadedSettings.value = true
     lastSyncedAt.value = new Date().toLocaleTimeString()
   } catch (error) {
     const err = classifyAsyncError(error, isZh.value ? '加载系统设置失败' : 'Failed to load system settings')
-    loadError.value = {
-      state: err.state === 'forbidden' ? 'forbidden' : err.state === 'unknown' ? 'unknown' : 'error',
-      message: err.message,
-      requestId: err.requestId
+    if (hasLoadedSettings.value) {
+      refreshError.value = {
+        message: err.message,
+        requestId: err.requestId
+      }
+    } else {
+      loadError.value = {
+        state: err.state === 'forbidden' ? 'forbidden' : err.state === 'unknown' ? 'unknown' : 'error',
+        message: err.message,
+        requestId: err.requestId
+      }
     }
   } finally {
     loading.value = false
@@ -125,6 +149,7 @@ async function loadSettings(isRefresh = false): Promise<void> {
 function handleResetSection(): void {
   draft.value = resetSectionDraft(activeSection.value, baseline.value, draft.value)
   fieldErrors.value = {}
+  saveError.value = null
   mutationConflict.value = null
   mutationUnknown.value = null
 }
@@ -147,6 +172,7 @@ async function handleSaveSection(): Promise<void> {
   }
 
   saving.value = true
+  saveError.value = null
   mutationConflict.value = null
   mutationUnknown.value = null
   confirmedMessage.value = null
@@ -154,7 +180,7 @@ async function handleSaveSection(): Promise<void> {
   try {
     const updated = await adminAPI.settings.updateSettings(patch)
     const nextBaseline: SettingsDraft = {
-      ...baseline.value,
+      ...toRaw(baseline.value),
       ...updated,
       smtp_password: '',
       turnstile_secret_key: ''
@@ -176,6 +202,7 @@ async function handleSaveSection(): Promise<void> {
     } else if (err.state === 'unknown') {
       mutationUnknown.value = { message: err.message, requestId: err.requestId }
     } else {
+      saveError.value = { message: err.message, requestId: err.requestId }
       pushUiToast({ tone: 'danger', title: isZh.value ? '保存失败' : 'Save failed', description: err.message })
     }
   } finally {
@@ -202,8 +229,48 @@ async function handleTestSmtp(): Promise<void> {
   }
 }
 
+function handleDiagnosticsSyncState(snapshot: DiagnosticsSyncSnapshot): void {
+  diagnosticsSync.value = snapshot
+}
+
+function handleDiagnosticsSettingsUpdated(updated: SystemSettings): void {
+  if (!hasLoadedSettings.value) return
+  const previouslyDirty = new Set<SettingsSectionId>(dirtySections.value)
+  const nextBaseline: SettingsDraft = {
+    ...toRaw(baseline.value),
+    ...updated,
+    smtp_password: '',
+    turnstile_secret_key: ''
+  }
+  baseline.value = structuredClone(nextBaseline)
+  let nextDraft = structuredClone(toRaw(draft.value))
+  for (const sec of SETTINGS_SECTIONS) {
+    if (!previouslyDirty.has(sec.id)) {
+      nextDraft = resetSectionDraft(sec.id, nextBaseline, nextDraft)
+    }
+  }
+  draft.value = nextDraft
+  lastSyncedAt.value = new Date().toLocaleTimeString()
+}
+
+function handleHeaderRefresh(): void {
+  if (activeSection.value === 'diagnostics') {
+    void diagnosticsRef.value?.reload()
+    return
+  }
+  void loadSettings(true)
+}
+
+watch(activeSection, (nextSection) => {
+  if (nextSection !== 'diagnostics' && !hasLoadedSettings.value && !loading.value) {
+    void loadSettings(false)
+  }
+})
+
 onMounted(() => {
-  loadSettings(false)
+  if (activeSection.value !== 'diagnostics') {
+    void loadSettings(false)
+  }
 })
 </script>
 
@@ -215,27 +282,122 @@ onMounted(() => {
       :description="isZh ? '按功能分区管理平台配置，支持分区域未保存提醒、字段校验与独立保存。' : 'Sectioned platform configuration with per-section dirty tracking, validation, and scoped saves.'"
     >
       <template #badges>
-        <Badge v-if="dirtySections.length > 0" tone="warning" variant="subtle" mono>
-          {{ isZh ? `${dirtySections.length} 项未保存` : `${dirtySections.length} dirty` }}
-        </Badge>
-        <Badge v-else tone="success" variant="subtle">{{ isZh ? '已同步' : 'Synced' }}</Badge>
+        <template v-if="activeSection === 'diagnostics'">
+          <Badge
+            v-if="diagnosticsSync.syncState === 'loading' || diagnosticsSync.syncState === 'refreshing'"
+            tone="neutral"
+            variant="subtle"
+            data-testid="workbench-sync-badge"
+          >
+            {{ t('settingsDiagnostics.syncBadges.loading') }}
+          </Badge>
+          <Badge
+            v-else-if="diagnosticsSync.syncState === 'error'"
+            tone="danger"
+            variant="subtle"
+            data-testid="workbench-sync-badge"
+          >
+            {{ t('settingsDiagnostics.syncBadges.notSynced') }}
+          </Badge>
+          <Badge
+            v-else-if="diagnosticsSync.syncState === 'stale'"
+            tone="warning"
+            variant="subtle"
+            data-testid="workbench-sync-badge"
+          >
+            {{ t('settingsDiagnostics.syncBadges.stale') }}
+          </Badge>
+          <Badge
+            v-else
+            tone="success"
+            variant="subtle"
+            data-testid="workbench-sync-badge"
+          >
+            {{ t('settingsDiagnostics.syncBadges.synced') }}
+          </Badge>
+          <Badge
+            v-if="diagnosticsSync.unhealthyCount > 0"
+            tone="danger"
+            variant="subtle"
+            mono
+            data-testid="workbench-diagnostics-issues-badge"
+          >
+            {{ t('settingsDiagnostics.syncBadges.issuesCount', { count: diagnosticsSync.unhealthyCount }) }}
+          </Badge>
+        </template>
+        <template v-else>
+          <Badge
+            v-if="loading && !hasLoadedSettings"
+            tone="neutral"
+            variant="subtle"
+            data-testid="workbench-sync-badge"
+          >
+            {{ t('settingsDiagnostics.workbench.loadingBadge') }}
+          </Badge>
+          <Badge
+            v-else-if="loadError"
+            tone="danger"
+            variant="subtle"
+            data-testid="workbench-sync-badge"
+          >
+            {{ t('settingsDiagnostics.workbench.notSyncedBadge') }}
+          </Badge>
+          <Badge
+            v-else-if="refreshError || mutationConflict || mutationUnknown || saveError"
+            tone="warning"
+            variant="subtle"
+            data-testid="workbench-sync-badge"
+          >
+            {{ t('settingsDiagnostics.workbench.syncFailedBadge') }}
+          </Badge>
+          <Badge
+            v-else-if="dirtySections.length > 0"
+            tone="warning"
+            variant="subtle"
+            mono
+            data-testid="workbench-sync-badge"
+          >
+            {{ isZh ? `${dirtySections.length} 项未保存` : `${dirtySections.length} dirty` }}
+          </Badge>
+          <Badge
+            v-else-if="hasLoadedSettings"
+            tone="success"
+            variant="subtle"
+            data-testid="workbench-sync-badge"
+          >
+            {{ isZh ? '已同步' : 'Synced' }}
+          </Badge>
+        </template>
       </template>
 
       <template #actions>
-        <div class="w-full sm:w-56">
+        <div v-if="activeSection !== 'diagnostics'" class="w-full sm:w-56">
           <Input v-model="sectionFilter" type="search" :placeholder="isZh ? '搜索配置分组或字段…' : 'Filter sections or keys…'" size="sm" clearable />
         </div>
-        <Button size="sm" variant="secondary" :loading="refreshing" @click="loadSettings(true)">
+        <Button
+          size="sm"
+          variant="secondary"
+          :loading="activeSection === 'diagnostics' ? diagnosticsSync.refreshing : refreshing"
+          @click="handleHeaderRefresh"
+        >
           {{ isZh ? '刷新' : 'Refresh' }}
         </Button>
       </template>
 
       <template #tabs>
-        <Tabs v-model="activeSection" :items="tabItems" />
+        <Tabs :model-value="activeSection" :items="tabItems" @update:model-value="emit('select-section', $event)" />
       </template>
     </PageHeader>
 
-    <div v-if="loading" class="space-y-3">
+    <ConfigDiagnosticsView
+      v-if="activeSection === 'diagnostics'"
+      ref="diagnosticsRef"
+      embedded
+      @sync-state-change="handleDiagnosticsSyncState"
+      @settings-updated="handleDiagnosticsSettingsUpdated"
+    />
+
+    <div v-else-if="loading" class="space-y-3">
       <Skeleton height="3rem" />
       <Skeleton height="16rem" />
     </div>
@@ -250,6 +412,27 @@ onMounted(() => {
     />
 
     <template v-else>
+      <ErrorState
+        v-if="refreshError"
+        variant="stale"
+        compact
+        :title="t('settingsDiagnostics.workbench.refreshFailedTitle')"
+        :message="refreshError.message"
+        :request-id="refreshError.requestId"
+        :last-synced-at="lastSyncedAt"
+        @retry="loadSettings(true)"
+      />
+
+      <ErrorState
+        v-if="saveError"
+        variant="error"
+        compact
+        :title="t('settingsDiagnostics.workbench.saveFailedTitle')"
+        :message="saveError.message"
+        :request-id="saveError.requestId"
+        :retryable="false"
+      />
+
       <ErrorState
         v-if="mutationConflict"
         variant="stale"

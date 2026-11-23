@@ -93,6 +93,22 @@ func TestAdminService_CreateUser_ExplicitZeroBalanceOverridesDefault(t *testing.
 	require.Equal(t, 0.0, repo.created[0].Balance)
 }
 
+func TestAdminService_CreateUser_UnavailableDefaultsPreventUserCreation(t *testing.T) {
+	repo := &userRepoStub{nextID: 12}
+	readErr := errors.New("settings read failed")
+	settings := NewSettingService(&settingRepoStub{err: readErr}, &config.Config{})
+	svc := &adminServiceImpl{userRepo: repo, settingService: settings}
+
+	user, err := svc.CreateUser(context.Background(), &CreateUserInput{
+		Email:    "default-balance@test.com",
+		Password: "strong-pass",
+	})
+	require.ErrorIs(t, err, ErrRegistrationDefaultsUnavailable)
+	require.ErrorIs(t, err, readErr)
+	require.Nil(t, user)
+	require.Empty(t, repo.created)
+}
+
 func TestAdminService_CreateUser_EmailExists(t *testing.T) {
 	repo := &userRepoStub{createErr: ErrEmailExists}
 	svc := &adminServiceImpl{userRepo: repo}

@@ -47,7 +47,7 @@ type systemUpdateService interface {
 	CheckUpdate(ctx context.Context, force bool) (*service.UpdateInfo, error)
 	PerformUpdate(ctx context.Context) error
 	Rollback() error
-	ListRollbackVersions(ctx context.Context) ([]service.RollbackVersion, error)
+	ListRollbackEligibility(ctx context.Context) (service.RollbackEligibilityReport, error)
 	RollbackToVersion(ctx context.Context, version string) error
 }
 
@@ -73,7 +73,7 @@ func (h *SystemHandler) GetVersion(c *gin.Context) {
 func (h *SystemHandler) CheckUpdates(c *gin.Context) {
 	force := c.Query("force") == "true"
 	info, err := h.updateSvc.CheckUpdate(c.Request.Context(), force)
-	if err != nil {
+	if err != nil && (info == nil || !errors.Is(err, service.ErrUpdateCheckUnavailable)) {
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -131,14 +131,12 @@ func (h *SystemHandler) PerformUpdate(c *gin.Context) {
 // GetRollbackVersions lists versions available for rollback
 // GET /api/v1/admin/system/rollback-versions
 func (h *SystemHandler) GetRollbackVersions(c *gin.Context) {
-	versions, err := h.updateSvc.ListRollbackVersions(c.Request.Context())
+	report, err := h.updateSvc.ListRollbackEligibility(c.Request.Context())
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	response.Success(c, gin.H{
-		"versions": versions,
-	})
+	response.Success(c, report)
 }
 
 // Rollback restores a previous version.

@@ -49,6 +49,9 @@ func newCredentialSecretFixture(t *testing.T) *credentialSecretFixture {
 	t.Cleanup(func() { _ = db.Close() })
 	ctx := context.Background()
 	require.NoError(t, applyMigrationsFS(ctx, db, migrations.FS))
+	workspaceID, err := domain.ResolveDefaultWorkspaceID(ctx, db)
+	require.NoError(t, err)
+	ctx = domain.WithDefaultWorkspaceID(ctx, workspaceID)
 	encryptor, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32), EncryptionKeyConfigured: true}})
 	require.NoError(t, err)
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
@@ -188,7 +191,7 @@ func TestCredentialSecretLifecyclePostgres(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int64(1), metadata.Version)
 		require.Equal(t, account.ID, metadata.AccountID)
-		require.Equal(t, domain.DefaultWorkspaceID, metadata.WorkspaceID)
+		require.Equal(t, account.WorkspaceID, metadata.WorkspaceID)
 		reference = metadata.Reference
 		require.NotEmpty(t, reference)
 

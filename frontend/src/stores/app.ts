@@ -6,108 +6,40 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Toast, ToastType, PublicSettings } from '@/types'
-import type { components } from '@/api/generated/openapi'
 import { i18n } from '@/i18n'
-import { apiClient, isSilentRequestError } from '@/api/client'
-import {
-  StorageKeys,
-  scopeSelectionStorage,
-  sidebarCollapsedStorage
-} from '@/api/tokenRefresh'
+import { sidebarCollapsedStorage } from '@/api/tokenRefresh'
 import {
   DEFAULT_BRAND_NAME,
   buildBrandConfig,
   resolveBrandSiteName,
   type BrandConfigSnapshot
 } from '@/router/brandConfig'
-import { normalizeApiError } from '@/utils/apiError'
 import {
   checkUpdates as checkUpdatesAPI,
   type VersionInfo,
   type ReleaseInfo
 } from '@/api/admin/system'
 import { getPublicSettings as fetchPublicSettingsAPI } from '@/api/auth'
+import type {
+  IdentityProject,
+  IdentityProjectPage,
+  IdentityWorkspace,
+  IdentityWorkspacePage
+} from '@/api/identity'
+import {
+  SCOPE_CHANGED_EVENT,
+  getConsoleScopeStore,
+  type ScopeErrorState,
+  type ScopeMode,
+  type ScopeSelection
+} from './consoleScope'
 
-export type IdentityWorkspace = components['schemas']['IdentityWorkspace']
-export type IdentityWorkspacePage = components['schemas']['IdentityWorkspacePage']
-export type IdentityProject = components['schemas']['IdentityProject']
-export type IdentityProjectPage = components['schemas']['IdentityProjectPage']
-
-export type ScopeMode = 'personal' | 'workspace'
-
-export interface ScopeSelection {
-  mode: ScopeMode
-  workspaceId: string | null
-  projectId: string | null
-}
-
-export interface ScopeErrorState {
-  status: number
-  reason?: string
-  message: string
-  requestId?: string
-}
-
-export const SCOPE_CHANGED_EVENT = 'omnihive:scope-changed'
+export type { IdentityWorkspace, IdentityWorkspacePage, IdentityProject, IdentityProjectPage }
+export type { ScopeMode, ScopeSelection, ScopeErrorState }
+export { SCOPE_CHANGED_EVENT }
 
 function readInitialSidebarCollapsed(): boolean {
   return sidebarCollapsedStorage.get() === '1'
-}
-
-function readInitialScopeSelection(): ScopeSelection {
-  const stored = scopeSelectionStorage.getJSON<Partial<ScopeSelection> | null>(null)
-  if (
-    stored &&
-    stored.mode === 'workspace' &&
-    typeof stored.workspaceId === 'string' &&
-    /^[1-9]\d*$/.test(stored.workspaceId)
-  ) {
-    return {
-      mode: 'workspace',
-      workspaceId: stored.workspaceId,
-      projectId:
-        typeof stored.projectId === 'string' && /^[1-9]\d*$/.test(stored.projectId)
-          ? stored.projectId
-          : null
-    }
-  }
-  try {
-    const legacyWorkspaceId =
-      typeof localStorage !== 'undefined'
-        ? localStorage.getItem(StorageKeys.WORKSPACE_ID)
-        : null
-    if (legacyWorkspaceId && /^[1-9]\d*$/.test(legacyWorkspaceId)) {
-      const legacyProjectId = localStorage.getItem(StorageKeys.PROJECT_ID)
-      return {
-        mode: 'workspace',
-        workspaceId: legacyWorkspaceId,
-        projectId: legacyProjectId && /^[1-9]\d*$/.test(legacyProjectId) ? legacyProjectId : null
-      }
-    }
-  } catch {
-    // ignore storage read errors
-  }
-  return { mode: 'personal', workspaceId: null, projectId: null }
-}
-
-function persistScopeSelectionToStorage(selection: ScopeSelection): void {
-  scopeSelectionStorage.setJSON(selection)
-  try {
-    if (typeof localStorage === 'undefined') return
-    if (selection.mode === 'workspace' && selection.workspaceId) {
-      localStorage.setItem(StorageKeys.WORKSPACE_ID, selection.workspaceId)
-      if (selection.projectId) {
-        localStorage.setItem(StorageKeys.PROJECT_ID, selection.projectId)
-      } else {
-        localStorage.removeItem(StorageKeys.PROJECT_ID)
-      }
-    } else {
-      localStorage.removeItem(StorageKeys.WORKSPACE_ID)
-      localStorage.removeItem(StorageKeys.PROJECT_ID)
-    }
-  } catch {
-    // ignore storage write errors
-  }
 }
 
 export const useAppStore = defineStore('app', () => {
@@ -132,21 +64,8 @@ export const useAppStore = defineStore('app', () => {
   const cachedPublicSettings = ref<PublicSettings | null>(null)
   let publicSettingsRequest: Promise<PublicSettings | null> | null = null
 
-  // Scope switcher state (Identity Scopes)
-  const scopes = ref<IdentityWorkspace[]>([])
-  const scopesLoaded = ref<boolean>(false)
-  const scopesLoading = ref<boolean>(false)
-  const scopesRefreshing = ref<boolean>(false)
-  const scopesStale = ref<boolean>(false)
-  const scopesError = ref<ScopeErrorState | null>(null)
-  const scopesNextCursor = ref<string | null>(null)
-  const scopesAsOf = ref<string | null>(null)
-  const activeScope = ref<ScopeSelection>(readInitialScopeSelection())
-  const scopeRevision = ref<number>(0)
-  let scopesRequest: Promise<IdentityWorkspacePage | null> | null = null
-  let scopesLifecycleGeneration = 0
-
   // Version cache state
+  const updateCheckUnavailable = ref(false)
   const versionLoaded = ref<boolean>(false)
   const versionLoading = ref<boolean>(false)
   const currentVersion = ref<string>('')
@@ -174,17 +93,66 @@ export const useAppStore = defineStore('app', () => {
       locale: String(i18n.global.locale.value || 'zh')
     })
   )
-  const activeWorkspace = computed<IdentityWorkspace | null>(() => {
-    if (activeScope.value.mode !== 'workspace' || !activeScope.value.workspaceId) return null
-    return (
-      scopes.value.find((ws) => ws.workspace_id === activeScope.value.workspaceId) ?? null
-    )
+
+  // ==================== Identity Scope Stateless Adapters ====================
+
+  const scopes = computed<IdentityWorkspace[]>({
+    get: () => getConsoleScopeStore().scopes,
+    set: (val) => {
+      getConsoleScopeStore().scopes = val
+    }
   })
-  const activeProject = computed<{ id: string; name: string } | null>(() => {
-    const ws = activeWorkspace.value
-    if (!ws || !activeScope.value.projectId) return null
-    return ws.projects.find((proj) => proj.id === activeScope.value.projectId) ?? null
+  const scopesLoaded = computed<boolean>({
+    get: () => getConsoleScopeStore().scopesLoaded,
+    set: (val) => {
+      getConsoleScopeStore().scopesLoaded = val
+    }
   })
+  const scopesLoading = computed<boolean>({
+    get: () => getConsoleScopeStore().scopesLoading,
+    set: (val) => {
+      getConsoleScopeStore().scopesLoading = val
+    }
+  })
+  const scopesRefreshing = computed<boolean>({
+    get: () => getConsoleScopeStore().scopesRefreshing,
+    set: (val) => {
+      getConsoleScopeStore().scopesRefreshing = val
+    }
+  })
+  const scopesStale = computed<boolean>({
+    get: () => getConsoleScopeStore().scopesStale,
+    set: (val) => {
+      getConsoleScopeStore().scopesStale = val
+    }
+  })
+  const scopesError = computed<ScopeErrorState | null>({
+    get: () => getConsoleScopeStore().scopesError,
+    set: (val) => {
+      getConsoleScopeStore().scopesError = val
+    }
+  })
+  const scopesNextCursor = computed<string | null>({
+    get: () => getConsoleScopeStore().scopesNextCursor,
+    set: (val) => {
+      getConsoleScopeStore().scopesNextCursor = val
+    }
+  })
+  const scopesAsOf = computed<string | null>({
+    get: () => getConsoleScopeStore().scopesAsOf,
+    set: (val) => {
+      getConsoleScopeStore().scopesAsOf = val
+    }
+  })
+  const activeScope = computed<ScopeSelection>({
+    get: () => getConsoleScopeStore().activeScope,
+    set: (val) => {
+      getConsoleScopeStore().selectScope(val)
+    }
+  })
+  const scopeRevision = computed<number>(() => getConsoleScopeStore().scopeRevision)
+  const activeWorkspace = computed<IdentityWorkspace | null>(() => getConsoleScopeStore().activeWorkspace)
+  const activeProject = computed<{ id: string; name: string } | null>(() => getConsoleScopeStore().activeProject)
 
   const loadingCount = ref<number>(0)
 
@@ -384,237 +352,30 @@ export const useAppStore = defineStore('app', () => {
     toasts.value = []
   }
 
-  // ==================== Identity Scopes ====================
-
-  function notifyScopeChanged(selection: ScopeSelection): void {
-    scopeRevision.value += 1
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(
-        new CustomEvent(SCOPE_CHANGED_EVENT, {
-          detail: { ...selection, revision: scopeRevision.value }
-        })
-      )
-    }
-  }
+  // ==================== Identity Scope Stateless Actions ====================
 
   function selectScope(next: ScopeSelection): void {
-    const normalized: ScopeSelection =
-      next.mode === 'workspace' && next.workspaceId
-        ? {
-            mode: 'workspace',
-            workspaceId: next.workspaceId,
-            projectId: next.projectId || null
-          }
-        : { mode: 'personal', workspaceId: null, projectId: null }
-
-    const unchanged =
-      activeScope.value.mode === normalized.mode &&
-      activeScope.value.workspaceId === normalized.workspaceId &&
-      activeScope.value.projectId === normalized.projectId
-
-    activeScope.value = normalized
-    persistScopeSelectionToStorage(normalized)
-    if (!unchanged) {
-      notifyScopeChanged(normalized)
-    }
+    getConsoleScopeStore().selectScope(next)
   }
 
   function selectPersonalScope(): void {
-    selectScope({ mode: 'personal', workspaceId: null, projectId: null })
+    getConsoleScopeStore().selectPersonalScope()
   }
 
   function selectWorkspaceScope(workspaceId: string, projectId?: string | null): void {
-    if (!workspaceId) {
-      selectPersonalScope()
-      return
-    }
-    const ws = scopes.value.find((item) => item.workspace_id === workspaceId)
-    const resolvedProject =
-      projectId !== undefined
-        ? projectId
-        : ws?.projects[0]?.id ?? null
-    selectScope({
-      mode: 'workspace',
-      workspaceId,
-      projectId: resolvedProject
-    })
+    getConsoleScopeStore().selectWorkspaceScope(workspaceId, projectId)
   }
 
-  function reconcileActiveScopeWithLoadedList(): void {
-    if (activeScope.value.mode !== 'workspace' || !activeScope.value.workspaceId) return
-    const ws = scopes.value.find((item) => item.workspace_id === activeScope.value.workspaceId)
-    if (!ws) {
-      if (!scopesNextCursor.value) {
-        selectPersonalScope()
-      }
-      return
-    }
-    if (
-      activeScope.value.projectId &&
-      !ws.projects.some((proj) => proj.id === activeScope.value.projectId) &&
-      !ws.projects_next_cursor
-    ) {
-      selectScope({
-        mode: 'workspace',
-        workspaceId: ws.workspace_id,
-        projectId: ws.projects[0]?.id ?? null
-      })
-    }
+  function fetchScopes(options: { force?: boolean; cursor?: string } = {}): Promise<IdentityWorkspacePage | null> {
+    return getConsoleScopeStore().fetchScopes(options)
   }
 
-  async function fetchScopes(options: { force?: boolean; cursor?: string } = {}): Promise<IdentityWorkspacePage | null> {
-    const { force = false, cursor } = options
-    if (!cursor && scopesLoaded.value && !force && !scopesError.value) {
-      return {
-        items: scopes.value,
-        next_cursor: scopesNextCursor.value,
-        as_of: scopesAsOf.value || new Date().toISOString()
-      }
-    }
-    if (!cursor && scopesRequest) {
-      return scopesRequest
-    }
-
-    const generation = scopesLifecycleGeneration
-    if (scopesLoaded.value) {
-      scopesRefreshing.value = true
-    } else {
-      scopesLoading.value = true
-    }
-
-    const run = apiClient
-      .get<IdentityWorkspacePage>('/api/v2/me/scopes', {
-        params: {
-          limit: 50,
-          ...(cursor ? { cursor } : {})
-        }
-      })
-      .then(({ data }) => {
-        if (generation !== scopesLifecycleGeneration) return null
-        const incoming = Array.isArray(data?.items) ? data.items : []
-        if (cursor) {
-          const existingIds = new Set(scopes.value.map((w) => w.workspace_id))
-          scopes.value = [
-            ...scopes.value,
-            ...incoming.filter((w) => !existingIds.has(w.workspace_id))
-          ]
-        } else {
-          scopes.value = incoming
-        }
-        scopesNextCursor.value = data?.next_cursor ?? null
-        scopesAsOf.value = data?.as_of ?? null
-        scopesLoaded.value = true
-        scopesStale.value = false
-        scopesError.value = null
-        reconcileActiveScopeWithLoadedList()
-        return data
-      })
-      .catch((err: unknown) => {
-        if (generation !== scopesLifecycleGeneration || isSilentRequestError(err)) {
-          return null
-        }
-        const normalized = normalizeApiError(err)
-        scopesError.value = {
-          status: normalized.status ?? 0,
-          reason: normalized.reason,
-          message: normalized.message || i18n.global.t('common.unknownError'),
-          requestId:
-            typeof normalized.metadata?.request_id === 'string'
-              ? normalized.metadata.request_id
-              : undefined
-        }
-        if (scopesLoaded.value) {
-          scopesStale.value = true
-        }
-        return null
-      })
-      .finally(() => {
-        if (generation === scopesLifecycleGeneration) {
-          scopesLoading.value = false
-          scopesRefreshing.value = false
-        }
-        if (scopesRequest === run) {
-          scopesRequest = null
-        }
-      })
-
-    if (!cursor) {
-      scopesRequest = run
-    }
-    return run
-  }
-
-  async function loadMoreWorkspaceProjects(workspaceId: string): Promise<IdentityProjectPage | null> {
-    const wsIndex = scopes.value.findIndex((item) => item.workspace_id === workspaceId)
-    if (wsIndex === -1) return null
-    const target = scopes.value[wsIndex]
-    if (!target.projects_next_cursor) return null
-    const generation = scopesLifecycleGeneration
-    try {
-      const { data } = await apiClient.get<IdentityProjectPage>(
-        `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/projects`,
-        {
-          params: {
-            limit: 50,
-            cursor: target.projects_next_cursor
-          }
-        }
-      )
-      if (generation !== scopesLifecycleGeneration) return null
-      const currentIndex = scopes.value.findIndex((item) => item.workspace_id === workspaceId)
-      if (currentIndex !== -1) {
-        const current = scopes.value[currentIndex]
-        const existingIds = new Set(current.projects.map((p) => p.id))
-        const mergedProjects = [
-          ...current.projects,
-          ...(data?.items ?? [])
-            .filter((p) => !existingIds.has(p.id))
-            .map((p) => ({ id: p.id, name: p.name }))
-        ]
-        const nextScopes = [...scopes.value]
-        nextScopes[currentIndex] = {
-          ...current,
-          projects: mergedProjects,
-          projects_next_cursor: data?.next_cursor ?? null
-        }
-        scopes.value = nextScopes
-      }
-      return data
-    } catch (err) {
-      if (!isSilentRequestError(err)) {
-        const normalized = normalizeApiError(err)
-        scopesError.value = {
-          status: normalized.status ?? 0,
-          reason: normalized.reason,
-          message: normalized.message || i18n.global.t('common.unknownError')
-        }
-      }
-      return null
-    }
+  function loadMoreWorkspaceProjects(workspaceId: string): Promise<IdentityProjectPage | null> {
+    return getConsoleScopeStore().loadMoreWorkspaceProjects(workspaceId)
   }
 
   function resetScopes(): void {
-    scopesLifecycleGeneration += 1
-    scopesRequest = null
-    scopes.value = []
-    scopesLoaded.value = false
-    scopesLoading.value = false
-    scopesRefreshing.value = false
-    scopesStale.value = false
-    scopesError.value = null
-    scopesNextCursor.value = null
-    scopesAsOf.value = null
-    activeScope.value = { mode: 'personal', workspaceId: null, projectId: null }
-    scopeSelectionStorage.remove()
-    try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.removeItem(StorageKeys.WORKSPACE_ID)
-        localStorage.removeItem(StorageKeys.PROJECT_ID)
-      }
-    } catch {
-      // ignore storage errors
-    }
-    notifyScopeChanged(activeScope.value)
+    getConsoleScopeStore().resetScopes()
   }
 
   // ==================== Version Management ====================
@@ -644,15 +405,17 @@ export const useAppStore = defineStore('app', () => {
     versionLoading.value = true
     try {
       const data = await checkUpdatesAPI(force)
-      currentVersion.value = data.current_version
-      latestVersion.value = data.latest_version
-      hasUpdate.value = data.has_update
-      buildType.value = data.build_type || 'source'
-      releaseInfo.value = data.release_info || null
-      versionLoaded.value = true
+      updateCheckUnavailable.value = data.remote_status === 'unavailable'
+      currentVersion.value = data.current_version || currentVersion.value
+      latestVersion.value = updateCheckUnavailable.value ? '' : data.latest_version
+      hasUpdate.value = !updateCheckUnavailable.value && data.has_update
+      buildType.value = data.build_type || buildType.value
+      releaseInfo.value = updateCheckUnavailable.value ? null : data.release_info || null
+      versionLoaded.value = !updateCheckUnavailable.value
       return data
-    } catch (error) {
-      console.error('Failed to fetch version:', error)
+    } catch {
+      clearVersionCache()
+      updateCheckUnavailable.value = true
       return null
     } finally {
       versionLoading.value = false
@@ -664,6 +427,9 @@ export const useAppStore = defineStore('app', () => {
    */
   function clearVersionCache(): void {
     versionLoaded.value = false
+    updateCheckUnavailable.value = false
+    latestVersion.value = ''
+    releaseInfo.value = null
     hasUpdate.value = false
   }
 
@@ -858,6 +624,7 @@ export const useAppStore = defineStore('app', () => {
 
     // Version state
     versionLoaded,
+    updateCheckUnavailable,
     versionLoading,
     currentVersion,
     latestVersion,

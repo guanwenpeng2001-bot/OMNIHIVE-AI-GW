@@ -2,8 +2,15 @@
  * Vitest 测试环境设置
  * 提供全局 mock 和测试工具
  */
-import { config } from '@vue/test-utils'
-import { vi } from 'vitest'
+import { config, disableAutoUnmount } from '@vue/test-utils'
+import { afterAll, vi } from 'vitest'
+
+// Each spec registers its own auto-unmount hook when workers are reused.
+afterAll(() => {
+  disableAutoUnmount()
+  vi.unstubAllGlobals()
+  vi.useRealTimers()
+})
 
 function createMemoryStorage(): Storage {
   const values = new Map<string, string>()

@@ -32,6 +32,7 @@ export interface ShellNavItemSpec {
   order?: number
   keywords?: string[]
   hideInSimpleMode?: boolean
+  hiddenInSidebar?: boolean
   featureFlag?: RouteFeatureFlag
   expandOnly?: boolean
   children?: ShellNavItemSpec[]
@@ -49,7 +50,7 @@ export const USER_CONSOLE_SECTIONS: readonly ShellNavSectionMeta[] = [
   { id: 'access', eyebrowEn: 'ACCESS', eyebrowZh: '访问与空间' },
   { id: 'requests', eyebrowEn: 'REQUESTS & TASKS', eyebrowZh: '请求与任务' },
   { id: 'billing', eyebrowEn: 'BILLING', eyebrowZh: '费用与权益' },
-  { id: 'settings', eyebrowEn: 'SETTINGS', eyebrowZh: '设置' }
+  { id: 'settings', eyebrowEn: 'SETTINGS', eyebrowZh: '账户设置' }
 ]
 
 export const ADMIN_CONSOLE_SECTIONS: readonly ShellNavSectionMeta[] = [
@@ -82,6 +83,19 @@ export function getRegisteredNavigationItems(): ShellNavItemSpec[] {
   return registeredExtensionItems.value
 }
 
+export const ADMIN_MODELS_NAV_ITEM: ShellNavItemSpec = {
+  id: 'admin-models',
+  path: '/admin/models',
+  tier: 'admin',
+  section: 'connections',
+  labelKey: 'nav.modelCatalog',
+  fallbackLabelEn: 'Model Catalog',
+  fallbackLabelZh: '模型目录',
+  icon: 'cube',
+  order: 27,
+  keywords: ['models', 'catalog', 'provenance', 'pricing', '模型目录']
+}
+
 export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
   // ==================== Public Tier ====================
   {
@@ -101,33 +115,35 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     tier: 'public',
     section: 'public',
     labelKey: 'nav.modelPlaza',
-    fallbackLabelEn: 'Models',
+    fallbackLabelEn: 'Model Plaza',
     fallbackLabelZh: '模型广场',
     icon: 'grid',
     order: 20,
     keywords: ['models', 'plaza', 'catalog', 'pricing', '模型广场']
   },
   {
-    id: 'public-key-usage',
-    path: '/key-usage',
-    tier: 'public',
-    section: 'public',
-    fallbackLabelEn: 'Key Quota',
-    fallbackLabelZh: '密钥额度查询',
-    icon: 'chart',
-    order: 30,
-    keywords: ['key', 'quota', 'inspector', 'balance', '额度查询']
-  },
-  {
     id: 'public-pricing',
     path: '/pricing',
     tier: 'public',
     section: 'public',
+    labelKey: 'nav.pricing',
     fallbackLabelEn: 'Pricing',
-    fallbackLabelZh: '定价方案',
+    fallbackLabelZh: '定价估算',
     icon: 'dollar',
-    order: 40,
+    order: 30,
     keywords: ['pricing', 'plans', 'rates', '定价', '价格']
+  },
+  {
+    id: 'public-key-usage',
+    path: '/key-usage',
+    tier: 'public',
+    section: 'public',
+    labelKey: 'nav.keyUsage',
+    fallbackLabelEn: 'Key Quota',
+    fallbackLabelZh: '密钥额度',
+    icon: 'chart',
+    order: 40,
+    keywords: ['key', 'quota', 'inspector', 'balance', '额度查询', '密钥额度']
   },
   {
     id: 'public-status',
@@ -173,7 +189,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     section: 'models',
     labelKey: 'nav.helpGuide',
     fallbackLabelEn: 'API Docs & Quickstart',
-    fallbackLabelZh: 'API 文档与接入',
+    fallbackLabelZh: '接入文档',
     icon: 'book',
     order: 20,
     keywords: ['docs', 'guide', 'sdk', 'openai', 'anthropic', 'gemini', '文档']
@@ -183,8 +199,9 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     path: '/playground',
     tier: 'user',
     section: 'models',
+    labelKey: 'nav.playground',
     fallbackLabelEn: 'Playground',
-    fallbackLabelZh: 'Playground 调试台',
+    fallbackLabelZh: '模型调试台',
     icon: 'play',
     order: 15,
     keywords: ['playground', 'chat', 'stream', 'compare', '调试', '流式']
@@ -195,9 +212,10 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     tier: 'user',
     section: 'access',
     labelKey: 'nav.apiKeys',
-    fallbackLabelEn: 'Access Keys',
-    fallbackLabelZh: '访问密钥',
+    fallbackLabelEn: 'API Keys',
+    fallbackLabelZh: 'API 密钥',
     icon: 'key',
+    tourId: 'sidebar-my-keys',
     order: 10,
     keywords: ['api', 'keys', 'token', 'credentials', '密钥']
   },
@@ -207,11 +225,11 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     tier: 'user',
     section: 'access',
     labelKey: 'nav.byok',
-    fallbackLabelEn: 'BYOK Credentials',
-    fallbackLabelZh: '自带密钥',
+    fallbackLabelEn: 'BYOK Credential',
+    fallbackLabelZh: '自带上游凭据',
     icon: 'shield',
     order: 15,
-    keywords: ['byok', 'keys', 'credentials', 'provider', '自带密钥']
+    keywords: ['byok', 'keys', 'credentials', 'provider', '自带上游凭据']
   },
   {
     id: 'user-workspaces',
@@ -219,8 +237,8 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     tier: 'user',
     section: 'access',
     labelKey: 'workspaces.title',
-    fallbackLabelEn: 'Workspaces',
-    fallbackLabelZh: '工作空间',
+    fallbackLabelEn: 'Workspaces & Access',
+    fallbackLabelZh: '工作空间与授权',
     icon: 'users',
     order: 20,
     keywords: ['workspaces', 'projects', 'members', 'scopes', '工作空间']
@@ -231,13 +249,13 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     tier: 'user',
     section: 'access',
     labelKey: 'nav.availableChannels',
-    fallbackLabelEn: 'Available Pools',
-    fallbackLabelZh: '可用资源池',
+    fallbackLabelEn: 'My Available Models',
+    fallbackLabelZh: '我的可用模型',
     icon: 'server',
     hideInSimpleMode: true,
     featureFlag: 'availableChannels',
     order: 30,
-    keywords: ['channels', 'pools', 'groups', '可用渠道']
+    keywords: ['channels', 'pools', 'groups', '我的可用模型']
   },
   {
     id: 'user-usage',
@@ -245,18 +263,19 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     tier: 'user',
     section: 'requests',
     labelKey: 'nav.usage',
-    fallbackLabelEn: 'Request Logs & Usage',
-    fallbackLabelZh: '请求与用量明细',
+    fallbackLabelEn: 'Usage Analytics',
+    fallbackLabelZh: '用量统计',
     icon: 'chart',
     hideInSimpleMode: true,
     order: 10,
-    keywords: ['requests', 'logs', 'usage', 'tokens', 'latency', '用量', '请求日志']
+    keywords: ['requests', 'logs', 'usage', 'tokens', 'latency', '用量统计']
   },
   {
     id: 'user-requests',
     path: '/requests',
     tier: 'user',
     section: 'requests',
+    labelKey: 'nav.requests',
     fallbackLabelEn: 'Request Records',
     fallbackLabelZh: '请求记录',
     icon: 'document',
@@ -273,7 +292,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     fallbackLabelZh: '异步任务与生图',
     icon: 'sparkles',
     hideInSimpleMode: true,
-    order: 20,
+    order: 21,
     keywords: ['tasks', 'batch', 'image', 'async', '异步任务', '批量生图']
   },
   {
@@ -281,10 +300,11 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     path: '/tasks',
     tier: 'user',
     section: 'requests',
+    labelKey: 'nav.taskCenter',
     fallbackLabelEn: 'Task Center',
     fallbackLabelZh: '任务中心',
     icon: 'inbox',
-    order: 21,
+    order: 15,
     keywords: ['tasks', 'artifacts', 'download', 'retry', '任务', '产物']
   },
   {
@@ -294,7 +314,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     section: 'requests',
     labelKey: 'nav.channelStatus',
     fallbackLabelEn: 'Service Health',
-    fallbackLabelZh: '服务健康状态',
+    fallbackLabelZh: '服务健康',
     icon: 'shield',
     featureFlag: 'channelMonitor',
     order: 30,
@@ -319,11 +339,12 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     path: '/billing',
     tier: 'user',
     section: 'billing',
-    fallbackLabelEn: 'Costs & Quota',
-    fallbackLabelZh: '费用与额度',
+    labelKey: 'nav.billing',
+    fallbackLabelEn: 'Billing & Ledger',
+    fallbackLabelZh: '费用与账单',
     icon: 'calculator',
     order: 5,
-    keywords: ['billing', 'cost', 'quota', 'ledger', '费用', '额度']
+    keywords: ['billing', 'cost', 'quota', 'ledger', '费用与账单']
   },
   {
     id: 'user-subscriptions',
@@ -397,8 +418,9 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     path: '/settings/mcp',
     tier: 'user',
     section: 'settings',
-    fallbackLabelEn: 'Authorized Apps',
-    fallbackLabelZh: '授权应用 (MCP)',
+    labelKey: 'nav.mcpAuth',
+    fallbackLabelEn: 'MCP App Authorization',
+    fallbackLabelZh: 'MCP 应用授权',
     icon: 'link',
     order: 20,
     keywords: ['mcp', 'oauth', 'authorized', 'apps', '授权']
@@ -410,7 +432,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     path: '/admin/dashboard',
     tier: 'admin',
     section: 'ops',
-    labelKey: 'nav.dashboard',
+    labelKey: 'nav.adminDashboard',
     fallbackLabelEn: 'Control Overview',
     fallbackLabelZh: '运行总览',
     icon: 'grid',
@@ -423,13 +445,14 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     tier: 'admin',
     section: 'connections',
     labelKey: 'nav.channelPricing',
-    fallbackLabelEn: 'Model Catalog & Pricing',
-    fallbackLabelZh: '模型目录与定价',
+    fallbackLabelEn: 'Channels & Pricing',
+    fallbackLabelZh: '渠道与定价',
     icon: 'dollar',
     hideInSimpleMode: true,
     order: 28,
-    keywords: ['catalog', 'models', 'mapping', 'pricing', '渠道定价', '模型目录']
+    keywords: ['catalog', 'models', 'mapping', 'pricing', '渠道与定价']
   },
+  ADMIN_MODELS_NAV_ITEM,
   {
     id: 'admin-accounts',
     path: '/admin/accounts',
@@ -437,11 +460,11 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     section: 'connections',
     labelKey: 'nav.accounts',
     fallbackLabelEn: 'Upstream Connections',
-    fallbackLabelZh: '上游连接与凭据',
+    fallbackLabelZh: '上游连接',
     icon: 'globe',
     tourId: 'sidebar-channel-manage',
     order: 10,
-    keywords: ['connections', 'credentials', 'accounts', 'providers', '上游连接', '上游账号']
+    keywords: ['connections', 'credentials', 'accounts', 'providers', '上游连接']
   },
   {
     id: 'admin-connections-new',
@@ -452,6 +475,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     fallbackLabelZh: '新建上游连接',
     icon: 'plus',
     order: 15,
+    hiddenInSidebar: true,
     keywords: ['connection', 'wizard', 'provider', 'credential', '新建连接']
   },
   {
@@ -460,33 +484,35 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     tier: 'admin',
     section: 'connections',
     labelKey: 'nav.groups',
-    fallbackLabelEn: 'Resource Pools & Routing',
-    fallbackLabelZh: '资源池与路由策略',
+    fallbackLabelEn: 'Routing Groups',
+    fallbackLabelZh: '路由分组',
     icon: 'grid',
     tourId: 'sidebar-group-manage',
-    order: 20,
-    keywords: ['pools', 'groups', 'routing', 'priority', '资源池', '分组']
+    order: 26,
+    keywords: ['pools', 'groups', 'routing', 'priority', '路由分组']
   },
   {
     id: 'admin-pools',
     path: '/admin/pools',
     tier: 'admin',
     section: 'connections',
+    labelKey: 'nav.pools',
     fallbackLabelEn: 'Resource Pools',
-    fallbackLabelZh: '资源池',
+    fallbackLabelZh: '上游资源池',
     icon: 'server',
-    order: 25,
-    keywords: ['pools', 'members', 'concurrency', '资源池']
+    order: 20,
+    keywords: ['pools', 'members', 'concurrency', '上游资源池']
   },
   {
     id: 'admin-routing',
     path: '/admin/routing',
     tier: 'admin',
     section: 'connections',
+    labelKey: 'nav.routing',
     fallbackLabelEn: 'Routing Workbench',
     fallbackLabelZh: '路由工作台',
     icon: 'swap',
-    order: 26,
+    order: 25,
     keywords: ['routing', 'policy', 'simulator', '路由', '模拟']
   },
   {
@@ -558,11 +584,12 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     path: '/admin/audit',
     tier: 'admin',
     section: 'settings',
+    labelKey: 'nav.projectAudit',
     fallbackLabelEn: 'Project Audit',
-    fallbackLabelZh: '项目审计',
+    fallbackLabelZh: '项目级审计',
     icon: 'shield',
     order: 15,
-    keywords: ['audit', 'project', 'evidence', '审计', '项目']
+    keywords: ['audit', 'project', 'evidence', '项目级审计']
   },
   {
     id: 'admin-ops',
@@ -570,11 +597,11 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     tier: 'admin',
     section: 'ops',
     labelKey: 'nav.ops',
-    fallbackLabelEn: 'Realtime Operations',
-    fallbackLabelZh: '实时运维监控',
+    fallbackLabelEn: 'Operations Monitor',
+    fallbackLabelZh: '运维监控',
     icon: 'chart',
     featureFlag: 'opsMonitoring',
-    order: 10,
+    order: 15,
     keywords: ['ops', 'realtime', 'qps', 'latency', 'errors', '运维监控']
   },
   {
@@ -583,22 +610,22 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     tier: 'admin',
     section: 'ops',
     labelKey: 'nav.channelMonitor',
-    fallbackLabelEn: 'Upstream Health Probes',
-    fallbackLabelZh: '上游健康探测',
+    fallbackLabelEn: 'Health Probes',
+    fallbackLabelZh: '健康探测',
     icon: 'chart',
     hideInSimpleMode: true,
     featureFlag: 'channelMonitor',
     order: 20,
-    keywords: ['channel', 'monitor', 'probes', 'availability', '渠道监控']
+    keywords: ['channel', 'monitor', 'probes', 'availability', '健康探测']
   },
   {
     id: 'admin-usage',
     path: '/admin/usage',
     tier: 'admin',
     section: 'ops',
-    labelKey: 'nav.usage',
-    fallbackLabelEn: 'Request & Usage Ledger',
-    fallbackLabelZh: '全局请求与账本',
+    labelKey: 'nav.adminUsage',
+    fallbackLabelEn: 'Global Usage Ledger',
+    fallbackLabelZh: '全局账本',
     icon: 'document',
     order: 30,
     keywords: ['usage', 'requests', 'waterfall', 'ledger', '用量记录']
@@ -608,10 +635,11 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     path: '/admin/requests',
     tier: 'admin',
     section: 'ops',
+    labelKey: 'nav.adminRequests',
     fallbackLabelEn: 'Request Diagnostics',
     fallbackLabelZh: '请求诊断',
     icon: 'document',
-    order: 25,
+    order: 12,
     keywords: ['requests', 'attempts', 'waterfall', 'diagnostics', '请求诊断']
   },
   {
@@ -625,7 +653,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     icon: 'chart',
     hideInSimpleMode: true,
     featureFlag: 'adminPayment',
-    order: 10,
+    order: 25,
     keywords: ['revenue', 'payment', 'settlement', '支付大盘']
   },
   {
@@ -633,6 +661,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     path: '/admin/billing',
     tier: 'admin',
     section: 'settlement',
+    labelKey: 'nav.adminBilling',
     fallbackLabelEn: 'Reconciliation & Ledger',
     fallbackLabelZh: '对账与账本',
     icon: 'calculator',
@@ -765,8 +794,9 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     path: '/admin/members',
     tier: 'admin',
     section: 'settings',
+    labelKey: 'nav.membersAccess',
     fallbackLabelEn: 'Members & Access',
-    fallbackLabelZh: '工作空间成员与授权',
+    fallbackLabelZh: '成员与授权',
     icon: 'users',
     hideInSimpleMode: true,
     order: 12,
@@ -778,12 +808,12 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     tier: 'admin',
     section: 'settings',
     labelKey: 'nav.auditLogs',
-    fallbackLabelEn: 'Audit Logs',
-    fallbackLabelZh: '审计日志',
+    fallbackLabelEn: 'System Audit Logs',
+    fallbackLabelZh: '系统审计日志',
     icon: 'shield',
     hideInSimpleMode: true,
     order: 20,
-    keywords: ['audit', 'logs', 'security', 'compliance', '审计日志']
+    keywords: ['audit', 'logs', 'security', 'compliance', '系统审计日志']
   },
   {
     id: 'admin-announcements',
@@ -802,6 +832,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     path: '/admin/backup',
     tier: 'admin',
     section: 'settings',
+    labelKey: 'nav.backup',
     fallbackLabelEn: 'Backup & Restore',
     fallbackLabelZh: '备份与恢复',
     icon: 'download',
@@ -837,11 +868,25 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     path: '/admin/settings/general',
     tier: 'admin',
     section: 'settings',
+    labelKey: 'nav.settingsWorkbench',
     fallbackLabelEn: 'Settings Workbench',
     fallbackLabelZh: '分区设置工作台',
     icon: 'cog',
     order: 65,
     keywords: ['settings', 'workbench', 'sections', 'security', 'smtp', '分区设置']
+  },
+  {
+    id: 'admin-settings-diagnostics',
+    path: '/admin/settings/diagnostics',
+    tier: 'admin',
+    section: 'settings',
+    labelKey: 'settingsDiagnostics.title',
+    fallbackLabelEn: 'Configuration Diagnostics',
+    fallbackLabelZh: '配置生效与来源诊断',
+    icon: 'cog',
+    order: 66,
+    hiddenInSidebar: true,
+    keywords: ['diagnostics', 'effective', 'config', 'override', '配置诊断', '生效配置']
   }
 ]
 

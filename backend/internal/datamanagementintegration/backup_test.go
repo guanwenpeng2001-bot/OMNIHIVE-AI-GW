@@ -67,10 +67,14 @@ func TestBackupDataPostgres(t *testing.T) {
 	}
 	store := &memoryStore{objects: make(map[string][]byte)}
 	dumper := repository.NewPgDumper(cfg, db)
+	t.Setenv("BACKUP_SECRET_ENCRYPTION_KEY", strings.Repeat("a1", 32))
+	t.Setenv("BACKUP_SECRET_ENCRYPTION_KEY_PREVIOUS", "")
 	newService := func() *service.BackupService {
-		return service.NewBackupService(repo, cfg, fixtureEncryptor{}, func(context.Context, *service.BackupS3Config) (service.BackupObjectStore, error) {
+		backup := service.NewBackupService(repo, cfg, fixtureEncryptor{}, func(context.Context, *service.BackupS3Config) (service.BackupObjectStore, error) {
 			return store, nil
 		}, dumper)
+		backup.SetSecretPayloadRepository(repository.NewBackupSecretPayloadRepository(db))
+		return backup
 	}
 	svc := newService()
 	t.Cleanup(svc.Stop)

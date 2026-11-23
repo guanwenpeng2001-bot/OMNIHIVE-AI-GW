@@ -20,17 +20,23 @@ import (
 
 type Backend interface {
 	domain.AccessEvaluator
+	WorkspaceAccess(context.Context, int64, int64) (domain.WorkspaceAccess, error)
+	ProjectAccess(context.Context, int64, int64, int64) (domain.ProjectAccess, error)
+	SetExactGrants(context.Context, int64, int64, int64, int64, []domain.ProjectGrant) (domain.GrantVersion, error)
+	RequestAccess(context.Context, int64, int64, domain.RequestAccess, string) (domain.AccessRequest, error)
+	DecideAccess(context.Context, int64, int64, int64, int64, domain.DecideAccess, string) (domain.AccessRequest, error)
+	AccessRequests(context.Context, int64, int64, string, domain.Page) ([]domain.AccessRequest, error)
 	Workspaces(context.Context, int64, domain.Page) ([]domain.Workspace, error)
 	Projects(context.Context, int64, int64, domain.Page) ([]domain.Project, error)
 	Project(context.Context, int64, int64, int64) (domain.Project, error)
 	KeyGroups(context.Context, int64, int64, int64, domain.Page) ([]domain.KeyGroup, error)
 	SetGroupProject(context.Context, int64, int64, int64, int64, bool, string) (int64, error)
-	Keys(context.Context, int64, int64, int64, domain.Page) ([]domain.Key, error)
+	ListProjectKeys(context.Context, int64, int64, int64, domain.Page) ([]domain.ProjectKeyRow, error)
 	Members(context.Context, int64, int64, domain.Page) ([]domain.Member, error)
 	MemberGrants(context.Context, int64, int64, int64) (domain.MemberGrants, error)
 	CreateProject(context.Context, int64, int64, string, string) (domain.Project, error)
 	ChangeProject(context.Context, int64, int64, int64, int64, string, bool) (domain.Project, error)
-	CreateKey(context.Context, int64, int64, int64, domain.CreateKey, string) (domain.Key, error)
+	CreateKey(context.Context, int64, int64, int64, domain.CreateKey, string) (domain.ProjectKeyRow, error)
 	SetGrants(context.Context, int64, int64, int64, int64, []int64, []string) (domain.GrantVersion, error)
 }
 
@@ -86,7 +92,11 @@ func route(status int, fn endpoint) gin.HandlerFunc {
 			fail(c, err)
 			return
 		}
-		c.JSON(status, gin.H{"code": 0, "message": "success", "data": data})
+		code := status
+		if key, ok := data.(domain.ProjectKeyRow); ok && key.Credential == nil {
+			code = http.StatusOK
+		}
+		c.JSON(code, gin.H{"code": 0, "message": "success", "data": data})
 	}
 }
 
@@ -150,13 +160,17 @@ func Register(parent *gin.RouterGroup, h *Handler, session ...gin.HandlerFunc) {
 	v2 := parent.Group("", chain...)
 	v2.GET("/me/scopes", route(200, h.workspaces))
 	w := v2.Group("/workspaces/:workspace_id")
+	w.GET("/access", route(200, func(r request) (any, error) { return h.store.WorkspaceAccess(r.Request.Context(), r.actor, r.w) }))
+	w.POST("/access-requests", route(201, h.requestAccess))
+	w.GET("/access-requests", route(200, h.accessRequests))
+	w.POST("/access-requests/:id/decision", route(200, h.decideAccess))
 	w.GET("/projects", route(200, h.projects))
 	w.POST("/projects", route(201, h.createProject))
 	p := w.Group("/projects/:project_id")
 	p.GET("", route(200, func(r request) (any, error) { return h.store.Project(r.Request.Context(), r.actor, r.w, r.p) }))
 	p.PATCH("", route(200, h.changeProject))
 	p.DELETE("", route(200, h.changeProject))
-	p.GET("/access", route(200, func(r request) (any, error) { return h.store.Evaluate(r.Request.Context(), r.actor, r.w, r.p, "") }))
+	p.GET("/access", route(200, func(r request) (any, error) { return h.store.ProjectAccess(r.Request.Context(), r.actor, r.w, r.p) }))
 	p.GET("/key-groups", route(200, h.keyGroups))
 	p.PUT("/groups/:id", route(200, h.setGroupProject))
 	p.DELETE("/groups/:id", route(200, h.setGroupProject))
@@ -225,27 +239,7 @@ func (h *Handler) setGrants(r request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	var b struct {
-		ProjectIDs []string `json:"project_ids"`
-		Actions    []string `json:"actions"`
-	}
-	if err := r.body(&b); err != nil {
-		return nil, err
-	}
-	if b.ProjectIDs == nil {
-		return nil, fault.Invalid("/project_ids")
-	}
-	if b.Actions == nil {
-		return nil, fault.Invalid("/actions")
-	}
-	ids := make([]int64, len(b.ProjectIDs))
-	for i, s := range b.ProjectIDs {
-		ids[i], err = identifier(s)
-		if err != nil {
-			return nil, fault.Invalid("/project_ids")
-		}
-	}
-	grants, err := h.store.SetGrants(r.Request.Context(), r.actor, r.w, member, v, ids, b.Actions)
+	grants, err := h.replaceGrants(r, member, v)
 	if err != nil {
 		return nil, err
 	}

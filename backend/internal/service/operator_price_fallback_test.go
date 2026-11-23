@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -65,7 +66,7 @@ func TestOperatorIntervalRequiresExplicitMissingCatalogRates(testingContext *tes
 			if complete {
 				interval.OutputPrice = &price
 			}
-			resolved := resolver.resolveConfiguredPricing(&ChannelModelPricing{Intervals: []PricingInterval{interval}}, "operator-only-model", PricingSourceChannel)
+			resolved := resolver.resolveConfiguredPricingFor(&ChannelModelPricing{Intervals: []PricingInterval{interval}}, PricingInput{Model: "operator-only-model", At: time.Now()}, PricingSourceChannel)
 			pricing := resolver.GetIntervalPricing(resolved, 100)
 			require.NotNil(testingContext, pricing)
 			require.Equal(testingContext, price, pricing.InputPricePerToken)

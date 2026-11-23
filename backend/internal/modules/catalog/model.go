@@ -13,9 +13,22 @@ import (
 type Perspective struct {
 	Actor, Workspace, Project, AccessVersion int64
 	EndpointMetadata                         bool
+	Kind                                     PerspectiveKind
+	KeyID                                    int64
 }
 
-func (p Perspective) Public() bool { return p.Project == 0 }
+type PerspectiveKind string
+
+const (
+	PerspectivePublic      PerspectiveKind = "public"
+	PerspectiveProject     PerspectiveKind = "project"
+	PerspectiveSelectedKey PerspectiveKind = "selected_key"
+	PerspectiveAdmin       PerspectiveKind = "platform_admin"
+)
+
+func (p Perspective) Public() bool {
+	return p.Kind == PerspectivePublic || p.Kind == "" && p.Project == 0
+}
 
 type publicViewerAuthKey struct{}
 
@@ -69,11 +82,17 @@ type Facts struct {
 	Cache               *bool    `json:"prompt_caching"`
 	PDF                 *bool    `json:"pdf"`
 	Modalities          []string `json:"modalities"`
+	InputModalities     []string `json:"-"`
+	OutputModalities    []string `json:"-"`
+	SupportedMethods    []string `json:"-"`
 }
 
 type ModelFacts struct {
 	Facts
 	Evidence
+	Origin       Provenance            `json:"-"`
+	FieldOrigins map[string]Provenance `json:"-"`
+	Suppressed   []string              `json:"-"`
 }
 
 type RegistryModel struct {
@@ -81,6 +100,8 @@ type RegistryModel struct {
 	Facts                                   ModelFacts
 	Capabilities                            []Capability
 	Actions                                 []string
+	Methods                                 []string
+	Aliases                                 []string
 }
 
 type Capability struct {
@@ -109,19 +130,54 @@ type Endpoint struct {
 }
 
 type Offer struct {
-	GroupID          int64
-	Access, Eligible bool
-	CatalogOnly      bool
-	Actions          []string
-	Facts            []ModelFacts
-	Endpoints        []Endpoint
-	Capabilities     []Capability
-	Price            Price
+	GroupID            int64
+	ChannelID          int64
+	Access, Eligible   bool
+	EligibilityUnknown bool
+	CatalogOnly        bool
+	Published          bool
+	Candidate          bool
+	Discovered         bool
+	PublicationBasis   string
+	Bindings           []ModelBinding
+	BindingFacts       []BindingFacts
+	Actions            []string
+	Facts              []ModelFacts
+	Endpoints          []Endpoint
+	Capabilities       []Capability
+	Price              Price
 }
 
 type Candidate struct {
 	Provider, Model string
 	Offers          []Offer
+	Canonicals      []string
+}
+
+type CatalogEntry = Candidate
+
+// ModelBinding is internal to the read model. Use the appropriate redacted
+// projection before writing any binding data to a response.
+type ModelBinding struct {
+	Identity                                           ModelIdentity
+	AccountID, CredentialOwnerID, CredentialRevision   int64
+	IdentityRevision, SnapshotRevision, RulesRevision  int64
+	Profile, WireModel, Region, Action, Protocol, Mode string
+	AccountLabel, AccountType                          string
+	ChannelID, OfferGroupID, BillingGroupID            int64
+	BillingIdentity                                    ModelIdentity
+	BillingModelSource                                 string
+	RateMultiplier                                     float64
+	Funding                                            string
+	Eligible                                           bool
+	DiscoveryState                                     string
+	ObservedAt                                         *time.Time
+}
+
+type BindingFacts struct {
+	Profile    string
+	Facts      []ModelFacts
+	Historical bool
 }
 
 type Input struct {
@@ -130,6 +186,7 @@ type Input struct {
 	Models          []Candidate
 	Metrics         map[string]Metrics
 	Compatibility   map[string][]Compatibility
+	Revision        string
 }
 
 type Window struct{ Start, End time.Time }
@@ -164,17 +221,27 @@ type TimeBand struct {
 }
 
 type Price struct {
-	State        string      `json:"state"`
-	Source       string      `json:"source"`
-	Input        *money.Rate `json:"input_rate"`
-	Output       *money.Rate `json:"output_rate"`
-	Additional   []RateBand  `json:"additional_rates"`
-	ContextBasis string      `json:"context_basis,omitempty"`
-	TimeBands    []TimeBand  `json:"time_bands"`
+	State            string      `json:"state"`
+	Source           string      `json:"source"`
+	Input            *money.Rate `json:"input_rate"`
+	Output           *money.Rate `json:"output_rate"`
+	Additional       []RateBand  `json:"additional_rates"`
+	ContextBasis     string      `json:"context_basis,omitempty"`
+	TimeBands        []TimeBand  `json:"time_bands"`
+	Reason           string      `json:"-"`
+	Version          *string     `json:"-"`
+	ValidFrom        *time.Time  `json:"-"`
+	ValidUntil       *time.Time  `json:"-"`
+	Semantics        string      `json:"-"`
+	LegacyEquivalent bool        `json:"-"`
 }
 
 type Summary struct {
 	ID                string          `json:"id"`
+	CanonicalID       string          `json:"canonical_id,omitempty"`
+	Source            *SourceAxis     `json:"source,omitempty"`
+	Availability      *Availability   `json:"availability,omitempty"`
+	Billing           *Billing        `json:"billing,omitempty"`
 	Model             string          `json:"model"`
 	DisplayName       string          `json:"display_name"`
 	Provider          string          `json:"provider"`
@@ -206,6 +273,10 @@ type Benchmark struct {
 }
 
 type Detail struct {
+	Provenance       []Provenance    `json:"provenance"`
+	CommonFacts      *Facts          `json:"common_facts,omitempty"`
+	ScopeVersion     *int64          `json:"scope_version,string,omitempty"`
+	Offers           []Offer         `json:"-"`
 	ReferencePrice   *Price          `json:"reference_price,omitempty"`
 	EligibleGroups   []int64         `json:"-"`
 	Model            Summary         `json:"model"`
@@ -226,9 +297,10 @@ type Detail struct {
 }
 
 type Snapshot struct {
-	Version string    `json:"catalog_version"`
-	AsOf    time.Time `json:"as_of"`
-	Details []Detail  `json:"models"`
+	Version      string    `json:"catalog_version"`
+	AsOf         time.Time `json:"as_of"`
+	Details      []Detail  `json:"models"`
+	ScopeVersion *int64    `json:"scope_version,string,omitempty"`
 }
 
 type Acquisition interface {

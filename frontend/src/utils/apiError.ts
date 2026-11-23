@@ -37,13 +37,17 @@ export function normalizeApiError(error: unknown): NormalizedApiError {
   const legacyError = text(envelope.error)
   const reason = text(envelope.reason) ?? text(envelope.code) ?? text(nestedError.code)
     ?? (legacyError && /^[a-z][a-z0-9_]*$/i.test(legacyError) ? legacyError : undefined)
+  const metadata = record(envelope.metadata ?? envelope.details)
+  const headers = response.headers as { get?: (name: string) => unknown } | undefined
+  const requestId = text(headers?.get?.('x-request-id')) ??
+    text(Object.entries(record(headers)).find(([key]) => key.toLowerCase() === 'x-request-id')?.[1])
   const result: NormalizedApiError = {
     status,
     code: status,
     reason,
     message: text(envelope.detail) ?? text(envelope.message) ?? text(nestedError.message)
       ?? (legacyError !== reason ? legacyError : undefined) ?? text(source.message) ?? text(error) ?? '',
-    metadata: record(envelope.metadata ?? envelope.details),
+    metadata: requestId && !text(metadata.request_id) ? { ...metadata, request_id: requestId } : metadata,
   }
   normalizedErrors.add(result)
   return result

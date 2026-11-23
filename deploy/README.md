@@ -53,10 +53,10 @@ Use the automated preparation script for the easiest setup:
 
 ```bash
 # Download and run the preparation script
-curl -fsSL --globoff 'https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/v0.3.3/deploy/docker-deploy.sh' | bash
+curl -fsSL --globoff 'https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/v0.3.4/deploy/docker-deploy.sh' | bash
 
 # Or download first, then run
-curl -fsSL --globoff 'https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/v0.3.3/deploy/docker-deploy.sh' -o docker-deploy.sh
+curl -fsSL --globoff 'https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/v0.3.4/deploy/docker-deploy.sh' -o docker-deploy.sh
 chmod +x docker-deploy.sh
 ./docker-deploy.sh
 ```
@@ -68,7 +68,7 @@ chmod +x docker-deploy.sh
 - Creates necessary data directories (data/, postgres_data/, redis_data/)
 - Writes `.env` with mode `0600` and prints the private credential file path (secrets are not echoed)
 
-The script defaults to release tag `v0.3.3`; set `OMNIHIVE_RELEASE_TAG` to explicitly
+The script defaults to release tag `v0.3.4`. Set `OMNIHIVE_RELEASE_TAG` to explicitly
 select another release. Downloads fail on HTTP errors and are validated in a temporary
 directory before being moved into place. If either `docker-compose.yml` or `.env` already
 exists, the script exits without overwriting or changing the deployment.
@@ -275,6 +275,22 @@ docker compose up -d
 docker compose up -d
 ```
 
+For v0.3.4, check release eligibility against the deployed database before a
+Docker image rollback by changing the tag. Provide the selected release's
+manifest and checksums, and keep the DSN out of command output:
+
+```bash
+OMNIHIVE_RELEASE_DSN=... omnihivectl release check \
+  --target v0.3.3 \
+  --manifest release-manifest.json \
+  --checksums checksums.txt \
+  --json
+```
+
+If the target archive does not contain a capable `omnihivectl`, install a current
+trusted one first. See [release-v034.md](../docs/operations/release-v034.md) for
+the rollback floor and full procedure.
+
 Container images do not roll back database migrations, so back up PostgreSQL and
 the persisted keys before an upgrade, then verify `/health` and `/ready` after
 the restart.
@@ -295,9 +311,13 @@ before draining so in-flight usage receipts can be persisted.
 | `POSTGRES_PASSWORD` | **Yes** | - | PostgreSQL password |
 | `JWT_SECRET` | **Recommended** | *(auto-generated)* | JWT secret (fixed for persistent sessions) |
 | `TOTP_ENCRYPTION_KEY` | **Recommended** | *(auto-generated)* | TOTP encryption key (fixed for persistent 2FA) |
+| `BACKUP_SECRET_ENCRYPTION_KEY` | No* | *(empty)* | Dedicated 64-hex-character key for backup S3 secret envelopes. Required before writing new or rotated backup S3 credentials; existing legacy TOTP-encrypted backup credentials remain readable and show `migration_required`. |
+| `BACKUP_SECRET_ENCRYPTION_KEY_PREVIOUS` | No | *(empty)* | Optional read-only previous backup key used only while rotating the primary key. |
+| `MODEL_CATALOG_REFRESH_ENABLED` | No | `false` | Opt-in periodic outbound model catalog refresh. v0.3.4 defaults to `false`. |
+| `TURNSTILE_REQUIRED` | No | `false` | Deployment hard requirement for Turnstile, enforced only in release mode. |
 | `BIND_HOST` | No | `127.0.0.1` | Host address for the Compose port; keep loopback behind Caddy. Standalone defaults to `0.0.0.0` and needs operator-provided TLS if exposed. |
 | `SERVER_PORT` | No | `8080` | Published host port in Compose; application always listens on container port 8080 |
-| `OMNIHIVE_IMAGE_TAG` | No | `v0.3.3` | Application image tag used by all Compose templates; keep it pinned to a release rather than `latest`. |
+| `OMNIHIVE_IMAGE_TAG` | No | `v0.3.4` | Application image tag used by all Compose templates. Pin it to a release. |
 | `ADMIN_EMAIL` | No | `admin@omnihive.local` | Admin email |
 | `ADMIN_PASSWORD` | No | *(auto-generated)* | Admin password |
 | `TZ` | No | `Asia/Shanghai` | Timezone |
@@ -306,6 +326,10 @@ before draining so in-flight usage receipts can be persisted.
 | `GEMINI_OAUTH_CLIENT_SECRET` | No | *(builtin)* | Google OAuth client secret (Gemini OAuth). Leave empty to use the built-in Gemini CLI client. |
 | `GEMINI_OAUTH_SCOPES` | No | *(default)* | OAuth scopes (Gemini OAuth) |
 | `GEMINI_QUOTA_POLICY` | No | *(empty)* | JSON overrides for Gemini local quota simulation (Code Assist only). |
+
+\* `BACKUP_SECRET_ENCRYPTION_KEY` is required only before writing new or rotated
+backup S3 credentials; an existing legacy backup credential can still be read
+without it and is reported as `migration_required`.
 
 See `.env.example` for all available options. Docker Compose 2.24 or newer is required.
 
@@ -332,6 +356,13 @@ it together with the database and `.env` on rebuilds, upgrades and restores. All
 Compose variants, including standalone, inject the same value. A data volume alone does
 not persist an automatically generated TOTP key; losing or changing it prevents decryption
 of existing 2FA and other data encrypted with that key. Keep `JWT_SECRET` fixed for sessions.
+
+Set `BACKUP_SECRET_ENCRYPTION_KEY` separately from `TOTP_ENCRYPTION_KEY`. The current
+one-click preparation script generates `JWT_SECRET`, `TOTP_ENCRYPTION_KEY`, and
+`POSTGRES_PASSWORD`; add the backup key manually before storing or rotating backup S3
+credentials. An existing legacy backup credential can be read without the new key and is
+marked `migration_required` until it is re-encrypted. See
+[release-v034.md](../docs/operations/release-v034.md) for the upgrade and rollback steps.
 
 Application container healthchecks use `/health` for liveness. Caddy uses `/ready` to stop
 sending new traffic when dependencies are unavailable or the process is draining; do not

@@ -5,10 +5,21 @@
         <section class="channel-overview mb-3" aria-label="渠道定价工作台">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h1 class="text-sm font-semibold">渠道定价工作台</h1>
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">统一模型映射、计费规则与分组绑定</p>
+              <h1 class="text-sm font-semibold">渠道与定价 · 渠道定价工作台</h1>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                统一模型映射、销售价规则与路由分组绑定（四层价格：参考价（非结算价） / 销售价 / 内部成本 / 实收结算价 · 四段漏斗：平台候选 -> 账号原生发现 -> 账号有效模型 -> 分组对外可见）
+              </p>
             </div>
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" aria-haspopup="dialog" @click="openPricingDiagnosisDrawer()">定价规则快速诊断 ›</button>
+            <div class="flex flex-wrap items-center gap-2">
+              <a
+                href="/admin/models"
+                data-testid="channels-to-model-catalog-link"
+                class="btn btn-secondary btn-sm text-xs"
+              >
+                前往模型目录 (/admin/models) ›
+              </a>
+              <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" aria-haspopup="dialog" @click="openPricingDiagnosisDrawer()">定价规则快速诊断 ›</button>
+            </div>
           </div>
           <div class="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs">
             <span>筛选结果总渠道 <b class="font-mono tabular-nums">{{ loading ? '—' : pagination.total }}</b></span>
@@ -637,6 +648,12 @@
             </div>
           </div>
           <template v-if="editingChannel">
+            <div
+              data-testid="legacy-plaza-visibility-note"
+              class="rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface-2)]/50 p-3 text-xs text-[var(--muted-foreground)]"
+            >
+              4. 分组对外可见（传统分组级模型广场展示确认 · 按规范模型聚合核验请前往 /admin/models）
+            </div>
             <ModelPlazaConfirmation v-for="groupID in editingChannel.group_ids" :key="`${editingChannel.id}:${groupID}`" :channel-id="editingChannel.id" :group-id="groupID" :group-name="getGroupNameById(groupID)" />
           </template>
         </form>

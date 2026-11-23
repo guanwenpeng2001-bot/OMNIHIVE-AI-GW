@@ -526,7 +526,7 @@ func (h *UserHandler) ReplaceGroup(c *gin.Context) {
 		return
 	}
 
-	result, err := h.adminService.ReplaceUserGroup(c.Request.Context(), userID, req.OldGroupID, req.NewGroupID)
+	result, err := h.adminService.ReplaceUserGroup(service.WithLegacyKeyManagement(c.Request.Context()), userID, req.OldGroupID, req.NewGroupID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

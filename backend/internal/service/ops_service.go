@@ -33,6 +33,7 @@ const (
 type opsRuntimeSettingsSnapshot struct {
 	monitoringEnabled bool
 	advanced          OpsAdvancedSettings
+	healthy           bool
 }
 
 type OpsRuntimeSettingsRefreshHealth struct {
@@ -157,20 +158,47 @@ func (s *OpsService) IsMonitoringEnabled(ctx context.Context) bool {
 		return false
 	}
 	if snapshot := s.runtimeSettings.Load(); snapshot != nil {
-		return snapshot.monitoringEnabled
+		return snapshot.monitoringEnabled && snapshot.healthy
 	}
 	// Directly assembled test services and failed cold loads remain fail-open,
 	// without turning a request into a settings-table lookup.
 	return true
 }
 
-func parseOpsMonitoringEnabled(value string) bool {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "false", "0", "off", "disabled":
-		return false
-	default:
-		return true
+func (s *OpsService) EffectiveMonitoringState(ctx context.Context) (bool, bool, bool) {
+	if s == nil {
+		return false, false, true
 	}
+	if s.cfg != nil && !s.cfg.Ops.Enabled {
+		return false, true, false
+	}
+	if s.settingRepo == nil {
+		return true, true, false
+	}
+	values, err := s.settingRepo.GetMultiple(ctx, []string{SettingKeyOpsMonitoringEnabled, SettingKeyOpsAdvancedSettings})
+	if err != nil {
+		return false, false, false
+	}
+	monitoringEnabled := true
+	healthy := true
+	if raw, ok := values[SettingKeyOpsMonitoringEnabled]; ok {
+		switch strings.ToLower(strings.TrimSpace(raw)) {
+		case "true", "1", "on", "enabled":
+		case "false", "0", "off", "disabled":
+			monitoringEnabled = false
+		default:
+			monitoringEnabled = false
+			healthy = false
+		}
+	}
+	if raw, ok := values[SettingKeyOpsAdvancedSettings]; ok {
+		var advanced OpsAdvancedSettings
+		if json.Unmarshal([]byte(raw), &advanced) != nil {
+			monitoringEnabled = false
+			healthy = false
+		}
+	}
+	return monitoringEnabled && healthy, healthy, true
 }
 
 func (s *OpsService) initRuntimeSettings(ctx context.Context) {
@@ -178,7 +206,7 @@ func (s *OpsService) initRuntimeSettings(ctx context.Context) {
 		return
 	}
 	defaults := defaultOpsAdvancedSettingsForConfig(s.cfg)
-	s.runtimeSettings.Store(&opsRuntimeSettingsSnapshot{monitoringEnabled: true, advanced: *defaults})
+	s.runtimeSettings.Store(&opsRuntimeSettingsSnapshot{monitoringEnabled: true, advanced: *defaults, healthy: s.settingRepo == nil})
 	_ = s.RefreshRuntimeSettings(ctx)
 }
 
@@ -205,18 +233,28 @@ func (s *OpsService) RefreshRuntimeSettings(ctx context.Context) error {
 	}
 
 	monitoringEnabled := true
+	healthy := true
 	if raw, ok := values[SettingKeyOpsMonitoringEnabled]; ok {
-		monitoringEnabled = parseOpsMonitoringEnabled(raw)
+		switch strings.ToLower(strings.TrimSpace(raw)) {
+		case "true", "1", "on", "enabled":
+			monitoringEnabled = true
+		case "false", "0", "off", "disabled":
+			monitoringEnabled = false
+		default:
+			monitoringEnabled = false
+			healthy = false
+		}
 	}
 	advanced := defaultOpsAdvancedSettingsForConfig(s.cfg)
 	if raw, ok := values[SettingKeyOpsAdvancedSettings]; ok {
 		if err := json.Unmarshal([]byte(raw), advanced); err != nil {
 			advanced = defaultOpsAdvancedSettingsForConfig(s.cfg)
+			healthy = false
 		}
 	}
 	normalizeOpsAdvancedSettings(advanced)
 
-	s.runtimeSettings.Store(&opsRuntimeSettingsSnapshot{monitoringEnabled: monitoringEnabled, advanced: *advanced})
+	s.runtimeSettings.Store(&opsRuntimeSettingsSnapshot{monitoringEnabled: monitoringEnabled, advanced: *advanced, healthy: healthy})
 	if s.systemLogSink != nil {
 		persistAccessLogs := false
 		if raw, ok := values[SettingKeyOpsRuntimeLogConfig]; ok {
@@ -374,6 +412,7 @@ func (s *OpsService) SetMonitoringEnabled(enabled bool) {
 	s.runtimeSettingsMu.Lock()
 	current := s.runtimeSettings.Load()
 	next := &opsRuntimeSettingsSnapshot{monitoringEnabled: enabled, advanced: *defaultOpsAdvancedSettingsForConfig(s.cfg)}
+	next.healthy = true
 	if current != nil {
 		next.advanced = current.advanced
 	}
@@ -388,6 +427,7 @@ func (s *OpsService) storeAdvancedSettingsSnapshot(cfg *OpsAdvancedSettings) {
 	s.runtimeSettingsMu.Lock()
 	current := s.runtimeSettings.Load()
 	next := &opsRuntimeSettingsSnapshot{monitoringEnabled: true, advanced: *cfg}
+	next.healthy = true
 	if current != nil {
 		next.monitoringEnabled = current.monitoringEnabled
 	}

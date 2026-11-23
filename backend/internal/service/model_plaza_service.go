@@ -2,10 +2,11 @@ package service
 
 import (
 	"context"
-	"fmt"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"sort"
 	"strings"
+
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 )
 
 // PlazaModel 模型广场中单个模型条目：按实收口径合成的展示定价。
@@ -25,6 +26,19 @@ type PlazaModel struct {
 	CatalogBindings []PlazaCatalogBinding `json:"-"`
 	// Observations describe scoped discoveries without an executable binding.
 	CatalogObservations []PlazaCatalogBinding `json:"-"`
+	CatalogOffers       []PlazaCatalogOffer   `json:"-"`
+	Discovered          bool                  `json:"-"`
+	EligibilityUnknown  bool                  `json:"-"`
+}
+
+type PlazaCatalogOffer struct {
+	ChannelID          int64
+	PublicationBasis   string
+	BillingModelSource string
+	ChannelMappedModel string
+	Bindings           []PlazaCatalogBinding
+	Eligible           bool
+	configuredPrice    *ChannelModelPricing
 }
 
 // PlazaGroup 模型广场中以分组为顶层的条目。
@@ -54,7 +68,11 @@ type PlazaGroup struct {
 	// LongContextPricingEnabled 分组是否按上下文长度应用阶梯价；关闭时模型展示的是最低档。
 	LongContextPricingEnabled bool
 	Models                    []PlazaModel
+	catalogGroup              *Group
 }
+
+// PricingGroup returns the hydrated group from this catalog read.
+func (g PlazaGroup) PricingGroup() *Group { return g.catalogGroup }
 
 // ModelPlazaService 聚合模型广场数据。
 //
@@ -119,14 +137,18 @@ func plazaGroupVisibility(allowedGroups map[int64]struct{}, restrictPublicGroups
 }
 
 type PlazaCatalogSelection struct {
-	Groups, Channels map[int64]bool
-	Accounts         map[int64]domain.ActionIdentity
+	Groups, Channels  map[int64]bool
+	Accounts          map[int64]domain.ActionIdentity
+	IncludeHistorical bool
+	SelectedKey       bool
 }
 
 type PlazaCatalogBinding struct {
 	AccountModelBinding
-	Identity domain.ActionIdentity
-	Metadata UpstreamModelMetadata
+	Identity       domain.ActionIdentity
+	Metadata       UpstreamModelMetadata
+	DiscoveryState string
+	AccountLabel   string
 }
 
 func (s *ModelPlazaService) ListProjectCatalogGroups(ctx context.Context, allowed map[int64]struct{}, restrict bool, selection PlazaCatalogSelection) ([]PlazaGroup, error) {
@@ -134,39 +156,21 @@ func (s *ModelPlazaService) ListProjectCatalogGroups(ctx context.Context, allowe
 	return s.listGroups(ctx, func(g Group) bool { return selection.Groups[g.ID] && visible(g) }, &selection, true)
 }
 
-func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group) bool, selection *PlazaCatalogSelection, fullCatalog bool) ([]PlazaGroup, error) {
-	var visibility *VisibleModelResolver
+func (s *ModelPlazaService) catalogResolver() *VisibleModelResolver {
 	if s.resolver != nil && s.resolver.channelService != nil {
-		visibility = s.resolver.channelService.visibleModels
+		return s.resolver.channelService.visibleModels
 	}
-	var err error
-	ctx, err = visibility.freeze(ctx)
+	return nil
+}
+
+func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group) bool, selection *PlazaCatalogSelection, fullCatalog bool) ([]PlazaGroup, error) {
+	visibility := s.catalogResolver()
+	ctx, panels, err := acquireCatalogPanels(ctx, visibility, s.channelRepo, s.groupRepo, permitted, selection)
 	if err != nil {
 		return nil, err
 	}
-	channels, err := s.channelRepo.ListAll(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list channels: %w", err)
-	}
-	groups, err := s.groupRepo.ListActive(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list active groups: %w", err)
-	}
-
-	if permitted != nil {
-		filtered := make([]Group, 0, len(groups))
-		for _, group := range groups {
-			if permitted(group) {
-				filtered = append(filtered, group)
-			}
-		}
-		groups = filtered
-	}
-
-	ctx, visible, observations, bindings, err := plazaVisibleModelsForGroups(ctx, visibility, groups, selection)
-	if err != nil {
-		return nil, err
-	}
+	channels, groups := panels.channels, panels.groups
+	visible, observations, bindings := panels.visible, panels.observations, panels.bindings
 
 	sort.SliceStable(channels, func(i, j int) bool {
 		return strings.ToLower(channels[i].Name) < strings.ToLower(channels[j].Name)
@@ -195,16 +199,15 @@ func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group
 			VideoRateMultiplier:       g.VideoRateMultiplier,
 			LongContextPricingEnabled: g.LongContextPricingEnabled,
 		}
+		if fullCatalog {
+			byGroup[g.ID].catalogGroup = g
+		}
 		groupEnt[g.ID] = g
 		order = append(order, g.ID)
 	}
 
-	type modelKey struct {
-		platform string
-		name     string
-	}
 	// modelIdx[groupID][platform+modelName] = index into byGroup[groupID].Models
-	modelIdx := make(map[int64]map[modelKey]int, len(groups))
+	modelIdx := make(map[int64]map[catalog.ModelIdentity]int, len(groups))
 	for i := range channels {
 		ch := &channels[i]
 		if ch.Status != StatusActive || (selection != nil && !selection.Channels[ch.ID]) {
@@ -219,10 +222,17 @@ func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group
 			}
 			idx := modelIdx[gid]
 			if idx == nil {
-				idx = make(map[modelKey]int, 0)
+				idx = make(map[catalog.ModelIdentity]int)
 				modelIdx[gid] = idx
 			}
 			supported := PlazaVisibleModels(ch, gid)
+			var configured map[catalog.ModelIdentity]*ChannelModelPricing
+			if fullCatalog {
+				configured = make(map[catalog.ModelIdentity]*ChannelModelPricing, len(supported))
+				for _, model := range supported {
+					configured[catalog.NewModelIdentity(model.Platform, model.Name)] = model.Pricing
+				}
+			}
 			fillGlobalPricingFallback(s.pricingService, supported)
 			for j := range supported {
 				m := supported[j]
@@ -263,8 +273,22 @@ func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group
 						capabilities = append(capabilities, binding.Metadata)
 					}
 				}
-				key := modelKey{platform: m.Platform, name: m.Name}
+				key := catalog.NewModelIdentity(m.Platform, m.Name)
+				var catalogOffers []PlazaCatalogOffer
+				if fullCatalog {
+					offer := plazaOffer(ch, m, catalogBindings, true)
+					offer.configuredPrice = configured[key]
+					if s.resolver != nil && s.resolver.channelService != nil {
+						mapping := s.resolver.channelService.ResolveChannelMapping(WithResolvedTargetPlatform(ctx, m.Platform), gid, m.Name)
+						if mapping.ChannelID == ch.ID {
+							offer.ChannelMappedModel = mapping.MappedModel
+							offer.BillingModelSource = mapping.BillingModelSource
+						}
+					}
+					catalogOffers = []PlazaCatalogOffer{offer}
+				}
 				if at, seen := idx[key]; seen {
+					pg.Models[at].CatalogOffers = append(pg.Models[at].CatalogOffers, catalogOffers...)
 					// 先见者胜；仅当已存条目无定价而新条目有定价时升级。
 					if pg.Models[at].Pricing == nil && m.Pricing != nil {
 						pg.Models[at].Pricing = m.Pricing
@@ -278,6 +302,7 @@ func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group
 					Pricing:         m.Pricing,
 					Capabilities:    capabilities,
 					CatalogBindings: catalogBindings,
+					CatalogOffers:   catalogOffers,
 				})
 			}
 		}
@@ -306,6 +331,7 @@ func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group
 			if !pg.Models[j].CatalogOnly {
 				s.fillDisplayPricing(ctx, &pg.Models[j], g)
 			}
+			pg.Models[j].EligibilityUnknown = panels.incompleteGroups[gid] && pg.Models[j].CatalogOnly
 		}
 		out = append(out, *pg)
 	}
@@ -325,33 +351,31 @@ func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group
 // plazaVisibleModelsForGroups mirrors visibleModelsForGroups but also keeps the
 // per-model account observations from the same resolution pass. The plaza shows
 // exactly the evidence the gateway list uses and never performs a second read.
-func plazaVisibleModelsForGroups(ctx context.Context, resolver *VisibleModelResolver, groups []Group, selection *PlazaCatalogSelection) (context.Context, map[int64]map[string]bool, map[int64]map[string][]UpstreamModelMetadata, map[int64]map[string][]PlazaCatalogBinding, error) {
-	frozen, err := resolver.freeze(ctx)
-	if err != nil {
-		return ctx, nil, nil, nil, err
-	}
-	visible := make(map[int64]map[string]bool)
-	observations := make(map[int64]map[string][]UpstreamModelMetadata)
-	bindings := make(map[int64]map[string][]PlazaCatalogBinding)
+func plazaVisibleModelsForGroups(ctx context.Context, resolver *VisibleModelResolver, panels *catalogPanels, selection *PlazaCatalogSelection) (context.Context, error) {
 	if resolver == nil {
-		return frozen, visible, observations, bindings, nil
+		return ctx, nil
 	}
-	frozen, err = resolver.preloadCatalogGroups(frozen, groups)
+	frozen, err := resolver.preloadCatalogGroups(ctx, panels.groups)
 	if err != nil {
-		return ctx, nil, nil, nil, err
+		return ctx, err
 	}
-	for _, group := range groups {
+	panels.visible = make(map[int64]map[string]bool)
+	panels.observations = make(map[int64]map[string][]UpstreamModelMetadata)
+	panels.bindings = make(map[int64]map[string][]PlazaCatalogBinding)
+	panels.incompleteGroups = make(map[int64]bool)
+	for _, group := range panels.groups {
 		metadata := make(map[string][]UpstreamModelMetadata)
 		view, err := resolver.resolve(frozen, &group.ID, group.Platform, metadata)
 		if err != nil {
-			return ctx, nil, nil, nil, err
+			return ctx, err
 		}
 		members := make(map[string]bool, len(view.Models))
 		for _, model := range view.Models {
 			members[model] = true
 		}
-		visible[group.ID] = members
-		observations[group.ID] = metadata
+		panels.visible[group.ID] = members
+		panels.observations[group.ID] = metadata
+		panels.incompleteGroups[group.ID] = !view.FullyEnumerable
 		identities := map[int64]domain.ActionIdentity{}
 		if batch, ok := frozen.Value(catalogGroupSnapshotKey{}).(*catalogGroupSnapshot); ok {
 			for _, account := range batch.accounts[group.ID] {
@@ -366,7 +390,7 @@ func plazaVisibleModelsForGroups(ctx context.Context, resolver *VisibleModelReso
 					if reader, ok := resolver.gateway.accountRepo.(ModelCatalogAccountRepository); ok {
 						account, readErr := reader.GetModelCatalogAccount(frozen, binding.AccountID)
 						if readErr != nil {
-							return ctx, nil, nil, nil, readErr
+							return ctx, readErr
 						}
 						if account != nil {
 							identity = domain.ActionIdentity{Platform: account.Platform, HostedAccountType: account.Type}
@@ -386,12 +410,12 @@ func plazaVisibleModelsForGroups(ctx context.Context, resolver *VisibleModelReso
 						continue
 					}
 				}
-				groupBindings[model] = append(groupBindings[model], PlazaCatalogBinding{binding, identity, metadata[model][i]})
+				groupBindings[model] = append(groupBindings[model], PlazaCatalogBinding{AccountModelBinding: binding, Identity: identity, Metadata: metadata[model][i]})
 			}
 		}
-		bindings[group.ID] = groupBindings
+		panels.bindings[group.ID] = groupBindings
 	}
-	return frozen, visible, observations, bindings, nil
+	return frozen, nil
 }
 
 // fillDisplayPricing 把模型的展示定价换成实收口径：
@@ -414,6 +438,35 @@ func (s *ModelPlazaService) fillDisplayPricing(ctx context.Context, m *PlazaMode
 		}
 	}
 	m.Pricing = withDefaultMaxReasoningEffortMultiplier(plazaImageDisplayPricing(m.Pricing, g), m.Name)
+}
+
+// DescribePlazaCatalogPrice adapts the existing resolver to a resolved billing
+// identity while retaining the legacy plaza's display schedule format.
+func (s *ModelPlazaService) DescribePlazaCatalogPrice(ctx context.Context, model PlazaModel, group PlazaGroup, offer PlazaCatalogOffer, billing catalog.ModelIdentity) PlazaModel {
+	g := group.catalogGroup
+	if g == nil {
+		return model
+	}
+	prices := s.pricingService
+	if s.billingService != nil {
+		prices = s.billingService.forGatewayRequest(ctx).pricingService
+	}
+	if prices != nil {
+		base := prices.GetModelPricing(billing.Model)
+		if base != nil && base.LiteLLMProvider != "" &&
+			catalog.NewModelIdentity(base.LiteLLMProvider, billing.Model) != billing &&
+			matchGroupModelPricing(g, billing.Model, billing.Provider) == nil && pricingNeedsFallback(offer.configuredPrice) {
+			model.Pricing, model.TimePricing, model.LongContextBasis = nil, nil, ""
+			return model
+		}
+	}
+	if model.Name == billing.Model && model.Platform == billing.Provider {
+		return model
+	}
+	model.Name, model.Platform, model.Pricing = billing.Model, billing.Provider, offer.configuredPrice
+	model.LongContextBasis, model.TimePricing = "", nil
+	s.fillDisplayPricing(ctx, &model, g)
+	return model
 }
 
 func withDefaultMaxReasoningEffortMultiplier(pricing *ChannelModelPricing, model string) *ChannelModelPricing {

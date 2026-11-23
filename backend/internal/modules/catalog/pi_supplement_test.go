@@ -48,47 +48,35 @@ func TestPiCapabilitySupplementFormat(t *testing.T) {
 }
 
 func TestPiCapabilitySupplementPreservesOmniHiveFacts(t *testing.T) {
-	var supplement struct {
-		Records []builtinModel `json:"records"`
+	const model = "gemini-3-pro-preview"
+	const provider = "gemini"
+	limit := int64(1048576)
+	input := Input{
+		Models: []Candidate{{Provider: provider, Model: model}},
+		Registry: []RegistryModel{{Provider: provider, Model: model, Facts: ModelFacts{
+			Facts:  Facts{Context: &limit, ContextKind: "total", Modalities: []string{"text", "image", "audio", "video", "pdf"}},
+			Origin: Provenance{SourceKind: BuiltinReviewed, Scope: "public"},
+		}}},
 	}
-	require.NoError(t, json.Unmarshal(modelcapabilities.PiSupplementJSON(), &supplement))
-	require.Contains(t, supplement.Records, builtinModel{
-		Provider: "gemini", Model: "gemini-3-pro-preview", DisplayName: "Gemini 3 Pro Preview",
-		Mode: "chat", Context: 1000000, ContextKind: "total", Output: 64000,
-		Methods: []string{"generateContent"}, Inputs: []string{"text", "image"}, Outputs: []string{"text"},
-		Reasoning: new(true), Vision: new(true),
-	})
+	detail := Project(Perspective{}, input, Window{}, time.Now()).Details[0]
+	require.Equal(t, &limit, detail.Model.Context)
+	require.ElementsMatch(t, []string{"text", "image", "audio", "video", "pdf"}, detail.Model.Modalities)
+	require.EqualValues(t, 64000, *detail.CommonFacts.Output)
+	require.Contains(t, detail.Model.Source.Kinds, PiAIReference)
 
-	models := builtinModels()
-	reviewed := models[[2]string{"gemini", "gemini-3-pro-preview"}]
-	require.False(t, reviewed.fromPi)
-	require.Equal(t, int64(1048576), reviewed.Context)
-	require.Equal(t, []string{"text", "image", "audio", "video", "pdf"}, reviewed.Inputs)
-	require.Equal(t, []string{"text"}, reviewed.Outputs)
-	require.Equal(t, []string{"generateContent"}, BuiltinMethods(reviewed.Provider, reviewed.Model))
-
-	custom := models[[2]string{"openai", "agy-cli/gemini-4-carbon"}]
-	require.False(t, custom.fromPi)
-	require.Equal(t, int64(1000000), custom.Context)
-	require.Equal(t, []string{"text", "image", "audio", "video", "pdf"}, custom.Inputs)
-	require.Equal(t, []string{"text"}, custom.Outputs)
-	require.Equal(t, []string{"chat_completions"}, BuiltinMethods(custom.Provider, custom.Model))
-
-	suppressed := models[[2]string{"moonshotai-cn", "kimi-k2.6"}]
-	require.Equal(t, "kimi-k2.6", suppressed.Model)
-	require.False(t, suppressed.fromPi)
-	require.Zero(t, suppressed.Context)
-	require.Zero(t, suppressed.Input)
-	require.Zero(t, suppressed.Output)
+	custom := supplementalFacts(NewModelIdentity("openai", "agy-cli/gemini-4-carbon"))
+	require.NotEmpty(t, custom)
+	require.Equal(t, BuiltinSupplement, custom[0].Facts.Source)
+	require.EqualValues(t, 1000000, *custom[0].Facts.Context)
+	require.Equal(t, []string{"chat_completions"}, SupplementalMethods("openai", "agy-cli/gemini-4-carbon"))
 }
-
 func TestPiCapabilitySupplementProjectsNewModelWithExactProvider(t *testing.T) {
 	const id = "gemini-1.5-flash"
 	const provider = "gemini"
-	require.Equal(t, []string{"generateContent"}, BuiltinMethods(provider, id))
-	require.Empty(t, BuiltinMethods("openai", id))
-	require.Equal(t, []string{"chat_completions"}, BuiltinMethods("openrouter", "openai/gpt-5"))
-	require.Empty(t, BuiltinMethods("openai", "openai/gpt-5"))
+	require.Equal(t, []string{"generateContent"}, SupplementalMethods(provider, id))
+	require.Empty(t, SupplementalMethods("openai", id))
+	require.Equal(t, []string{"chat_completions"}, SupplementalMethods("openrouter", "openai/gpt-5"))
+	require.Empty(t, SupplementalMethods("openai", "openai/gpt-5"))
 
 	input := Input{Models: []Candidate{{Provider: provider, Model: id}}}
 	detail := Project(Perspective{}, input, Window{}, time.Now()).Details[0]
@@ -105,8 +93,12 @@ func TestPiCapabilitySupplementProjectsNewModelWithExactProvider(t *testing.T) {
 	require.EqualValues(t, 1000000, *detail.Model.Context)
 	require.Len(t, detail.Facts, 1)
 	facts := detail.Facts[0]
+	require.Equal(t, PiAIReference, facts.Source)
 	require.Equal(t, "total", facts.ContextKind)
 	require.Equal(t, new(int64(8192)), facts.Output)
 	require.Equal(t, new(false), facts.Reasoning)
 	require.Equal(t, new(true), facts.Vision)
+	*facts.Vision = false
+	again := Project(Perspective{}, input, Window{}, time.Now()).Details[0]
+	require.Equal(t, new(true), again.CommonFacts.Vision)
 }

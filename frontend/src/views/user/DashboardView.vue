@@ -1,20 +1,6 @@
 <template>
   <AppLayout>
     <section class="oh-dashboard w-full min-w-0 space-y-5">
-      <ConsoleScopeBar
-        v-if="scope.scopes.value.length > 0"
-        :workspaces="scope.scopes.value"
-        :projects="scope.availableProjects.value"
-        :workspace-id="scope.activeWorkspaceId.value"
-        :project-id="scope.activeProjectId.value"
-        :loading="scope.loading.value"
-        :refreshing="scope.refreshing.value || refreshingOverview"
-        :last-synced-at="scope.lastSyncedAt.value"
-        active-surface="dashboard"
-        @select-scope="handleScopeSelect"
-        @refresh="refreshAll(true)"
-        @navigate="navigateTo"
-      />
       <header class="flex flex-wrap items-start justify-between gap-4">
         <div class="min-w-0 space-y-1.5">
           <h1 class="text-2xl font-bold tracking-tight sm:text-3xl">{{ activeTabLabel }}</h1>
@@ -31,7 +17,7 @@
           <button type="button" class="btn btn-secondary btn-sm font-mono" @click="triggerCommandPalette">
             {{ isZh ? '⌘K 命令' : '⌘K Command' }}
           </button>
-          <button type="button" class="btn btn-secondary btn-sm" @click="navigateTo('/playground')">Playground</button>
+          <button v-if="canRunPlayground" type="button" class="btn btn-secondary btn-sm" @click="navigateTo('/playground')">{{ isZh ? '模型调试台' : 'Playground' }}</button>
           <button type="button" class="btn btn-secondary btn-sm" @click="navigateTo('/tasks')">{{ isZh ? '任务中心' : 'Tasks' }}</button>
           <button type="button" class="btn btn-secondary btn-sm" aria-controls="getStarted" :aria-expanded="!onboardingHidden" @click="toggleOnboardingVisibility">
             {{ onboardingHidden ? (isZh ? '恢复引导' : 'Show Guide') : (isZh ? '隐藏引导' : 'Hide Guide') }}
@@ -166,12 +152,12 @@
                   {{ isZh ? '尚未产生任何网关调用记录' : 'No Gateway Requests Recorded Yet' }}
                 </p>
                 <p class="mt-0.5 text-xs text-[var(--oh-ink-secondary,var(--muted-foreground))]">
-                  {{ isZh ? '创建 API 密钥或在 Playground 发送首条请求后，此处将实时展示真实花费、成功率与调用轨迹。' : 'Create an API key or run your first prompt in Playground to populate live spend, success rate, and request traces.' }}
+                  {{ isZh ? '创建 API 密钥或在模型调试台发送首条请求后，此处将实时展示真实花费、成功率与调用轨迹。' : 'Create an API key or run your first prompt in Playground to populate live spend, success rate, and request traces.' }}
                 </p>
               </div>
               <div class="flex flex-wrap items-center gap-2">
                 <button v-if="canCreateApiKey" type="button" class="btn btn-secondary btn-sm" @click="navigateTo('/keys')">{{ isZh ? '创建密钥' : 'Create API Key' }}</button>
-                <button v-if="canRunPlayground" type="button" class="btn btn-primary btn-sm" @click="navigateTo('/playground')">Playground →</button>
+                <button v-if="canRunPlayground" type="button" class="btn btn-primary btn-sm" @click="navigateTo('/playground')">{{ isZh ? '模型调试台' : 'Playground' }} →</button>
                 <template v-if="!canCreateApiKey && !canRunPlayground">
                   <button type="button" class="btn btn-secondary btn-sm" @click="navigateTo('/workspaces')">{{ isZh ? '查看工作空间' : 'View Workspaces' }}</button>
                   <button type="button" class="btn btn-primary btn-sm" @click="navigateTo('/model-plaza')">{{ isZh ? '浏览模型广场 →' : 'Browse Model Plaza →' }}</button>
@@ -205,29 +191,32 @@
           </div>
         </div>
         <aside class="min-w-0 space-y-5" :aria-label="isZh ? '工作台信息' : 'Workspace Sidebar'">
-          <section v-show="!onboardingHidden" id="getStarted" class="card p-4" :aria-label="isZh ? '开始使用' : 'Get Started'">
-            <div class="flex items-center justify-between"><h2 class="font-semibold">{{ isZh ? '开始使用' : 'Get Started' }}</h2><button type="button" class="btn btn-ghost btn-sm" @click="toggleOnboardingVisibility">{{ isZh ? '隐藏' : 'Hide' }}</button></div>
-            <p class="mt-1 text-sm opacity-60">{{ isZh ? `${completedStepCount} / 3 已完成` : `${completedStepCount} / 3 Completed` }}</p>
-            <p v-if="onboardingSyncUnavailable" role="status" data-testid="onboarding-sync-unavailable" class="mt-1 text-xs text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
-              {{ isZh ? '引导进度云端同步暂不可用' : 'Onboarding progress sync unavailable' }}
-            </p>
-            <div class="meter mt-2" role="progressbar" :aria-label="isZh ? '上手进度' : 'Onboarding progress'" :aria-valuenow="completedStepCount" :aria-valuemin="0" :aria-valuemax="3"><span :style="{ width: onboardingProgressPct + '%' }" /></div>
-            <div class="oh-onboarding-hero mt-3 rounded-xl p-4">
-              <div class="mb-2 font-mono text-xs opacity-50">ONBOARDING</div>
-              <h3 class="font-semibold">{{ currentStep.title }}</h3><p class="mt-2 text-sm leading-relaxed opacity-70">{{ currentStep.description }}</p>
-              <div class="mt-4 flex flex-wrap gap-2">
-                <button type="button" class="btn btn-primary btn-sm" @click="openStepGuide">{{ isZh ? '› 查看指南' : '› View Guide' }}</button>
-                <button type="button" class="btn btn-secondary btn-sm" @click="toggleStepManualDone(activeStepIndex)">{{ isStepCompleted(activeStepIndex) ? (isZh ? '撤销完成' : 'Undo Complete') : (isZh ? '标记完成' : 'Mark Complete') }}</button>
-              </div>
-            </div>
-            <div class="mt-3 flex items-center justify-between">
-              <button type="button" class="btn btn-ghost btn-sm" :aria-label="isZh ? '上一步' : 'Previous step'" @click="stepOnboarding(-1)">←</button>
-              <div class="flex items-center gap-1">
-                <button v-for="(step, index) in onboardingSteps" :key="step.id" type="button" class="oh-step-dot-button" :aria-label="step.title" :aria-pressed="activeStepIndex === index" @click="activeStepIndex = index"><span class="oh-step-dot" :class="{ active: activeStepIndex === index }" /></button>
-              </div>
-              <button type="button" class="btn btn-ghost btn-sm" :aria-label="isZh ? '下一步' : 'Next step'" @click="stepOnboarding(1)">→</button>
-            </div>
-          </section>
+          <FirstRunChecklist
+            v-show="!onboardingHidden"
+            :completed-step-count="completedStepCount"
+            :onboarding-progress-pct="onboardingProgressPct"
+            :onboarding-sync-unavailable="onboardingSyncUnavailable"
+            :step0-completed="isStepCompleted(0)"
+            :step1-completed="isStepCompleted(1)"
+            :step2-completed="isStepCompleted(2)"
+            :active-api-keys-count="stats?.active_api_keys ?? 0"
+            :total-api-keys-count="stats?.total_api_keys ?? 0"
+            :total-requests-count="stats?.total_requests ?? 0"
+            :user-balance="Number(user?.balance ?? 0)"
+            :available-groups="personalAvailableGroups"
+            :available-groups-loaded="personalGroupsLoaded"
+            :has-active-subscription="hasActivePersonalSubscription"
+            :has-inactive-subscription="hasInactivePersonalSubscription"
+            :subscriptions-loaded="personalSubscriptionsLoaded"
+            :project-probe-state="projectProbeState"
+            :project-actions="projectActions"
+            :probe-request-id="projectProbeRequestId"
+            @hide="toggleOnboardingVisibility"
+            @toggle-step="toggleStepManualDone"
+            @expand-connect="openConnectClientDrawer"
+            @navigate="navigateTo"
+            @retry-probe="loadScopedReliabilitySample"
+          />
           <button type="button" class="card interactive w-full p-4 text-left" @click="navigateTo('/usage')">
             <span class="flex justify-between"><b>{{ isZh ? '日志' : 'Logs' }}</b><span class="opacity-40">›</span></span>
             <span class="mt-1 block text-sm opacity-60">{{ chartError || historyGap ? (isZh ? '当前范围趋势暂不可用' : 'Trend unavailable for current range') : (isZh ? `当前范围 ${trendRequestCount.toLocaleString()} 条调用` : `${trendRequestCount.toLocaleString()} requests in current range`) }}</span>
@@ -289,7 +278,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, getCurrentInstance } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted, watch, getCurrentInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { resolveReportTimeZone, formatReportDateInput, formatDateTimeWithZone } from '@/utils/format'
 import type { OnboardingDTO, UpdateOnboardingPayload } from '@/api/mcp'
@@ -316,9 +305,12 @@ import { FeatureFlags, resolveFeatureFlag } from '@/utils/featureFlags'
 import { formatExactMoney } from '@/utils/money'
 import { classifyConsoleError, type ConsoleAsyncNotice } from '@/features/console/asyncState'
 import ConsoleAsyncBanner from '@/features/console/components/ConsoleAsyncBanner.vue'
-import ConsoleScopeBar from '@/features/console/components/ConsoleScopeBar.vue'
 import { EM_DASH, formatNullablePercent } from '@/features/console/format'
-import { identityApi, useConsoleScope } from '@/features/console/scope'
+import { identityApi, readPersistedConsoleScope } from '@/features/console/scope'
+import FirstRunChecklist, {
+  type PersonalRoutingGroupSummary
+} from '@/features/onboarding/FirstRunChecklist.vue'
+import { useConsoleScopeStore } from '@/stores/consoleScope'
 
 const reportProps = defineProps<{ timeZone?: string }>()
 const reportTimeZone = resolveReportTimeZone(reportProps.timeZone)
@@ -326,25 +318,53 @@ const reportQueryContext = { timezone: reportTimeZone }
 const { t, locale } = useI18n()
 const isZh = computed(() => String(locale?.value || '').startsWith('zh'))
 const instance = getCurrentInstance()
-const scope = useConsoleScope()
 let appStore: ReturnType<typeof useAppStore> | null = null
+let consoleScopeStore: ReturnType<typeof useConsoleScopeStore> | null = null
 try {
   appStore = useAppStore()
+  consoleScopeStore = useConsoleScopeStore()
 } catch {
   appStore = null
+  consoleScopeStore = null
 }
 const paymentFeatureEnabled = computed(() =>
   resolveFeatureFlag(appStore?.cachedPublicSettings, FeatureFlags.payment)
 )
-const projectAccessLoaded = ref(false)
+const projectProbeState = ref<'idle' | 'loading' | 'allowed' | 'denied' | 'unavailable'>('idle')
+const projectProbeRequestId = ref('')
 const projectActions = ref<string[]>([])
+const personalAvailableGroups = ref<PersonalRoutingGroupSummary[]>([])
+const personalGroupsLoaded = ref(false)
+const hasActivePersonalSubscription = ref(false)
+const hasInactivePersonalSubscription = ref(false)
+const personalSubscriptionsLoaded = ref(false)
+
+const currentScopeSelection = computed(() => {
+  if (consoleScopeStore?.activeScope) {
+    return consoleScopeStore.activeScope
+  }
+  return readPersistedConsoleScope()
+})
+
+const isCurrentScopePersonal = computed(
+  () =>
+    currentScopeSelection.value.mode === 'personal' ||
+    !currentScopeSelection.value.workspaceId
+)
+
 const hasProjectAction = (action: string) =>
-  projectActions.value.includes('*') || projectActions.value.includes(action)
-const canCreateApiKey = computed(() => !projectAccessLoaded.value || hasProjectAction('keys.create'))
-const canRunPlayground = computed(() => !projectAccessLoaded.value || hasProjectAction('playground.run'))
+  projectProbeState.value === 'allowed' &&
+  (projectActions.value.includes('*') || projectActions.value.includes(action))
+
+const canCreateApiKey = computed(() =>
+  isCurrentScopePersonal.value ? true : hasProjectAction('keys.create')
+)
+const canRunPlayground = computed(() =>
+  isCurrentScopePersonal.value ? false : hasProjectAction('playground.run')
+)
 const canViewUsage = computed(
   () =>
-    !projectAccessLoaded.value ||
+    isCurrentScopePersonal.value ||
     hasProjectAction('usage.read') ||
     hasProjectAction('requests.read') ||
     hasProjectAction('billing.read')
@@ -379,7 +399,7 @@ const clientConfigs = computed(() => {
   const root = gatewayBase.value
   const base = buildClientBaseUrl(root, 'v1')
   const hint = isZh.value
-    ? '将 YOUR_API_KEY 替换为密钥，将 YOUR_MODEL_ID 替换为可用渠道中的模型 ID。'
+    ? '将 YOUR_API_KEY 替换为密钥，将 YOUR_MODEL_ID 替换为「我的可用模型」中的模型 ID。'
     : 'Replace YOUR_API_KEY with your API key and YOUR_MODEL_ID with an available model ID.'
   const models = { YOUR_MODEL_ID: { name: 'YOUR_MODEL_ID' } }
   const opencode = opencodeVersion.value === '2'
@@ -403,6 +423,7 @@ const copyClientConfig = async () => {
     const { useClipboard } = await import('@/composables/useClipboard')
     const success = await useClipboard().copyToClipboard(code)
     if (revision !== copyRevision || clientId !== activeClient.value || code !== selectedClient.value.code) return
+    if (success && !isStepCompleted(0)) toggleStepManualDone(0)
     copyStatus.value = success ? 'success' : 'error'
   } catch {
     if (revision !== copyRevision || clientId !== activeClient.value || code !== selectedClient.value.code) return
@@ -421,7 +442,7 @@ const onboardingSteps = computed(() => [
   {
     id: 'keys',
     title: isZh.value ? '2. 创建 API 密钥' : '2. Create an API Key',
-    description: isZh.value ? '创建专属 API 密钥并绑定渠道分组，将密钥填入客户端配置。' : 'Create a dedicated API key bound to a routing group and paste it into your client.',
+    description: isZh.value ? '创建专属 API 密钥并绑定路由分组，将密钥填入客户端配置。' : 'Create a dedicated API key bound to a routing group and paste it into your client.',
     route: '/keys'
   },
   {
@@ -431,25 +452,21 @@ const onboardingSteps = computed(() => [
     route: '/usage'
   }
 ])
-const activeStepIndex = ref(0)
 const onboardingHidden = ref(false)
 const manualDoneSteps = ref<Array<boolean | null>>([null, null, null])
 const onboarding = ref<OnboardingDTO | null>(null)
 const onboardingSyncUnavailable = ref(false)
 let onboardingRevision = 0
 let onboardingSave = Promise.resolve()
-const currentStep = computed(() => onboardingSteps.value[activeStepIndex.value] ?? onboardingSteps.value[0]!)
 const isStepCompleted = (index: number): boolean => {
   const manual = manualDoneSteps.value[index]
   if (typeof manual === 'boolean') return manual
   if (onboarding.value?.steps[index]) return true
-  if (index === 0) return (stats.value?.total_requests || 0) > 0
   if (index === 1) return (stats.value?.total_api_keys || 0) > 0
   return index === 2 && ((stats.value?.total_requests || 0) > 0 || recentUsage.value.length > 0)
 }
 const completedStepCount = computed(() => onboardingSteps.value.filter((_, index) => isStepCompleted(index)).length)
 const onboardingProgressPct = computed(() => completedStepCount.value / 3 * 100)
-const stepOnboarding = (delta: number) => { activeStepIndex.value = (activeStepIndex.value + delta + 3) % 3 }
 const persistOnboarding = (payload: UpdateOnboardingPayload) => {
   onboardingRevision++
   const userId = authStore.user?.id
@@ -489,8 +506,45 @@ const triggerCommandPalette = () => {
   if (typeof window === 'undefined') return
   window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, ctrlKey: true, bubbles: true }))
 }
-const openConnectClientDrawer = () => { connectExpanded.value = true }
-const openStepGuide = () => { if (activeStepIndex.value === 0) openConnectClientDrawer(); else navigateTo(currentStep.value.route) }
+const openConnectClientDrawer = async () => {
+  connectExpanded.value = true
+  await nextTick()
+  document.getElementById('client-config-panel')?.scrollIntoView?.({ block: 'nearest' })
+}
+
+const loadPersonalPrerequisites = async () => {
+  const userId = authStore.user?.id
+  if (!userId) return
+  try {
+    const { userGroupsAPI } = await import('@/api')
+    if (typeof userGroupsAPI?.getAvailable === 'function') {
+      try {
+        const groups = await userGroupsAPI.getAvailable()
+        if (Array.isArray(groups)) {
+          personalAvailableGroups.value = groups
+          personalGroupsLoaded.value = true
+        }
+      } catch {
+        personalGroupsLoaded.value = false
+      }
+    }
+    const subscriptionsMod = await import('@/api/subscriptions')
+    if (typeof subscriptionsMod?.getMySubscriptions === 'function') {
+      try {
+        const subs = await subscriptionsMod.getMySubscriptions()
+        if (Array.isArray(subs)) {
+          hasActivePersonalSubscription.value = subs.some((s) => s.status === 'active')
+          hasInactivePersonalSubscription.value = subs.some((s) => s.status !== 'active')
+          personalSubscriptionsLoaded.value = true
+        }
+      } catch {
+        personalSubscriptionsLoaded.value = false
+      }
+    }
+  } catch {
+    // Ignore optional personal prerequisites load failure
+  }
+}
 const auditPreview = ref<Array<{ id: string; title: string; description: string; createdAt?: string }>>([])
 const auditLoading = ref(false)
 const auditError = ref(false)
@@ -653,61 +707,81 @@ const loadRecent = async () => {
   }
 }
 const loadPlatformQuotas = async () => { try { const data = await getMyPlatformQuotas(); platformQuotas.value = data.platform_quotas ?? [] } catch (error) { console.warn('Failed to load platform quotas:', error); platformQuotas.value = [] } }
+let scopeRequestSequence = 0
 const loadScopedReliabilitySample = async () => {
-  const userId = authStore.user?.id
-  if (!userId) return
+  const sequence = ++scopeRequestSequence
+  scopedSampleCount.value = 0
+  scopedSucceededCount.value = 0
+  scopedFailureOrUnknownCount.value = 0
+  projectProbeRequestId.value = ''
+  projectActions.value = []
+  const { mode, workspaceId: wsId, projectId: projId } = currentScopeSelection.value
+  if (!authStore.user?.id || mode === 'personal' || !wsId || !projId) {
+    projectProbeState.value = 'idle'
+    return
+  }
+  projectProbeState.value = 'loading'
   try {
-    await scope.refreshScopes(false)
-    const wsId = scope.activeWorkspaceId.value
-    const projId = scope.activeProjectId.value
-    if (!wsId || !projId) return
     if (typeof identityApi.getProjectAccess === 'function') {
       try {
         const access = await identityApi.getProjectAccess(wsId, projId)
+        if (sequence !== scopeRequestSequence) return
         if (Array.isArray(access?.actions)) {
           projectActions.value = access.actions
-          projectAccessLoaded.value = true
+          projectProbeState.value = 'allowed'
+        } else {
+          projectActions.value = []
+          projectProbeState.value = 'unavailable'
         }
       } catch (err) {
+        if (sequence !== scopeRequestSequence) return
         const status = (err as { status?: number; response?: { status?: number } })?.status ??
           (err as { response?: { status?: number } })?.response?.status
+        const reqId =
+          (err as { metadata?: { request_id?: string }; response?: { data?: { metadata?: { request_id?: string } } } })
+            ?.metadata?.request_id ??
+          (err as { response?: { data?: { metadata?: { request_id?: string } } } })
+            ?.response?.data?.metadata?.request_id ??
+          ''
+        projectProbeRequestId.value = reqId
         if (status === 403) {
           projectActions.value = []
-          projectAccessLoaded.value = true
+          projectProbeState.value = 'denied'
+        } else {
+          projectActions.value = []
+          projectProbeState.value = 'unavailable'
         }
       }
     }
-    if (projectAccessLoaded.value && !hasProjectAction('requests.read')) {
-      scopedSampleCount.value = 0
-      scopedSucceededCount.value = 0
-      scopedFailureOrUnknownCount.value = 0
-      return
-    }
+    if (!hasProjectAction('requests.read')) return
     const { apiClient } = await import('@/api/client')
     const { data } = await apiClient.get<{ items?: Array<{ outcome?: string }> }>(
       buildGatewayUrl(`/api/v2/workspaces/${wsId}/projects/${projId}/requests`),
       { baseURL: '', params: { limit: 50 }, signal: auditController.signal }
     )
+    if (sequence !== scopeRequestSequence) return
     const rows = Array.isArray(data?.items) ? data.items : []
     const terminal = rows.filter((r) => r.outcome && r.outcome !== 'admitted' && r.outcome !== 'running')
     scopedSampleCount.value = terminal.length
     scopedSucceededCount.value = terminal.filter((r) => r.outcome === 'succeeded').length
     scopedFailureOrUnknownCount.value = terminal.filter((r) => r.outcome !== 'succeeded').length
   } catch {
+    if (sequence !== scopeRequestSequence) return
     scopedSampleCount.value = 0
     scopedSucceededCount.value = 0
     scopedFailureOrUnknownCount.value = 0
   }
 }
-const handleScopeSelect = (payload: { workspaceId: string; projectId: string | null }) => {
-  scope.selectWorkspaceProject(payload.workspaceId, payload.projectId)
-  void loadScopedReliabilitySample()
-}
+watch(
+  [() => currentScopeSelection.value.workspaceId, () => currentScopeSelection.value.projectId],
+  () => { void loadScopedReliabilitySample() }
+)
 const refreshAll = (isBackgroundRefresh = false) => {
   void loadStats(isBackgroundRefresh)
   void loadCharts()
   void loadRecent()
   void loadPlatformQuotas()
+  void loadPersonalPrerequisites()
   void loadScopedReliabilitySample()
 }
 onMounted(() => {
@@ -720,7 +794,7 @@ onMounted(() => {
   void loadPersonalSecurity()
   void loadOnboarding()
 })
-onUnmounted(() => { auditController.abort(); statsRequestSequence++; chartRequestSequence++; recentRequestSequence++; copyRevision++; clearTimeout(copyTimer) })
+onUnmounted(() => { auditController.abort(); scopeRequestSequence++; statsRequestSequence++; chartRequestSequence++; recentRequestSequence++; copyRevision++; clearTimeout(copyTimer) })
 </script>
 
 <style scoped>

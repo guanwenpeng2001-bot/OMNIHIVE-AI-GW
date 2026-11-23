@@ -1255,9 +1255,13 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 // 驱动 DeepSeek pro→Flash 切换判定（切换点前 Pro 价、之后 Flash 价），使
 // 展示/估算路径可与历史补账同刻复算，测试也能用固定时点钉住断言。
 func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*ModelPricing, error) {
+	return s.getProviderModelPricingAt("", model, pricingAt)
+}
+
+func (s *BillingService) getProviderModelPricingAt(provider, model string, pricingAt time.Time) (*ModelPricing, error) {
 	// 标准化模型名称（转小写）
 	model = strings.ToLower(model)
-	if s.pricingService != nil {
+	if provider == "" && s.pricingService != nil {
 		variants := s.pricingService.modelPriceVariants(model, "")
 		if len(variants) > 0 {
 			descriptor := &ModelPricingDescriptor{Model: model, Source: PricingSourceLiteLLM, PricingAt: pricingAt, Variants: variants}
@@ -1273,14 +1277,30 @@ func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*
 
 	// 1. 优先从动态价格服务获取
 	if s.pricingService != nil {
-		litellmPricing := s.pricingService.GetModelPricing(model)
-		if IsGPTImageGenerationModel(model) {
-			// GPT Image billing requires this exact model's tariff, not family fallback.
-			s.pricingService.mu.RLock()
-			litellmPricing = s.pricingService.pricingData[model]
-			s.pricingService.mu.RUnlock()
+		var litellmPricing *LiteLLMModelPricing
+		legacyGPTImage := false
+		if provider != "" {
+			var err error
+			litellmPricing, err = s.pricingService.providerModelPricing(provider, model, IsGPTImageGenerationModel(model))
+			if err != nil {
+				return nil, err
+			}
+		}
+		if litellmPricing == nil {
+			if IsGPTImageGenerationModel(model) {
+				// The legacy GPT Image token lane used the exact global entry.
+				s.pricingService.mu.RLock()
+				litellmPricing = s.pricingService.pricingData[model]
+				s.pricingService.mu.RUnlock()
+				legacyGPTImage = true
+			} else if provider == "" {
+				litellmPricing = s.pricingService.GetModelPricing(model)
+			}
 		}
 		if litellmPricing != nil && len(litellmPricing.PriceVariants) > 0 {
+			return nil, ErrModelPricingUnavailable
+		}
+		if provider != "" && litellmPricing != nil && litellmPricing.tariffDeleted {
 			return nil, ErrModelPricingUnavailable
 		}
 		// 仅有按张图片价、无任何 token 价的条目（如 LiteLLM 的 imagen 类模型）不能用于
@@ -1326,6 +1346,11 @@ func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*
 				ImageOutputPricePerToken:      litellmPricing.OutputCostPerImageToken,
 			}
 			pricing.preserveTokenPricePresence()
+			if legacyGPTImage {
+				pricing.Source = legacyGPTImageSource
+			} else if litellmPricing.staticTariff {
+				pricing.Source = PricingSourceStaticFallback
+			}
 			return s.applyModelSpecificPricingPolicyEx(model, pricing, true, pricingAt), nil
 		}
 	}
@@ -1334,7 +1359,12 @@ func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*
 		return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
 	}
 	// 2. 使用硬编码回退价格
-	fallback := s.getFallbackPricing(model)
+	var fallback *ModelPricing
+	if provider == "" {
+		fallback = s.getFallbackPricing(model)
+	} else {
+		fallback = scopedFallback(s, provider, model)
+	}
 	if fallback != nil {
 		// 按模型名去重:每个模型每进程最多打一条 warn,避免热路径每请求刷屏（issue #3394）。
 		// model 在函数入口已 ToLower,故 GLM-5.2 / glm-5.2 视为同一条目。
@@ -1343,6 +1373,9 @@ func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*
 		}
 		cloned := *fallback
 		cloned.Source = PricingSourceFallback
+		if provider != "" {
+			cloned.Source = PricingSourceStaticFallback
+		}
 		if cloned.TokenPricePresence == nil {
 			// Built-in cards explicitly declare text tariffs, including free text.
 			cloned.TokenPricePresence = map[string]bool{"input": true, "output": true}
@@ -1481,6 +1514,8 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (cost *CostBreakd
 	if !input.displayProbe && (input.Mode == "" || input.Mode == BillingModeToken) {
 		if lane := selectedRequestLanePricing(input.Ctx); lane != nil {
 			input.Model, input.Resolved, input.Resolver = lane.model, lane.resolved, lane.resolver
+			input.Provider = lane.provider
+			input.RateMultiplier, input.LongContextBillingEnabled = lane.multiplier, lane.longContext
 		}
 	}
 	if input.Ctx != nil {
@@ -1496,13 +1531,24 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (cost *CostBreakd
 			input.Model, input.Resolved, input.Resolver = pinned.model, pinned.resolved, pinned.resolver
 		}
 	}
+	if pin := playgroundPriceFromContext(input.Ctx); pin != nil && (input.Mode == "" || input.Mode == BillingModeToken) && !input.displayProbe {
+		input.Model, input.Provider, input.Resolved, input.Resolver = pin.input.Model, pin.input.Provider, pin.input.Resolved, pin.input.Resolver
+		input.PricingAt, input.RateMultiplier = pin.input.PricingAt, pin.input.RateMultiplier
+		input.LongContextBillingEnabled = pin.input.LongContextBillingEnabled
+	}
+	if input.Provider == "" {
+		input.Provider = pricingPlatform(input.Ctx, PricingInput{Group: input.Group})
+	}
+	if input.PricingAt.IsZero() {
+		input.PricingAt = pinnedPricingInstant(input.Ctx)
+	}
 	if err := validateCostInput(input); err != nil {
 		return nil, err
 	}
 	if err := validateOpenAIGPT62BillingTier(input.Model, input.ServiceTier, input.Provider); err != nil {
 		return nil, err
 	}
-	if input.Resolver == nil && input.Mode != "" {
+	if input.Resolver == nil && (input.Mode != "" || input.Provider != "") {
 		input.Resolver = NewModelPricingResolver(nil, s)
 	}
 
@@ -1531,10 +1577,12 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (cost *CostBreakd
 	resolved := input.Resolved
 	if resolved == nil {
 		resolved = input.Resolver.Resolve(input.Ctx, PricingInput{
-			Mode:    input.Mode,
-			Model:   input.Model,
-			GroupID: input.GroupID,
-			Group:   input.Group,
+			Mode:     input.Mode,
+			Model:    input.Model,
+			GroupID:  input.GroupID,
+			Group:    input.Group,
+			Provider: input.Provider,
+			At:       input.PricingAt,
 		})
 	}
 	if resolved.pricingErr != nil {
@@ -1564,7 +1612,7 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (cost *CostBreakd
 	}
 	if err == nil && breakdown != nil {
 		if !input.displayProbe {
-			breakdown.PriceSource, breakdown.PriceCardVersion = pricingAuditIdentity(resolved)
+			breakdown.PriceSource, breakdown.PriceCardVersion = pricingEvaluationIdentity(resolved, input)
 		}
 		breakdown.BillingMode = string(resolved.Mode)
 		if breakdown.BillingMode == "" {
@@ -1595,6 +1643,9 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 		return nil, fmt.Errorf("no pricing available for model: %s: %w", input.Model, ErrModelPricingUnavailable)
 	}
 	if err := validateTokenDimensions(pricing, input.Tokens, input.ServiceTier); err != nil {
+		if resolved.baseErr != nil {
+			return nil, resolved.baseErr
+		}
 		return nil, err
 	}
 
@@ -1608,14 +1659,14 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 	// 默认价卡（Source=LiteLLM）应用 DeepSeek 官方价强制覆盖（幂等，GetModelPricing
 	// 内部已强制过）；分组/渠道自定义定价保留运营者配置，不强制覆盖官方价。
 	if resolved.descriptor == nil {
-		pricing = s.applyModelSpecificPricingPolicyEx(input.Model, pricing, resolved.Source == PricingSourceLiteLLM, pricingAt)
+		pricing = s.applyModelSpecificPricingPolicyEx(input.Model, pricing, resolved.Source == PricingSourceLiteLLM || resolved.Source == PricingSourceStaticFallback, pricingAt)
 	}
 
 	// DeepSeek 模型默认价卡按官方峰谷口径调整：高峰时段（01:00–04:00 与
 	// 06:00–10:00 UTC，仅工作日；北京时间周末全天低谷）按 2× 低谷价计费。
 	// 仅作用于默认价卡（Source=LiteLLM，无分组/渠道自定义定价）——分组/渠道
 	// 自定义定价保持运营者语义，不叠加。先克隆再乘，避免污染共享 fallbackPrices 指针。
-	if resolved.descriptor == nil && resolved.Source == PricingSourceLiteLLM && isDeepSeekModel(input.Model) {
+	if resolved.descriptor == nil && (resolved.Source == PricingSourceLiteLLM || resolved.Source == PricingSourceStaticFallback) && isDeepSeekModel(input.Model) {
 		if mult := deepseekPeakMultiplierAt(pricingAt); mult > 1 {
 			cloned := *pricing
 			cloned.InputPricePerToken *= mult
@@ -1633,7 +1684,7 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 	applyCostBreakdownMultiplier(breakdown, maxReasoningEffortBillingMultiplier(input.Model, input.ReasoningEffort, pricing))
 	var source, version string
 	if !input.displayProbe {
-		source, version = pricingAuditIdentity(resolved)
+		source, version = pricingEvaluationIdentity(resolved, input)
 	}
 	provider := input.Provider
 	if provider == "" && input.Group != nil {
@@ -1833,7 +1884,7 @@ func (s *BillingService) calculatePerRequestCost(resolved *ResolvedPricing, inpu
 	}
 	totalCost := unitPrice * units
 	breakdown := &CostBreakdown{TotalCost: totalCost, ActualCost: totalCost * input.RateMultiplier}
-	source, version := pricingAuditIdentity(resolved)
+	source, version := pricingEvaluationIdentity(resolved, input)
 	err := freezePricing(breakdown, PricingSnapshot{Model: input.Model, Provider: input.Provider, PricingAt: input.PricingAt, Mode: string(resolved.Mode), Source: source, PriceCardVersion: version, UnitPrice: &unitPrice, Units: units, SizeTier: input.SizeTier, ServiceTier: input.ServiceTier, RateMultiplier: input.RateMultiplier, TimeMultiplier: 1, ReasoningMultiplier: 1})
 	return breakdown, err
 }
@@ -2303,37 +2354,29 @@ func (s *BillingService) getVideoUnitPrice(model string, resolution string, grou
 
 // getDefaultImagePrice 获取 LiteLLM 默认图片价格
 func (s *BillingService) getDefaultImagePrice(model string, imageSize string) float64 {
+	rate, _ := s.legacyDefaultImageRate(model, imageSize)
+	return rate
+}
+
+// legacyDefaultImageRate reproduces the v0.3.3 sale fallback from the local
+// billing catalog and built-in rates.
+func (s *BillingService) legacyDefaultImageRate(model string, imageSize string) (float64, string) {
 	if price, ok := getDefaultGrokImagineImagePrice(model, imageSize); ok {
-		return price
-	}
-
-	basePrice := 0.0
-
-	// 从 PricingService 获取 output_cost_per_image
-	if s.pricingService != nil {
-		pricing := s.pricingService.GetModelPricing(model)
-		if pricing != nil && pricing.OutputCostPerImage > 0 {
-			basePrice = pricing.OutputCostPerImage
-		}
+		return price, legacyGrokMediaSource
 	}
 
 	if IsGPTImageGenerationModel(model) {
-		return math.NaN()
-	}
-	// 如果没有找到价格，使用硬编码默认值（$0.134，来自 gemini-3-pro-image-preview）
-	if basePrice <= 0 {
-		basePrice = defaultImageGenerationPrice
+		return math.NaN(), ""
 	}
 
-	// 2K 尺寸 1.5 倍，4K 尺寸翻倍
-	if imageSize == "2K" {
-		return basePrice * 1.5
-	}
-	if imageSize == "4K" {
-		return basePrice * 2
+	if s.pricingService != nil {
+		pricing := s.pricingService.GetModelPricing(model)
+		if pricing != nil && pricing.OutputCostPerImage > 0 {
+			return scaleImageRate(pricing.OutputCostPerImage, imageSize), legacyImageCatalogSource
+		}
 	}
 
-	return basePrice
+	return scaleImageRate(defaultImageGenerationPrice, imageSize), legacyImageDefaultSource
 }
 
 func (s *BillingService) getDefaultVideoPrice(model string, resolution string) float64 {

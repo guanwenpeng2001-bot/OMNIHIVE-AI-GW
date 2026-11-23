@@ -51,6 +51,8 @@ var (
 	ErrCaptchaProviderConflict = infraerrors.ServiceUnavailable("CAPTCHA_PROVIDER_CONFLICT", "multiple captcha providers are enabled")
 )
 
+var ErrRegistrationDefaultsUnavailable = infraerrors.ServiceUnavailable("REGISTRATION_DEFAULTS_UNAVAILABLE", "registration defaults are temporarily unavailable")
+
 // maxTokenLength 限制 token 大小，避免超长 header 触发解析时的异常内存分配。
 const maxTokenLength = 8192
 
@@ -227,7 +229,10 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 		return "", nil, fmt.Errorf("hash password: %w", err)
 	}
 
-	grantPlan := s.resolveSignupGrantPlan(ctx, "email")
+	grantPlan, err := s.resolveSignupGrantPlan(ctx, "email")
+	if err != nil {
+		return "", nil, err
+	}
 
 	// 新用户默认 RPM（0 = 不限制）。注册时写入，后续作为用户级兜底。
 	var defaultRPMLimit int
@@ -607,7 +612,10 @@ func (s *AuthService) LoginOrRegisterOAuth(ctx context.Context, email, username 
 			}
 
 			signupSource := inferLegacySignupSource(email)
-			grantPlan := s.resolveSignupGrantPlan(ctx, signupSource)
+			grantPlan, err := s.resolveSignupGrantPlan(ctx, signupSource)
+			if err != nil {
+				return "", nil, err
+			}
 			var defaultRPMLimit int
 			if s.settingService != nil {
 				defaultRPMLimit = s.settingService.GetDefaultUserRPMLimit(ctx)
@@ -760,7 +768,10 @@ func (s *AuthService) loginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 			if strings.TrimSpace(signupSource) == "" {
 				signupSource = inferLegacySignupSource(email)
 			}
-			grantPlan := s.resolveSignupGrantPlan(ctx, signupSource)
+			grantPlan, err := s.resolveSignupGrantPlan(ctx, signupSource)
+			if err != nil {
+				return nil, nil, err
+			}
 			var defaultRPMLimit int
 			if s.settingService != nil {
 				defaultRPMLimit = s.settingService.GetDefaultUserRPMLimit(ctx)
@@ -912,43 +923,35 @@ func (s *AuthService) assignSubscriptions(ctx context.Context, userID int64, ite
 	}
 }
 
-func (s *AuthService) resolveSignupGrantPlan(ctx context.Context, signupSource string) signupGrantPlan {
+func (s *AuthService) resolveSignupGrantPlan(ctx context.Context, signupSource string) (signupGrantPlan, error) {
 	plan := signupGrantPlan{}
 	if s != nil && s.cfg != nil {
 		plan.Balance = s.cfg.Default.UserBalance
 		plan.Concurrency = s.cfg.Default.UserConcurrency
 	}
 	if s == nil || s.settingService == nil {
-		return plan
+		return plan, nil
 	}
 
-	plan.Balance = s.settingService.GetDefaultBalance(ctx)
-	plan.Concurrency = s.settingService.GetDefaultConcurrency(ctx)
-	plan.Subscriptions = s.settingService.GetDefaultSubscriptions(ctx)
+	resolved, enabled, err := s.settingService.ResolveAuthSourceGrantSettings(ctx, signupSource, false)
+	if err != nil {
+		return signupGrantPlan{}, ErrRegistrationDefaultsUnavailable.WithCause(err)
+	}
+	plan.Balance = resolved.Balance
+	plan.Concurrency = resolved.Concurrency
+	plan.Subscriptions = resolved.Subscriptions
 
-	// ============ 全局 quota 装载（必须在 ResolveAuthSourceGrantSettings 之前） ============
-	// 无论 auth source 是否 enabled，全局层都要先装载，确保 !enabled 早退路径也携带全局 quota。
+	// Load global quotas for every signup source.
 	if quotas, err := s.settingService.GetDefaultPlatformQuotas(ctx); err == nil {
 		plan.PlatformQuotas = quotas
 	} else {
 		logger.LegacyPrintf("service.auth", "[Auth] Warning: load default platform quotas failed: %v (fail-open)", err)
 	}
-	// ============================================================================================
 
-	resolved, enabled, err := s.settingService.ResolveAuthSourceGrantSettings(ctx, signupSource, false)
-	if err != nil {
-		logger.LegacyPrintf("service.auth", "[Auth] Failed to load auth source signup defaults for %s: %v", signupSource, err)
-		return plan
-	}
 	if !enabled {
-		return plan // plan.PlatformQuotas 已含全局层
+		return plan, nil
 	}
 
-	plan.Balance = resolved.Balance
-	plan.Concurrency = resolved.Concurrency
-	plan.Subscriptions = resolved.Subscriptions
-
-	// ============ auth source quota merge（仅在 enabled 分支内） ============
 	asQuotas := s.settingService.GetAuthSourcePlatformQuotas(ctx, signupSource)
 	if plan.PlatformQuotas != nil {
 		for platform, patch := range asQuotas {
@@ -957,9 +960,8 @@ func (s *AuthService) resolveSignupGrantPlan(ctx context.Context, signupSource s
 			}
 		}
 	}
-	// ==============================================================================
 
-	return plan
+	return plan, nil
 }
 
 func authSourceSignupSettings(defaults *AuthSourceDefaultSettings, signupSource string) (ProviderDefaultGrantSettings, bool) {

@@ -453,3 +453,56 @@ it('opens the mapping editor and focuses the rejected row on section save', asyn
   expect(update).not.toHaveBeenCalled()
   host.unmount()
 })
+
+it('syncs dirty status against persistedSelection and registers saveSelection actions without preserve flag', async () => {
+  let registered: { saveSelection: () => Promise<boolean>; canSaveSelection: () => boolean } | null = null
+  read.mockResolvedValue(saved({ 'Exact.Case/ID': 'Exact.Case/ID', 'Added/ID': 'Added/ID' }))
+  const wrapper = mountSelector({
+    persistedSelection: { models: ['Exact.Case/ID'], mappings: [] },
+    registerActions: (actions: typeof registered) => { registered = actions }
+  })
+  await flushPromises()
+  expect(wrapper.get('[data-testid="model-save-status"]').text()).toBe('admin.accounts.modelSync.unchangedSelection')
+  expect(registered?.canSaveSelection()).toBe(true)
+
+  await wrapper.setProps({ modelValue: ['Exact.Case/ID', 'Added/ID'] })
+  await flushPromises()
+  expect(wrapper.get('[data-testid="model-save-status"]').text()).toBe('admin.accounts.modelSync.unsavedSelection')
+
+  const result = await registered!.saveSelection()
+  await flushPromises()
+  expect(result).toBe(true)
+  expect(update).toHaveBeenCalledWith(12, expect.objectContaining({
+    expected_rules_revision: '9007199254740993',
+    model_mapping: { 'Exact.Case/ID': 'Exact.Case/ID', 'Added/ID': 'Added/ID' }
+  }))
+  expect(update.mock.calls[0]?.[1]).not.toHaveProperty('preserve_model_selection')
+
+  await wrapper.setProps({
+    modelValue: ['Concurrent/ID'],
+    persistedSelection: { models: ['Concurrent/ID'], mappings: [] }
+  })
+  await flushPromises()
+  expect(wrapper.get('[data-testid="model-save-status"]').text()).toBe('admin.accounts.modelSync.savedSelection')
+
+  wrapper.unmount()
+  expect(registered).toBeNull()
+})
+
+it('returns false from registered saveSelection on CAS conflict while keeping draft intact', async () => {
+  let registered: { saveSelection: () => Promise<boolean>; canSaveSelection: () => boolean } | null = null
+  update.mockRejectedValueOnce({ response: { status: 409, data: { reason: 'CONFLICT' } } })
+  const wrapper = mountSelector({
+    modelValue: ['Exact.Case/ID', 'Draft/ID'],
+    persistedSelection: { models: ['Exact.Case/ID'], mappings: [] },
+    registerActions: (actions: typeof registered) => { registered = actions }
+  })
+  await flushPromises()
+
+  const result = await registered!.saveSelection()
+  await flushPromises()
+  expect(result).toBe(false)
+  expect(wrapper.get('[data-testid="model-save-status"]').text()).toBe('admin.accounts.modelSync.selectionSaveFailed')
+  expect(wrapper.get('[data-testid="selected-models"]').text()).toContain('Draft/ID')
+  wrapper.unmount()
+})

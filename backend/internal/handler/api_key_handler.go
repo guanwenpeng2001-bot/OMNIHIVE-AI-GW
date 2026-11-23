@@ -163,7 +163,7 @@ func (h *APIKeyHandler) List(c *gin.Context) {
 		}
 	}
 
-	keys, result, err := h.apiKeyService.List(c.Request.Context(), subject.UserID, params, filters)
+	keys, result, err := h.apiKeyService.List(service.WithLegacyKeyManagement(c.Request.Context()), subject.UserID, params, filters)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -216,7 +216,7 @@ func (h *APIKeyHandler) GetByID(c *gin.Context) {
 		return
 	}
 
-	key, err := h.apiKeyService.GetByID(c.Request.Context(), keyID)
+	key, err := h.apiKeyService.GetByID(service.WithLegacyKeyManagement(c.Request.Context()), keyID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -369,7 +369,7 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 		}
 	}
 
-	key, err := h.apiKeyService.Update(c.Request.Context(), keyID, subject.UserID, svcReq)
+	key, err := h.apiKeyService.Update(service.WithLegacyKeyManagement(c.Request.Context()), keyID, subject.UserID, svcReq)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -393,7 +393,7 @@ func (h *APIKeyHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	err = h.apiKeyService.Delete(c.Request.Context(), keyID, subject.UserID)
+	err = h.apiKeyService.Delete(service.WithLegacyKeyManagement(c.Request.Context()), keyID, subject.UserID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -477,7 +477,8 @@ func (h *APIKeyHandler) RotateCredential(c *gin.Context) {
 		return
 	}
 
-	key, err := h.apiKeyService.GetByID(c.Request.Context(), keyID)
+	ctx := service.WithLegacyKeyManagement(c.Request.Context())
+	key, err := h.apiKeyService.GetByID(ctx, keyID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -493,7 +494,7 @@ func (h *APIKeyHandler) RotateCredential(c *gin.Context) {
 	}
 	revokePrevious := req.RevokePrevious != nil && *req.RevokePrevious
 
-	issue, err := h.apiKeyService.RotateAPIKey(c.Request.Context(), keyID, graceTTL, revokePrevious, service.ConfigurationActor(c.Request.Context()))
+	issue, err := h.apiKeyService.RotateAPIKey(ctx, keyID, graceTTL, revokePrevious, service.ConfigurationActor(ctx))
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -520,7 +521,8 @@ func (h *APIKeyHandler) RevokeCredential(c *gin.Context) {
 		return
 	}
 
-	key, err := h.apiKeyService.GetByID(c.Request.Context(), keyID)
+	ctx := service.WithLegacyKeyManagement(c.Request.Context())
+	key, err := h.apiKeyService.GetByID(ctx, keyID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -530,7 +532,7 @@ func (h *APIKeyHandler) RevokeCredential(c *gin.Context) {
 		return
 	}
 
-	revoked, err := h.apiKeyService.RevokeAPIKeyCredentials(c.Request.Context(), keyID, service.ConfigurationActor(c.Request.Context()))
+	revoked, err := h.apiKeyService.RevokeAPIKeyCredentials(ctx, keyID, service.ConfigurationActor(ctx))
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

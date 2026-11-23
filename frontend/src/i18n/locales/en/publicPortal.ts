@@ -1,4 +1,7 @@
+import { catalogLocaleMessages } from '@/features/catalog/copy'
+
 export default {
+  catalog: catalogLocaleMessages(false),
   publicPortal: {
     support: {
       footerLink: 'Support',

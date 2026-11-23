@@ -4,6 +4,130 @@ info:
   title: OmniHive API
   version: 2.0.0
 paths:
+  /api/v1/admin/accounts/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+    put:
+      operationId: updateAdminAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminAccountUpdate'
+      responses:
+        '200':
+          description: Updated account
+        '400':
+          description: Invalid update, including conflicting model selection intent
+  /api/v1/admin/backups/schedule:
+    get:
+      operationId: getAdminBackupSchedule
+      responses:
+        '200':
+          $ref: '#/components/responses/AdminBackupScheduleResponse'
+    put:
+      operationId: updateAdminBackupSchedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminBackupSchedule'
+      responses:
+        '200':
+          $ref: '#/components/responses/AdminBackupScheduleResponse'
+  /api/v1/admin/config/effective:
+    get:
+      operationId: getEffectiveConfiguration
+      summary: Read redacted effective settings and their authority source
+      parameters:
+        - {$ref: '#/components/parameters/ConfigurationGroup'}
+        - {$ref: '#/components/parameters/ConfigurationQuery'}
+        - {$ref: '#/components/parameters/ConfigurationCursor'}
+        - {$ref: '#/components/parameters/ConfigurationLimit'}
+        - {$ref: '#/components/parameters/ConfigurationSource'}
+        - {$ref: '#/components/parameters/ConfigurationState'}
+      responses:
+        '200':
+          description: Deterministically key-sorted effective configuration page
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data: {$ref: '#/components/schemas/EffectiveConfiguration'}
+        '400': {$ref: '#/components/responses/ConfigurationError'}
+        '401': {$ref: '#/components/responses/ConfigurationError'}
+        '403': {$ref: '#/components/responses/ConfigurationError'}
+  /api/v1/admin/config/reset:
+    post:
+      operationId: resetConfigurationOverrides
+      summary: Delete resettable database overrides and resolve deployment baselines
+      description: Requires an administrator session. Provider and object overrides reset atomically as one group. No secret or baseline value is returned for sensitive keys.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConfigurationResetRequest'}
+      responses:
+        '200':
+          description: Shared admin settings projection and reset effective entries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data: {$ref: '#/components/schemas/ConfigurationResetResult'}
+        '400': {$ref: '#/components/responses/ConfigurationError'}
+        '401': {$ref: '#/components/responses/ConfigurationError'}
+        '403': {$ref: '#/components/responses/ConfigurationError'}
+        '503': {$ref: '#/components/responses/ConfigurationError'}
+  /api/v1/admin/system/check-updates:
+    get:
+      operationId: checkAdminSystemUpdates
+      parameters:
+        - name: force
+          in: query
+          schema: {type: boolean, default: false}
+      responses:
+        '200':
+          description: Release check, including an unavailable result if GitHub cannot be reached
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data:
+                    $ref: '#/components/schemas/AdminUpdateInfo'
+  /api/v1/admin/system/rollback-versions:
+    get:
+      operationId: listAdminRollbackVersions
+      responses:
+        '200':
+          description: Rollback eligibility, with local backup candidates when GitHub is unavailable
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data:
+                    $ref: '#/components/schemas/AdminRollbackEligibility'
   /api/v1/admin/workbuddy/oauth/poll:
     post:
       operationId: workBuddyAdminOAuthPoll
@@ -206,6 +330,155 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/IdentityError'
+  /api/v2/admin/catalog/models:
+    get:
+      operationId: listAdminCatalogModels
+      summary: Inspect the model catalog for a workspace.
+      description: Requires platform-admin access and administrator compliance acknowledgement. All filters are combined.
+      parameters:
+        - $ref: '#/components/parameters/AdminCatalogWorkspace'
+        - $ref: '#/components/parameters/AdminCatalogProject'
+        - $ref: '#/components/parameters/CatalogAvailability'
+        - $ref: '#/components/parameters/CatalogBilling'
+        - name: cursor
+          in: query
+          description: Opaque continuation bound to the current scope, filters and catalog version. Expires after 15 minutes.
+          schema:
+            type: string
+        - name: provider
+          in: query
+          schema:
+            type: string
+        - name: model
+          in: query
+          description: Exact, case-sensitive public model name.
+          schema:
+            type: string
+        - name: q
+          in: query
+          description: Case-insensitive substring search across public names, aliases, display names and opaque IDs.
+          schema:
+            type: string
+        - name: source
+          in: query
+          schema:
+            $ref: '#/components/schemas/CatalogSourceKind'
+        - name: publication
+          in: query
+          schema:
+            type: string
+            enum: [published, unpublished, unknown]
+        - name: quick_filter
+          in: query
+          description: |
+            routable_but_unpriced selects live models with common billing state unpriced.
+            discovered_not_enabled selects a current discovery on an account with no eligible binding for the model.
+            listed_unrouted selects published models with unavailable routes.
+            group_price_conflict selects models with conflicting eligible offers.
+            pi_only selects models whose only source is pi.
+            stale selects models with stale discovery or field evidence.
+          schema:
+            type: string
+            enum: [routable_but_unpriced, discovered_not_enabled, listed_unrouted, group_price_conflict, pi_only, stale]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Workspace catalog ordered by provider, exact public name and stable ID.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/AdminCatalogPage'
+        '401':
+          $ref: '#/components/responses/AdminCatalogError'
+        '403':
+          $ref: '#/components/responses/AdminCatalogError'
+        '404':
+          $ref: '#/components/responses/AdminCatalogError'
+        '410':
+          $ref: '#/components/responses/AdminCatalogError'
+        '422':
+          $ref: '#/components/responses/AdminCatalogError'
+        '423':
+          $ref: '#/components/responses/AdminCatalogError'
+        '503':
+          $ref: '#/components/responses/AdminCatalogError'
+        default:
+          $ref: '#/components/responses/AdminCatalogError'
+  /api/v2/admin/catalog/models/{id}:
+    get:
+      operationId: getAdminCatalogModel
+      summary: Inspect model evidence and offers within a workspace.
+      description: Requires platform-admin access and administrator compliance acknowledgement. Each nested cursor continues its own collection. Omission starts that collection on its first page.
+      parameters:
+        - $ref: '#/components/parameters/AdminCatalogWorkspace'
+        - $ref: '#/components/parameters/AdminCatalogProject'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: ^m_[0-9a-f]{32}$
+        - name: catalog_version
+          in: query
+          description: Optional catalog version from the list or a previous detail page. A mismatch returns 410.
+          schema:
+            type: string
+            pattern: ^cat_[0-9a-f]{64}$
+        - name: accounts_cursor
+          in: query
+          description: Opaque account continuation bound to the scope, model and catalog version. Expires after 15 minutes.
+          schema:
+            type: string
+        - name: offers_cursor
+          in: query
+          description: Opaque offer continuation bound to the scope, model and catalog version. Expires after 15 minutes.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Model detail with separate pages of up to 50 accounts and 50 offers.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/AdminCatalogDetail'
+        '401':
+          $ref: '#/components/responses/AdminCatalogError'
+        '403':
+          $ref: '#/components/responses/AdminCatalogError'
+        '404':
+          $ref: '#/components/responses/AdminCatalogError'
+        '410':
+          $ref: '#/components/responses/AdminCatalogError'
+        '422':
+          $ref: '#/components/responses/AdminCatalogError'
+        '423':
+          $ref: '#/components/responses/AdminCatalogError'
+        '503':
+          $ref: '#/components/responses/AdminCatalogError'
+        default:
+          $ref: '#/components/responses/AdminCatalogError'
   /api/v2/admin/catalog/verification-targets:
     post:
       operationId: catalogCreateVerificationTarget
@@ -644,8 +917,11 @@ paths:
             type: array
             items:
               type: string
+        - $ref: '#/components/parameters/CatalogAvailability'
+        - $ref: '#/components/parameters/CatalogBilling'
         - name: availability_state
           in: query
+          deprecated: true
           schema:
             type: string
             enum:
@@ -848,6 +1124,150 @@ paths:
         default: {$ref: '#/components/responses/StatusError'}
     parameters:
       - $ref: '#/components/parameters/StatusIncidentID'
+  /api/v2/workspaces/{workspace_id}/access:
+    get:
+      operationId: identityWorkspaceAccess
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/IdentityWorkspaceAccess'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+  /api/v2/workspaces/{workspace_id}/access-requests:
+    get:
+      operationId: identityAccessRequests
+      parameters:
+        - $ref: '#/components/parameters/IdentityCursor'
+        - $ref: '#/components/parameters/IdentityLimit'
+        - name: view
+          in: query
+          schema: {type: string, enum: [mine, review], default: mine}
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/IdentityRequestPage'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+    post:
+      operationId: identityRequestAccess
+      parameters:
+        - $ref: '#/components/parameters/IdentityIdempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IdentityRequestInput'
+      responses:
+        '201':
+          description: Success
+          headers:
+            ETag:
+              description: Quoted request version
+              schema: {type: string}
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/IdentityAccessRequest'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+  /api/v2/workspaces/{workspace_id}/access-requests/{id}/decision:
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityRequestID'
+    post:
+      operationId: identityDecideAccess
+      parameters:
+        - $ref: '#/components/parameters/IdentityVersion'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IdentityDecisionInput'
+      responses:
+        '200':
+          description: Success
+          headers:
+            ETag:
+              description: Quoted request version
+              schema: {type: string}
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/IdentityAccessRequest'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
   /api/v2/workspaces/{workspace_id}/billing/activity:
     get:
       operationId: workspaceCostActivity
@@ -3082,6 +3502,23 @@ paths:
             schema:
               $ref: '#/components/schemas/IdentityKeyInput'
       responses:
+        '200':
+          description: Replayed issuance with current metadata and a null credential
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/IdentityKey'
         '201':
           description: Created
           content:
@@ -3156,8 +3593,12 @@ paths:
             type: array
             items:
               type: string
+        - $ref: '#/components/parameters/CatalogAvailability'
+        - $ref: '#/components/parameters/CatalogBilling'
+        - $ref: '#/components/parameters/CatalogKeyID'
         - name: availability_state
           in: query
+          deprecated: true
           schema:
             type: string
             enum:
@@ -3214,6 +3655,7 @@ paths:
     get:
       operationId: getProjectModel
       parameters:
+        - $ref: '#/components/parameters/CatalogKeyID'
         - name: catalog_version
           in: query
           schema:
@@ -3282,6 +3724,43 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CatalogCompareInput'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/playground/keys/{key_id}/models:
+    get:
+      operationId: playgroundKeyModels
+      summary: List runnable models for a selected project key
+      description: Requires playground.run, keys.read and models.read. Selecting another owner's key requires keys.act_as and uses the key owner as payer.
+      x-required-grant: playground.run
+      parameters:
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 25}
+        - name: cursor
+          in: query
+          schema: {type: string}
+      responses:
+        '200':
+          description: Scoped model page, which can contain zero eligible items
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {const: success}
+                  data: {$ref: '#/components/schemas/PlaygroundKeyModelPage'}
+        '403': {$ref: '#/components/responses/RequestsError'}
+        '404': {$ref: '#/components/responses/RequestsError'}
+        '409': {$ref: '#/components/responses/RequestsError'}
+        '503': {$ref: '#/components/responses/RequestsError'}
+        default: {$ref: '#/components/responses/RequestsError'}
+    parameters:
+      - {$ref: '#/components/parameters/IdentityWorkspaceID'}
+      - {$ref: '#/components/parameters/IdentityProjectID'}
+      - name: key_id
+        in: path
+        required: true
+        schema: {type: string, pattern: '^[1-9][0-9]*$'}
   /api/v2/workspaces/{workspace_id}/projects/{project_id}/playground/runs:
     parameters:
       - {$ref: '#/components/parameters/IdentityWorkspaceID'}
@@ -4316,6 +4795,38 @@ components:
       schema: {type: string}
       description: HTTP date for this representation
   parameters:
+    AdminCatalogProject:
+      name: project_id
+      in: query
+      description: Optional project within the workspace. Omission reads the entire workspace.
+      schema:
+        type: string
+        pattern: ^[1-9][0-9]*$
+    AdminCatalogWorkspace:
+      name: workspace_id
+      in: query
+      required: true
+      description: Explicit workspace ID.
+      schema:
+        type: string
+        pattern: ^[1-9][0-9]*$
+    CatalogAvailability:
+      name: availability
+      in: query
+      schema:
+        $ref: '#/components/schemas/CatalogAvailabilityState'
+    CatalogBilling:
+      name: billing
+      in: query
+      schema:
+        $ref: '#/components/schemas/CatalogBillingState'
+    CatalogKeyID:
+      name: api_key_id
+      in: query
+      description: Select a Key the current actor can use in this project.
+      schema:
+        type: string
+        pattern: ^[1-9][0-9]*$
     CatalogModelID:
       name: id
       in: path
@@ -4349,6 +4860,32 @@ components:
       in: path
       required: true
       schema: {type: string, pattern: '^vt_[a-f0-9-]{36}$'}
+    ConfigurationCursor:
+      name: cursor
+      in: query
+      description: Return registered keys strictly after this key
+      schema: {type: string, maxLength: 200}
+    ConfigurationGroup:
+      name: group
+      in: query
+      schema: {type: string, maxLength: 100}
+    ConfigurationLimit:
+      name: limit
+      in: query
+      schema: {type: integer, minimum: 1, maximum: 200, default: 50}
+    ConfigurationQuery:
+      name: q
+      in: query
+      description: Case-insensitive substring match on key or group
+      schema: {type: string, maxLength: 200}
+    ConfigurationSource:
+      name: source
+      in: query
+      schema: {type: string, enum: [database, environment, yaml, default, derived, artifact]}
+    ConfigurationState:
+      name: state
+      in: query
+      schema: {type: string, enum: [effective, invalid, unavailable, blocked_by_hard_gate]}
     ConnectionID:
       name: id
       in: path
@@ -4514,6 +5051,11 @@ components:
       required: true
       schema:
         $ref: '#/components/schemas/IdentityID'
+    IdentityRequestID:
+      name: id
+      in: path
+      required: true
+      schema: {$ref: '#/components/schemas/IdentityID'}
     IdentityVersion:
       name: If-Match
       in: header
@@ -4589,6 +5131,24 @@ components:
       required: true
       schema: {type: string, minLength: 1, maxLength: 256}
   responses:
+    AdminBackupScheduleResponse:
+      description: Schedule configuration and observed scheduler status
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message, data]
+            properties:
+              code: {const: 0}
+              message: {type: string}
+              data:
+                $ref: '#/components/schemas/AdminBackupScheduleStatus'
+    AdminCatalogError:
+      description: Authentication, authorization, scope, compliance, validation, snapshot expiry or dependency error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AdminCatalogErrorBody'
     ByokChanged:
       description: Changed
       content:
@@ -4757,6 +5317,18 @@ components:
               code: {const: 0}
               message: {const: success}
               data: {$ref: '#/components/schemas/CatalogVerificationTarget'}
+    ConfigurationError:
+      description: Standard OmniHive management error; configuration values are not included
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message]
+            properties:
+              code: {type: integer}
+              message: {type: string}
+              reason: {type: string}
+              metadata: {type: object}
     PlaygroundExecution:
       description: New POST stream, synchronous native result, or JSON summary for a matching idempotent submission
       content:
@@ -4913,6 +5485,358 @@ components:
               message: {type: string}
               data: {$ref: '#/components/schemas/TelemetryExportConfig'}
   schemas:
+    AdminAccountUpdate:
+      type: object
+      properties:
+        preserve_model_selection:
+          type: boolean
+          description: >-
+            Preserve the current model selection during metadata edits. Defaults to false. When true, omit credentials.model_mapping, credentials.model_whitelist, and extra.upstream_model_allowlist. Supplying any of these fields returns CONFLICTING_MODEL_SELECTION_INTENT. An explicit credentials.compact_model_mapping can still be edited or cleared.
+        name: {type: string}
+        notes: {type: [string, 'null']}
+        type: {type: string, enum: [oauth, setup-token, apikey, upstream, bedrock, service_account]}
+        credentials: {type: object, additionalProperties: true}
+        extra: {type: object, additionalProperties: true}
+        proxy_id: {type: [integer, 'null'], format: int64}
+        proxy_group_id: {type: [integer, 'null'], format: int64}
+        concurrency: {type: integer}
+        priority: {type: integer}
+        rate_multiplier: {type: number}
+        load_factor: {type: integer}
+        status: {type: string, enum: [active, inactive, error]}
+        group_ids: {type: array, items: {type: integer, format: int64}}
+        expires_at: {type: [integer, 'null'], format: int64}
+        auto_pause_on_expired: {type: boolean}
+        upstream_billing_probe_enabled: {type: boolean}
+        upstream_billing_rate_sync_enabled: {type: boolean}
+        confirm_mixed_channel_risk: {type: boolean}
+        tpm_limit: {type: [integer, 'null'], format: int64}
+    AdminBackupSchedule:
+      type: object
+      properties:
+        enabled: {type: boolean}
+        cron_expr: {type: string}
+        retain_days: {type: integer, default: 14}
+        retain_count: {type: integer}
+    AdminBackupScheduleStatus:
+      allOf:
+        - $ref: '#/components/schemas/AdminBackupSchedule'
+        - type: object
+          required: [enabled, cron_expr, retain_days, retain_count, runtime, backup_secret_key, restore]
+          properties:
+            runtime:
+              type: object
+              required: [loaded, health, leader_required, timezone]
+              properties:
+                loaded: {type: boolean}
+                health: {type: string}
+                leader_required: {type: boolean}
+                timezone: {type: string}
+                next_run_at: {type: string, format: date-time}
+                last_attempt_at: {type: string, format: date-time}
+                last_success_at: {type: string, format: date-time}
+                last_verified_at: {type: string, format: date-time}
+                last_error: {type: string}
+            last_verified_backup:
+              $ref: '#/components/schemas/AdminVerifiedBackup'
+            backup_secret_key:
+              type: object
+              required: [source, configured, migration_required]
+              properties:
+                source: {type: string}
+                configured: {type: boolean}
+                migration_required: {type: boolean}
+                key_id: {type: string}
+            restore:
+              type: object
+              required: [status]
+              properties:
+                status: {type: string, enum: [disabled, available, unavailable]}
+                reason: {type: string}
+    AdminCatalogAccount:
+      type: object
+      required: [account_id, label, account_type, discovery_state, membership_state, observed_at, identity_revision, snapshot_revision, rules_revision]
+      properties:
+        account_id:
+          type: string
+        label:
+          type: string
+        account_type:
+          type: string
+        discovery_state:
+          type: string
+          enum: [current, stale, invalidated]
+        membership_state:
+          type: string
+          enum: [eligible, no_eligible_binding]
+        observed_at:
+          type: [string, 'null']
+          format: date-time
+        identity_revision:
+          $ref: '#/components/schemas/AdminCatalogRevision'
+        snapshot_revision:
+          $ref: '#/components/schemas/AdminCatalogRevision'
+        rules_revision:
+          $ref: '#/components/schemas/AdminCatalogRevision'
+    AdminCatalogDetail:
+      type: object
+      required: [model, aliases, common_facts, provenance, accounts, offers, publications, next_accounts_cursor, next_offers_cursor, catalog_version, as_of, scope_version]
+      properties:
+        model:
+          $ref: '#/components/schemas/AdminCatalogModel'
+        aliases:
+          type: array
+          items:
+            type: string
+        common_facts:
+          anyOf:
+            - $ref: '#/components/schemas/CatalogCommonFacts'
+            - type: 'null'
+        provenance:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminCatalogFieldProvenance'
+        accounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminCatalogAccount'
+        offers:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminCatalogOffer'
+        publications:
+          type: array
+          description: One result per group and channel represented in this offer page. A pair spanning pages can repeat.
+          items:
+            $ref: '#/components/schemas/AdminCatalogPublication'
+        next_accounts_cursor:
+          type: [string, 'null']
+        next_offers_cursor:
+          type: [string, 'null']
+        catalog_version:
+          type: string
+        as_of:
+          type: string
+          format: date-time
+        scope_version:
+          $ref: '#/components/schemas/AdminCatalogRevision'
+    AdminCatalogErrorBody:
+      type: object
+      required: [code, message, reason, metadata]
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+        reason:
+          type: string
+        metadata:
+          type: object
+        data:
+          type: 'null'
+    AdminCatalogFieldProvenance:
+      type: object
+      required: [field, state]
+      properties:
+        field:
+          type: string
+        state:
+          type: string
+          enum: [known, unknown, stale, conflict, suppressed]
+        source_kind:
+          $ref: '#/components/schemas/CatalogSourceKind'
+        artifact_version:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+        observed_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        value:
+          description: One of a decimal-string count, a boolean, a string array or a context window.
+          oneOf:
+            - type: string
+              pattern: ^[0-9]+$
+            - type: boolean
+            - type: array
+              items:
+                type: string
+            - type: object
+              required: [tokens, basis]
+              properties:
+                tokens:
+                  type: string
+                  pattern: ^[1-9][0-9]*$
+                basis:
+                  type: string
+                  enum: [input, total, unspecified]
+    AdminCatalogModel:
+      type: object
+      required: [id, canonical_id, model, display_name, provider, source, availability, billing, aliases_count, accounts_count, discovered_accounts_count, groups_count, channels_count]
+      properties:
+        id:
+          type: string
+        canonical_id:
+          type: string
+        model:
+          type: string
+        display_name:
+          type: string
+        provider:
+          type: string
+        source:
+          $ref: '#/components/schemas/CatalogSourceAxis'
+        availability:
+          $ref: '#/components/schemas/CatalogAvailability'
+        billing:
+          $ref: '#/components/schemas/CatalogBilling'
+        aliases_count:
+          type: integer
+          minimum: 0
+        accounts_count:
+          type: integer
+          minimum: 0
+          description: Distinct accounts with a discovery observation or binding.
+        discovered_accounts_count:
+          type: integer
+          minimum: 0
+          description: Distinct accounts with current, stale or invalidated discovery.
+        groups_count:
+          type: integer
+          minimum: 0
+        channels_count:
+          type: integer
+          minimum: 0
+    AdminCatalogOffer:
+      type: object
+      required: [group_id, channel_id, account_id, eligible, billing, price_context]
+      properties:
+        group_id:
+          type: string
+        channel_id:
+          type: string
+          description: Zero identifies group-only observations.
+        account_id:
+          type: [string, 'null']
+        action:
+          type: string
+        protocol:
+          type: string
+        eligible:
+          type: boolean
+        reason:
+          type: string
+          enum: [access_denied, eligibility_incomplete, no_eligible_binding]
+        price_context:
+          const: group_default
+        billing:
+          $ref: '#/components/schemas/CatalogBilling'
+    AdminCatalogPage:
+      type: object
+      required: [items, next_cursor, catalog_version, as_of, scope_version]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminCatalogModel'
+        next_cursor:
+          type: [string, 'null']
+        catalog_version:
+          type: string
+        as_of:
+          type: string
+          format: date-time
+        scope_version:
+          $ref: '#/components/schemas/AdminCatalogRevision'
+    AdminCatalogPublication:
+      type: object
+      required: [group_id, channel_id, state, basis, reason]
+      properties:
+        group_id:
+          type: string
+        channel_id:
+          type: string
+        state:
+          type: string
+          enum: [published, unpublished, unknown]
+        basis:
+          type: [string, 'null']
+          enum: [explicit, legacy_default, null]
+        reason:
+          type: string
+          enum: [published, published_without_eligible_binding, not_published, publication_not_observed]
+    AdminCatalogRevision:
+      type: string
+      pattern: ^(0|[1-9][0-9]*)$
+    AdminRollbackEligibility:
+      type: object
+      required: [database_floor, current_version, remote_status, versions, excluded_versions, local_versions]
+      properties:
+        database_floor: {type: string}
+        current_version: {type: string}
+        remote_status: {type: string, enum: [available, unavailable]}
+        remote_reason: {type: string}
+        versions:
+          type: array
+          items: {$ref: '#/components/schemas/AdminRollbackVersion'}
+        excluded_versions:
+          type: array
+          items: {$ref: '#/components/schemas/AdminRollbackVersion'}
+        local_versions:
+          description: Verified local backup versions reported during a remote outage. Omit the version when requesting a local rollback.
+          type: array
+          items: {$ref: '#/components/schemas/AdminRollbackVersion'}
+    AdminRollbackVersion:
+      type: object
+      required: [version, effective_floor, published_at, html_url]
+      properties:
+        version: {type: string}
+        effective_floor: {type: string}
+        exclusion_reason: {type: string}
+        published_at: {type: string}
+        html_url: {type: string}
+    AdminUpdateInfo:
+      type: object
+      required: [current_version, latest_version, has_update, cached, build_type, remote_status]
+      properties:
+        current_version: {type: string}
+        latest_version: {type: string}
+        has_update: {type: boolean}
+        cached: {type: boolean}
+        build_type: {type: string, enum: [source, release]}
+        remote_status: {type: string, enum: [available, cached, unavailable]}
+        warning: {type: string}
+        release_info:
+          type: object
+          required: [name, body, published_at, html_url]
+          properties:
+            name: {type: string}
+            body: {type: string}
+            published_at: {type: string}
+            html_url: {type: string}
+            assets:
+              type: array
+              items:
+                type: object
+                required: [name, download_url, size]
+                properties:
+                  name: {type: string}
+                  download_url: {type: string}
+                  size: {type: integer, format: int64}
+    AdminVerifiedBackup:
+      type: object
+      additionalProperties: true
+      required: [id, status, file_name, size_bytes]
+      properties:
+        id: {type: string}
+        status: {type: string}
+        file_name: {type: string}
+        size_bytes: {type: integer, format: int64}
+        checksum: {type: string}
+        verified_at: {type: string, format: date-time}
+        verification_error: {type: string}
     AdmittedExecution:
       x-internal: true
       description: Frozen server admission metadata. Readers apply project authorization and their field-level projection before delivery.
@@ -5379,6 +6303,24 @@ components:
     ByokVerify:
       type: object
       additionalProperties: false
+    CatalogAvailability:
+      type: object
+      required: [state, publication, access]
+      properties:
+        state:
+          $ref: '#/components/schemas/CatalogAvailabilityState'
+        publication:
+          type: string
+          enum: [published, unpublished, unknown]
+        access:
+          type: string
+          enum: [allowed, denied, requires_scope, unknown]
+        reason:
+          type: string
+          enum: [candidate_only, published_without_eligible_binding, discovered_without_eligible_binding, scope_required, access_denied, no_eligible_binding, eligibility_incomplete]
+    CatalogAvailabilityState:
+      type: string
+      enum: [live, unavailable, requires_scope, unknown]
     CatalogBenchmark:
       type: object
       required:
@@ -5400,6 +6342,22 @@ components:
         verified_at:
           type: string
           format: date-time
+    CatalogBilling:
+      type: object
+      required: [state]
+      properties:
+        state:
+          $ref: '#/components/schemas/CatalogBillingState'
+        reason:
+          type: string
+          description: A stable display or quote reason code.
+        sale_price:
+          $ref: '#/components/schemas/CatalogSalePrice'
+        reference_price:
+          $ref: '#/components/schemas/CatalogReferencePrice'
+    CatalogBillingState:
+      type: string
+      enum: [priced, free, conditional, partial, conflict, unpriced, error, unknown]
     CatalogCapability:
       type: object
       required:
@@ -5481,11 +6439,42 @@ components:
           type: array
           items:
             type: string
+    CatalogCommonFacts:
+      type: object
+      required: [context_tokens, context_kind, max_output_tokens, embedding_dimensions, tools, vision, reasoning, prompt_caching, pdf, modalities]
+      properties:
+        context_tokens:
+          type: [string, 'null']
+        context_kind:
+          type: string
+          enum: [input, total, unspecified, '']
+        max_output_tokens:
+          type: [string, 'null']
+        embedding_dimensions:
+          type: [string, 'null']
+        tools:
+          type: [boolean, 'null']
+        vision:
+          type: [boolean, 'null']
+        reasoning:
+          type: [boolean, 'null']
+        prompt_caching:
+          type: [boolean, 'null']
+        pdf:
+          type: [boolean, 'null']
+        modalities:
+          type: [array, 'null']
+          items:
+            type: string
     CatalogCompareInput:
       type: object
       required:
         - model_ids
       properties:
+        api_key_id:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          description: Accepted only by project compare for a Key the actor can use in that project.
         model_ids:
           type: array
           items:
@@ -5509,6 +6498,9 @@ components:
         - as_of
         - rows
       properties:
+        scope_version:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
         catalog_version:
           type: string
         as_of:
@@ -5625,15 +6617,29 @@ components:
         - components
         - rounding_adjustment
       properties:
+        billing_state:
+          $ref: '#/components/schemas/CatalogBillingState'
+        reason:
+          description: Explains an unavailable estimate or describes the catalog billing state when no estimate was requested.
+          anyOf:
+            - $ref: '#/components/schemas/PriceEstimateReason'
+            - type: string
+        price_at:
+          type: string
+          format: date-time
         state:
           type: string
           enum:
             - estimated
+            - free
             - unpriced
         price_version:
           anyOf:
             - type: string
             - type: 'null'
+        source:
+          description: Origin of the sale tariff used for this estimate.
+          type: string
         estimated_charge:
           anyOf:
             - $ref: '#/components/schemas/CatalogMoney'
@@ -5696,6 +6702,38 @@ components:
             - fresh
             - stale
             - unknown
+    CatalogFieldProvenance:
+      type: object
+      required: [field, state]
+      properties:
+        field:
+          type: string
+        state:
+          type: string
+          enum: [known, unknown, stale, conflict, suppressed]
+        source_kind:
+          $ref: '#/components/schemas/CatalogSourceKind'
+        artifact_version:
+          type: string
+        observed_at:
+          type: string
+          format: date-time
+        record_key:
+          type: string
+        provider:
+          type: string
+        profile:
+          type: string
+        match_rule:
+          type: string
+        trust:
+          type: string
+        scope:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        value: {}
     CatalogMetrics:
       type: object
       required:
@@ -5875,6 +6913,9 @@ components:
         - as_of
         - catalog_version
       properties:
+        scope_version:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
         items:
           type: array
           items:
@@ -5901,21 +6942,7 @@ components:
           type: string
           pattern: ^-?(0|[1-9][0-9]*)(\.[0-9]+)?$
     CatalogPriceScenario:
-      type: object
-      required: []
-      properties:
-        input_tokens:
-          type: string
-          pattern: ^(0|[1-9][0-9]*)$
-        cached_input_tokens:
-          type: string
-          pattern: ^(0|[1-9][0-9]*)$
-        output_tokens:
-          type: string
-          pattern: ^(0|[1-9][0-9]*)$
-        requests:
-          type: string
-          pattern: ^(0|[1-9][0-9]*)$
+      $ref: '#/components/schemas/ExactPriceScenario'
     CatalogRate:
       type: object
       required:
@@ -5995,6 +7022,41 @@ components:
               items:
                 $ref: '#/components/schemas/CatalogTimeBand'
             - type: 'null'
+    CatalogSalePrice:
+      type: object
+      required: [source, scope, price_version, valid_from, valid_until, input_rate, output_rate, additional_rates, time_bands]
+      properties:
+        source:
+          type: string
+        scope:
+          type: string
+          enum: [public, authorized]
+        price_version:
+          type: [string, 'null']
+        valid_from:
+          type: [string, 'null']
+          format: date-time
+        valid_until:
+          type: [string, 'null']
+          format: date-time
+        input_rate:
+          anyOf:
+            - $ref: '#/components/schemas/CatalogRate'
+            - type: 'null'
+        output_rate:
+          anyOf:
+            - $ref: '#/components/schemas/CatalogRate'
+            - type: 'null'
+        additional_rates:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogRateBand'
+        time_bands:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogTimeBand'
+        context_basis:
+          type: string
     CatalogScope:
       type: object
       required:
@@ -6008,6 +7070,22 @@ components:
           $ref: '#/components/schemas/IdentityID'
         scope_version:
           $ref: '#/components/schemas/IdentityID'
+    CatalogSourceAxis:
+      type: object
+      required: [kinds, candidate, discovered]
+      properties:
+        kinds:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogSourceKind'
+        candidate:
+          type: [boolean, 'null']
+        discovered:
+          type: [boolean, 'null']
+          description: Native discovery membership in the authorized view. Null for public viewers.
+    CatalogSourceKind:
+      type: string
+      enum: [builtin_reviewed, platform_preset, builtin_supplement, pi_ai_reference, account_discovery, account_declaration, external_reference, heuristic]
     CatalogTimeBand:
       type: object
       required:
@@ -6117,6 +7195,27 @@ components:
         account_mode: {$ref: '#/components/schemas/CatalogVerificationAccountMode'}
         protocol: {type: string}
         interval_seconds: {$ref: '#/components/schemas/CatalogVerificationInterval'}
+    ConfigurationResetRequest:
+      type: object
+      additionalProperties: false
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: {type: string, minLength: 1, maxLength: 200}
+    ConfigurationResetResult:
+      type: object
+      required: [settings, items, generated_at]
+      properties:
+        settings:
+          type: object
+          description: Same GET/PUT /api/v1/admin/settings response data, with secret plaintext omitted.
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/EffectiveConfigurationItem'}
+        generated_at: {type: string, format: date-time}
     ConnectionAccountMode:
       type: string
       enum:
@@ -7413,6 +8512,45 @@ components:
           anyOf:
             - {$ref: '#/components/schemas/CostMoney'}
             - {type: 'null'}
+    EffectiveConfiguration:
+      type: object
+      required: [config_file, generated_at, items]
+      properties:
+        config_file: {type: string, description: Absolute CONFIG_FILE path, or empty when not explicitly configured: ''}
+        generated_at: {type: string, format: date-time}
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/EffectiveConfigurationItem'}
+        next_cursor: {type: string}
+    EffectiveConfigurationItem:
+      type: object
+      required: [key, group, value_type, value, source, authority, fallback_chain, restart_required, resettable, sensitive, state, configured]
+      properties:
+        key: {type: string}
+        group: {type: string}
+        value_type: {type: string, enum: [bool, int, float, string, string_list, json, object]}
+        value:
+          nullable: true
+          description: Effective non-secret value. Always null for sensitive or unavailable settings.
+        source: {type: string, enum: [database, environment, yaml, default, derived, artifact]}
+        authority: {type: string, enum: [deployment, database_override, database_only, versioned_artifact]}
+        fallback_chain:
+          type: array
+          items: {type: string, enum: [database, environment, yaml, default, derived, artifact]}
+        restart_required: {type: boolean}
+        resettable: {type: boolean}
+        sensitive: {type: boolean}
+        state: {type: string, enum: [effective, invalid, unavailable, blocked_by_hard_gate]}
+        configured:
+          type: boolean
+          nullable: true
+          description: Presence metadata for sensitive settings; null otherwise.
+        blocked_by: {type: string}
+        install_seed_source: {type: string, enum: [install_seed, environment, yaml, default, admin, unknown]}
+        baseline:
+          nullable: true
+          description: Non-secret value that a reset would restore.
+        error_code: {type: string, enum: [CONFIG_INVALID, CONFIG_UNAVAILABLE]}
     ExactCount:
       type: string
       pattern: '^(0|[1-9][0-9]{0,19})$'
@@ -7438,11 +8576,21 @@ components:
         audio_seconds: {$ref: '#/components/schemas/ExactDuration'}
         video_seconds: {$ref: '#/components/schemas/ExactDuration'}
         size_tier: {type: string, maxLength: 80}
+        service_tier: {type: string, maxLength: 80}
+        reasoning_effort: {type: string, maxLength: 80}
+        thinking_enabled: {type: [boolean, 'null']}
+        explicit_cache: {type: boolean}
+        batch: {type: boolean}
     ExactQuote:
       type: object
-      required: [state, price_version, source, estimated_charge, components, rounding_adjustment, effective_scope]
+      required: [state, billing_state, price_at, price_version, source, estimated_charge, components, rounding_adjustment, effective_scope]
       properties:
         state: {type: string, enum: [estimated, free, unpriced]}
+        billing_state:
+          $ref: '#/components/schemas/CatalogBillingState'
+        price_at: {type: string, format: date-time}
+        reason:
+          $ref: '#/components/schemas/PriceEstimateReason'
         price_version: {type: [string, 'null']}
         source: {type: [string, 'null']}
         estimated_charge:
@@ -7541,6 +8689,7 @@ components:
         - actor_id
         - workspace_id
         - project_id
+        - issuable_key_actions
         - actions
         - scope_version
         - expires_at
@@ -7551,6 +8700,7 @@ components:
           $ref: '#/components/schemas/IdentityID'
         project_id:
           $ref: '#/components/schemas/IdentityID'
+        issuable_key_actions: {type: array, items: {type: string}}
         actions:
           type: array
           items:
@@ -7560,6 +8710,35 @@ components:
         expires_at:
           type: string
           format: date-time
+    IdentityAccessRequest:
+      type: object
+      required: [id, workspace_id, requester_id, requested_project_id, note, state, version, created_at, approved_project_id, decided_at]
+      properties:
+        id: {$ref: '#/components/schemas/IdentityID'}
+        workspace_id: {$ref: '#/components/schemas/IdentityID'}
+        requester_id: {$ref: '#/components/schemas/IdentityID'}
+        requested_project_id: {type: [string, 'null'], pattern: '^[1-9][0-9]*$'}
+        approved_project_id: {type: [string, 'null'], pattern: '^[1-9][0-9]*$'}
+        note: {type: string}
+        state: {type: string, enum: [pending, approved, declined]}
+        version: {$ref: '#/components/schemas/IdentityID'}
+        created_at: {type: string, format: date-time}
+        decided_at: {type: [string, 'null'], format: date-time}
+    IdentityDecisionInput:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [decision]
+          properties:
+            decision: {const: decline}
+        - type: object
+          additionalProperties: false
+          required: [decision, project_id, member_version, add_actions]
+          properties:
+            decision: {const: approve}
+            project_id: {$ref: '#/components/schemas/IdentityID'}
+            member_version: {$ref: '#/components/schemas/IdentityID'}
+            add_actions: {type: array, minItems: 1, items: {type: string}}
     IdentityError:
       type: object
       required:
@@ -7580,19 +8759,18 @@ components:
         data:
           type: 'null'
     IdentityGrantInput:
-      type: object
-      required:
-        - actions
-        - project_ids
-      properties:
-        actions:
-          type: array
-          items:
-            type: string
-        project_ids:
-          type: array
-          items:
-            $ref: '#/components/schemas/IdentityID'
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [project_grants]
+          properties:
+            project_grants: {type: array, items: {$ref: '#/components/schemas/IdentityProjectGrant'}}
+        - type: object
+          additionalProperties: false
+          required: [project_ids, actions]
+          properties:
+            project_ids: {type: array, items: {$ref: '#/components/schemas/IdentityID'}}
+            actions: {type: array, items: {type: string}}
     IdentityGrantVersion:
       type: object
       required:
@@ -7627,6 +8805,11 @@ components:
         - owner_id
         - version
         - credential
+        - status
+        - expires_at
+        - state
+        - group_id
+        - kind
       properties:
         id:
           $ref: '#/components/schemas/IdentityID'
@@ -7642,6 +8825,13 @@ components:
           type:
             - string
             - 'null'
+        status: {type: string}
+        expires_at: {type: [string, 'null'], format: date-time}
+        state:
+          type: string
+          enum: [active, disabled, expired, quota_exhausted, no_credential, unknown]
+        group_id: {type: [string, 'null'], pattern: '^[1-9][0-9]{0,18}$'}
+        kind: {type: string, enum: [project_policy, legacy_group]}
     IdentityKeyGroup:
       type: object
       required: [id, name, platform]
@@ -7736,7 +8926,7 @@ components:
           format: date-time
     IdentityMember:
       type: object
-      required: [id, user_id, email, username, role, status, version]
+      required: [id, user_id, email, username, role, role_source, status, version]
       properties:
         id:
           $ref: '#/components/schemas/IdentityID'
@@ -7746,6 +8936,7 @@ components:
           type: string
         username:
           type: string
+        role_source: {type: string, enum: [inherited, delegated]}
         role:
           type: string
           enum: [admin, member]
@@ -7756,7 +8947,12 @@ components:
     IdentityMemberGrants:
       allOf:
         - $ref: '#/components/schemas/IdentityGrantVersion'
-        - $ref: '#/components/schemas/IdentityGrantInput'
+        - type: object
+          required: [project_ids, actions, project_grants]
+          properties:
+            project_ids: {type: array, items: {$ref: '#/components/schemas/IdentityID'}}
+            actions: {type: array, items: {type: string}}
+            project_grants: {type: array, items: {$ref: '#/components/schemas/IdentityProjectGrant'}}
     IdentityMemberPage:
       type: object
       required:
@@ -7824,16 +9020,25 @@ components:
         - id
         - workspace_id
         - name
+        - is_default
         - version
       properties:
         id:
           $ref: '#/components/schemas/IdentityID'
         workspace_id:
           $ref: '#/components/schemas/IdentityID'
+        is_default: {type: boolean}
         name:
           type: string
         version:
           $ref: '#/components/schemas/IdentityID'
+    IdentityProjectGrant:
+      type: object
+      additionalProperties: false
+      required: [project_id, actions]
+      properties:
+        project_id: {$ref: '#/components/schemas/IdentityID'}
+        actions: {type: array, items: {type: string}}
     IdentityProjectPage:
       type: object
       required:
@@ -7852,16 +9057,43 @@ components:
         as_of:
           type: string
           format: date-time
+    IdentityRequestInput:
+      type: object
+      additionalProperties: false
+      required: [note]
+      properties:
+        note: {type: string, minLength: 1, maxLength: 500}
+        requested_project_id: {$ref: '#/components/schemas/IdentityID'}
+    IdentityRequestPage:
+      type: object
+      required:
+        - items
+        - next_cursor
+        - as_of
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/IdentityAccessRequest'
+        next_cursor:
+          type:
+            - string
+            - 'null'
+        as_of:
+          type: string
+          format: date-time
     IdentityWorkspace:
       type: object
       required:
         - workspace_id
         - name
+        - is_default
         - projects
         - projects_next_cursor
       properties:
         workspace_id:
           $ref: '#/components/schemas/IdentityID'
+        is_default: {type: boolean}
         name:
           type: string
         projects:
@@ -7871,15 +9103,46 @@ components:
             required:
               - id
               - name
+              - is_default
             properties:
               id:
                 $ref: '#/components/schemas/IdentityID'
+              is_default: {type: boolean}
               name:
                 type: string
         projects_next_cursor:
           type:
             - string
             - 'null'
+    IdentityWorkspaceAccess:
+      type: object
+      required:
+        - actor_id
+        - workspace_id
+        - project_id
+        - effective_admin
+        - actions
+        - scope_version
+        - expires_at
+      properties:
+        actor_id:
+          $ref: '#/components/schemas/IdentityID'
+        workspace_id:
+          $ref: '#/components/schemas/IdentityID'
+        project_id: {type: 'null'}
+        membership_role: {type: string, enum: [admin, member]}
+        role_source: {type: string, enum: [inherited, delegated]}
+        effective_admin: {type: boolean}
+        grantable_actions: {type: array, items: {type: string}}
+        actions:
+          type: array
+          items:
+            type: string
+        scope_version:
+          $ref: '#/components/schemas/IdentityID'
+        expires_at:
+          type: string
+          format: date-time
     IdentityWorkspacePage:
       type: object
       required:
@@ -8328,6 +9591,15 @@ components:
         - documentation_url
         - redactions
       properties:
+        scope_version:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+        provenance:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogFieldProvenance'
+        common_facts:
+          $ref: '#/components/schemas/CatalogCommonFacts'
         model:
           $ref: '#/components/schemas/ModelSummary'
         reference_price:
@@ -8409,6 +9681,14 @@ components:
       properties:
         id:
           type: string
+        canonical_id:
+          type: string
+        source:
+          $ref: '#/components/schemas/CatalogSourceAxis'
+        availability:
+          $ref: '#/components/schemas/CatalogAvailability'
+        billing:
+          $ref: '#/components/schemas/CatalogBilling'
         model:
           type: string
         display_name:
@@ -8439,6 +9719,7 @@ components:
               pattern: ^(0|[1-9][0-9]*)$
             - type: 'null'
         maturity:
+          deprecated: true
           type: string
           enum:
             - unknown
@@ -8446,15 +9727,18 @@ components:
             - experimental
             - deprecated
         catalog_state:
+          deprecated: true
           type: string
           enum:
             - listed
         availability_state:
+          deprecated: true
           type: string
           enum:
             - live
             - catalog_only
         access_state:
+          deprecated: true
           type: string
           enum:
             - allowed
@@ -8462,6 +9746,7 @@ components:
             - unknown
             - requires_scope
         route_state:
+          deprecated: true
           type: string
           enum:
             - eligible
@@ -8469,6 +9754,7 @@ components:
             - unknown
             - requires_scope
         price_state:
+          deprecated: true
           type: string
           enum:
             - priced
@@ -8489,6 +9775,7 @@ components:
               format: date-time
             - type: 'null'
         evidence_state:
+          deprecated: true
           type: string
           enum:
             - fresh
@@ -8555,6 +9842,36 @@ components:
         status_url: {type: string}
         detail_url: {type: string}
         settlement_state: {type: string}
+    PlaygroundKeyModel:
+      type: object
+      required: [id, model, display_name, provider, pairs]
+      properties:
+        id: {type: string}
+        model: {type: string}
+        display_name: {type: string}
+        provider: {type: string}
+        pairs:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [action, protocol]
+            properties:
+              action: {const: text.chat}
+              protocol: {$ref: '#/components/schemas/PlaygroundProtocol'}
+    PlaygroundKeyModelPage:
+      type: object
+      required: [key_id, workspace_id, project_id, scope_version, as_of, next_cursor, items]
+      properties:
+        key_id: {type: string}
+        workspace_id: {type: string}
+        project_id: {type: string}
+        scope_version: {type: string}
+        as_of: {type: string, format: date-time}
+        next_cursor: {type: [string, 'null']}
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/PlaygroundKeyModel'}
     PlaygroundOptions:
       type: object
       additionalProperties: false
@@ -8617,6 +9934,9 @@ components:
         detail_url: {type: string}
         payer_user_id: {$ref: '#/components/schemas/IdentityID'}
         settlement_state: {type: string}
+    PriceEstimateReason:
+      type: string
+      enum: [missing_price, partial_price, conflicting_prices, scenario_required]
     RequestsAttempt:
       type: object
       required: [id, number, candidate_id, connection_id, connection_name, started_at, duration_ms, upstream_ttft_ms, acceptance, outcome, status, reason, semantic_output, abandoned_uncertain, receipt_state, conversion]

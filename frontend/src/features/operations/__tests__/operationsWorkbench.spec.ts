@@ -3,6 +3,7 @@ import { reactive, ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ScopedAuditView from '../ScopedAuditView.vue'
 import OperationalSignals from '../OperationalSignals.vue'
+import CatalogVerificationWorkbench from '../components/CatalogVerificationWorkbench.vue'
 import { computeCatalogEntryId } from '../components/operationsHelpers'
 
 const {
@@ -143,6 +144,19 @@ const globalMountOptions = {
 }
 
 describe('ScopedAuditView & OperationalSignals Workbench', () => {
+  it('loads affected components from the public status resource for incident creation', async () => {
+    mockGet.mockImplementation(async (path: string) => ({
+      data: path === '/api/v2/public/status' ? { components: [{ id: 'inference', name: 'Model Inference' }] } : { items: [] }
+    }))
+    const wrapper = mount(OperationalSignals)
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text().includes('发布状态事件'))!.trigger('click')
+    await flushPromises()
+    expect(mockGet).toHaveBeenCalledWith('/api/v2/public/status', expect.any(Object))
+    expect(document.body.textContent + wrapper.text()).toContain('Model Inference')
+    wrapper.unmount()
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     mockLocaleHolder.locale = { value: 'zh-CN' }
@@ -628,7 +642,15 @@ describe('ScopedAuditView & OperationalSignals Workbench', () => {
         }
       })
 
-      const wrapper = mount(OperationalSignals)
+      const opsWrapper = mount(OperationalSignals)
+      await flushPromises()
+      expect(
+        opsWrapper.get('[data-testid="ops-relocated-catalog-workbench-link"]').attributes('href')
+      ).toBe('/admin/models')
+
+      const wrapper = mount(CatalogVerificationWorkbench, {
+        props: { isZh: true }
+      })
       await flushPromises()
 
       // 1. Register verification target
@@ -749,7 +771,9 @@ describe('ScopedAuditView & OperationalSignals Workbench', () => {
         }
       }))
 
-      const wrapper = mount(OperationalSignals)
+      const wrapper = mount(CatalogVerificationWorkbench, {
+        props: { isZh: true }
+      })
       await flushPromises()
 
       await wrapper.get('#catalog-target-lookup-id').setValue(targetId)

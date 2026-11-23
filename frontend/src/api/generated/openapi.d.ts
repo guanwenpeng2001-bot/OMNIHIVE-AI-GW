@@ -4,6 +4,109 @@
  */
 
 export interface paths {
+    "/api/v1/admin/accounts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["updateAdminAccount"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/backups/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getAdminBackupSchedule"];
+        put: operations["updateAdminBackupSchedule"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/config/effective": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read redacted effective settings and their authority source */
+        get: operations["getEffectiveConfiguration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/config/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete resettable database overrides and resolve deployment baselines
+         * @description Requires an administrator session. Provider and object overrides reset atomically as one group. No secret or baseline value is returned for sensitive keys.
+         */
+        post: operations["resetConfigurationOverrides"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/system/check-updates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["checkAdminSystemUpdates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/system/rollback-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listAdminRollbackVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/workbuddy/oauth/poll": {
         parameters: {
             query?: never;
@@ -111,6 +214,46 @@ export interface paths {
          *     polled from another workspace.
          */
         post: operations["workBuddyWorkspaceOAuthStart"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/admin/catalog/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect the model catalog for a workspace.
+         * @description Requires platform-admin access and administrator compliance acknowledgement. All filters are combined.
+         */
+        get: operations["listAdminCatalogModels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/admin/catalog/models/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect model evidence and offers within a workspace.
+         * @description Requires platform-admin access and administrator compliance acknowledgement. Each nested cursor continues its own collection. Omission starts that collection on its first page.
+         */
+        get: operations["getAdminCatalogModel"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -460,6 +603,61 @@ export interface paths {
         get: operations["publicIncidentDetail"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        get: operations["identityWorkspaceAccess"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/access-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        get: operations["identityAccessRequests"];
+        put?: never;
+        post: operations["identityRequestAccess"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/access-requests/{id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["IdentityRequestID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["identityDecideAccess"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1878,6 +2076,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/playground/keys/{key_id}/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                key_id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * List runnable models for a selected project key
+         * @description Requires playground.run, keys.read and models.read. Selecting another owner's key requires keys.act_as and uses the key owner as payer.
+         */
+        get: operations["playgroundKeyModels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/workspaces/{workspace_id}/projects/{project_id}/playground/runs": {
         parameters: {
             query?: never;
@@ -2422,6 +2644,233 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AdminAccountUpdate: {
+            /** @description Preserve the current model selection during metadata edits. Defaults to false. When true, omit credentials.model_mapping, credentials.model_whitelist, and extra.upstream_model_allowlist. Supplying any of these fields returns CONFLICTING_MODEL_SELECTION_INTENT. An explicit credentials.compact_model_mapping can still be edited or cleared. */
+            preserve_model_selection?: boolean;
+            name?: string;
+            notes?: string | null;
+            /** @enum {string} */
+            type?: "oauth" | "setup-token" | "apikey" | "upstream" | "bedrock" | "service_account";
+            credentials?: {
+                [key: string]: unknown;
+            };
+            extra?: {
+                [key: string]: unknown;
+            };
+            /** Format: int64 */
+            proxy_id?: number | null;
+            /** Format: int64 */
+            proxy_group_id?: number | null;
+            concurrency?: number;
+            priority?: number;
+            rate_multiplier?: number;
+            load_factor?: number;
+            /** @enum {string} */
+            status?: "active" | "inactive" | "error";
+            group_ids?: number[];
+            /** Format: int64 */
+            expires_at?: number | null;
+            auto_pause_on_expired?: boolean;
+            upstream_billing_probe_enabled?: boolean;
+            upstream_billing_rate_sync_enabled?: boolean;
+            confirm_mixed_channel_risk?: boolean;
+            /** Format: int64 */
+            tpm_limit?: number | null;
+        };
+        AdminBackupSchedule: {
+            enabled?: boolean;
+            cron_expr?: string;
+            /** @default 14 */
+            retain_days: number;
+            retain_count?: number;
+        };
+        AdminBackupScheduleStatus: components["schemas"]["AdminBackupSchedule"] & {
+            runtime: {
+                loaded: boolean;
+                health: string;
+                leader_required: boolean;
+                timezone: string;
+                /** Format: date-time */
+                next_run_at?: string;
+                /** Format: date-time */
+                last_attempt_at?: string;
+                /** Format: date-time */
+                last_success_at?: string;
+                /** Format: date-time */
+                last_verified_at?: string;
+                last_error?: string;
+            };
+            last_verified_backup?: components["schemas"]["AdminVerifiedBackup"];
+            backup_secret_key: {
+                source: string;
+                configured: boolean;
+                migration_required: boolean;
+                key_id?: string;
+            };
+            restore: {
+                /** @enum {string} */
+                status: "disabled" | "available" | "unavailable";
+                reason?: string;
+            };
+        };
+        AdminCatalogAccount: {
+            account_id: string;
+            label: string;
+            account_type: string;
+            /** @enum {string} */
+            discovery_state: "current" | "stale" | "invalidated";
+            /** @enum {string} */
+            membership_state: "eligible" | "no_eligible_binding";
+            /** Format: date-time */
+            observed_at: string | null;
+            identity_revision: components["schemas"]["AdminCatalogRevision"];
+            snapshot_revision: components["schemas"]["AdminCatalogRevision"];
+            rules_revision: components["schemas"]["AdminCatalogRevision"];
+        };
+        AdminCatalogDetail: {
+            model: components["schemas"]["AdminCatalogModel"];
+            aliases: string[];
+            common_facts: components["schemas"]["CatalogCommonFacts"] | null;
+            provenance: components["schemas"]["AdminCatalogFieldProvenance"][];
+            accounts: components["schemas"]["AdminCatalogAccount"][];
+            offers: components["schemas"]["AdminCatalogOffer"][];
+            /** @description One result per group and channel represented in this offer page. A pair spanning pages can repeat. */
+            publications: components["schemas"]["AdminCatalogPublication"][];
+            next_accounts_cursor: string | null;
+            next_offers_cursor: string | null;
+            catalog_version: string;
+            /** Format: date-time */
+            as_of: string;
+            scope_version: components["schemas"]["AdminCatalogRevision"];
+        };
+        AdminCatalogErrorBody: {
+            code: number;
+            message: string;
+            reason: string;
+            metadata: Record<string, never>;
+            data?: null;
+        };
+        AdminCatalogFieldProvenance: {
+            field: string;
+            /** @enum {string} */
+            state: "known" | "unknown" | "stale" | "conflict" | "suppressed";
+            source_kind?: components["schemas"]["CatalogSourceKind"];
+            artifact_version?: string;
+            /** Format: date-time */
+            observed_at?: string;
+            /** Format: date-time */
+            expires_at?: string;
+            /** @description One of a decimal-string count, a boolean, a string array or a context window. */
+            value?: string | boolean | string[] | {
+                tokens: string;
+                /** @enum {string} */
+                basis: "input" | "total" | "unspecified";
+            };
+        };
+        AdminCatalogModel: {
+            id: string;
+            canonical_id: string;
+            model: string;
+            display_name: string;
+            provider: string;
+            source: components["schemas"]["CatalogSourceAxis"];
+            availability: components["schemas"]["CatalogAvailability"];
+            billing: components["schemas"]["CatalogBilling"];
+            aliases_count: number;
+            /** @description Distinct accounts with a discovery observation or binding. */
+            accounts_count: number;
+            /** @description Distinct accounts with current, stale or invalidated discovery. */
+            discovered_accounts_count: number;
+            groups_count: number;
+            channels_count: number;
+        };
+        AdminCatalogOffer: {
+            group_id: string;
+            /** @description Zero identifies group-only observations. */
+            channel_id: string;
+            account_id: string | null;
+            action?: string;
+            protocol?: string;
+            eligible: boolean;
+            /** @enum {string} */
+            reason?: "access_denied" | "eligibility_incomplete" | "no_eligible_binding";
+            /** @constant */
+            price_context: "group_default";
+            billing: components["schemas"]["CatalogBilling"];
+        };
+        AdminCatalogPage: {
+            items: components["schemas"]["AdminCatalogModel"][];
+            next_cursor: string | null;
+            catalog_version: string;
+            /** Format: date-time */
+            as_of: string;
+            scope_version: components["schemas"]["AdminCatalogRevision"];
+        };
+        AdminCatalogPublication: {
+            group_id: string;
+            channel_id: string;
+            /** @enum {string} */
+            state: "published" | "unpublished" | "unknown";
+            /** @enum {string|null} */
+            basis: "explicit" | "legacy_default" | null;
+            /** @enum {string} */
+            reason: "published" | "published_without_eligible_binding" | "not_published" | "publication_not_observed";
+        };
+        AdminCatalogRevision: string;
+        AdminRollbackEligibility: {
+            database_floor: string;
+            current_version: string;
+            /** @enum {string} */
+            remote_status: "available" | "unavailable";
+            remote_reason?: string;
+            versions: components["schemas"]["AdminRollbackVersion"][];
+            excluded_versions: components["schemas"]["AdminRollbackVersion"][];
+            /** @description Verified local backup versions reported during a remote outage. Omit the version when requesting a local rollback. */
+            local_versions: components["schemas"]["AdminRollbackVersion"][];
+        };
+        AdminRollbackVersion: {
+            version: string;
+            effective_floor: string;
+            exclusion_reason?: string;
+            published_at: string;
+            html_url: string;
+        };
+        AdminUpdateInfo: {
+            current_version: string;
+            latest_version: string;
+            has_update: boolean;
+            cached: boolean;
+            /** @enum {string} */
+            build_type: "source" | "release";
+            /** @enum {string} */
+            remote_status: "available" | "cached" | "unavailable";
+            warning?: string;
+            release_info?: {
+                name: string;
+                body: string;
+                published_at: string;
+                html_url: string;
+                assets?: {
+                    name: string;
+                    download_url: string;
+                    /** Format: int64 */
+                    size: number;
+                }[];
+            };
+        };
+        AdminVerifiedBackup: {
+            id: string;
+            status: string;
+            file_name: string;
+            /** Format: int64 */
+            size_bytes: number;
+            checksum?: string;
+            /** Format: date-time */
+            verified_at?: string;
+            verification_error?: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** @description Frozen server admission metadata. Readers apply project authorization and their field-level projection before delivery. */
         AdmittedExecution: {
             /** Format: uuid */
@@ -2585,6 +3034,17 @@ export interface components {
             revoked_at: string | null;
         };
         ByokVerify: Record<string, never>;
+        CatalogAvailability: {
+            state: components["schemas"]["CatalogAvailabilityState"];
+            /** @enum {string} */
+            publication: "published" | "unpublished" | "unknown";
+            /** @enum {string} */
+            access: "allowed" | "denied" | "requires_scope" | "unknown";
+            /** @enum {string} */
+            reason?: "candidate_only" | "published_without_eligible_binding" | "discovered_without_eligible_binding" | "scope_required" | "access_denied" | "no_eligible_binding" | "eligibility_incomplete";
+        };
+        /** @enum {string} */
+        CatalogAvailabilityState: "live" | "unavailable" | "requires_scope" | "unknown";
         CatalogBenchmark: {
             benchmark_id: string;
             unit: string;
@@ -2593,6 +3053,15 @@ export interface components {
             /** Format: date-time */
             verified_at: string;
         };
+        CatalogBilling: {
+            state: components["schemas"]["CatalogBillingState"];
+            /** @description A stable display or quote reason code. */
+            reason?: string;
+            sale_price?: components["schemas"]["CatalogSalePrice"];
+            reference_price?: components["schemas"]["CatalogReferencePrice"];
+        };
+        /** @enum {string} */
+        CatalogBillingState: "priced" | "free" | "conditional" | "partial" | "conflict" | "unpriced" | "error" | "unknown";
         CatalogCapability: {
             verified_extension_actions?: components["schemas"]["ExtensionActionLabel"][];
             source: string;
@@ -2614,7 +3083,22 @@ export interface components {
             adapter_version: string | null;
             limitations: string[];
         };
+        CatalogCommonFacts: {
+            context_tokens: string | null;
+            /** @enum {string} */
+            context_kind: "input" | "total" | "unspecified" | "";
+            max_output_tokens: string | null;
+            embedding_dimensions: string | null;
+            tools: boolean | null;
+            vision: boolean | null;
+            reasoning: boolean | null;
+            prompt_caching: boolean | null;
+            pdf: boolean | null;
+            modalities: string[] | null;
+        };
         CatalogCompareInput: {
+            /** @description Accepted only by project compare for a Key the actor can use in that project. */
+            api_key_id?: string;
             model_ids: string[];
             protocol?: string;
             action?: string;
@@ -2623,6 +3107,7 @@ export interface components {
             price_at?: string;
         };
         CatalogCompareResult: {
+            scope_version?: string;
             catalog_version: string;
             /** Format: date-time */
             as_of: string;
@@ -2666,9 +3151,16 @@ export interface components {
             capabilities: components["schemas"]["CatalogCapability"][];
         };
         CatalogEstimate: {
+            billing_state?: components["schemas"]["CatalogBillingState"];
+            /** @description Explains an unavailable estimate or describes the catalog billing state when no estimate was requested. */
+            reason?: components["schemas"]["PriceEstimateReason"] | string;
+            /** Format: date-time */
+            price_at?: string;
             /** @enum {string} */
-            state: "estimated" | "unpriced";
+            state: "estimated" | "free" | "unpriced";
             price_version: string | null;
+            /** @description Origin of the sale tariff used for this estimate. */
+            source?: string;
             estimated_charge: components["schemas"]["CatalogMoney"] | null;
             components: components["schemas"]["CatalogEstimateComponent"][];
             rounding_adjustment: string | null;
@@ -2686,6 +3178,24 @@ export interface components {
             expires_at: string | null;
             /** @enum {string} */
             state: "fresh" | "stale" | "unknown";
+        };
+        CatalogFieldProvenance: {
+            field: string;
+            /** @enum {string} */
+            state: "known" | "unknown" | "stale" | "conflict" | "suppressed";
+            source_kind?: components["schemas"]["CatalogSourceKind"];
+            artifact_version?: string;
+            /** Format: date-time */
+            observed_at?: string;
+            record_key?: string;
+            provider?: string;
+            profile?: string;
+            match_rule?: string;
+            trust?: string;
+            scope?: string;
+            /** Format: date-time */
+            expires_at?: string;
+            value?: unknown;
         };
         CatalogMetrics: {
             /** Format: date-time */
@@ -2736,6 +3246,7 @@ export interface components {
             modalities: string[] | null;
         };
         CatalogModelPage: {
+            scope_version?: string;
             items: components["schemas"]["ModelSummary"][];
             next_cursor: string | null;
             /** Format: date-time */
@@ -2746,12 +3257,7 @@ export interface components {
             currency: string;
             amount: string;
         };
-        CatalogPriceScenario: {
-            input_tokens?: string;
-            cached_input_tokens?: string;
-            output_tokens?: string;
-            requests?: string;
-        };
+        CatalogPriceScenario: components["schemas"]["ExactPriceScenario"];
         CatalogRate: {
             currency: string;
             amount: string;
@@ -2774,11 +3280,34 @@ export interface components {
             context_basis?: string;
             time_bands: components["schemas"]["CatalogTimeBand"][] | null;
         };
+        CatalogSalePrice: {
+            source: string;
+            /** @enum {string} */
+            scope: "public" | "authorized";
+            price_version: string | null;
+            /** Format: date-time */
+            valid_from: string | null;
+            /** Format: date-time */
+            valid_until: string | null;
+            input_rate: components["schemas"]["CatalogRate"] | null;
+            output_rate: components["schemas"]["CatalogRate"] | null;
+            additional_rates: components["schemas"]["CatalogRateBand"][];
+            time_bands: components["schemas"]["CatalogTimeBand"][];
+            context_basis?: string;
+        };
         CatalogScope: {
             workspace_id: components["schemas"]["IdentityID"];
             project_id: components["schemas"]["IdentityID"];
             scope_version: components["schemas"]["IdentityID"];
         };
+        CatalogSourceAxis: {
+            kinds: components["schemas"]["CatalogSourceKind"][];
+            candidate: boolean | null;
+            /** @description Native discovery membership in the authorized view. Null for public viewers. */
+            discovered: boolean | null;
+        };
+        /** @enum {string} */
+        CatalogSourceKind: "builtin_reviewed" | "platform_preset" | "builtin_supplement" | "pi_ai_reference" | "account_discovery" | "account_declaration" | "external_reference" | "heuristic";
         CatalogTimeBand: {
             timezone: string;
             start_time: string;
@@ -2857,6 +3386,16 @@ export interface components {
             account_mode: components["schemas"]["CatalogVerificationAccountMode"];
             protocol: string;
             interval_seconds?: components["schemas"]["CatalogVerificationInterval"];
+        };
+        ConfigurationResetRequest: {
+            keys: string[];
+        };
+        ConfigurationResetResult: {
+            /** @description Same GET/PUT /api/v1/admin/settings response data, with secret plaintext omitted. */
+            settings: Record<string, never>;
+            items: components["schemas"]["EffectiveConfigurationItem"][];
+            /** Format: date-time */
+            generated_at: string;
         };
         /**
          * @description Provider-selected authorization lane. `kilo` accepts `free` (keyless
@@ -3325,6 +3864,41 @@ export interface components {
             output_tokens: string | null;
             platform_charge: components["schemas"]["CostMoney"] | null;
         };
+        EffectiveConfiguration: {
+            /** @description Absolute CONFIG_FILE path */
+            config_file: string;
+            /** Format: date-time */
+            generated_at: string;
+            items: components["schemas"]["EffectiveConfigurationItem"][];
+            next_cursor?: string;
+        };
+        EffectiveConfigurationItem: {
+            key: string;
+            group: string;
+            /** @enum {string} */
+            value_type: "bool" | "int" | "float" | "string" | "string_list" | "json" | "object";
+            /** @description Effective non-secret value. Always null for sensitive or unavailable settings. */
+            value: unknown;
+            /** @enum {string} */
+            source: "database" | "environment" | "yaml" | "default" | "derived" | "artifact";
+            /** @enum {string} */
+            authority: "deployment" | "database_override" | "database_only" | "versioned_artifact";
+            fallback_chain: ("database" | "environment" | "yaml" | "default" | "derived" | "artifact")[];
+            restart_required: boolean;
+            resettable: boolean;
+            sensitive: boolean;
+            /** @enum {string} */
+            state: "effective" | "invalid" | "unavailable" | "blocked_by_hard_gate";
+            /** @description Presence metadata for sensitive settings; null otherwise. */
+            configured: boolean | null;
+            blocked_by?: string;
+            /** @enum {string} */
+            install_seed_source?: "install_seed" | "environment" | "yaml" | "default" | "admin" | "unknown";
+            /** @description Non-secret value that a reset would restore. */
+            baseline?: unknown;
+            /** @enum {string} */
+            error_code?: "CONFIG_INVALID" | "CONFIG_UNAVAILABLE";
+        };
         ExactCount: string;
         ExactDuration: string;
         /** @description Quantities per request. Cached input is included in input; other dimensions are disjoint. Missing usage fields default to zero and requests defaults to one. */
@@ -3344,10 +3918,19 @@ export interface components {
             audio_seconds?: components["schemas"]["ExactDuration"];
             video_seconds?: components["schemas"]["ExactDuration"];
             size_tier?: string;
+            service_tier?: string;
+            reasoning_effort?: string;
+            thinking_enabled?: boolean | null;
+            explicit_cache?: boolean;
+            batch?: boolean;
         };
         ExactQuote: {
             /** @enum {string} */
             state: "estimated" | "free" | "unpriced";
+            billing_state: components["schemas"]["CatalogBillingState"];
+            /** Format: date-time */
+            price_at: string;
+            reason?: components["schemas"]["PriceEstimateReason"];
             price_version: string | null;
             source: string | null;
             estimated_charge: components["schemas"]["CatalogMoney"] | null;
@@ -3418,10 +4001,36 @@ export interface components {
             actor_id: components["schemas"]["IdentityID"];
             workspace_id: components["schemas"]["IdentityID"];
             project_id: components["schemas"]["IdentityID"];
+            issuable_key_actions: string[];
             actions: string[];
             scope_version: components["schemas"]["IdentityID"];
             /** Format: date-time */
             expires_at: string;
+        };
+        IdentityAccessRequest: {
+            id: components["schemas"]["IdentityID"];
+            workspace_id: components["schemas"]["IdentityID"];
+            requester_id: components["schemas"]["IdentityID"];
+            requested_project_id: string | null;
+            approved_project_id: string | null;
+            note: string;
+            /** @enum {string} */
+            state: "pending" | "approved" | "declined";
+            version: components["schemas"]["IdentityID"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            decided_at: string | null;
+        };
+        IdentityDecisionInput: {
+            /** @constant */
+            decision: "decline";
+        } | {
+            /** @constant */
+            decision: "approve";
+            project_id: components["schemas"]["IdentityID"];
+            member_version: components["schemas"]["IdentityID"];
+            add_actions: string[];
         };
         IdentityError: {
             code: number;
@@ -3431,8 +4040,10 @@ export interface components {
             data: null;
         };
         IdentityGrantInput: {
-            actions: string[];
+            project_grants: components["schemas"]["IdentityProjectGrant"][];
+        } | {
             project_ids: components["schemas"]["IdentityID"][];
+            actions: string[];
         };
         IdentityGrantVersion: {
             member_id: components["schemas"]["IdentityID"];
@@ -3452,6 +4063,14 @@ export interface components {
             owner_id: components["schemas"]["IdentityID"];
             version: components["schemas"]["IdentityID"];
             credential: string | null;
+            status: string;
+            /** Format: date-time */
+            expires_at: string | null;
+            /** @enum {string} */
+            state: "active" | "disabled" | "expired" | "quota_exhausted" | "no_credential" | "unknown";
+            group_id: string | null;
+            /** @enum {string} */
+            kind: "project_policy" | "legacy_group";
         };
         IdentityKeyGroup: {
             id: components["schemas"]["IdentityID"];
@@ -3488,11 +4107,17 @@ export interface components {
             email: string;
             username: string;
             /** @enum {string} */
+            role_source: "inherited" | "delegated";
+            /** @enum {string} */
             role: "admin" | "member";
             status: string;
             version: components["schemas"]["IdentityID"];
         };
-        IdentityMemberGrants: components["schemas"]["IdentityGrantVersion"] & components["schemas"]["IdentityGrantInput"];
+        IdentityMemberGrants: components["schemas"]["IdentityGrantVersion"] & {
+            project_ids: components["schemas"]["IdentityID"][];
+            actions: string[];
+            project_grants: components["schemas"]["IdentityProjectGrant"][];
+        };
         IdentityMemberPage: {
             items: components["schemas"]["IdentityMember"][];
             next_cursor: string | null;
@@ -3514,8 +4139,13 @@ export interface components {
         IdentityProject: {
             id: components["schemas"]["IdentityID"];
             workspace_id: components["schemas"]["IdentityID"];
+            is_default: boolean;
             name: string;
             version: components["schemas"]["IdentityID"];
+        };
+        IdentityProjectGrant: {
+            project_id: components["schemas"]["IdentityID"];
+            actions: string[];
         };
         IdentityProjectPage: {
             items: components["schemas"]["IdentityProject"][];
@@ -3523,14 +4153,41 @@ export interface components {
             /** Format: date-time */
             as_of: string;
         };
+        IdentityRequestInput: {
+            note: string;
+            requested_project_id?: components["schemas"]["IdentityID"];
+        };
+        IdentityRequestPage: {
+            items: components["schemas"]["IdentityAccessRequest"][];
+            next_cursor: string | null;
+            /** Format: date-time */
+            as_of: string;
+        };
         IdentityWorkspace: {
             workspace_id: components["schemas"]["IdentityID"];
+            is_default: boolean;
             name: string;
             projects: {
                 id: components["schemas"]["IdentityID"];
+                is_default: boolean;
                 name: string;
             }[];
             projects_next_cursor: string | null;
+        };
+        IdentityWorkspaceAccess: {
+            actor_id: components["schemas"]["IdentityID"];
+            workspace_id: components["schemas"]["IdentityID"];
+            project_id: null;
+            /** @enum {string} */
+            membership_role?: "admin" | "member";
+            /** @enum {string} */
+            role_source?: "inherited" | "delegated";
+            effective_admin: boolean;
+            grantable_actions?: string[];
+            actions: string[];
+            scope_version: components["schemas"]["IdentityID"];
+            /** Format: date-time */
+            expires_at: string;
         };
         IdentityWorkspacePage: {
             items: components["schemas"]["IdentityWorkspace"][];
@@ -3665,6 +4322,9 @@ export interface components {
             size_bytes: string | null;
         };
         ModelDetail: {
+            scope_version?: string;
+            provenance?: components["schemas"]["CatalogFieldProvenance"][];
+            common_facts?: components["schemas"]["CatalogCommonFacts"];
             model: components["schemas"]["ModelSummary"];
             reference_price?: components["schemas"]["CatalogReferencePrice"] | null;
             aliases: string[];
@@ -3684,6 +4344,10 @@ export interface components {
         };
         ModelSummary: {
             id: string;
+            canonical_id?: string;
+            source?: components["schemas"]["CatalogSourceAxis"];
+            availability?: components["schemas"]["CatalogAvailability"];
+            billing?: components["schemas"]["CatalogBilling"];
             model: string;
             display_name: string;
             provider: string;
@@ -3693,22 +4357,43 @@ export interface components {
             actions: string[];
             regions: string[];
             context_tokens: string | null;
-            /** @enum {string} */
+            /**
+             * @deprecated
+             * @enum {string}
+             */
             maturity: "unknown" | "stable" | "experimental" | "deprecated";
-            /** @enum {string} */
+            /**
+             * @deprecated
+             * @enum {string}
+             */
             catalog_state: "listed";
-            /** @enum {string} */
+            /**
+             * @deprecated
+             * @enum {string}
+             */
             availability_state?: "live" | "catalog_only";
-            /** @enum {string} */
+            /**
+             * @deprecated
+             * @enum {string}
+             */
             access_state: "allowed" | "denied" | "unknown" | "requires_scope";
-            /** @enum {string} */
+            /**
+             * @deprecated
+             * @enum {string}
+             */
             route_state: "eligible" | "ineligible" | "unknown" | "requires_scope";
-            /** @enum {string} */
+            /**
+             * @deprecated
+             * @enum {string}
+             */
             price_state: "priced" | "free" | "unpriced" | "error";
             input_rate: components["schemas"]["CatalogRate"] | null;
             output_rate: components["schemas"]["CatalogRate"] | null;
             observed_at: string | null;
-            /** @enum {string} */
+            /**
+             * @deprecated
+             * @enum {string}
+             */
             evidence_state: "fresh" | "stale" | "unknown";
             effective_scope?: components["schemas"]["CatalogScope"];
         };
@@ -3765,6 +4450,27 @@ export interface components {
             status_url?: string;
             detail_url?: string;
             settlement_state?: string;
+        };
+        PlaygroundKeyModel: {
+            id: string;
+            model: string;
+            display_name: string;
+            provider: string;
+            pairs: {
+                /** @constant */
+                action: "text.chat";
+                protocol: components["schemas"]["PlaygroundProtocol"];
+            }[];
+        };
+        PlaygroundKeyModelPage: {
+            key_id: string;
+            workspace_id: string;
+            project_id: string;
+            scope_version: string;
+            /** Format: date-time */
+            as_of: string;
+            next_cursor: string | null;
+            items: components["schemas"]["PlaygroundKeyModel"][];
         };
         PlaygroundOptions: {
             /** @default true */
@@ -3841,6 +4547,8 @@ export interface components {
             payer_user_id: components["schemas"]["IdentityID"];
             settlement_state: string;
         };
+        /** @enum {string} */
+        PriceEstimateReason: "missing_price" | "partial_price" | "conflicting_prices" | "scenario_required";
         RequestsAttempt: {
             id: string;
             number: number;
@@ -4545,6 +5253,29 @@ export interface components {
         WorkBuddySite: "cn" | "global";
     };
     responses: {
+        /** @description Schedule configuration and observed scheduler status */
+        AdminBackupScheduleResponse: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    message: string;
+                    data: components["schemas"]["AdminBackupScheduleStatus"];
+                };
+            };
+        };
+        /** @description Authentication, authorization, scope, compliance, validation, snapshot expiry or dependency error. */
+        AdminCatalogError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["AdminCatalogErrorBody"];
+            };
+        };
         /** @description Changed */
         ByokChanged: {
             headers: {
@@ -4696,6 +5427,20 @@ export interface components {
                     /** @constant */
                     message: "success";
                     data: components["schemas"]["CatalogVerificationTarget"];
+                };
+            };
+        };
+        /** @description Standard OmniHive management error; configuration values are not included */
+        ConfigurationError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    code: number;
+                    message: string;
+                    reason?: string;
+                    metadata?: Record<string, never>;
                 };
             };
         };
@@ -4887,6 +5632,14 @@ export interface components {
         };
     };
     parameters: {
+        /** @description Optional project within the workspace. Omission reads the entire workspace. */
+        AdminCatalogProject: string;
+        /** @description Explicit workspace ID. */
+        AdminCatalogWorkspace: string;
+        CatalogAvailability: components["schemas"]["CatalogAvailabilityState"];
+        CatalogBilling: components["schemas"]["CatalogBillingState"];
+        /** @description Select a Key the current actor can use in this project. */
+        CatalogKeyID: string;
         /**
          * @description Stable opaque catalog ID (`m_` followed by 32 lowercase hex characters)
          *     or a `provider/model` slug resolved against the same catalog snapshot.
@@ -4898,6 +5651,14 @@ export interface components {
         CatalogVerificationIdempotency: string;
         CatalogVerificationIfMatch: string;
         CatalogVerificationTargetID: string;
+        /** @description Return registered keys strictly after this key */
+        ConfigurationCursor: string;
+        ConfigurationGroup: string;
+        ConfigurationLimit: number;
+        /** @description Case-insensitive substring match on key or group */
+        ConfigurationQuery: string;
+        ConfigurationSource: "database" | "environment" | "yaml" | "default" | "derived" | "artifact";
+        ConfigurationState: "effective" | "invalid" | "unavailable" | "blocked_by_hard_gate";
         ConnectionID: components["schemas"]["IdentityID"];
         CostQueryApiKeyId: string;
         CostQueryAt: string;
@@ -4927,6 +5688,7 @@ export interface components {
         IdentityMemberID: components["schemas"]["IdentityID"];
         IdentityOperationID: string;
         IdentityProjectID: components["schemas"]["IdentityID"];
+        IdentityRequestID: components["schemas"]["IdentityID"];
         IdentityVersion: string;
         IdentityWorkspaceID: components["schemas"]["IdentityID"];
         ImageArtifactID: string;
@@ -4957,6 +5719,187 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    updateAdminAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminAccountUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated account */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid update, including conflicting model selection intent */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getAdminBackupSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["AdminBackupScheduleResponse"];
+        };
+    };
+    updateAdminBackupSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminBackupSchedule"];
+            };
+        };
+        responses: {
+            200: components["responses"]["AdminBackupScheduleResponse"];
+        };
+    };
+    getEffectiveConfiguration: {
+        parameters: {
+            query?: {
+                group?: components["parameters"]["ConfigurationGroup"];
+                /** @description Case-insensitive substring match on key or group */
+                q?: components["parameters"]["ConfigurationQuery"];
+                /** @description Return registered keys strictly after this key */
+                cursor?: components["parameters"]["ConfigurationCursor"];
+                limit?: components["parameters"]["ConfigurationLimit"];
+                source?: components["parameters"]["ConfigurationSource"];
+                state?: components["parameters"]["ConfigurationState"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deterministically key-sorted effective configuration page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["EffectiveConfiguration"];
+                    };
+                };
+            };
+            400: components["responses"]["ConfigurationError"];
+            401: components["responses"]["ConfigurationError"];
+            403: components["responses"]["ConfigurationError"];
+        };
+    };
+    resetConfigurationOverrides: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigurationResetRequest"];
+            };
+        };
+        responses: {
+            /** @description Shared admin settings projection and reset effective entries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["ConfigurationResetResult"];
+                    };
+                };
+            };
+            400: components["responses"]["ConfigurationError"];
+            401: components["responses"]["ConfigurationError"];
+            403: components["responses"]["ConfigurationError"];
+            503: components["responses"]["ConfigurationError"];
+        };
+    };
+    checkAdminSystemUpdates: {
+        parameters: {
+            query?: {
+                force?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Release check, including an unavailable result if GitHub cannot be reached */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["AdminUpdateInfo"];
+                    };
+                };
+            };
+        };
+    };
+    listAdminRollbackVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rollback eligibility, with local backup candidates when GitHub is unavailable */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["AdminRollbackEligibility"];
+                    };
+                };
+            };
+        };
+    };
     workBuddyAdminOAuthPoll: {
         parameters: {
             query?: never;
@@ -5160,6 +6103,113 @@ export interface operations {
                     "application/json": components["schemas"]["IdentityError"];
                 };
             };
+        };
+    };
+    listAdminCatalogModels: {
+        parameters: {
+            query: {
+                /** @description Explicit workspace ID. */
+                workspace_id: components["parameters"]["AdminCatalogWorkspace"];
+                /** @description Optional project within the workspace. Omission reads the entire workspace. */
+                project_id?: components["parameters"]["AdminCatalogProject"];
+                availability?: components["parameters"]["CatalogAvailability"];
+                billing?: components["parameters"]["CatalogBilling"];
+                /** @description Opaque continuation bound to the current scope, filters and catalog version. Expires after 15 minutes. */
+                cursor?: string;
+                provider?: string;
+                /** @description Exact, case-sensitive public model name. */
+                model?: string;
+                /** @description Case-insensitive substring search across public names, aliases, display names and opaque IDs. */
+                q?: string;
+                source?: components["schemas"]["CatalogSourceKind"];
+                publication?: "published" | "unpublished" | "unknown";
+                /**
+                 * @description routable_but_unpriced selects live models with common billing state unpriced.
+                 *     discovered_not_enabled selects a current discovery on an account with no eligible binding for the model.
+                 *     listed_unrouted selects published models with unavailable routes.
+                 *     group_price_conflict selects models with conflicting eligible offers.
+                 *     pi_only selects models whose only source is pi.
+                 *     stale selects models with stale discovery or field evidence.
+                 */
+                quick_filter?: "routable_but_unpriced" | "discovered_not_enabled" | "listed_unrouted" | "group_price_conflict" | "pi_only" | "stale";
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace catalog ordered by provider, exact public name and stable ID. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["AdminCatalogPage"];
+                    };
+                };
+            };
+            401: components["responses"]["AdminCatalogError"];
+            403: components["responses"]["AdminCatalogError"];
+            404: components["responses"]["AdminCatalogError"];
+            410: components["responses"]["AdminCatalogError"];
+            422: components["responses"]["AdminCatalogError"];
+            423: components["responses"]["AdminCatalogError"];
+            503: components["responses"]["AdminCatalogError"];
+            default: components["responses"]["AdminCatalogError"];
+        };
+    };
+    getAdminCatalogModel: {
+        parameters: {
+            query: {
+                /** @description Explicit workspace ID. */
+                workspace_id: components["parameters"]["AdminCatalogWorkspace"];
+                /** @description Optional project within the workspace. Omission reads the entire workspace. */
+                project_id?: components["parameters"]["AdminCatalogProject"];
+                /** @description Optional catalog version from the list or a previous detail page. A mismatch returns 410. */
+                catalog_version?: string;
+                /** @description Opaque account continuation bound to the scope, model and catalog version. Expires after 15 minutes. */
+                accounts_cursor?: string;
+                /** @description Opaque offer continuation bound to the scope, model and catalog version. Expires after 15 minutes. */
+                offers_cursor?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Model detail with separate pages of up to 50 accounts and 50 offers. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["AdminCatalogDetail"];
+                    };
+                };
+            };
+            401: components["responses"]["AdminCatalogError"];
+            403: components["responses"]["AdminCatalogError"];
+            404: components["responses"]["AdminCatalogError"];
+            410: components["responses"]["AdminCatalogError"];
+            422: components["responses"]["AdminCatalogError"];
+            423: components["responses"]["AdminCatalogError"];
+            503: components["responses"]["AdminCatalogError"];
+            default: components["responses"]["AdminCatalogError"];
         };
     };
     catalogCreateVerificationTarget: {
@@ -5600,6 +6650,9 @@ export interface operations {
                 region?: string[];
                 retention?: string[];
                 stability?: string[];
+                availability?: components["parameters"]["CatalogAvailability"];
+                billing?: components["parameters"]["CatalogBilling"];
+                /** @deprecated */
                 availability_state?: "live" | "catalog_only";
                 sort?: "name" | "price_input" | "context" | "ttft" | "availability";
                 limit?: components["parameters"]["IdentityLimit"];
@@ -5835,6 +6888,175 @@ export interface operations {
             304: components["responses"]["StatusNotModified"];
             404: components["responses"]["StatusError"];
             default: components["responses"]["StatusError"];
+        };
+    };
+    identityWorkspaceAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["IdentityWorkspaceAccess"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    identityAccessRequests: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["IdentityCursor"];
+                limit?: components["parameters"]["IdentityLimit"];
+                view?: "mine" | "review";
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["IdentityRequestPage"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    identityRequestAccess: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IdentityRequestInput"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            201: {
+                headers: {
+                    /** @description Quoted request version */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["IdentityAccessRequest"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    identityDecideAccess: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["IdentityRequestID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IdentityDecisionInput"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description Quoted request version */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["IdentityAccessRequest"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
         };
     };
     workspaceCostActivity: {
@@ -8475,6 +9697,21 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Replayed issuance with current metadata and a null credential */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["IdentityKey"];
+                    };
+                };
+            };
             /** @description Created */
             201: {
                 headers: {
@@ -8512,6 +9749,11 @@ export interface operations {
                 region?: string[];
                 retention?: string[];
                 stability?: string[];
+                availability?: components["parameters"]["CatalogAvailability"];
+                billing?: components["parameters"]["CatalogBilling"];
+                /** @description Select a Key the current actor can use in this project. */
+                api_key_id?: components["parameters"]["CatalogKeyID"];
+                /** @deprecated */
                 availability_state?: "live" | "catalog_only";
                 sort?: "name" | "price_input" | "context" | "ttft" | "availability";
                 limit?: components["parameters"]["IdentityLimit"];
@@ -8557,6 +9799,8 @@ export interface operations {
     getProjectModel: {
         parameters: {
             query?: {
+                /** @description Select a Key the current actor can use in this project. */
+                api_key_id?: components["parameters"]["CatalogKeyID"];
                 catalog_version?: string;
             };
             header?: never;
@@ -8642,6 +9886,44 @@ export interface operations {
                     "application/json": components["schemas"]["IdentityError"];
                 };
             };
+        };
+    };
+    playgroundKeyModels: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                key_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Scoped model page, which can contain zero eligible items */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["PlaygroundKeyModelPage"];
+                    };
+                };
+            };
+            403: components["responses"]["RequestsError"];
+            404: components["responses"]["RequestsError"];
+            409: components["responses"]["RequestsError"];
+            503: components["responses"]["RequestsError"];
+            default: components["responses"]["RequestsError"];
         };
     };
     playgroundSubmit: {

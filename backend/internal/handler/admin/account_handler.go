@@ -158,6 +158,13 @@ func prepareCompatibleAccountUpdate(existing *service.Account, req *UpdateAccoun
 	// resulting map for compatible providers; leave absent credential edits absent.
 	if len(req.Credentials) > 0 {
 		domain.ClearEmptyBillingPlan(credentials)
+		if req.PreserveModelSelection {
+			delete(credentials, "model_mapping")
+			delete(credentials, "model_whitelist")
+			if _, compactEdit := req.Credentials["compact_model_mapping"]; !compactEdit {
+				delete(credentials, "compact_model_mapping")
+			}
+		}
 		req.Credentials = credentials
 	}
 	return nil
@@ -178,7 +185,8 @@ func NewOAuthHandler(oauthService *service.OAuthService) *OAuthHandler {
 
 // AccountHandler handles admin account management
 type AccountHandler struct {
-	stagedImports *service.StagedAccountImportService
+	defaultWorkspaceResolver func(context.Context) (int64, error)
+	stagedImports            *service.StagedAccountImportService
 	credentialDraftHandler
 	cursorAuthService       *service.CursorAuthService
 	cursorSessions          *service.CursorSessionProvider
@@ -200,6 +208,27 @@ type AccountHandler struct {
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
 	ollamaCloudUsage        *service.OllamaCloudUsageService
 	cfg                     *config.Config
+}
+
+// SetDefaultWorkspaceResolver supplies the flagged Default workspace lookup for
+// legacy accounts without workspace ownership. Background jobs skip those
+// accounts when the lookup is unavailable.
+func (h *AccountHandler) SetDefaultWorkspaceResolver(resolve func(context.Context) (int64, error)) {
+	h.defaultWorkspaceResolver = resolve
+}
+
+func (h *AccountHandler) resolveDefaultWorkspace(ctx context.Context) (int64, error) {
+	if h.defaultWorkspaceResolver == nil {
+		return 0, fmt.Errorf("default workspace resolver is not configured")
+	}
+	id, err := h.defaultWorkspaceResolver(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if id <= 0 {
+		return 0, fmt.Errorf("default workspace resolver returned an invalid ID")
+	}
+	return id, nil
 }
 
 // SetUpstreamBillingProbeService attaches the optional remote billing probe service.
@@ -276,6 +305,7 @@ type CreateAccountRequest struct {
 // UpdateAccountRequest represents update account request
 // 使用指针类型来区分"未提供"和"设置为0"
 type UpdateAccountRequest struct {
+	PreserveModelSelection  bool                     `json:"preserve_model_selection"`
 	TPMLimit                service.OptionalTPMLimit `json:"tpm_limit,omitzero"`
 	Name                    string                   `json:"name"`
 	Notes                   *string                  `json:"notes"`
@@ -1272,6 +1302,10 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	if err := service.ValidateAccountModelSelectionPreservation(req.PreserveModelSelection, req.Credentials, req.Extra); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 	if req.RateMultiplier != nil && *req.RateMultiplier < 0 {
 		response.BadRequest(c, "rate_multiplier must be >= 0")
 		return
@@ -1318,13 +1352,14 @@ func (h *AccountHandler) Update(c *gin.Context) {
 	skipCheck := req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk
 
 	account, err := h.adminService.UpdateAccount(c.Request.Context(), accountID, &service.UpdateAccountInput{
-		TPMLimit:    req.TPMLimit.Pointer(),
-		Name:        req.Name,
-		Notes:       req.Notes,
-		Type:        req.Type,
-		Credentials: req.Credentials,
-		Extra:       req.Extra,
-		ProxyID:     req.ProxyID, ProxyGroupID: req.ProxyGroupID,
+		PreserveModelSelection: req.PreserveModelSelection,
+		TPMLimit:               req.TPMLimit.Pointer(),
+		Name:                   req.Name,
+		Notes:                  req.Notes,
+		Type:                   req.Type,
+		Credentials:            req.Credentials,
+		Extra:                  req.Extra,
+		ProxyID:                req.ProxyID, ProxyGroupID: req.ProxyGroupID,
 		Concurrency:           req.Concurrency, // 指针类型，nil 表示未提供
 		Priority:              req.Priority,    // 指针类型，nil 表示未提供
 		RateMultiplier:        req.RateMultiplier,
@@ -1377,10 +1412,15 @@ func (h *AccountHandler) scheduleOpenAIResponsesProbe(account *service.Account) 
 		return
 	}
 	accountID, workspaceID := account.ID, account.WorkspaceID
-	if workspaceID <= 0 {
-		workspaceID = domain.DefaultWorkspaceID
-	}
 	defaultOpenAIImportProbeScheduler.scheduleProbe(accountID, func(ctx context.Context) {
+		if workspaceID <= 0 {
+			var err error
+			workspaceID, err = h.resolveDefaultWorkspace(ctx)
+			if err != nil {
+				slog.Warn("account_probe_default_workspace_unavailable", "account_id", accountID, "error", err)
+				return
+			}
+		}
 		ctx = domain.WithWorkspaceScope(ctx, workspaceID)
 		fresh, err := h.adminService.GetAccount(ctx, accountID)
 		if err != nil || fresh == nil || fresh.Status != service.StatusActive || fresh.ID != accountID || (fresh.WorkspaceID > 0 && fresh.WorkspaceID != workspaceID) {
@@ -1398,10 +1438,15 @@ func (h *AccountHandler) scheduleModelCatalogApply(account *service.Account, pro
 		return
 	}
 	accountID, workspaceID := account.ID, account.WorkspaceID
-	if workspaceID <= 0 {
-		workspaceID = domain.DefaultWorkspaceID
-	}
 	defaultOpenAIImportProbeScheduler.scheduleProbe(accountID, func(ctx context.Context) {
+		if workspaceID <= 0 {
+			var err error
+			workspaceID, err = h.resolveDefaultWorkspace(ctx)
+			if err != nil {
+				slog.Warn("account_catalog_default_workspace_unavailable", "account_id", accountID, "error", err)
+				return
+			}
+		}
 		ctx = domain.WithWorkspaceScope(ctx, workspaceID)
 		fresh, err := h.adminService.GetAccount(ctx, accountID)
 		if err != nil || fresh == nil || fresh.Status != service.StatusActive || fresh.ID != accountID || (fresh.WorkspaceID > 0 && fresh.WorkspaceID != workspaceID) {

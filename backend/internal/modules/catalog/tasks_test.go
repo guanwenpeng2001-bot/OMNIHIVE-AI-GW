@@ -34,14 +34,18 @@ func TestCatalogOnlyPresentationKeepsRoutingAndPricesSeparate(t *testing.T) {
 	}
 	rate, err := money.NewRate("USD", "0.02", "input_token", "1")
 	require.NoError(t, err)
-	live := Offer{GroupID: 9, Access: true, Eligible: true, Price: Price{State: "priced", Source: "public_plaza_reference", Input: &rate}}
+	output, err := money.NewRate("USD", "0.04", "output_token", "1")
+	require.NoError(t, err)
+	live := Offer{GroupID: 9, Access: true, Eligible: true, Price: Price{State: "priced", Source: "public_plaza_reference", Input: &rate, Output: &output}}
 	in.Models[0].Offers = append(in.Models[0].Offers, live)
 	for _, perspective := range []Perspective{{}, {Workspace: 1, Project: 2}} {
 		detail := Project(perspective, in, Window{}, now).Details[0]
 		require.Equal(t, "live", detail.Model.AvailabilityState)
 		require.Equal(t, "priced", detail.Model.PriceState)
+		require.Equal(t, "priced", detail.Model.Billing.State)
 		require.Equal(t, &rate, detail.Model.Input)
 		require.Nil(t, detail.ReferencePrice)
+		require.NotNil(t, detail.Model.Billing.ReferencePrice)
 		if !perspective.Public() {
 			require.Equal(t, []int64{9}, detail.EligibleGroups)
 			require.Equal(t, "eligible", detail.Model.RouteState)
@@ -69,7 +73,7 @@ func TestCatalogTaskPresentation(t *testing.T) {
 }
 
 func TestCatalogOpenAPIContractAlignment(t *testing.T) {
-	specBytes, err := os.ReadFile(filepath.Join("..", "..", "..", "api", "openapi", "openapi.yaml"))
+	specBytes, err := os.ReadFile(filepath.Join("..", "..", "..", "api", "openapi", "fragments", "catalog.yaml"))
 	require.NoError(t, err)
 	var spec struct {
 		Components struct {
@@ -95,6 +99,9 @@ func TestCatalogOpenAPIContractAlignment(t *testing.T) {
 	modelMap, ok := detailMap["model"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "catalog_only", modelMap["availability_state"])
+	availability, ok := modelMap["availability"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "requires_scope", availability["state"])
 	for key := range modelMap {
 		require.Contains(t, spec.Components.Schemas["ModelSummary"].Properties, key, "ModelSummary missing runtime key %q", key)
 	}

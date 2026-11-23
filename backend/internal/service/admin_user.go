@@ -124,7 +124,11 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInpu
 	if input.Balance != nil {
 		balance = *input.Balance
 	} else if s.settingService != nil {
-		balance = s.settingService.GetDefaultBalance(ctx)
+		defaults, err := s.settingService.RegistrationDefaults(ctx)
+		if err != nil {
+			return nil, ErrRegistrationDefaultsUnavailable.WithCause(err)
+		}
+		balance = defaults.Balance
 	}
 
 	// 角色可由管理员在创建时指定(admin/user);未提供时默认 user。
@@ -209,6 +213,11 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	user, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+
+	if input.Balance != nil && *input.Balance != user.Balance {
+		return nil, infraerrors.BadRequest("BALANCE_UPDATE_REQUIRES_BALANCE_ENDPOINT",
+			"Use POST /api/v1/admin/users/{id}/balance to change the balance.")
 	}
 
 	// Protect admin users: cannot disable admin accounts

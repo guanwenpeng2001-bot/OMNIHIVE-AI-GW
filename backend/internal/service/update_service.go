@@ -42,9 +42,7 @@ const (
 	githubRepo             = "guanwenpeng2001-bot/OMNIHIVE-AI-GW"
 	releaseManifestName    = "omnihive-release-manifest.json"
 	maxReleaseManifestSize = 64 * 1024
-
-	// Versions before the OmniHive v2 schema may not serve a migrated database.
-	minimumRollbackVersion = "v0.2.5"
+	releaseLookupTimeout   = 15 * time.Second // Keep diagnostics within the admin client's 30-second timeout.
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -111,7 +109,14 @@ type UpdateInfo struct {
 	Cached         bool         `json:"cached"`
 	Warning        string       `json:"warning,omitempty"`
 	BuildType      string       `json:"build_type"` // "source" or "release"
+	RemoteStatus   string       `json:"remote_status"`
 }
+
+const (
+	releaseRemoteAvailable   = "available"
+	releaseRemoteUnavailable = "unavailable"
+	releaseLookupUnavailable = "GitHub release information is unavailable."
+)
 
 // ReleaseInfo contains GitHub release details
 type ReleaseInfo struct {
@@ -143,9 +148,11 @@ type GitHubRelease struct {
 
 // RollbackVersion describes a release version the system can roll back to
 type RollbackVersion struct {
-	Version     string `json:"version"` // without "v" prefix, e.g. "0.1.146"
-	PublishedAt string `json:"published_at"`
-	HTMLURL     string `json:"html_url"`
+	EffectiveFloor  string `json:"effective_floor"`
+	ExclusionReason string `json:"exclusion_reason,omitempty"`
+	Version         string `json:"version"` // without "v" prefix, e.g. "0.1.146"
+	PublishedAt     string `json:"published_at"`
+	HTMLURL         string `json:"html_url"`
 }
 
 type GitHubAsset struct {
@@ -295,26 +302,21 @@ func (s *UpdateService) CheckUpdate(ctx context.Context, force bool) (*UpdateInf
 	}
 
 	// Fetch from GitHub
-	info, err := s.fetchLatestRelease(ctx)
+	lookupCtx, cancel := context.WithTimeout(ctx, releaseLookupTimeout)
+	info, err := s.fetchLatestRelease(lookupCtx)
+	cancel()
 	if err != nil {
-		if force {
-			return nil, ErrUpdateCheckUnavailable.WithCause(err)
-		}
-		// Return cached on error
-		if cached, cacheErr := s.getFromCache(ctx); cacheErr == nil && cached != nil {
-			cached.Warning = "Using cached data: " + err.Error()
-			return cached, nil
-		}
 		return &UpdateInfo{
 			CurrentVersion: s.currentVersion,
 			LatestVersion:  s.currentVersion,
-			HasUpdate:      false,
-			Warning:        err.Error(),
+			Warning:        releaseLookupUnavailable,
 			BuildType:      s.buildType,
+			RemoteStatus:   releaseRemoteUnavailable,
 		}, ErrUpdateCheckUnavailable.WithCause(err)
 	}
 
 	// Cache result
+	info.RemoteStatus = releaseRemoteAvailable
 	s.saveToCache(ctx, info)
 	return info, nil
 }
@@ -342,8 +344,8 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, version string, 
 	if tag == "" {
 		return fmt.Errorf("invalid release version %q", version)
 	}
-	if semver.Compare(tag, minimumRollbackVersion) < 0 {
-		return rollbackBelowFloor(tag, minimumRollbackVersion)
+	if _, err := s.checkRelease(ctx, tag, ""); err != nil {
+		return err
 	}
 
 	asset, checksum, manifest, err := selectUpdateAssets(tag, releaseAssets)
@@ -413,6 +415,10 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, version string, 
 		return fmt.Errorf("chmod failed: %w", err)
 	}
 
+	// Re-read after downloads: migrations may have raised the DB floor.
+	if _, err := s.checkRelease(ctx, tag, ""); err != nil {
+		return err
+	}
 	staged, err := s.stagePersistentBinary(exePath, newBinaryPath)
 	if err != nil {
 		return fmt.Errorf("persistent staging failed: %w", err)
@@ -508,22 +514,22 @@ func (s *UpdateService) rollback(ctx context.Context) error {
 			return fmt.Errorf("rollback verification failed: %w", err)
 		}
 	}
-	persistentBackup := filepath.Join(resolveDockerDataDir(), ".updates", "backup", updateBinaryName)
+	persistentBackup := persistentRollbackBackup()
 	persistentCurrent := filepath.Join(resolveDockerDataDir(), ".updates", "current", updateBinaryName)
-	if _, err := os.Stat(persistentBackup); os.IsNotExist(err) {
-		legacy := filepath.Join(filepath.Dir(persistentBackup), legacyUpdateBinaryName)
-		if _, err := os.Stat(legacy); err == nil {
-			runtimeenv.WarnLegacy(legacy, persistentBackup)
-			persistentBackup = legacy
-		}
-	}
 	staged := false
 	if _, err := os.Stat(persistentBackup); err == nil {
-		if err := os.MkdirAll(filepath.Dir(persistentCurrent), 0755); err != nil {
-			return err
-		}
 		if err := s.verifyBackup(persistentBackup, floor); err != nil {
 			return fmt.Errorf("persistent rollback verification failed: %w", err)
+		}
+		paths := []string{persistentBackup}
+		if directBackup {
+			paths = append(paths, backupFile)
+		}
+		if err := s.revalidateRollbackFloor(ctx, floor, paths...); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(persistentCurrent), 0755); err != nil {
+			return err
 		}
 		if err := os.Rename(persistentBackup, persistentCurrent); err != nil {
 			return fmt.Errorf("persistent rollback failed: %w", err)
@@ -537,6 +543,11 @@ func (s *UpdateService) rollback(ctx context.Context) error {
 	}
 
 	if directBackup {
+		if !staged {
+			if err := s.revalidateRollbackFloor(ctx, floor, backupFile); err != nil {
+				return err
+			}
+		}
 		if err := os.Rename(backupFile, exePath); err != nil && !staged {
 			return fmt.Errorf("rollback failed: %w", err)
 		}
@@ -547,36 +558,87 @@ func (s *UpdateService) rollback(ctx context.Context) error {
 	return nil
 }
 
-// ListRollbackVersions returns up to maxRollbackVersions release versions that are
-// strictly older than the current version (the current version itself is excluded),
-// newest first. Draft and prerelease entries are skipped.
-func (s *UpdateService) ListRollbackVersions(ctx context.Context) ([]RollbackVersion, error) {
-	releases, err := s.fetchRollbackCandidates(ctx)
-	if err != nil {
-		return nil, err
+func persistentRollbackBackup() string {
+	path := filepath.Join(resolveDockerDataDir(), ".updates", "backup", updateBinaryName)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		legacy := filepath.Join(filepath.Dir(path), legacyUpdateBinaryName)
+		if _, err := os.Stat(legacy); err == nil {
+			runtimeenv.WarnLegacy(legacy, path)
+			return legacy
+		}
 	}
+	return path
+}
 
-	versions := make([]RollbackVersion, 0, len(releases))
+// ListRollbackVersions returns the eligible recent remote versions.
+func (s *UpdateService) ListRollbackVersions(ctx context.Context) ([]RollbackVersion, error) {
+	report, err := s.ListRollbackEligibility(ctx)
+	return report.Versions, err
+}
+
+// ListRollbackEligibility adds exclusion diagnostics without changing the legacy
+// versions array consumed by existing clients.
+func (s *UpdateService) ListRollbackEligibility(ctx context.Context) (RollbackEligibilityReport, error) {
+	report := RollbackEligibilityReport{
+		CurrentVersion: s.currentVersion, RemoteStatus: releaseRemoteAvailable,
+		Versions: []RollbackVersion{}, ExcludedVersions: []RollbackVersion{}, LocalVersions: []RollbackVersion{},
+	}
+	floor, err := s.databaseRollbackFloor(ctx)
+	if err != nil {
+		return report, err
+	}
+	baseline, _ := ResolveReleaseCompatibility(floor, floor, "", false)
+	report.DatabaseFloor = floor
+	lookupCtx, cancel := context.WithTimeout(ctx, releaseLookupTimeout)
+	defer cancel()
+	releases, err := s.fetchRollbackCandidates(lookupCtx)
+	remoteUnavailable := err != nil
 	for _, r := range releases {
-		versions = append(versions, RollbackVersion{
-			Version:     strings.TrimPrefix(r.TagName, "v"),
-			PublishedAt: r.PublishedAt,
-			HTMLURL:     r.HTMLURL,
+		eligibility, err := s.rollbackCandidateEligibility(lookupCtx, r)
+		if err != nil {
+			reason := err.Error()
+			if errors.Is(err, ErrUpdateCheckUnavailable) {
+				remoteUnavailable = true
+				reason = releaseLookupUnavailable
+			}
+			if eligibility.EffectiveFloor == "" {
+				eligibility.EffectiveFloor = baseline.EffectiveFloor
+			}
+			report.ExcludedVersions = append(report.ExcludedVersions, RollbackVersion{Version: strings.TrimPrefix(r.TagName, "v"), EffectiveFloor: eligibility.EffectiveFloor, ExclusionReason: reason})
+			continue
+		}
+		report.Versions = append(report.Versions, RollbackVersion{
+			EffectiveFloor: eligibility.EffectiveFloor,
+			Version:        strings.TrimPrefix(r.TagName, "v"),
+			PublishedAt:    r.PublishedAt,
+			HTMLURL:        r.HTMLURL,
 		})
 	}
-	return versions, nil
+	remoteUnavailable = remoteUnavailable || lookupCtx.Err() != nil
+	// Refresh the local floor after remote I/O, including when GitHub is down.
+	floor, err = s.databaseRollbackFloor(ctx)
+	if err != nil {
+		return report, err
+	}
+	report.DatabaseFloor = floor
+	if remoteUnavailable {
+		report.RemoteStatus = releaseRemoteUnavailable
+		report.RemoteReason = releaseLookupUnavailable
+		report.LocalVersions = s.localRollbackVersions(floor)
+	}
+	return report, nil
 }
 
 // RollbackToVersion downloads and installs a specific older version.
-// The target must be one of the versions returned by ListRollbackVersions;
+// The target must be one of the recent remote candidates;
 // anything else (including the current version) is rejected.
 func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) error {
 	target := releaseVersion(strings.TrimSpace(version))
 	if target == "" {
 		return ErrRollbackVersionNotAllowed
 	}
-	if semver.Compare(target, minimumRollbackVersion) < 0 {
-		return rollbackBelowFloor(target, minimumRollbackVersion)
+	if _, err := s.checkRelease(ctx, target, ""); err != nil {
+		return err
 	}
 
 	releases, err := s.fetchRollbackCandidates(ctx)
@@ -622,7 +684,7 @@ func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubR
 			continue
 		}
 		v := releaseVersion(r.TagName)
-		if v == "" || seen[v] || semver.Prerelease(v) != "" || semver.Compare(v, minimumRollbackVersion) < 0 {
+		if v == "" || seen[v] || semver.Prerelease(v) != "" {
 			continue
 		}
 		// Only versions strictly older than current (also excludes current itself)
@@ -813,33 +875,12 @@ func (s *UpdateService) verifyReleaseManifest(ctx context.Context, dir string, a
 	if err := s.githubClient.DownloadFile(ctx, asset.DownloadURL, manifestPath, maxReleaseManifestSize); err != nil {
 		return fmt.Errorf("download release manifest failed: %w", err)
 	}
-	if err := verifyReleaseChecksum(manifestPath, hash); err != nil {
-		return fmt.Errorf("release manifest verification failed: %w", err)
-	}
-	data, err := os.ReadFile(manifestPath)
+	floor, err := s.databaseRollbackFloor(ctx)
 	if err != nil {
 		return err
 	}
-	var manifest struct {
-		Product                string `json:"product"`
-		Version                string `json:"version"`
-		MinimumRollbackVersion string `json:"minimum_rollback_version"`
-	}
-	if err := json.Unmarshal(data, &manifest); err != nil {
-		return fmt.Errorf("invalid release manifest: %w", err)
-	}
-	if manifest.Product != updateBinaryName {
-		return fmt.Errorf("wrong product %q in release manifest: expected %s", manifest.Product, updateBinaryName)
-	}
-	if releaseVersion(manifest.Version) != version {
-		return fmt.Errorf("release manifest version %q does not match requested release %s", manifest.Version, version)
-	}
-	floor := releaseVersion(manifest.MinimumRollbackVersion)
-	if floor == "" || semver.Prerelease(floor) != "" || semver.Build(floor) != "" {
-		return fmt.Errorf("invalid minimum rollback version %q in release manifest", manifest.MinimumRollbackVersion)
-	}
-	if semver.Compare(version, floor) < 0 {
-		return rollbackBelowFloor(version, floor)
+	if _, err := CheckReleaseManifest(manifestPath, hash, version, floor, false); err != nil {
+		return fmt.Errorf("release manifest verification failed: %w", err)
 	}
 	return nil
 }
@@ -917,6 +958,7 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 		ReleaseInfo:    cached.ReleaseInfo,
 		Cached:         true,
 		BuildType:      s.buildType,
+		RemoteStatus:   "cached",
 	}, nil
 }
 
@@ -937,6 +979,9 @@ func (s *UpdateService) saveToCache(ctx context.Context, info *UpdateInfo) {
 
 // compareVersions compares two semantic versions
 func compareVersions(current, latest string) int {
+	if a, b := releaseVersion(current), releaseVersion(latest); a != "" && b != "" {
+		return semver.Compare(a, b)
+	}
 	currentParts := parseVersion(current)
 	latestParts := parseVersion(latest)
 

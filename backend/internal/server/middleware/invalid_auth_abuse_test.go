@@ -99,7 +99,7 @@ func TestInvalidAuthAbuseDoesNotCountValidOrOperationalFailures(t *testing.T) {
 	repo := &stubApiKeyRepo{getByKey: func(_ context.Context, key string) (*service.APIKey, error) {
 		switch key {
 		case "valid-key":
-			return &service.APIKey{ID: 1, UserID: 1, Key: key, Status: service.StatusActive, User: user}, nil
+			return &service.APIKey{WorkspaceID: 1, ID: 1, UserID: 1, Key: key, Status: service.StatusActive, User: user}, nil
 		case "db-error":
 			return nil, errors.New("database unavailable")
 		default:

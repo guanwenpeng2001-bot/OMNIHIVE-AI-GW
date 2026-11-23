@@ -63,13 +63,14 @@ func newKeyBillingRouteTestRouter(t *testing.T, runMode string) (*gin.Engine, *k
 		apiKeyGroup = group
 	}
 	apiKey := &service.APIKey{
-		ID:      100,
-		UserID:  user.ID,
-		Key:     "billing-route-test-key",
-		Status:  service.StatusActive,
-		User:    user,
-		GroupID: groupID,
-		Group:   apiKeyGroup,
+		WorkspaceID: 1,
+		ID:          100,
+		UserID:      user.ID,
+		Key:         "billing-route-test-key",
+		Status:      service.StatusActive,
+		User:        user,
+		GroupID:     groupID,
+		Group:       apiKeyGroup,
 	}
 	cfg := &config.Config{RunMode: runMode}
 	rateRepo := &keyBillingRouteRateRepo{}

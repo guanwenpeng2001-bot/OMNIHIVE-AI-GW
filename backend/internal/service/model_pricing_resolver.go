@@ -2,22 +2,27 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
+	"time"
 )
 
 // PricingSource 定价来源标识
 const (
-	PricingSourceGroup    = "group"
-	PricingSourceChannel  = "channel"
-	PricingSourceLiteLLM  = "litellm"
-	PricingSourceFallback = "fallback"
+	PricingSourceGroup          = "group"
+	PricingSourceChannel        = "channel"
+	PricingSourceLiteLLM        = "litellm"
+	PricingSourceFallback       = "fallback"
+	PricingSourceStaticFallback = "static-fallback"
 )
 
 // ResolvedPricing 统一定价解析结果
 type ResolvedPricing struct {
 	descriptor *ModelPricingDescriptor
 	pricingErr error
+	baseSource string
+	baseErr    error
 	// Mode 计费模式
 	Mode BillingMode
 
@@ -63,10 +68,13 @@ func NewModelPricingResolver(channelService *ChannelService, billingService *Bil
 
 // PricingInput 定价解析输入
 type PricingInput struct {
-	Mode    BillingMode // required billing unit; empty preserves the token entry point
-	Model   string
-	GroupID *int64 // nil 表示不检查渠道
-	Group   *Group
+	Mode         BillingMode // required billing unit; empty preserves the token entry point
+	Model        string
+	GroupID      *int64 // nil 表示不检查渠道
+	Group        *Group
+	Provider     string
+	At           time.Time
+	shadowLegacy bool
 }
 
 func pricingGroupID(key *APIKey) *int64 {
@@ -99,16 +107,15 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 		frozen.billingService = billing
 		r = &frozen
 	}
+	input.At = pricingInstant(ctx, input.At)
+	platform := pricingPlatform(ctx, input)
+	input.Provider = platform
 	if descriptor, found, err := r.configuredPriceDescriptor(ctx, input); err != nil {
 		return &ResolvedPricing{Mode: input.Mode, Source: PricingSourceChannel, pricingErr: err}
 	} else if found {
 		return descriptor.resolvePricing(input.Mode)
 	}
 	longContextPricingEnabled := input.Group == nil || input.Group.LongContextPricingEnabled
-	platform := ""
-	if input.Group != nil {
-		platform = channelLookupPlatform(ctx, input.Group.Platform)
-	}
 	if groupPricing := matchGroupModelPricing(input.Group, input.Model, platform); groupPricing != nil {
 		// Ordinary group cards override flat rates; optional long-context
 		// ladders come from presets. Native Qianwen input tiers are mandatory.
@@ -117,17 +124,17 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 			stripped.Intervals = nil
 			groupPricing = &stripped
 		}
-		resolved := r.resolveConfiguredPricing(groupPricing, input.Model, PricingSourceGroup)
+		resolved := r.resolveConfiguredPricingFor(groupPricing, input, PricingSourceGroup)
 		resolved.longContextPricingEnabled = longContextPricingEnabled && groupPricing.NativePricingSource != QianwenPricingSource
 		return resolved
 	}
 
 	var chPricing *ChannelModelPricing
 	if input.GroupID != nil && r.channelService != nil {
-		chPricing = r.lookupChannelPricingNormalized(ctx, *input.GroupID, input.Model)
+		chPricing = r.lookupChannelPricingNormalizedFor(ctx, *input.GroupID, input.Model, platform)
 		if chPricing != nil {
 			if chPricing.NativePricingSource == QianwenPricingSource {
-				resolved := r.resolveConfiguredPricing(chPricing, input.Model, PricingSourceChannel)
+				resolved := r.resolveConfiguredPricingFor(chPricing, input, PricingSourceChannel)
 				resolved.longContextPricingEnabled = false
 				return resolved
 			}
@@ -149,12 +156,20 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 	}
 
 	// 1. 获取基础定价
-	basePricing, source := r.resolveBasePricing(input.Model)
+	if platform == PlatformCommandCode && commandCodeOfficialFreeModel(input.Model) && chPricing == nil {
+		return &ResolvedPricing{Mode: BillingModeToken, BasePricing: &ModelPricing{}, Source: "official_free:commandcode"}
+	}
+	basePricing, source, baseErr := r.resolveBasePricing(input)
+	if basePricing == nil && input.Provider == "" {
+		source = PricingSourceFallback
+	}
 
 	resolved := &ResolvedPricing{
 		Mode:                   BillingModeToken,
 		BasePricing:            basePricing,
 		Source:                 source,
+		baseSource:             source,
+		pricingErr:             baseErr,
 		SupportsCacheBreakdown: basePricing != nil && basePricing.SupportsCacheBreakdown,
 	}
 	resolved.longContextPricingEnabled = longContextPricingEnabled
@@ -163,19 +178,14 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 	if chPricing != nil {
 		resolved.Source = PricingSourceChannel
 		resolved.channelPricing = chPricing
+		resolved.baseErr, resolved.pricingErr = resolved.pricingErr, nil
 		r.applyTokenOverrides(chPricing, resolved)
-	} else if input.GroupID != nil && r.channelService != nil {
-		r.applyChannelOverrides(ctx, *input.GroupID, input.Model, resolved)
 	}
 
-	if platform == PlatformCommandCode && commandCodeOfficialFreeModel(input.Model) && resolved.Source != PricingSourceChannel {
-		resolved.BasePricing = &ModelPricing{}
-		resolved.Source = "official_free:commandcode"
-	}
 	return resolved
 }
 
-func (r *ModelPricingResolver) resolveConfiguredPricing(config *ChannelModelPricing, model, source string) *ResolvedPricing {
+func (r *ModelPricingResolver) resolveConfiguredPricingFor(config *ChannelModelPricing, input PricingInput, source string) *ResolvedPricing {
 	mode := config.BillingMode
 	if mode == "" {
 		mode = BillingModeToken
@@ -186,7 +196,7 @@ func (r *ModelPricingResolver) resolveConfiguredPricing(config *ChannelModelPric
 		return resolved
 	}
 	if config.NativePricingSource != QianwenPricingSource {
-		resolved.BasePricing, _ = r.resolveBasePricing(model)
+		resolved.BasePricing, resolved.baseSource, resolved.baseErr = r.resolveBasePricing(input)
 	}
 	resolved.SupportsCacheBreakdown = resolved.BasePricing != nil && resolved.BasePricing.SupportsCacheBreakdown
 	r.applyTokenOverrides(config, resolved)
@@ -206,7 +216,7 @@ func matchGroupModelPricing(group *Group, model string, platforms ...string) *Ch
 	for i := range group.ModelPricing {
 		entry := &group.ModelPricing[i]
 		// An unresolved composite request must never borrow an arbitrary provider's card.
-		if entry.Platform != "" && platform != "" && entry.Platform != platform {
+		if entry.Platform != "" && entry.Platform != platform && (platform != "" || group.Platform != "") {
 			continue
 		}
 		for _, pattern := range entry.Models {
@@ -225,20 +235,33 @@ func matchGroupModelPricing(group *Group, model string, platforms ...string) *Ch
 }
 
 // resolveBasePricing 从 LiteLLM 或 Fallback 获取基础定价
-func (r *ModelPricingResolver) resolveBasePricing(model string) (*ModelPricing, string) {
+func (r *ModelPricingResolver) resolveBasePricing(input PricingInput) (*ModelPricing, string, error) {
 	if r.billingService == nil {
-		return nil, PricingSourceFallback
+		return nil, "", nil
 	}
-	pricing, err := r.billingService.GetModelPricing(model)
+	provider := input.Provider
+	if input.shadowLegacy {
+		provider = ""
+	}
+	pricing, err := r.billingService.getProviderModelPricingAt(provider, input.Model, input.At)
 	if err != nil {
-		slog.Debug("failed to get model pricing from LiteLLM, using fallback",
-			"model", model, "error", err)
-		return nil, PricingSourceFallback
+		slog.Debug("base tariff unavailable", "provider", input.Provider, "model", input.Model, "error", err)
+		if errors.Is(err, ErrModelPricingUnavailable) {
+			return nil, "", nil
+		}
+		return nil, "", err
 	}
-	return pricing, PricingSourceLiteLLM
+	if input.shadowLegacy {
+		return pricing, PricingSourceLiteLLM, nil
+	}
+	source := pricing.Source
+	if source == PricingSourceFallback {
+		source = PricingSourceStaticFallback
+	}
+	return pricing, source, nil
 }
 
-// lookupChannelPricingNormalized 查找渠道定价：先用字面模型名做精确/通配匹配，
+// lookupChannelPricingNormalizedFor 查找渠道定价：先用字面模型名做精确/通配匹配，
 // 未命中时用与官方兜底价一致的归一化模型名再查一次。
 //
 // 官方兜底价对 OpenAI/Codex 族会把 gpt-5.6-luna-high 这类变体名归一化到基名
@@ -248,40 +271,21 @@ func (r *ModelPricingResolver) resolveBasePricing(model string) (*ModelPricing, 
 //
 // 字面名优先，保证管理员对具体变体的显式配价不被基名覆盖；非 OpenAI 模型
 // normalizeKnownOpenAICodexModel 返回空串，此处天然 no-op。
-func (r *ModelPricingResolver) lookupChannelPricingNormalized(ctx context.Context, groupID int64, model string) *ChannelModelPricing {
+func (r *ModelPricingResolver) lookupChannelPricingNormalizedFor(ctx context.Context, groupID int64, model, platform string) *ChannelModelPricing {
 	if r.channelService == nil {
 		return nil
 	}
-	if pricing := r.channelService.GetChannelModelPricing(ctx, groupID, model); pricing != nil {
+	if pricing := r.channelService.getChannelModelPricing(ctx, groupID, model, platform); pricing != nil {
 		return pricing
+	}
+	if platform != "" && platform != PlatformOpenAI {
+		return nil
 	}
 	normalized := normalizeKnownOpenAICodexModel(model)
 	if normalized == "" || strings.EqualFold(normalized, strings.TrimSpace(model)) {
 		return nil
 	}
-	return r.channelService.GetChannelModelPricing(ctx, groupID, normalized)
-}
-
-// applyChannelOverrides 应用渠道定价覆盖
-func (r *ModelPricingResolver) applyChannelOverrides(ctx context.Context, groupID int64, model string, resolved *ResolvedPricing) {
-	chPricing := r.lookupChannelPricingNormalized(ctx, groupID, model)
-	if chPricing == nil {
-		return
-	}
-
-	resolved.Source = PricingSourceChannel
-	resolved.channelPricing = chPricing
-	resolved.Mode = chPricing.BillingMode
-	if resolved.Mode == "" {
-		resolved.Mode = BillingModeToken
-	}
-
-	switch resolved.Mode {
-	case BillingModeToken:
-		r.applyTokenOverrides(chPricing, resolved)
-	case BillingModePerRequest, BillingModeImage, BillingModeVideo:
-		r.applyRequestTierOverrides(chPricing, resolved)
-	}
+	return r.channelService.getChannelModelPricing(ctx, groupID, normalized, platform)
 }
 
 // applyTokenOverrides 应用 token 模式的渠道覆盖

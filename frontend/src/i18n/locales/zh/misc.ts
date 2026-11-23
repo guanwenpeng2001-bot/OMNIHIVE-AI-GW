@@ -19,6 +19,8 @@ export default {
 
   // Version Badge
   version: {
+    checkUnavailable: '暂时无法检查更新',
+    rollbackCheckUnavailable: '暂时无法查询可回滚版本',
     currentVersion: '当前版本',
     latestVersion: '最新版本',
     upToDate: '已是最新版本',
@@ -155,14 +157,14 @@ export default {
       welcome: {
         title: '欢迎使用 OmniHive 智能算力中转工作台',
         description:
-          '<div style="line-height: 1.75;"><p style="margin-bottom: 14px;">OmniHive 是面向团队与开发者的统一 AI 算力调度与网关平台，一把密钥连接全生态模型。</p><p style="margin-bottom: 10px;"><b>核心能力：</b></p><ul style="margin-left: 18px; margin-bottom: 14px;"><li><b>分组路由</b> — 按协议与服务等级编排调度池</li><li><b>上游账号池</b> — 多平台凭证聚合、水位监控与自动容灾</li><li><b>密钥分发</b> — 细粒度配额、模型范围与并发控制</li><li><b>计费与结算</b> — 灵活倍率、套餐订阅与用量账本</li></ul><p style="color: var(--brand-text, #92610a); font-weight: 600;">3 分钟快速完成首次网关配置 →</p></div>',
+          '<div style="line-height: 1.75;"><p style="margin-bottom: 14px;">OmniHive 是面向团队与开发者的统一 AI 算力调度与网关平台，一把密钥连接全生态模型。</p><p style="margin-bottom: 10px;"><b>核心能力：</b></p><ul style="margin-left: 18px; margin-bottom: 14px;"><li><b>分组路由</b> — 按协议与服务等级编排调度池</li><li><b>上游资源池</b> — 多平台凭证聚合、水位监控与自动容灾</li><li><b>密钥分发</b> — 细粒度配额、模型范围与并发控制</li><li><b>计费与结算</b> — 灵活倍率、套餐订阅与用量账本</li></ul><p style="color: var(--brand-text, #92610a); font-weight: 600;">3 分钟快速完成首次网关配置 →</p></div>',
         nextBtn: '开始配置 →',
         prevBtn: '跳过'
       },
       groupManage: {
-        title: '01 · 分组管理',
+        title: '01 · 路由分组',
         description:
-          '<div style="line-height: 1.7;"><p style="margin-bottom: 10px;"><b>什么是分组？</b></p><p style="margin-bottom: 10px;">分组是 OmniHive 的核心路由单元，相当于独立的算力服务池：</p><ul style="margin-left: 18px; margin-bottom: 12px; font-size: 13px;"><li>每个分组可挂载多个上游账号协同调度</li><li>支持独立计费倍率与模型准入规则</li><li>支持公开分组或授权专属分组</li></ul><p style="margin-top: 12px; padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 6px; font-size: 12.5px;"><b>建议：</b>可按「主力生产组」与「高吞吐经济组」划分调度策略</p><p style="margin-top: 14px; color: var(--brand-text, #92610a); font-weight: 600;">点击左侧「分组管理」继续 →</p></div>'
+          '<div style="line-height: 1.7;"><p style="margin-bottom: 10px;"><b>什么是分组？</b></p><p style="margin-bottom: 10px;">分组是 OmniHive 的核心路由单元，相当于独立的算力服务池：</p><ul style="margin-left: 18px; margin-bottom: 12px; font-size: 13px;"><li>每个分组可挂载多个上游连接协同调度</li><li>支持独立计费倍率与模型准入规则</li><li>支持公开分组或授权专属分组</li></ul><p style="margin-top: 12px; padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 6px; font-size: 12.5px;"><b>建议：</b>可按「主力生产组」与「高吞吐经济组」划分调度策略</p><p style="margin-top: 14px; color: var(--brand-text, #92610a); font-weight: 600;">点击左侧「路由分组」继续 →</p></div>'
       },
       createGroup: {
         title: '➕ 创建新分组',
@@ -196,7 +198,7 @@ export default {
       groupSubmit: {
         title: '✅ 保存分组',
         description:
-          '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">确认信息无误后，点击创建按钮保存分组。</p><p style="padding: 8px 12px; background: color-mix(in srgb, var(--brand, #f59e0b) 12%, var(--surface-2, #f4f4f5)); border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>⚠️ 注意：</b>分组创建后，平台类型不可修改，其他信息可以随时编辑</p><p style="padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 4px; font-size: 13px;"><b>📌 下一步：</b>创建成功后，我们将添加上游账号到这个分组</p><p style="margin-top: 12px; color: var(--brand-text, #92610a); font-weight: 600;">👉 点击"创建"按钮</p></div>'
+          '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">确认信息无误后，点击创建按钮保存分组。</p><p style="padding: 8px 12px; background: color-mix(in srgb, var(--brand, #f59e0b) 12%, var(--surface-2, #f4f4f5)); border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>⚠️ 注意：</b>分组创建后，平台类型不可修改，其他信息可以随时编辑</p><p style="padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 4px; font-size: 13px;"><b>📌 下一步：</b>创建成功后，我们将添加上游连接到这个分组</p><p style="margin-top: 12px; color: var(--brand-text, #92610a); font-weight: 600;">👉 点击"创建"按钮</p></div>'
       },
       accountManage: {
         title: '🔗 第二步：添加账号',
@@ -206,7 +208,7 @@ export default {
       createAccount: {
         title: '➕ 添加新账号',
         description:
-          '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">点击按钮开始添加您的第一个上游账号。</p><p style="padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 4px; font-size: 13px;"><b>💡 提示：</b>建议使用 OAuth 方式，更安全且无需手动提取密钥</p><p style="margin-top: 12px; color: var(--brand-text, #92610a); font-weight: 600;">👉 点击"添加账号"按钮</p></div>'
+          '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">点击按钮开始添加您的第一个上游连接。</p><p style="padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 4px; font-size: 13px;"><b>💡 提示：</b>建议使用 OAuth 方式，更安全且无需手动提取密钥</p><p style="margin-top: 12px; color: var(--brand-text, #92610a); font-weight: 600;">👉 点击"添加账号"按钮</p></div>'
       },
       accountName: {
         title: '✏️ 1. 账号名称',
@@ -307,6 +309,77 @@ export default {
         description:
           '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">点击确认创建您的 API 密钥。</p><div style="padding: 8px 12px; background: color-mix(in srgb, var(--bad, #dc2626) 10%, var(--surface-2, #f4f4f5)); border-left: 3px solid #ef4444; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>⚠️ 重要：</b><ul style="margin: 8px 0 0 16px;"><li>创建后请立即复制密钥（sk-xxx）</li><li>密钥只显示一次，丢失需重新生成</li></ul></div><p style="padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 4px; font-size: 13px;"><b>🚀 如何使用：</b><br/>在支持 OpenAI 接口的客户端中填入密钥与本站 API 地址（如 Cline、Roo Code、Continue、Cursor、Codex 等，详见帮助手册「配置客户端」章节），即可开始使用！</p><p style="margin-top: 12px; color: var(--brand-text, #92610a); font-weight: 600;">👉 点击"创建"按钮</p></div>'
       }
+    },
+    request: {
+      pending: '项目权限申请已提交（状态：待工作空间管理员审批）',
+      approved: '您已获得项目「{project}」访问授权，可立即切换并调用。',
+      declined: '项目权限申请未通过审批，可更新用途说明后重新提交。',
+      modalTitle: '申请团队项目访问权限',
+      subtitle: '您的工作空间管理员将审阅此申请，并为您分配具体的团队项目与调用动作。',
+      workspaceLabel: '所属工作空间',
+      projectLabel: '意向团队项目（可选）',
+      projectPlaceholder: '不指定具体项目（在说明中描述团队/项目名称）',
+      defaultProjectHint: '默认共享项目仅供目录浏览；请选择非默认团队项目，或留空由管理员指派。',
+      noteLabel: '用途与所需权限说明（1–500 字）',
+      notePlaceholder: '请简要描述您的团队或项目名称，以及需要的权限（如模型调试台 playground.run、签发项目密钥 keys.create 等）…',
+      submitBtn: '提交项目权限申请',
+      submittingBtn: '正在提交…',
+      refreshBtn: '刷新状态',
+      switchNowBtn: '立即切换至该项目 →',
+      loadMoreWorkspaces: '加载更多工作空间…',
+      loadMoreProjects: '加载更多项目…',
+      myRequestsTitle: '我的项目权限申请记录',
+      noRequestsYet: '当前工作空间下暂无您提交的项目权限申请。',
+    },
+    checklist: {
+      title: '开始使用 OmniHive',
+      branchPersonal: '个人自助调用 (推荐)',
+      branchProject: '团队项目协作',
+      switchScopeBtn: '切换作用域',
+      switchToPersonalBtn: '切回个人空间',
+      personalScopeBanner: '当前作用域：个人空间 (PER) · 无需项目授权，使用个人余额或套餐即可调用',
+      prereqNoGroup: '尚未分配可用路由分组',
+      prereqInactiveSub: '当前订阅未生效或已过期',
+      prereqNoBalance: '个人余额不足 ($0.00)',
+      ctaRedeem: '兑换码激活',
+      ctaPurchase: '充值或购买套餐',
+      ctaSubscriptions: '查看我的订阅',
+      personalStep1Title: '1. 创建个人 API 密钥',
+      personalStep1Desc: '个人空间下无需项目审批，签发个人 API 密钥即可直接调用网关。',
+      personalStep1Cta: '管理个人密钥 →',
+      personalStep2Title: '2. 配置客户端或复制命令 (cURL/Claude/Codex)',
+      personalStep2Desc: '复制本站网关地址与凭证安全的代码片段，一键接入主流客户端。',
+      personalStep2ExpandCta: '展开配置',
+      personalStep3Title: '3. 发起首次调用并核对账单回执',
+      personalStep3Desc: '首条网关请求完成后自动打勾，可实时核对 Token 用量、延迟与实收结算价。',
+      personalStep3Cta: '查看个人请求与用量明细 →',
+      footerPrompt: '需要团队项目预算或模型调试台 (Playground)？',
+      footerRequestCta: '向管理员申请项目权限 →',
+      projectStep1Title: '1. 申请或选择已授权团队项目',
+      projectStep1Desc: '选择已加入的工作空间提交项目访问申请，或切换至已获授权的团队项目。',
+      projectStep2Title: '2. 获取或签发项目 API 密钥',
+      projectStep2Desc: '在已获 keys.read / keys.create 授权的团队项目内查看或签发受限项目密钥。',
+      projectStep2Cta: '前往项目密钥 →',
+      projectStep3Title: '3. 在模型调试台预览报价并运行',
+      projectStep3Desc: '模型调试台绑定项目预算冻结与权威销售价，需在具备 playground.run 的团队项目运行。',
+      projectStep3Cta: '打开模型调试台 →',
+    },
+    adminSetup: {
+      eyebrow: '平台首次接入 4 阶段引导',
+      title: '完成上游连接、渠道定价与模型目录核验以启用实时网关调用',
+      subtitle: '当平台尚未接入上游连接 (total_accounts = 0) 或尚无对外可调用模型 (live_models = 0) 时显示此向导。',
+      stage1Title: '1. 建立上游连接与原生发现',
+      stage1Desc: '从「1. 平台候选」与「2. 账号原生发现（预览上游模型）」应用快照至「3. 账号有效模型」。',
+      stage1Cta: '前往上游连接 →',
+      stage2Title: '2. 配置上游资源池、路由分组与渠道销售价',
+      stage2Desc: '绑定上游资源池与路由分组倍率，在「渠道与定价」配置销售价（区分社区目录 pi 参考价）。',
+      stage2Cta: '前往渠道与定价 →',
+      stage3Title: '3. 核验模型目录与公开发布',
+      stage3Desc: '在「模型目录 (/admin/models)」排查可路由但未定价模型，确认进入「4. 分组对外可见」。',
+      stage3Cta: '前往模型目录 →',
+      stage4Title: '4. 启用个人自助分组或邀请授权团队',
+      stage4Desc: '配置默认个人自助路由分组，或在「成员与授权」为团队项目分配最小权限。',
+      stage4Cta: '前往成员与授权 →',
     }
   },
 

@@ -26,7 +26,7 @@ func TestGatewayClientAuthAndURLContracts(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	group := &service.Group{ID: 1, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true,
 		ModelAllowlist: service.GroupModelAllowlist{Enabled: true, Models: []string{"allowed"}}}
-	key := &service.APIKey{ID: 1, Key: "client-contract-key", UserID: 1, Status: service.StatusActive, Group: group, GroupID: &group.ID,
+	key := &service.APIKey{WorkspaceID: 1, ID: 1, Key: "client-contract-key", UserID: 1, Status: service.StatusActive, Group: group, GroupID: &group.ID,
 		User: &service.User{ID: 1, Status: service.StatusActive, Balance: 100}}
 	cfg := &config.Config{RunMode: config.RunModeSimple, Gateway: config.GatewayConfig{MaxBodySize: 1 << 20, TextMaxBodySize: 1 << 20}}
 	keys := service.NewAPIKeyService(&clientContractKeyRepo{keyBillingRouteAPIKeyRepo{apiKey: key}}, nil, nil, nil, &keyBillingRouteRateRepo{}, nil, cfg)

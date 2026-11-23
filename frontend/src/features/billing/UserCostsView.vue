@@ -673,7 +673,7 @@ async function refresh() {
             <span>
               {{
                 isZh
-                  ? '将自带密钥 (BYOK) 的外部参考估算计入项目预算消耗'
+                  ? '将自带上游凭据 (BYOK) 的外部参考估算计入项目预算消耗'
                   : 'Include BYOK external cost estimates in project budget usage'
               }}
             </span>

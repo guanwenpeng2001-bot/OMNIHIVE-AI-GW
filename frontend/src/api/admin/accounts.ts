@@ -229,7 +229,11 @@ export async function duplicate(id: number): Promise<Account> {
  * @param updates - Fields to update
  * @returns Updated account
  */
-export async function update(id: number, updates: UpdateAccountRequest): Promise<Account> {
+export interface AdminUpdateAccountRequest extends UpdateAccountRequest {
+  preserve_model_selection?: boolean
+}
+
+export async function update(id: number, updates: AdminUpdateAccountRequest): Promise<Account> {
   validateTpmLimit(updates.tpm_limit)
   const { data } = await apiClient.put<Account>(`/admin/accounts/${id}`, updates)
   return data

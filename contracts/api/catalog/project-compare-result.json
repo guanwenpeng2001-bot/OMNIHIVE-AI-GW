@@ -3,6 +3,7 @@
   "message": "success",
   "data": {
     "catalog_version": "cat_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "scope_version": "3",
     "as_of": "2026-11-19T10:00:00Z",
     "rows": [
       {
@@ -26,7 +27,9 @@
         "benchmarks": [],
         "quote": {
           "state": "estimated",
-          "price_version": "ref_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "billing_state": "priced",
+          "price_at": "2026-11-19T10:00:00Z",
+          "price_version": "tariff_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "estimated_charge": {
             "currency": "USD",
             "amount": "0.00350000"

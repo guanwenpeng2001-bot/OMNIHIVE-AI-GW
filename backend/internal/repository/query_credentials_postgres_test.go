@@ -200,7 +200,9 @@ func TestQueryCredentialsRollbackPostgres(t *testing.T) {
 
 func TestCompatibleBalanceBulkIsolationPostgres(t *testing.T) {
 	fixture := newCredentialSecretFixture(t)
-	ctx := domain.WithWorkspaceScope(fixture.ctx, domain.DefaultWorkspaceID)
+	workspaceID, err := domain.ResolveDefaultWorkspaceID(fixture.ctx, fixture.db)
+	require.NoError(t, err)
+	ctx := domain.WithWorkspaceScope(fixture.ctx, workspaceID)
 	credentials := map[string]any{"api_key": "fixture-inference", "usage_query_token": "fixture-management", "usage_query_user_id": "original-user", "base_url": "https://www.dmxapi.cn"}
 	selected := fixture.createAccount(t, ctx, uniqueName("balance-selected"), "dmxapi", service.AccountTypeAPIKey, maps.Clone(credentials))
 	unselected := fixture.createAccount(t, ctx, uniqueName("balance-unselected"), "dmxapi", service.AccountTypeAPIKey, maps.Clone(credentials))

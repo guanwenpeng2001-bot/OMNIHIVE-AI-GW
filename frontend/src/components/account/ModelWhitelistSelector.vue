@@ -244,6 +244,8 @@ const props = withDefaults(defineProps<{
   candidateIdentity?: ModelCandidateIdentity
   connectionContext?: unknown
   savedRevision?: unknown
+  persistedSelection?: { models: string[]; mappings: ModelMappingEntry[] }
+  registerActions?: (actions: { saveSelection: () => Promise<boolean>; canSaveSelection: () => boolean } | null) => void
   configurationDirty?: boolean
   modelMappings?: ModelMappingEntry[]
   active?: boolean
@@ -292,7 +294,10 @@ const customModel = ref('')
 const isComposing = ref(false)
 const isSyncingUpstream = ref(false)
 let disposed = false
-onUnmounted(() => { disposed = true })
+onUnmounted(() => {
+  disposed = true
+  props.registerActions?.(null)
+})
 const normalizedPlatforms = computed(() => {
   const rawPlatforms =
     props.platforms && props.platforms.length > 0
@@ -365,9 +370,21 @@ const selectionSaveFailed = ref(false)
 const selectionDirty = computed(() => selectionFingerprint.value !== savedSelectionFingerprint.value)
 const selectionStatus = computed(() => selectionBusy.value && !allowlistBusy.value ? 'savingSelection' : selectionSaveFailed.value ? 'selectionSaveFailed' : selectionDirty.value ? 'unsavedSelection' : selectionSaved.value ? 'savedSelection' : 'unchangedSelection')
 const wildcardCount = computed(() => props.modelMappings?.filter(mapping => mapping.from.includes('*')).length ?? 0)
+watch(
+  () => props.persistedSelection,
+  (value) => {
+    if (!value) return
+    savedSelectionFingerprint.value = selectionKey(value.models, value.mappings)
+  },
+  { immediate: true, deep: true }
+)
 watch(() => [props.accountId, props.active], async () => {
   selectionSaved.value = false
   selectionSaveFailed.value = false
+  if (props.persistedSelection) {
+    savedSelectionFingerprint.value = selectionKey(props.persistedSelection.models, props.persistedSelection.mappings)
+    return
+  }
   await nextTick()
   savedSelectionFingerprint.value = selectionFingerprint.value
 }, { immediate: true })
@@ -386,8 +403,8 @@ const allowlistEnabled = ref(true)
 const allowlistBusy = ref(false)
 // Read the persisted account after every mutation: legacy filter writes can be
 // normalized to deny-all by the server and must never be shown as unrestricted.
-const persistSelection = async (requestBody: Parameters<typeof accountsAPI.updateModelAllowlist>[1]) => {
-  if (!props.accountId || !props.active || props.configurationDirty || selectionBusy.value) return
+const persistSelection = async (requestBody: Parameters<typeof accountsAPI.updateModelAllowlist>[1]): Promise<boolean> => {
+  if (!props.accountId || !props.active || props.configurationDirty || selectionBusy.value) return false
   const accountId = props.accountId
   const request = ++generation
   const selectionRequest = ++selectionGeneration
@@ -399,7 +416,7 @@ const persistSelection = async (requestBody: Parameters<typeof accountsAPI.updat
   selectionWarning.value = ''
   try {
     const result = await accountsAPI.updateModelAllowlist(accountId, requestBody)
-    if (disposed || request !== generation) return
+    if (disposed || request !== generation) return false
     draftChanged = selectionContext.value !== savedDraftContext
     if (requestBody.model_mapping !== undefined && !draftChanged) {
       const selection = splitModelMappingObject(requestBody.model_mapping)
@@ -409,7 +426,7 @@ const persistSelection = async (requestBody: Parameters<typeof accountsAPI.updat
     await nextTick()
     savedDraftContext = selectionContext.value
     const account = await accountsAPI.getById(accountId)
-    if (disposed || request !== generation) return
+    if (disposed || request !== generation) return false
     if (requestBody.model_mapping !== undefined) {
       const persisted = splitModelMappingObject(account.credentials?.model_mapping as Record<string, unknown>)
       savedSelectionFingerprint.value = selectionKey(persisted.allowedModels, persisted.modelMappings)
@@ -427,12 +444,14 @@ const persistSelection = async (requestBody: Parameters<typeof accountsAPI.updat
     }
     emit('catalog-applied')
     await loadCatalog()
+    return !draftChanged && selectionContext.value === savedDraftContext
   } catch (error) {
-    if (disposed || request !== generation) return
+    if (disposed || request !== generation) return false
     selectionSaveFailed.value = requestBody.model_mapping !== undefined
     syncError.value = t(`admin.accounts.${extractApiErrorStatus(error) === 400 ? 'modelSync.invalidSelection' : modelSyncErrorKey(error)}`)
     // Refresh the CAS token; retain the user's draft and require an explicit retry.
     await loadCatalog()
+    return false
   } finally { if (selectionRequest === selectionGeneration) selectionBusy.value = false }
 }
 const saveAllowlist = async () => {
@@ -445,23 +464,44 @@ const saveAllowlist = async () => {
       reason: allowlistReason.value.trim(), expected_rules_revision: revision })
   } finally { if (saveContext === context.value) allowlistBusy.value = false }
 }
-const saveSelection = async (clear: boolean) => {
+const saveSelection = async (clear: boolean): Promise<boolean> => {
+  if (!clear && !props.modelValue.length && !(props.modelMappings?.length)) return false
   const revision = catalogSummary.value?.state?.rules_revision
-  if (revision === undefined) return
+  if (revision === undefined) return false
   const errors = clear ? [] : validateModelRestrictions('combined', props.modelValue, props.modelMappings ?? [])
   if (errors.length) {
     syncError.value = translateModelRestrictionErrors(errors, t)
     if (errors[0].code === 'exactIdRequired') revealSelection()
     emit('validation-failed', errors)
-    return
+    return false
   }
   const mapping = clear ? {} : buildModelMappingObject('combined', props.modelValue, props.modelMappings ?? []) ?? {}
   // A normal selection save preserves a configured filter. Reselecting from
   // deny-all is the sole explicit operation that releases that state.
   const enabled = clear || (!denyAll.value && savedAllowlist.value?.enabled === true)
-  await persistSelection({ enabled, models: clear || denyAll.value ? [] : savedAllowlist.value?.models ?? [],
+  return await persistSelection({ enabled, models: clear || denyAll.value ? [] : savedAllowlist.value?.models ?? [],
     reason: '', expected_rules_revision: revision, model_mapping: mapping })
 }
+const canSaveSelection = () =>
+  Boolean(
+    props.accountId &&
+    props.active &&
+    !props.configurationDirty &&
+    !selectionBusy.value &&
+    catalogSummary.value?.state?.rules_revision !== undefined &&
+    (props.modelValue.length > 0 || (props.modelMappings?.length ?? 0) > 0)
+  )
+watch(
+  () => props.registerActions,
+  (register, previous) => {
+    if (previous && previous !== register) previous(null)
+    register?.({
+      saveSelection: () => saveSelection(false),
+      canSaveSelection
+    })
+  },
+  { immediate: true }
+)
 const loadCatalog = async () => {
   if (disposed || !props.accountId || props.active === false || props.configurationDirty) return
   const request = ++generation

@@ -49,7 +49,7 @@ export function byokEventLabel(type: string, isZh: boolean): string {
     'rotate.failed': '密钥轮换验证未通过',
     policy: '更新作用域与调度策略',
     patch: '局部更新凭据授权范围',
-    revoke: '吊销自带密钥',
+    revoke: '吊销自带上游凭据',
     'revoke.failed': '吊销操作异常'
   }
   const enMap: Record<string, string> = {

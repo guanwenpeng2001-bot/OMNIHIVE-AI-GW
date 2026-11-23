@@ -90,7 +90,11 @@ describe('admin BackupView 分卷备份', () => {
   beforeEach(() => {
     getS3Config.mockResolvedValue({})
     getImageStorageConfig.mockResolvedValue({ config: {}, secret_configured: false })
-    getSchedule.mockResolvedValue({ enabled: false, cron_expr: '', retain_days: 14, retain_count: 10 })
+    getSchedule.mockResolvedValue({
+      enabled: false, cron_expr: '', retain_days: 14, retain_count: 10,
+      runtime: { loaded: true, health: 'healthy', last_verified_at: '2026-08-09T00:00:00Z', leader_required: true, timezone: 'UTC' },
+      backup_secret_key: { source: 'backup_secret_encryption_key', configured: true, migration_required: false },
+    })
     getDownloadURL.mockReset()
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
   })
@@ -154,5 +158,15 @@ describe('admin BackupView 分卷备份', () => {
 
     expect(wrapper.find('tbody tr td:nth-child(5)').text()).toBe('—')
     expect(wrapper.findAll('button').some(button => button.text() === 'common.delete')).toBe(false)
+  })
+
+  it('显示 scheduler health、最后验证时间和密钥来源', async () => {
+    listBackups.mockResolvedValue({ items: [] })
+    const wrapper = mountBackupView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('healthy')
+    expect(wrapper.text()).toContain('2026-08-09T00:00:00Z')
+    expect(wrapper.text()).toContain('backup_secret_encryption_key')
   })
 })

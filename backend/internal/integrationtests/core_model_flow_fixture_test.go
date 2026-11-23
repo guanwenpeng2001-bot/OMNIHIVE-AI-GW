@@ -143,7 +143,9 @@ func newCoreFlowFixture(t *testing.T) *coreFlowFixture {
 	// every external destination. No application server or shared Redis is used.
 	t.Setenv("MODEL_CAPABILITY_OFFLINE", "false")
 	db, client, accounts := testutil.NewCapabilityPostgres(t)
-	ctx := domain.WithWorkspaceScope(context.Background(), domain.DefaultWorkspaceID)
+	workspaceID, err := domain.ResolveDefaultWorkspaceID(t.Context(), db)
+	require.NoError(t, err)
+	ctx := domain.WithWorkspaceScope(context.Background(), workspaceID)
 	f := &coreFlowFixture{t: t, db: db, ctx: ctx, accounts: accounts, upstream: newCoreFlowUpstream(t)}
 	redisServer := miniredis.RunT(t)
 	f.redisServer = redisServer
@@ -238,7 +240,7 @@ func newCoreFlowFixture(t *testing.T) *coreFlowFixture {
 			userID = f.otherUserID
 		}
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: userID, Concurrency: 4})
-		c.Request = c.Request.WithContext(domain.WithWorkspaceScope(c.Request.Context(), domain.DefaultWorkspaceID))
+		c.Request = c.Request.WithContext(domain.WithWorkspaceScope(c.Request.Context(), workspaceID))
 		c.Next()
 	})
 	panel.POST("/admin/accounts", accountHandler.Create)

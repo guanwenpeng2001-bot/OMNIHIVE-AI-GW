@@ -35,7 +35,7 @@ func TestProductionRouterUnknownAPIRequestsNeverUseSPAFallback(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	router := server.SetupRouter(gin.New(), &handler.Handlers{Admin: &handler.AdminHandlers{}},
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, paymentshttp.Handler{}, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, paymentshttp.Handler{}, nil, nil, nil, nil, nil, nil,
 		middleware.JWTAuthMiddleware(auth), middleware.OptionalJWTAuthMiddleware(pass),
 		middleware.AdminAuthMiddleware(pass), middleware.APIKeyAuthMiddleware(auth),
 		middleware.AuditLogMiddleware(pass), middleware.StepUpAuthMiddleware(pass),
@@ -67,6 +67,10 @@ func TestProductionRouterUnknownAPIRequestsNeverUseSPAFallback(t *testing.T) {
 		require.Contains(t, registered, route)
 	}
 	require.Contains(t, registered, "GET /api/v2/admin/extensions")
+	require.Contains(t, registered, "GET /api/v2/admin/catalog/models")
+	require.Contains(t, registered, "GET /api/v2/admin/catalog/models/:id")
+	require.Contains(t, registered, "GET /api/v1/admin/config/effective")
+	require.Contains(t, registered, "POST /api/v1/admin/config/reset")
 	extension := httptest.NewRecorder()
 	router.ServeHTTP(extension, httptest.NewRequest(http.MethodGet, "/api/v2/admin/extensions", nil))
 	require.Equal(t, http.StatusUnauthorized, extension.Code, extension.Body.String())

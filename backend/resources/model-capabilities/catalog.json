@@ -1,6 +1,6 @@
 {
   "description": "Model specifications with per-field source evidence and observation dates. Conflicting observations and unverified controls remain unknown. Embedding outputs are numerical vectors. Deployment eligibility and current availability are determined separately.",
-  "generated_at": "2026-10-11T00:21:59Z",
+  "generated_at": "2026-11-23T08:14:12Z",
   "records": [
     {
       "applicable_content_hashes": [

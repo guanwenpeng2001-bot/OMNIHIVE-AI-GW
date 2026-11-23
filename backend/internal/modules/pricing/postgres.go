@@ -48,7 +48,22 @@ func (s VersionStore) Save(ctx context.Context, scope string, v Version) error {
 }
 
 func (s VersionStore) At(ctx context.Context, scope string, at time.Time) ([]Version, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT tariff FROM exact_price_versions WHERE scope_key=$1
+	return versionsAt(ctx, s.DB, scope, at)
+}
+
+// ResolveExactTx reads the authorized lineage in the caller's transaction.
+func ResolveExactTx(ctx context.Context, tx *sql.Tx, scope string, at time.Time) (*Version, error) {
+	versions, err := versionsAt(ctx, tx, scope, at)
+	if err != nil {
+		return nil, err
+	}
+	return ResolveExact(versions, at)
+}
+
+func versionsAt(ctx context.Context, reader interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, scope string, at time.Time) ([]Version, error) {
+	rows, err := reader.QueryContext(ctx, `SELECT tariff FROM exact_price_versions WHERE scope_key=$1
 		AND effective_from <= $2 AND (effective_until IS NULL OR effective_until > $2)
 		ORDER BY effective_from DESC,version_id`, scope, at)
 	if err != nil {

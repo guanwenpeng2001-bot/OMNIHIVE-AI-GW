@@ -41,7 +41,7 @@ vi.mock('@/features/console/scope', () => {
   }
 })
 
-describe('WorkspaceTelemetryPanel tenant isolation & honest health badge (S8 #2 & FE-FAKE-02)', () => {
+describe('WorkspaceTelemetryPanel tenant isolation & honest health badge', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()

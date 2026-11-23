@@ -88,6 +88,7 @@ func TestCacheBasePatch_ProvenSourceFieldsUseExistingPipeline(t *testing.T) {
 			quote := before.sourceQuotes[field]
 			quote.Value = &approvedBase
 			before.sourceQuotes[field] = quote
+			before.tariffPatched = true
 			// Exact billing retains the decimal form of this same approved field.
 			// The full comparison still rejects changes to any other rate or tier.
 			before.exactTokenRates[reviewed.dimension] = reviewed.exactBase

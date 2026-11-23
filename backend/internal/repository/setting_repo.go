@@ -103,3 +103,31 @@ func (r *settingRepository) Delete(ctx context.Context, key string) error {
 	_, err := r.client.Setting.Delete().Where(setting.KeyEQ(key)).Exec(ctx)
 	return err
 }
+
+func (r *settingRepository) DeleteMultiple(ctx context.Context, keys []string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	tx, err := r.client.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	txCtx := ent.NewTxContext(ctx, tx)
+	if _, err := tx.Setting.Delete().Where(setting.KeyIn(keys...)).Exec(txCtx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *settingRepository) SetMultipleIfAbsent(ctx context.Context, values map[string]string) error {
+	if len(values) == 0 {
+		return nil
+	}
+	now := time.Now()
+	creates := make([]*ent.SettingCreate, 0, len(values))
+	for key, value := range values {
+		creates = append(creates, r.client.Setting.Create().SetKey(key).SetValue(value).SetUpdatedAt(now))
+	}
+	return r.client.Setting.CreateBulk(creates...).OnConflictColumns(setting.FieldKey).DoNothing().Exec(ctx)
+}

@@ -64,14 +64,6 @@ func (_c *GroupCreate) SetWorkspaceID(v int64) *GroupCreate {
 	return _c
 }
 
-// SetNillableWorkspaceID sets the "workspace_id" field if the given value is not nil.
-func (_c *GroupCreate) SetNillableWorkspaceID(v *int64) *GroupCreate {
-	if v != nil {
-		_c.SetWorkspaceID(*v)
-	}
-	return _c
-}
-
 // SetDeletedAt sets the "deleted_at" field.
 func (_c *GroupCreate) SetDeletedAt(v time.Time) *GroupCreate {
 	_c.mutation.SetDeletedAt(v)
@@ -1088,10 +1080,6 @@ func (_c *GroupCreate) defaults() error {
 		}
 		v := group.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
-	}
-	if _, ok := _c.mutation.WorkspaceID(); !ok {
-		v := group.DefaultWorkspaceID
-		_c.mutation.SetWorkspaceID(v)
 	}
 	if _, ok := _c.mutation.TpmLimit(); !ok {
 		v := group.DefaultTpmLimit

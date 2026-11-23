@@ -2,15 +2,39 @@ package quotes
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
 )
 
 type PublishedVersions interface {
 	At(context.Context, string, time.Time) ([]pricing.Version, error)
+}
+
+// BindingReader returns the authorized current offers for an action. Public
+// calls expose publishable offers only. A selected Key must be evaluated for
+// scope, expiry, action, model and billing-group access before returning a binding.
+// DetailBindingReader projects bindings from a detail already acquired and
+// authorized by the request. It avoids repeating the catalog read.
+type DetailBindingReader interface {
+	PriceBindingsForDetail(catalog.Perspective, catalog.Detail, string, string) []pricing.Binding
+}
+
+type BindingReader interface {
+	PriceBindings(context.Context, catalog.Perspective, string, int64, string, string, time.Time) ([]pricing.Binding, error)
+}
+
+func (s Service) bindingReader() BindingReader {
+	if s.Bindings != nil {
+		return s.Bindings
+	}
+	reader, _ := s.Catalog.(BindingReader)
+	return reader
 }
 
 func PublicationScope(p catalog.Perspective, modelID string) string {
@@ -20,32 +44,106 @@ func PublicationScope(p catalog.Perspective, modelID string) string {
 	return fmt.Sprintf("workspace/%d/project/%d/actor/%d/scope/%d/%s", p.Workspace, p.Project, p.Actor, p.AccessVersion, modelID)
 }
 
-// Estimate uses the current authorized projection to constrain all historical
-// reads. The reference adapter supplies a current estimate when no exact
-// publication covers that instant.
 func (s Service) Estimate(ctx context.Context, p catalog.Perspective, d catalog.Detail, usage pricing.Usage, at, asOf time.Time) (pricing.Result, error) {
+	return s.EstimateFor(ctx, p, d, 0, "", "", pricing.Scenario{Usage: usage}, at, asOf)
+}
+
+func (s Service) EstimateFor(ctx context.Context, p catalog.Perspective, d catalog.Detail, key int64, protocol, action string, scenario pricing.Scenario, at, asOf time.Time) (pricing.Result, error) {
 	if (!p.Public() && d.Model.AccessState != "allowed") || at.After(asOf) {
-		return pricing.Unpriced(), nil
+		return pricing.Unavailable(pricing.Missing), nil
 	}
-	if s.Published != nil {
-		versions, err := s.Published.At(ctx, PublicationScope(p, d.Model.ID), at)
+	if at.Before(asOf) {
+		return s.EstimateHistorical(ctx, p, d.Model.ID, scenario.Usage, at)
+	}
+	bindings := s.bindingReader()
+	if bindings == nil || (!p.Public() && d.Model.RouteState != "eligible") {
+		if key != 0 {
+			return pricing.Result{}, fault.NotFound
+		}
+		return pricing.Unavailable(pricing.Missing), nil
+	}
+	var authorized []pricing.Binding
+	if detailReader, ok := bindings.(DetailBindingReader); ok {
+		authorized = detailReader.PriceBindingsForDetail(p, d, protocol, action)
+	} else {
+		var err error
+		authorized, err = bindings.PriceBindings(ctx, p, d.Model.ID, key, protocol, action, at)
 		if err != nil {
 			return pricing.Result{}, err
 		}
-		version, err := pricing.Resolve(pricing.Candidates{Published: versions}, at)
+	}
+	if key != 0 && len(authorized) == 0 {
+		return pricing.Result{}, fault.NotFound
+	}
+	return s.EstimateLive(domain.WithWorkspaceScope(ctx, p.Workspace), authorized, scenario, at)
+}
+
+func (s Service) EstimateLive(ctx context.Context, authorized []pricing.Binding, scenario pricing.Scenario, at time.Time) (pricing.Result, error) {
+	if s.Book == nil {
+		return pricing.Unavailable(pricing.Missing), nil
+	}
+	if snapshotter, ok := s.Book.(interface {
+		Snapshot(context.Context, time.Time) context.Context
+	}); ok {
+		ctx = snapshotter.Snapshot(ctx, at)
+	}
+	var chosen pricing.Tariff
+	var chosenVersion, chosenTerms string
+	missing := false
+	for _, binding := range authorized {
+		binding.At = at
+		tariff, err := s.Book.Resolve(ctx, binding)
 		if err != nil {
 			return pricing.Result{}, err
 		}
-		if version != nil {
-			return (pricing.Frozen{Version: *version, Usage: usage, At: at}).Calculate()
+		description := tariff.Describe()
+		if description.Outcome == pricing.Conflict {
+			return pricing.Unavailable(pricing.Conflict), nil
+		}
+		if description.Outcome == pricing.Missing {
+			missing = true
+			continue
+		}
+		if len(authorized) > 1 && description.VersionID == "" {
+			return pricing.Unavailable(pricing.Conflict), nil
+		}
+		terms := description.TermsID
+		if terms == "" {
+			terms = description.VersionID
+		}
+		if chosen != nil && terms != chosenTerms {
+			return pricing.Unavailable(pricing.Conflict), nil
+		}
+		if chosen == nil || description.VersionID < chosenVersion {
+			chosen, chosenVersion, chosenTerms = tariff, description.VersionID, terms
 		}
 	}
-	if !at.Equal(asOf) {
-		return pricing.Unpriced(), nil
+	if chosen == nil {
+		return pricing.Unavailable(pricing.Missing), nil
 	}
-	v, err := Reference(d, asOf)
+	if missing {
+		return pricing.Unavailable(pricing.Conflict), nil
+	}
+	return chosen.Evaluate(scenario)
+}
+
+func (s Service) EstimateHistorical(ctx context.Context, p catalog.Perspective, modelID string, usage pricing.Usage, at time.Time) (pricing.Result, error) {
+	if s.Published == nil {
+		return pricing.Unavailable(pricing.Missing), nil
+	}
+	versions, err := s.Published.At(ctx, PublicationScope(p, modelID), at)
 	if err != nil {
 		return pricing.Result{}, err
 	}
-	return (pricing.Frozen{Version: v, Usage: usage, At: asOf}).Calculate()
+	version, err := pricing.ResolveExact(versions, at)
+	if errors.Is(err, pricing.ErrAmbiguous) {
+		return pricing.Unavailable(pricing.Conflict), nil
+	}
+	if err != nil {
+		return pricing.Result{}, err
+	}
+	if version == nil {
+		return pricing.Unavailable(pricing.Missing), nil
+	}
+	return pricing.NewExactTariff(*version, at).Evaluate(pricing.Scenario{Usage: usage})
 }

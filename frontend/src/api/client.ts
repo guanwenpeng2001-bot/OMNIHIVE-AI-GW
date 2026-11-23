@@ -140,7 +140,8 @@ const shouldInjectDefaultTimezone = (url: string | undefined, baseURL: string | 
 
 apiClient.interceptors.request.use(
   (config: SessionRequest) => {
-    const resolvedUrl = resolveVersionedRequestConfig(config.url, window.location.pathname, config.baseURL)
+    const pathname = typeof window !== 'undefined' ? window.location.pathname : '/'
+    const resolvedUrl = resolveVersionedRequestConfig(config.url, pathname, config.baseURL)
     if (resolvedUrl.baseURL) {
       config.baseURL = resolvedUrl.baseURL
     }
@@ -408,9 +409,8 @@ apiClient.interceptors.response.use(
               const refreshStatus = refreshError.response?.status ?? 0
               if (refreshStatus === 0 || refreshStatus === 429 || refreshStatus >= 500) {
                 return Promise.reject(normalizeApiError({
-                  status: refreshStatus,
-                  reason: 'TOKEN_REFRESH_UNAVAILABLE',
-                  message: normalizeApiError(refreshError).message
+                  ...normalizeApiError(refreshError),
+                  reason: 'TOKEN_REFRESH_UNAVAILABLE'
                 }))
               }
             }

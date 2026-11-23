@@ -84,8 +84,6 @@ var (
 	DefaultUpdatedAt func() time.Time
 	// UpdateDefaultUpdatedAt holds the default value on update for the "updated_at" field.
 	UpdateDefaultUpdatedAt func() time.Time
-	// DefaultWorkspaceID holds the default value on creation for the "workspace_id" field.
-	DefaultWorkspaceID int64
 	// CredentialDigestValidator is a validator for the "credential_digest" field. It is called by the builders before save.
 	CredentialDigestValidator func(string) error
 	// DefaultDisplaySuffix holds the default value on creation for the "display_suffix" field.

@@ -2,6 +2,9 @@ import type { components } from '@/api/generated/openapi'
 import type { ConsoleAsyncNotice } from '@/features/console/asyncState'
 import type { CatalogModelRate } from '@/features/console/catalogApi'
 
+export type PlaygroundKeyModelItem = components['schemas']['PlaygroundKeyModel']
+export type PlaygroundKeyModelsResponse = components['schemas']['PlaygroundKeyModelPage']
+
 export type ExactPriceScenario = components['schemas']['ExactPriceScenario']
 export type ExactQuoteLine = components['schemas']['ExactQuoteLine']
 export type ExactQuoteInput = components['schemas']['ExactQuoteInput']

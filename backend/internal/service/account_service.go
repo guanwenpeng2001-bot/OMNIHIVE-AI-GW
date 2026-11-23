@@ -50,12 +50,44 @@ type OAuthRefreshCandidatePager interface {
 }
 
 type accountCredentialChangesKey struct{}
+type accountPreservedModelFieldsKey struct{}
+
+// ValidateAccountModelSelectionPreservation rejects ambiguous selection commands.
+// Explicit edits (including clear) keep their legacy semantics without the flag.
+func ValidateAccountModelSelectionPreservation(preserve bool, credentials, extra map[string]any) error {
+	if !preserve {
+		return nil
+	}
+	for _, key := range []string{"model_mapping", "model_whitelist"} {
+		if _, exists := credentials[key]; exists {
+			return infraerrors.BadRequest("CONFLICTING_MODEL_SELECTION_INTENT", "preserve_model_selection requires omitting credentials."+key)
+		}
+	}
+	if _, exists := extra[UpstreamModelAllowlistExtraKey]; exists {
+		return infraerrors.BadRequest("CONFLICTING_MODEL_SELECTION_INTENT", "preserve_model_selection requires omitting extra.upstream_model_allowlist")
+	}
+	return nil
+}
+
+// WithAccountModelSelectionPreserved removes protected fields from the later
+// credential delta, so the repository keeps the committing row's values.
+func WithAccountModelSelectionPreserved(ctx context.Context, compactEdit bool) context.Context {
+	fields := map[string]bool{"model_mapping": true, "model_whitelist": true}
+	if !compactEdit {
+		fields["compact_model_mapping"] = true
+	}
+	return context.WithValue(ctx, accountPreservedModelFieldsKey{}, fields)
+}
 
 // WithAccountCredentialChanges records the configuration delta, including
 // deletion, so a locked repository merge cannot restore stale credentials.
 func WithAccountCredentialChanges(ctx context.Context, before, after map[string]any) context.Context {
 	changes := make(map[string]any)
+	preserved, _ := ctx.Value(accountPreservedModelFieldsKey{}).(map[string]bool)
 	for key, value := range after {
+		if preserved[key] {
+			continue
+		}
 		// The caller's version is CAS intent even when equal to the initial
 		// read; the locked row may have advanced since that read.
 		if old, exists := before[key]; key == CredentialSecretVersionKey || !exists || !reflect.DeepEqual(old, value) {
@@ -63,6 +95,9 @@ func WithAccountCredentialChanges(ctx context.Context, before, after map[string]
 		}
 	}
 	for key := range before {
+		if preserved[key] {
+			continue
+		}
 		if _, exists := after[key]; !exists {
 			changes[key] = nil
 		}

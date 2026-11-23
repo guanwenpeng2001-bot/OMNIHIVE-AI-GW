@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -53,6 +52,10 @@ func (b Bounds) usage() (pricing.Usage, error) {
 func price(ctx context.Context, tx *sql.Tx, c Credential, project, account int64, source, model string, b Bounds, at time.Time) (Estimate, frozenPrice, error) {
 	estimate := Estimate{Source: source, ExternalState: "unknown", IncludeExternal: c.Budget}
 	f := frozenPrice{At: at}
+	if c.Workspace <= 0 || project <= 0 || account <= 0 || c.Provider == "" ||
+		(source != "byok" && source != "wallet") || (source == "byok" && account != c.ID) {
+		return estimate, f, unfunded
+	}
 	usage, e := b.usage()
 	if e != nil {
 		return estimate, f, e
@@ -72,32 +75,12 @@ func price(ctx context.Context, tx *sql.Tx, c Credential, project, account int64
 		estimate.ExternalState = "not_applicable"
 		estimate.IncludeExternal = false
 	}
-	rows, e := tx.QueryContext(ctx, `SELECT tariff FROM exact_price_versions WHERE scope_key=$1 AND effective_from<=$2 AND (effective_until IS NULL OR effective_until>$2) ORDER BY version_id LIMIT 2`, PriceScope(c.Workspace, project, account, source, model), at)
-	if e != nil {
-		return estimate, f, e
-	}
-	defer rows.Close()
-	var versions []pricing.Version
-	for rows.Next() {
-		var raw []byte
-		var v pricing.Version
-		if e = rows.Scan(&raw); e != nil {
-			return estimate, f, e
-		}
-		if e = json.Unmarshal(raw, &v); e != nil {
-			return estimate, f, e
-		}
-		versions = append(versions, v)
-	}
-	if e = rows.Err(); e != nil {
-		return estimate, f, e
-	}
-	version, e := pricing.Resolve(pricing.Candidates{Published: versions}, at)
+	version, e := pricing.ResolveExactTx(ctx, tx, PriceScope(c.Workspace, project, account, source, model), at)
 	if e != nil {
 		return estimate, f, e
 	}
 	if version != nil {
-		card := pricing.Frozen{Version: *version, Usage: usage, At: at}
+		card := pricing.NewExactTariff(*version, at).Freeze(usage)
 		result, e := card.Calculate()
 		if e != nil {
 			return estimate, f, e

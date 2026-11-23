@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores'
 import { useIsZhLocale } from '@/utils/activeLocale'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import MembersAccessPage from '@/features/members/MembersAccessPage.vue'
 
 const route = useRoute()
+const { t } = useI18n()
 const appStore = useAppStore()
 const isZh = useIsZhLocale('zh')
 
@@ -28,14 +30,14 @@ const initialWorkspaceId = computed(() => {
             to="/admin/users"
             class="oh-focus-ring rounded-oh-sm px-2.5 py-1 font-medium text-oh-secondary transition-colors hover:bg-oh-hover hover:text-oh-primary"
           >
-            {{ isZh ? '平台用户管理' : 'Platform Users' }}
+            {{ t('nav.users') }}
           </RouterLink>
           <RouterLink
             to="/admin/members"
             aria-current="page"
             class="oh-focus-ring rounded-oh-sm bg-oh-selected px-2.5 py-1 font-semibold text-oh-accent-text"
           >
-            {{ isZh ? '工作空间成员与授权' : 'Workspace Members & Access' }}
+            {{ t('nav.membersAccess') }}
           </RouterLink>
         </div>
 

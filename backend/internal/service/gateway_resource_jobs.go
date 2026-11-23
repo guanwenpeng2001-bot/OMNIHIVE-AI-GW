@@ -57,21 +57,18 @@ func (s *OpenAIGatewayService) ResolveGatewayResourceStandardPricing(ctx context
 	if strings.TrimSpace(model) == "" {
 		return nil, "", ErrModelPricingUnavailable
 	}
-	if s.resolver != nil && group != nil {
-		resolved := s.resolver.Resolve(ctx, PricingInput{Model: model, GroupID: &group.ID, Group: group})
-		if resolved == nil || resolved.BasePricing == nil {
+	resolver := s.resolver
+	if resolver == nil && s.billingService != nil {
+		resolver = NewModelPricingResolver(s.channelService, s.billingService)
+	}
+	if resolver != nil {
+		resolved := resolver.Resolve(ctx, PricingInput{Model: model, GroupID: pricingGroupID(&APIKey{Group: group}), Group: group})
+		if resolved.pricingErr != nil || resolved.BasePricing == nil {
 			return nil, "", fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
 		}
 		return resolved.BasePricing, resolved.Source, nil
 	}
-	if s.billingService == nil {
-		return nil, "", ErrModelPricingUnavailable
-	}
-	pricing, err := s.billingService.GetModelPricing(model)
-	if err != nil {
-		return nil, "", err
-	}
-	return pricing, "catalog", nil
+	return nil, "", ErrModelPricingUnavailable
 }
 
 // ResolveOpenAIResourceAccount revalidates the account pinned at admission. A

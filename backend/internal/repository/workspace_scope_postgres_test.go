@@ -40,7 +40,9 @@ func TestWorkspaceMigrationAndRepositoryIsolation(t *testing.T) {
 		require.NoError(t, err)
 	}()
 	scoped := domain.WithWorkspaceScope(ctx, workspace.ID)
-	other := domain.WithWorkspaceScope(ctx, domain.DefaultWorkspaceID)
+	defaultWorkspaceID, err := domain.ResolveDefaultWorkspaceID(ctx, database)
+	require.NoError(t, err)
+	other := domain.WithWorkspaceScope(ctx, defaultWorkspaceID)
 	accountRepo := NewAccountRepository(client, database, nil)
 	groupRepo := NewGroupRepository(client, database)
 	proxyRepo := NewProxyRepository(client, database)
@@ -79,10 +81,10 @@ func TestWorkspaceMigrationAndRepositoryIsolation(t *testing.T) {
 	require.NoError(t, database.QueryRowContext(ctx, "SELECT count(*) FROM workspaces WHERE is_default").Scan(&defaultCount))
 	require.Equal(t, 1, defaultCount)
 	var foreignGroup int64
-	require.NoError(t, database.QueryRowContext(ctx, "SELECT id FROM groups WHERE workspace_id=$1 AND name=$2", domain.DefaultWorkspaceID, fixture).Scan(&foreignGroup))
+	require.NoError(t, database.QueryRowContext(ctx, "SELECT id FROM groups WHERE workspace_id=$1 AND name=$2", defaultWorkspaceID, fixture).Scan(&foreignGroup))
 	_, err = database.ExecContext(ctx, "INSERT INTO account_groups(account_id,group_id) VALUES($1,$2)", accounts[0].ID, foreignGroup)
 	require.Error(t, err, "cross-workspace references must be rejected even outside HTTP")
-	_, err = database.ExecContext(ctx, "UPDATE accounts SET workspace_id=1 WHERE id=$1", accounts[0].ID)
+	_, err = database.ExecContext(ctx, "UPDATE accounts SET workspace_id=$2 WHERE id=$1", accounts[0].ID, defaultWorkspaceID)
 	require.Error(t, err, "ownership cannot be reassigned by a stale writer")
 }
 

@@ -78,37 +78,77 @@ func budgetAmount(n, d decimal.Decimal) *money.Money {
 }
 
 func (p *GatewayRequestPlan) estimateBudgetHold(ctx context.Context, e RequestBudgetEstimate) *money.Money {
+	return p.estimateBudgetHoldForLane(ctx, e, nil)
+}
+
+type requestGroupRate struct {
+	user, group int64
+	multiplier  float64
+}
+
+func frozenRequestGroupRate(ctx context.Context, user, group int64) (float64, bool) {
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+		if rate := plan.frozenRate.Load(); rate != nil && rate.user == user && rate.group == group {
+			return rate.multiplier, true
+		}
+	}
+	return 0, false
+}
+
+func (p *GatewayRequestPlan) budgetBaseMultiplier(ctx context.Context, group *Group, base float64) float64 {
+	if group == nil && p.billing.cfg != nil {
+		return math.Max(base, p.billing.cfg.Default.RateMultiplier)
+	}
+	if group != nil && p.budgetRate != nil {
+		if rate, ok := frozenRequestGroupRate(ctx, p.spec.UserID, group.ID); ok {
+			return rate
+		}
+		base = p.budgetRate(ctx, p.spec.UserID, group.ID, group.RateMultiplier)
+		if p.spec.UserID > 0 && group.ID > 0 {
+			p.frozenRate.CompareAndSwap(nil, &requestGroupRate{user: p.spec.UserID, group: group.ID, multiplier: base})
+		}
+	}
+	return base
+}
+
+func (p *GatewayRequestPlan) estimateBudgetHoldForLane(ctx context.Context, e RequestBudgetEstimate, lane *requestLanePricing) *money.Money {
 	if p.billing == nil {
 		return nil
 	}
 	input, output, base := NormalizeBudgetEstimateBounds(e)
-	if e.Group == nil && p.billing.cfg != nil {
-		base = math.Max(base, p.billing.cfg.Default.RateMultiplier)
+	if lane == nil {
+		base = p.budgetBaseMultiplier(ctx, e.Group, base)
 	}
 	key := &APIKey{Group: e.Group}
 	if e.Group != nil {
 		key.GroupID = &e.Group.ID
-		if p.budgetRate != nil {
-			base = p.budgetRate(ctx, p.spec.UserID, e.Group.ID, e.Group.RateMultiplier)
-		}
 	}
 	resolver := NewModelPricingResolver(p.channels, p.billing)
-	in := PricingInput{Model: e.Model, Group: e.Group, GroupID: key.GroupID}
+	in := PricingInput{Model: e.Model, Group: e.Group, GroupID: key.GroupID, At: p.spec.PricingAt}
+	in.Provider = pricingPlatform(ctx, in)
 	if e.Meter != nil {
 		return p.mediaBudgetAmount(ctx, resolver, in, key, e.Meter, base)
 	}
 	var resolved *ResolvedPricing
-	if pinned, ok := ctx.Value(embeddingsPricingKey{}).(embeddingsPricing); ok && e.InputOnly {
+	multiplier, _ := computePeakAwareMultipliers(key, base, p.spec.PricingAt)
+	var longContext *bool
+	if lane != nil {
+		e.Model, in.Provider, resolver, resolved, multiplier = lane.model, lane.provider, lane.resolver, lane.resolved, lane.multiplier
+		longContext = lane.longContext
+	} else if pinned, ok := ctx.Value(embeddingsPricingKey{}).(embeddingsPricing); ok && e.InputOnly {
 		e.Model, resolver, resolved = pinned.model, pinned.resolver, pinned.resolved
 	} else {
 		resolved = resolver.Resolve(ctx, in)
 	}
-	if resolved.pricingErr != nil || (!p.billing.HasIdentifiedTokenPricing(e.Model) && resolved.descriptor == nil && resolved.Source != PricingSourceChannel && resolved.Source != PricingSourceGroup && !strings.HasPrefix(resolved.Source, "official_free:")) {
+	if pin := playgroundPriceFromContext(ctx); pin != nil {
+		e.Model, resolver, resolved, multiplier = pin.input.Model, pin.input.Resolver, pin.input.Resolved, pin.input.RateMultiplier
+		in.Provider = pin.input.Provider
+	}
+	if resolved.pricingErr != nil || (!p.billing.hasProviderTokenPrice(ctx, in.Provider, e.Model) && resolved.descriptor == nil && resolved.Source != PricingSourceChannel && resolved.Source != PricingSourceGroup && !strings.HasPrefix(resolved.Source, "official_free:")) {
 		return nil
 	}
-	multiplier, _ := computePeakAwareMultipliers(key, base, p.spec.PricingAt)
-	cost, err := p.billing.CalculateCostUnified(CostInput{Ctx: ctx, Model: e.Model, Group: e.Group, GroupID: key.GroupID, Resolver: resolver, Resolved: resolved, RateMultiplier: multiplier,
-		Tokens: UsageTokens{InputTokens: input, OutputTokens: output, CacheCreationTokens: e.CacheCreationTokens}, RequestCount: 1, PricingAt: p.spec.PricingAt, ServiceTier: e.ServiceTier, ReasoningEffort: e.ReasoningEffort})
+	cost, err := p.billing.CalculateCostUnified(CostInput{Ctx: ctx, Model: e.Model, Provider: in.Provider, Group: e.Group, GroupID: key.GroupID, Resolver: resolver, Resolved: resolved, RateMultiplier: multiplier,
+		Tokens: UsageTokens{InputTokens: input, OutputTokens: output, CacheCreationTokens: e.CacheCreationTokens}, RequestCount: 1, PricingAt: p.spec.PricingAt, ServiceTier: e.ServiceTier, ReasoningEffort: e.ReasoningEffort, LongContextBillingEnabled: longContext})
 	if err != nil || cost == nil || (cost.PricingState != PricingStatePriced && cost.PricingState != PricingStateFree) || !validBillingNumber(cost.ActualCost) {
 		return nil
 	}
@@ -145,18 +185,16 @@ func (p *GatewayRequestPlan) mediaBudgetAmount(ctx context.Context, resolver *Mo
 	if m.Count <= 0 || m.Numerator <= 0 || m.Denominator <= 0 || !validBillingNumber(base) {
 		return nil
 	}
-	descriptor, found, err := resolver.configuredPriceDescriptor(ctx, in)
-	if err != nil {
-		return nil
-	}
 	tier := m.Size
 	unit := m.Unit
 	multiplier := base
 	switch unit {
 	case "image":
+		in.Mode = BillingModeImage
 		tier = NormalizeImageBillingTierOrDefault(tier)
 		multiplier = resolveImageRateMultiplier(key, base)
 	case "video_second":
+		in.Mode = BillingModeVideo
 		tier = NormalizeVideoBillingResolutionOrDefault(tier)
 		unit = "second"
 		multiplier = resolveVideoRateMultiplier(key, base)
@@ -167,16 +205,19 @@ func (p *GatewayRequestPlan) mediaBudgetAmount(ctx context.Context, resolver *Mo
 	if !validBillingNumber(multiplier) {
 		return nil
 	}
+	descriptor, found, err := resolver.configuredPriceDescriptor(ctx, in)
+	if err != nil {
+		return nil
+	}
 	quantity := decimal.NewFromInt(m.Count).Mul(decimal.NewFromInt(m.Numerator))
 	divisor := decimal.NewFromInt(m.Denominator)
 	var price float64
 	if found {
-		var fact ModelUnitPrice
 		// A condition can specialize the unconditional rate. Include the latter
 		// when settlement can still select it for this same request.
 		matched := false
 		for _, condition := range []string{m.Quality, tier, ""} {
-			fact, err = descriptor.UnitPrice(unit, "output", condition)
+			fact, err := descriptor.UnitPrice(unit, "output", condition)
 			if err == nil {
 				price = math.Max(price, *fact.Sales)
 				matched = true
@@ -247,34 +288,12 @@ func (p *GatewayRequestPlan) mediaBudgetAmount(ctx context.Context, resolver *Mo
 				divisor = decimal.NewFromInt(1)
 			}
 		case unit == "image":
-			_, known := getDefaultGrokImagineImagePrice(in.Model, tier)
-			if !known && !apiKeyHasConfiguredImagePrice(key, tier) {
-				if p.billing.pricingService == nil {
-					return nil
-				}
-				raw := p.billing.pricingService.GetIdentifiedModelPricing(in.Model)
-				if raw == nil || !validBillingNumber(raw.OutputCostPerImage) || raw.OutputCostPerImage <= 0 || IsGPTImageGenerationModel(in.Model) {
-					return nil
-				}
-				scale := decimal.NewFromInt(1)
-				switch tier {
-				case "2K":
-					scale = decimal.New(15, -1)
-				case "4K":
-					scale = decimal.NewFromInt(2)
-				}
-				return budgetAmount(decimal.NewFromFloat(raw.OutputCostPerImage).Mul(scale).Mul(quantity).Mul(decimal.NewFromFloat(multiplier)), divisor)
-			}
-			price = p.billing.getImageUnitPrice(in.Model, tier, imagePriceConfigFromAPIKey(key))
+			price, _, err = p.billing.imageSaleRate(in.Provider, in.Model, tier, imagePriceConfigFromAPIKey(key))
 		case unit == "second":
-			_, known := getDefaultGrokImagineVideoPrice(in.Model, tier)
-			if !known && !apiKeyHasConfiguredVideoPrice(key, in.Model, tier) {
-				return nil
-			}
-			price = p.billing.getVideoUnitPrice(in.Model, tier, videoPriceConfigFromAPIKey(key))
+			price, _, err = p.billing.videoSaleRate(key, in.Provider, in.Model, tier)
 		}
 	}
-	if !validBillingNumber(price) {
+	if err != nil || !validBillingNumber(price) {
 		return nil
 	}
 	return budgetAmount(decimal.NewFromFloat(price).Mul(quantity).Mul(decimal.NewFromFloat(multiplier)), divisor)

@@ -69,8 +69,9 @@ func newUsagePressureFixture(test *testing.T) usagePressureFixture {
 	previousTimezone := timezone.Name()
 	require.NoError(test, timezone.Init("UTC"))
 	test.Cleanup(func() { require.NoError(test, timezone.Init(previousTimezone)) })
-	// LIKE excludes foreign keys and triggers. IDs are supplied explicitly so
-	// no copied sequence default can write outside this fixture's schema.
+	// LIKE excludes foreign keys and triggers. Supply IDs and workspace IDs
+	// explicitly so copied defaults do not use sequences or resolve a workspace
+	// outside this fixture's schema.
 	for _, table := range []string{"usage_logs", "users", "api_keys", "accounts", "usage_group_rollup_state", "usage_settlement_receipts"} {
 		_, err = isolated.Exec(`CREATE TABLE ` + table + ` (LIKE public.` + table + ` INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES)`)
 		require.NoError(test, err)
@@ -82,8 +83,9 @@ func newUsagePressureFixture(test *testing.T) usagePressureFixture {
 	}
 	fixture.exec(test, `INSERT INTO usage_group_rollup_state(id) VALUES(1)`)
 	fixture.exec(test, `INSERT INTO users(id,email,password_hash,balance) VALUES(1,'synthetic-pressure@example.test','synthetic-not-a-credential',100)`)
-	fixture.exec(test, `INSERT INTO api_keys(id,user_id,key,name,quota_used) VALUES(1,1,'synthetic-pressure-not-a-key','pressure',7)`)
-	fixture.exec(test, `INSERT INTO accounts(id,name,platform,type) VALUES(1,'synthetic-pressure','openai','apikey')`)
+	const workspaceID = 17
+	fixture.exec(test, `INSERT INTO api_keys(id,workspace_id,user_id,key,name,quota_used) VALUES(1,$1,1,'synthetic-pressure-not-a-key','pressure',7)`, workspaceID)
+	fixture.exec(test, `INSERT INTO accounts(id,workspace_id,name,platform,type) VALUES(1,$1,'synthetic-pressure','openai','apikey')`, workspaceID)
 	fixture.exec(test, `INSERT INTO usage_logs(id,user_id,api_key_id,account_id,model,input_tokens,output_tokens,total_cost,actual_cost,account_stats_cost,account_rate_multiplier,created_at)
 	 SELECT ordinal+1,1,1,1,'synthetic-pressure',10,5,1,0.125,2,0.5,
 	 $1::timestamptz + (ordinal % 7)*INTERVAL '1 day' + (ordinal / 7)*INTERVAL '6 seconds'

@@ -6,7 +6,6 @@ import {
   Badge,
   Button,
   Card,
-  Checkbox,
   EmptyState,
   ErrorState,
   Input,
@@ -25,10 +24,11 @@ import { classifyAsyncError, formatNullableMono } from '@/features/shared/asyncS
 import { getControlAPIBaseURL } from '@/features/shared/controlClient'
 import { membersV2API } from './api'
 import { projectMemberPermissions, resolveCasMutationError } from './cas'
+import MemberGrantMatrixModal from './MemberGrantMatrixModal.vue'
+import WorkspaceAccessRequestsInbox from './WorkspaceAccessRequestsInbox.vue'
 import type {
   CasConflictState,
   IdentityAccess,
-  IdentityMemberGrants,
   IdentityMemberItem,
   IdentityProject,
   IdentityWorkspace
@@ -37,6 +37,7 @@ import type {
 interface MemberDisplayRow {
   user_id: number | string
   role: 'admin' | 'member' | string
+  role_source?: 'inherited' | 'delegated' | 'direct' | string | null
   username?: string
   email?: string
   status?: string
@@ -69,6 +70,7 @@ const selectedWorkspaceId = ref<string>(props.initialWorkspaceId || '')
 const projects = ref<IdentityProject[]>([])
 const projectsNextCursor = ref<string | null>(null)
 const members = ref<MemberDisplayRow[]>([])
+const workspaceAccess = ref<IdentityAccess | null>(null)
 const projectAccess = ref<IdentityAccess | null>(null)
 
 const searchQuery = ref('')
@@ -84,13 +86,6 @@ const editProjectName = ref('')
 
 // Member grants modal
 const grantModalMember = ref<MemberDisplayRow | null>(null)
-const grantVersionInput = ref('1')
-const grantSelectedActions = ref<string[]>([])
-const grantSelectedProjects = ref<string[]>([])
-const grantLoading = ref(false)
-const grantLoadFailed = ref(false)
-const grantBusy = ref(false)
-const grantModalConflict = ref<CasConflictState | null>(null)
 
 // Add / update workspace member
 const newMemberUserId = ref('')
@@ -215,6 +210,7 @@ const NON_GRANTABLE_SERVER_ACTIONS = new Set([
 
 const ACTION_CATALOG: ReadonlyArray<{ action: string; labelKey: string }> = [
   { action: 'text.chat', labelKey: 'membersAccess.actions.textChat' },
+  { action: 'text.responses', labelKey: 'membersAccess.actions.textResponses' },
   { action: 'text.embeddings', labelKey: 'membersAccess.actions.textEmbeddings' },
   { action: 'image.generate', labelKey: 'membersAccess.actions.imageGenerate' },
   { action: 'usage.read', labelKey: 'membersAccess.actions.usageRead' },
@@ -230,6 +226,7 @@ const ACTION_CATALOG: ReadonlyArray<{ action: string; labelKey: string }> = [
   { action: 'models.read', labelKey: 'membersAccess.actions.modelsRead' },
   { action: 'keys.read', labelKey: 'membersAccess.actions.keysRead' },
   { action: 'keys.create', labelKey: 'membersAccess.actions.keysCreate' },
+  { action: 'keys.revoke', labelKey: 'membersAccess.actions.keysRevoke' },
   { action: 'keys.act_as', labelKey: 'membersAccess.actions.keysActAs' },
   { action: 'credentials.byok.manage', labelKey: 'membersAccess.actions.credentialsByokManage' },
   { action: 'credentials.read_metadata', labelKey: 'membersAccess.actions.credentialsReadMetadata' },
@@ -271,8 +268,15 @@ const ACTION_CATALOG: ReadonlyArray<{ action: string; labelKey: string }> = [
 
 const ACTION_LABEL_KEY_BY_NAME = new Map(ACTION_CATALOG.map((item) => [item.action, item.labelKey]))
 
+const effectiveAccessSource = computed<IdentityAccess | null>(
+  () => workspaceAccess.value ?? projectAccess.value
+)
+
 const grantActionOptions = computed(() => {
-  const serverActions = projectAccess.value?.actions
+  const explicitGrantable = effectiveAccessSource.value?.grantable_actions
+  const serverActions = Array.isArray(explicitGrantable)
+    ? explicitGrantable
+    : effectiveAccessSource.value?.actions
   if (!Array.isArray(serverActions)) {
     return []
   }
@@ -295,18 +299,20 @@ const grantActionOptions = computed(() => {
   ]
 })
 
-const grantableActionSet = computed(() => new Set(grantActionOptions.value.map((item) => item.action)))
-
-const outOfScopeMemberActions = computed(() =>
-  grantSelectedActions.value.filter((act) => !grantableActionSet.value.has(act))
-)
-
 const selectedWorkspace = computed(() =>
   workspaces.value.find((ws) => String(ws.id) === selectedWorkspaceId.value) ?? null
 )
 
+const selectedWorkspaceIsDefault = computed(() => {
+  if (typeof selectedWorkspace.value?.is_default === 'boolean') {
+    return selectedWorkspace.value.is_default
+  }
+  const scopeWs = v2Scopes.value.find((ws) => ws.workspace_id === selectedWorkspaceId.value)
+  return Boolean(scopeWs?.is_default)
+})
+
 const roleProjection = computed(() =>
-  projectMemberPermissions(projectAccess.value, selectedWorkspace.value?.role)
+  projectMemberPermissions(effectiveAccessSource.value, selectedWorkspace.value?.role)
 )
 
 const workspaceOptions = computed<UiSelectOption[]>(() => {
@@ -338,6 +344,10 @@ const tabItems = computed<UiTabItem[]>(() => [
     value: 'projects',
     label: t('membersAccess.tabs.projects'),
     count: projects.value.length
+  },
+  {
+    value: 'requests',
+    label: t('membersAccess.tabs.requests')
   },
   {
     value: 'roles',
@@ -412,6 +422,7 @@ async function fetchWorkspaceMembersWithFallback(workspaceId: string): Promise<M
       return rawItems.map((item) => ({
         user_id: item.user_id || item.id,
         role: item.role,
+        role_source: item.role_source,
         username: item.username,
         email: item.email,
         status: item.status,
@@ -430,17 +441,20 @@ async function fetchWorkspaceMembersWithFallback(workspaceId: string): Promise<M
   }))
 }
 
-async function fetchMemberGrants(workspaceId: string, memberId: string): Promise<IdentityMemberGrants | null> {
-  const { data } = await apiClient.get<IdentityMemberGrants>(
-    `/workspaces/${workspaceId}/members/${memberId}/grants`,
-    { baseURL: getControlAPIBaseURL() }
-  )
-  return data ?? null
-}
-
 async function loadWorkspaceDetails(workspaceId: string): Promise<void> {
   if (!workspaceId) return
   partialErrors.value = []
+  workspaceAccess.value = null
+  if (typeof membersV2API.getWorkspaceAccess === 'function') {
+    try {
+      const wsAcc = await membersV2API.getWorkspaceAccess(workspaceId)
+      if (wsAcc && typeof wsAcc === 'object') {
+        workspaceAccess.value = wsAcc
+      }
+    } catch {
+      workspaceAccess.value = null
+    }
+  }
 
   const [projectsRes, membersRes] = await Promise.allSettled([
     membersV2API.listProjects(workspaceId, { limit: 50 }),
@@ -654,156 +668,27 @@ async function handleDeleteProject(project: IdentityProject): Promise<void> {
   }
 }
 
-async function loadMemberGrantsIntoModal(memberId: string): Promise<boolean> {
-  if (!selectedWorkspaceId.value) return false
-  grantLoading.value = true
-  grantLoadFailed.value = false
-  try {
-    const grants = await fetchMemberGrants(selectedWorkspaceId.value, memberId)
-    if (grants) {
-      grantVersionInput.value = String(grants.version || '1')
-      grantSelectedProjects.value = Array.isArray(grants.project_ids) ? [...grants.project_ids] : []
-      grantSelectedActions.value = Array.isArray(grants.actions) ? [...grants.actions] : []
-      members.value = members.value.map((m) =>
-        String(m.user_id) === memberId ? { ...m, grant_version: String(grants.version) } : m
-      )
-      grantModalConflict.value = null
-      return true
-    }
-  } catch (error) {
-    grantLoadFailed.value = true
-    const err = classifyAsyncError(
-      error,
-      t('membersAccess.errors.loadGrantsFailed')
-    )
-    pushUiToast({
-      tone: 'warning',
-      title: t('membersAccess.errors.loadGrantsTitle'),
-      description: err.message
-    })
-  } finally {
-    grantLoading.value = false
-  }
-  return false
-}
-
 function openGrantModal(member: MemberDisplayRow): void {
   grantModalMember.value = member
-  grantVersionInput.value = member.grant_version || '1'
-  grantSelectedProjects.value = projects.value.map((p) => p.id)
-  grantSelectedActions.value = []
-  grantLoadFailed.value = false
   conflictState.value = null
-  grantModalConflict.value = null
-  void loadMemberGrantsIntoModal(String(member.user_id))
 }
 
-function toggleGrantAction(action: string, checked: boolean): void {
-  if (checked) {
-    if (!grantSelectedActions.value.includes(action)) {
-      grantSelectedActions.value = [...grantSelectedActions.value, action]
-    }
-  } else {
-    grantSelectedActions.value = grantSelectedActions.value.filter((a) => a !== action)
-  }
+function handleGrantMatrixSaved(payload: { memberId: string; version: string }): void {
+  members.value = members.value.map((m) =>
+    String(m.user_id) === payload.memberId ? { ...m, grant_version: payload.version } : m
+  )
+  confirmedMessage.value = t('membersAccess.feedback.grantsUpdatedMessage', {
+    id: payload.memberId,
+    version: payload.version
+  })
 }
 
-function toggleGrantProject(projectId: string, checked: boolean): void {
-  if (checked) {
-    if (!grantSelectedProjects.value.includes(projectId)) {
-      grantSelectedProjects.value = [...grantSelectedProjects.value, projectId]
-    }
-  } else {
-    grantSelectedProjects.value = grantSelectedProjects.value.filter((id) => id !== projectId)
-  }
-}
-
-async function handleSaveGrants(): Promise<void> {
-  if (!grantModalMember.value || !selectedWorkspaceId.value) return
-  grantBusy.value = true
-  conflictState.value = null
-  grantModalConflict.value = null
-  confirmedMessage.value = null
-  const memberId = String(grantModalMember.value.user_id)
-  try {
-    const res = await membersV2API.setMemberGrants(
-      selectedWorkspaceId.value,
-      memberId,
-      grantVersionInput.value,
-      {
-        actions: grantSelectedActions.value.filter((act) => grantableActionSet.value.has(act)),
-        project_ids: grantSelectedProjects.value
-      }
-    )
-    grantVersionInput.value = res.version
-    members.value = members.value.map((m) =>
-      String(m.user_id) === memberId ? { ...m, grant_version: res.version } : m
-    )
-    grantModalMember.value = null
-    confirmedMessage.value = t('membersAccess.feedback.grantsUpdatedMessage', {
-      id: memberId,
-      version: res.version
-    })
-    pushUiToast({
-      tone: 'success',
-      title: t('membersAccess.feedback.grantsUpdatedTitle'),
-      description: t('membersAccess.feedback.grantRevisionDesc', { version: res.version })
-    })
-  } catch (error) {
-    const resolved = resolveCasMutationError(error, 'grants', memberId, grantVersionInput.value)
-    if (resolved.kind === 'conflict') {
-      conflictState.value = resolved.conflict
-      grantModalConflict.value = resolved.conflict
-      stale.value = true
-    } else {
-      pushUiToast({
-        tone: 'danger',
-        title: t('membersAccess.errors.saveGrantsFailed'),
-        description: resolved.message
-      })
-    }
-  } finally {
-    grantBusy.value = false
-  }
-}
-
-async function handleReloadLatestAndRetryGrants(): Promise<void> {
-  if (!grantModalMember.value || !selectedWorkspaceId.value || grantBusy.value) return
-  const memberId = String(grantModalMember.value.user_id)
-  grantLoading.value = true
-  try {
-    const latest = await fetchMemberGrants(selectedWorkspaceId.value, memberId)
-    if (latest?.version) {
-      grantVersionInput.value = String(latest.version)
-      grantModalConflict.value = null
-      conflictState.value = null
-      grantLoading.value = false
-      await handleSaveGrants()
-      return
-    }
-  } catch (error) {
-    const err = classifyAsyncError(
-      error,
-      t('membersAccess.errors.reloadRevisionFailed')
-    )
-    pushUiToast({
-      tone: 'danger',
-      title: t('membersAccess.errors.reloadRevisionTitle'),
-      description: err.message
-    })
-  } finally {
-    grantLoading.value = false
-  }
+function handleGrantMatrixConflict(conflict: CasConflictState): void {
+  conflictState.value = conflict
+  stale.value = true
 }
 
 async function handleConflictReload(): Promise<void> {
-  if (conflictState.value?.resourceType === 'grants' && selectedWorkspaceId.value) {
-    const targetMemberId = conflictState.value.resourceId
-    await loadMemberGrantsIntoModal(targetMemberId)
-    conflictState.value = null
-    stale.value = false
-    return
-  }
   conflictState.value = null
   await loadAll(true)
 }
@@ -1279,6 +1164,16 @@ onUnmounted(() => {
         </Table>
       </Card>
 
+      <WorkspaceAccessRequestsInbox
+        v-else-if="activeTab === 'requests'"
+        :workspace-id="selectedWorkspaceId"
+        :workspace-is-default="selectedWorkspaceIsDefault"
+        :projects="projects"
+        :grant-action-options="grantActionOptions"
+        :auto-load="roleProjection.canManageGrants"
+        @decided="loadWorkspaceDetails(selectedWorkspaceId)"
+      />
+
       <div v-else class="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card padding="md">
           <h2 class="text-sm font-semibold text-oh-primary">
@@ -1381,145 +1276,16 @@ onUnmounted(() => {
       </form>
     </Modal>
 
-    <Modal
+    <MemberGrantMatrixModal
       :open="Boolean(grantModalMember)"
-      :title="
-        grantModalMember
-          ? t('membersAccess.modals.editGrantsTitleWithId', { id: grantModalMember.user_id })
-          : t('membersAccess.modals.editGrantsTitle')
-      "
+      :workspace-id="selectedWorkspaceId"
+      :workspace-is-default="selectedWorkspaceIsDefault"
+      :member="grantModalMember"
+      :projects="projects"
+      :grant-action-options="grantActionOptions"
       @close="grantModalMember = null"
-    >
-      <form v-if="grantModalMember" class="space-y-4" @submit.prevent="handleSaveGrants">
-        <div class="flex items-center justify-between rounded-oh-md border border-oh-default bg-oh-subtle/40 px-3 py-2 text-xs">
-          <span class="text-oh-secondary">
-            {{ t('membersAccess.modals.currentGrantRevision') }}:
-            <strong class="font-mono tabular-nums text-oh-primary">#{{ grantVersionInput }}</strong>
-          </span>
-          <Button
-            size="xs"
-            variant="ghost"
-            type="button"
-            :loading="grantLoading"
-            @click="loadMemberGrantsIntoModal(String(grantModalMember.user_id))"
-          >
-            {{ t('membersAccess.modals.reloadCurrentGrants') }}
-          </Button>
-        </div>
-
-        <div
-          v-if="grantModalConflict"
-          class="rounded-oh-md border border-oh-status-warn-border bg-oh-status-warn-bg/60 p-3 text-xs space-y-2"
-          role="alert"
-        >
-          <div class="font-semibold text-oh-primary">
-            {{ t('membersAccess.modals.grantConflictTitle') }}
-          </div>
-          <p class="text-oh-secondary">
-            {{
-              grantModalConflict.serverVersion
-                ? t('membersAccess.modals.grantConflictMessageWithServer', {
-                    version: grantModalConflict.serverVersion
-                  })
-                : t('membersAccess.modals.grantConflictMessage')
-            }}
-          </p>
-          <div class="flex flex-wrap items-center gap-2">
-            <Button
-              size="xs"
-              variant="secondary"
-              type="button"
-              :loading="grantLoading"
-              @click="loadMemberGrantsIntoModal(String(grantModalMember.user_id))"
-            >
-              {{ t('membersAccess.modals.loadServerGrants') }}
-            </Button>
-            <Button
-              size="xs"
-              variant="primary"
-              type="button"
-              :loading="grantBusy || grantLoading"
-              @click="handleReloadLatestAndRetryGrants"
-            >
-              {{ t('membersAccess.modals.syncAndRetryGrants') }}
-            </Button>
-          </div>
-        </div>
-
-        <div v-if="grantLoading" class="space-y-2">
-          <Skeleton height="2.5rem" />
-          <Skeleton height="5rem" />
-        </div>
-
-        <div class="space-y-2">
-          <p class="text-xs font-semibold text-oh-secondary">
-            {{ t('membersAccess.modals.capabilityActions') }}
-          </p>
-          <p class="text-[11px] text-oh-muted">
-            {{ t('membersAccess.modals.grantScopeHint') }}
-          </p>
-          <p
-            v-if="grantActionOptions.length === 0"
-            data-testid="grant-actions-unavailable"
-            class="rounded-oh-md border border-oh-subtle bg-oh-subtle/50 px-3 py-2 text-xs text-oh-muted"
-          >
-            {{ t('membersAccess.modals.noGrantableActions') }}
-          </p>
-          <div
-            v-else
-            data-testid="grant-actions-grid"
-            class="grid grid-cols-1 gap-2 sm:grid-cols-2 max-h-52 overflow-y-auto pr-1"
-          >
-            <Checkbox
-              v-for="item in grantActionOptions"
-              :key="item.action"
-              :model-value="grantSelectedActions.includes(item.action)"
-              :label="`${item.label} (${item.action})`"
-              @update:model-value="(v) => toggleGrantAction(item.action, Boolean(v))"
-            />
-          </div>
-          <div
-            v-if="outOfScopeMemberActions.length > 0"
-            data-testid="grant-actions-out-of-scope"
-            class="rounded-oh-md border border-oh-subtle bg-oh-subtle/40 px-3 py-2 text-[11px] text-oh-muted space-y-1"
-          >
-            <p>{{ t('membersAccess.modals.outOfScopeActionsHint') }}</p>
-            <div class="flex flex-wrap gap-1.5">
-              <Badge
-                v-for="act in outOfScopeMemberActions"
-                :key="act"
-                tone="neutral"
-                variant="outline"
-                mono
-              >
-                {{ act }}
-              </Badge>
-            </div>
-          </div>
-        </div>
-        <div v-if="projects.length > 0" class="space-y-2">
-          <p class="text-xs font-semibold text-oh-secondary">
-            {{ t('membersAccess.modals.scopedProjects') }}
-          </p>
-          <div class="grid grid-cols-2 gap-2">
-            <Checkbox
-              v-for="proj in projects"
-              :key="proj.id"
-              :model-value="grantSelectedProjects.includes(proj.id)"
-              :label="proj.name"
-              @update:model-value="(v) => toggleGrantProject(proj.id, Boolean(v))"
-            />
-          </div>
-        </div>
-        <div class="flex justify-end gap-2">
-          <Button variant="secondary" type="button" @click="grantModalMember = null">
-            {{ t('membersAccess.modals.cancel') }}
-          </Button>
-          <Button type="submit" variant="primary" :loading="grantBusy" :disabled="grantLoading || grantLoadFailed || grantActionOptions.length === 0">
-            {{ t('membersAccess.modals.saveGrants') }}
-          </Button>
-        </div>
-      </form>
-    </Modal>
+      @saved="handleGrantMatrixSaved"
+      @conflict="handleGrantMatrixConflict"
+    />
   </div>
 </template>

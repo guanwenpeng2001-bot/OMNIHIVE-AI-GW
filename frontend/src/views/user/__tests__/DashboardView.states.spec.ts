@@ -2,17 +2,23 @@ import { baseCompile } from '@intlify/message-compiler'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
+import { createPinia, setActivePinia } from 'pinia'
+import { useConsoleScopeStore } from '@/stores/consoleScope'
+import { identityApi } from '@/api/identity'
+import FirstRunChecklist from '@/features/onboarding/FirstRunChecklist.vue'
 import DashboardView from '../DashboardView.vue'
-import en from '@/i18n/locales/en/dashboard'
-import zh from '@/i18n/locales/zh/dashboard'
+import en from '@/i18n/locales/en'
+import zh from '@/i18n/locales/zh'
 
 const api = vi.hoisted(() => ({ getDashboardStats: vi.fn(), getDashboardTrend: vi.fn(), getDashboardModels: vi.fn(), query: vi.fn() }))
 vi.mock('@/api/usage', () => ({ usageAPI: api }))
 vi.mock('@/api/user', () => ({ getMyPlatformQuotas: vi.fn(async () => ({})) }))
-vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ user: {}, refreshUser: vi.fn(), isSimpleMode: false }) }))
+const user = vi.hoisted(() => ({ id: undefined as number | undefined }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ user, refreshUser: vi.fn(), isSimpleMode: false }) }))
 const stubs = { AppLayout: { template: '<div><slot /></div>' }, LoadingSpinner: true, UserDashboardStats: true, UserDashboardCharts: true, UserDashboardRecentUsage: true, UserDashboardQuickActions: true }
 const mountPage = (locale = 'en', timeZone?: string) => mount(DashboardView, { props: { timeZone }, global: { stubs, plugins: [createI18n({ messageCompiler: message => new Function('return ' + baseCompile(message as string).code)(), legacy: false, locale, messages: { en, zh } })] } })
 beforeEach(() => {
+  user.id = undefined
   api.getDashboardStats.mockReset().mockResolvedValue({ total_requests: 1 })
   api.getDashboardTrend.mockReset().mockResolvedValue({ trend: [{ date: '2026-03-01', requests: 1 }] })
   api.getDashboardModels.mockReset().mockResolvedValue({ models: [{ model: 'example' }] })
@@ -57,6 +63,42 @@ describe('user dashboard states', () => {
     api.getDashboardTrend.mockRejectedValueOnce({ status: 409, reason: 'OTHER_CONFLICT' })
     const wrapper = mountPage(); await flushPromises()
     expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+  it('ignores a late project access response after the header switches to Personal Space', async () => {
+    localStorage.clear()
+    setActivePinia(createPinia())
+    const scope = useConsoleScopeStore()
+    let rejectProbe!: (error: Error) => void
+    const probe = vi.spyOn(identityApi, 'getProjectAccess').mockImplementationOnce(
+      () => new Promise((_resolve, reject) => { rejectProbe = reject })
+    )
+    const wrapper = mountPage()
+    try {
+      await flushPromises()
+      user.id = 7
+      scope.selectWorkspaceScope('12', '24')
+      await flushPromises()
+      expect(probe).toHaveBeenCalledWith('12', '24')
+      expect(wrapper.getComponent(FirstRunChecklist).props('projectProbeState')).toBe('loading')
+      scope.selectPersonalScope()
+      await flushPromises()
+      rejectProbe(new Error('Obsolete project probe'))
+      await flushPromises()
+      expect(wrapper.getComponent(FirstRunChecklist).props('projectProbeState')).toBe('idle')
+      expect(wrapper.getComponent(FirstRunChecklist).props('projectActions')).toEqual([])
+    } finally {
+      probe.mockRestore()
+      wrapper.unmount()
+    }
+  })
+  it('renders 0 duplicate in-page console-scope-bar nodes and keeps personal scope on mount (AC-1)', async () => {
+    localStorage.clear()
+    const wrapper = mountPage('zh')
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="console-scope-bar"]')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="first-run-checklist"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="personal-scope-attribution"]').text()).toContain('个人空间')
     wrapper.unmount()
   })
 })

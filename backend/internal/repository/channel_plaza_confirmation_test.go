@@ -50,10 +50,10 @@ func TestModelPlazaConfirmationPostgres(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, isolated.Close()) }()
 	statements := []string{
-		`INSERT INTO channels (id,name) VALUES (1,'plaza-test')`,
-		`INSERT INTO groups (id,name,platform) VALUES (1,'plaza-group','openai')`,
+		`INSERT INTO channels (id,workspace_id,name) VALUES (1,17,'plaza-test')`,
+		`INSERT INTO groups (id,workspace_id,name,platform) VALUES (1,17,'plaza-group','openai')`,
 		`INSERT INTO channel_groups (id,channel_id,group_id) VALUES (1,1,1)`,
-		`INSERT INTO accounts (id,name,platform,type,credentials) VALUES (1,'plaza-account','openai','apikey','{"model_mapping":{"alias":"candidate"}}')`,
+		`INSERT INTO accounts (id,workspace_id,name,platform,type,credentials) VALUES (1,17,'plaza-account','openai','apikey','{"model_mapping":{"alias":"candidate"}}')`,
 		`INSERT INTO account_groups (account_id,group_id) VALUES (1,1)`,
 	}
 	for _, statement := range statements {

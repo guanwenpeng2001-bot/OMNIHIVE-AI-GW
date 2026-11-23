@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { defineComponent, h } from "vue";
-import { flushPromises, mount } from "@vue/test-utils";
+import { flushPromises, mount, RouterLinkStub } from "@vue/test-utils";
 
 import enCommon from "@/i18n/locales/en/common";
 import enSettings from "@/i18n/locales/en/admin/settings";
@@ -548,6 +548,7 @@ function mountView() {
   return mount(SettingsView, {
     global: {
       stubs: {
+        RouterLink: RouterLinkStub,
         AppLayout: AppLayoutStub,
         Select: SelectStub,
         Toggle: ToggleStub,
@@ -632,6 +633,7 @@ describe("admin SettingsView payment visible method controls", () => {
     const wrapper = mountView();
     document.body.appendChild(wrapper.element);
     await flushPromises();
+    expect(wrapper.getComponent(RouterLinkStub).props('to')).toBe('/admin/settings/diagnostics');
     const tabs = wrapper.findAll('[role="tab"]');
     const panel = wrapper.get('[role="tabpanel"]');
     expect(tabs.every(tab => tab.attributes('aria-controls') === panel.attributes('id'))).toBe(true);
@@ -1272,6 +1274,7 @@ describe("admin SettingsView payment visible method controls", () => {
     const wrapper = mount(SettingsView, {
       global: {
         stubs: {
+          RouterLink: RouterLinkStub,
           AppLayout: AppLayoutStub,
           Select: SelectStub,
           Toggle: ToggleStub,
@@ -1570,6 +1573,7 @@ describe("admin SettingsView payment visible method controls", () => {
     const wrapper = mount(SettingsView, {
       global: {
         stubs: {
+          RouterLink: RouterLinkStub,
           AppLayout: AppLayoutStub,
           Select: SelectStub,
           Toggle: ToggleStub,

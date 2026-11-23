@@ -4,20 +4,17 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"slices"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/quotes"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/routing/snapshot"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/routing/trace"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/lib/pq"
 )
 
@@ -43,40 +40,20 @@ func selectModel(s catalog.Snapshot, id string, _ bool) (catalog.Detail, error) 
 	}
 	return catalog.Detail{}, unavailableModel
 }
-func (g *Gateway) route(ctx context.Context, a scope.Authorized, group int64, s policy.Scenario, version string, m catalog.Detail, funding string) (trace.DecisionTrace, int64, error) {
+func (g *Gateway) route(ctx context.Context, a scope.Authorized, key *service.APIKey, s policy.Scenario, version string, m catalog.Detail, admittedAccounts map[string]int64, funding string) (trace.DecisionTrace, int64, service.PlaygroundPrice, error) {
 	now := time.Now().UTC()
+	priceCtx := g.Plans.PlaygroundPriceContext(ctx, now)
+	var noPrice service.PlaygroundPrice
 	graph := policy.Graph{Snapshot: snapshot.CandidateSnapshot{ID: uuid.NewString(), AsOf: now, CatalogVersion: version}, ExpiresAt: now.Add(time.Minute), Facts: map[string]policy.Evidence{}}
-	if m.PriceVersion != nil {
-		graph.Snapshot.PriceVersion = *m.PriceVersion
-	}
-	// Price restrictions need an exact payer-authorized publication. A
-	// catalog reference is a display estimate and leaves this fact unknown.
-	perspective := catalog.Perspective{Actor: a.FundingUserID, Workspace: a.WorkspaceID, Project: a.ProjectID, AccessVersion: a.Version}
-	versions, err := (pricing.VersionStore{DB: g.DB}).At(ctx, quotes.PublicationScope(perspective, m.Model.ID), now)
-	if err != nil {
-		return trace.DecisionTrace{}, 0, err
-	}
-	price, err := pricing.Resolve(pricing.Candidates{Published: versions}, now)
-	if err != nil {
-		return trace.DecisionTrace{}, 0, err
-	}
-	var rate *money.Amount
-	if price != nil {
-		graph.Snapshot.PriceVersion = price.ID
-		rate, err = policy.ExactInputRate(*price, now, s.Input, "")
-		if err != nil {
-			return trace.DecisionTrace{}, 0, err
-		}
-	}
 	// Only attest candidates in the selected billing group. BE-10 rechecks
 	// credential/proxy versions and ownership against these verification IDs.
 	rows, err := g.DB.QueryContext(ctx, `SELECT pc.account_id,pc.verified_id::text,ARRAY(SELECT pm.pool_id::text FROM connection_pool_members pm WHERE pm.workspace_id=pc.workspace_id AND pm.account_id=pc.account_id)
  FROM provider_connections pc JOIN account_groups ag ON ag.account_id=pc.account_id AND ag.group_id=$2
  JOIN projects d ON d.workspace_id=pc.workspace_id AND d.is_default
  LEFT JOIN project_resources pr ON pr.workspace_id=pc.workspace_id AND pr.kind='accounts' AND pr.resource_id=pc.account_id
- WHERE pc.workspace_id=$1 AND coalesce(pr.project_id,d.id)=$3 AND pc.state='active' AND NOT pc.legacy_dirty AND pc.verified_id IS NOT NULL`, a.WorkspaceID, group, a.ProjectID)
+ WHERE pc.workspace_id=$1 AND coalesce(pr.project_id,d.id)=$3 AND pc.state='active' AND NOT pc.legacy_dirty AND pc.verified_id IS NOT NULL`, a.WorkspaceID, key.Group.ID, a.ProjectID)
 	if err != nil {
-		return trace.DecisionTrace{}, 0, err
+		return trace.DecisionTrace{}, 0, noPrice, err
 	}
 	type binding struct {
 		account      int64
@@ -84,21 +61,22 @@ func (g *Gateway) route(ctx context.Context, a scope.Authorized, group int64, s 
 		pools        []string
 	}
 	ids := map[string]binding{}
+	prices := map[string]service.PlaygroundPrice{}
 	for rows.Next() {
 		var b binding
 		if err = rows.Scan(&b.account, &b.verification, pq.Array(&b.pools)); err != nil {
 			rows.Close()
-			return trace.DecisionTrace{}, 0, err
+			return trace.DecisionTrace{}, 0, noPrice, err
 		}
 		ids["ep_"+catalog.Digest([2]int64{a.ProjectID, b.account})[:32]] = b
 	}
 	rows.Close()
 	if err = rows.Err(); err != nil {
-		return trace.DecisionTrace{}, 0, err
+		return trace.DecisionTrace{}, 0, noPrice, err
 	}
 	for _, ep := range m.Endpoints {
 		b, ok := ids[ep.ID]
-		if !ok {
+		if !ok || admittedAccounts[ep.ID] != b.account {
 			continue
 		}
 		if _, seen := graph.Facts[ep.ID]; seen {
@@ -117,6 +95,15 @@ func (g *Gateway) route(ctx context.Context, a scope.Authorized, group int64, s 
 		if !ok {
 			continue
 		}
+		price, err := g.Plans.ResolvePlaygroundPrice(priceCtx, key, b.account, ep.Provider, m.Model.Model, funding, s.Action, s.Protocol, now)
+		if err != nil {
+			return trace.DecisionTrace{}, 0, noPrice, err
+		}
+		rate, err := price.InputRate(s.Input)
+		if err != nil {
+			return trace.DecisionTrace{}, 0, noPrice, err
+		}
+		prices[ep.ID] = price
 		candidate := snapshot.Candidate{ID: ep.ID, ModelID: s.Model, FundingSource: funding, FundingAuthorized: true, Price: rate}
 		if ep.RegionEvidence != nil && ep.RegionEvidence.State == "fresh" && len(ep.Regions) == 1 {
 			candidate.Region = ep.Regions[0]
@@ -130,26 +117,28 @@ func (g *Gateway) route(ctx context.Context, a scope.Authorized, group int64, s 
 		graph.Snapshot.Candidates = append(graph.Snapshot.Candidates, candidate)
 	}
 	if len(graph.Snapshot.Candidates) == 0 {
-		return trace.DecisionTrace{}, 0, unavailableModel
+		return trace.DecisionTrace{}, 0, noPrice, unavailableModel
 	}
 	if err = (policy.SnapshotWriter{DB: g.DB}).Capture(ctx, policy.Caller{Actor: a.ActorID, Workspace: a.WorkspaceID, AccessVersion: a.Version}, s, graph); err != nil {
-		return trace.DecisionTrace{}, 0, err
+		return trace.DecisionTrace{}, 0, noPrice, err
 	}
 	var seed [8]byte
 	_, _ = rand.Read(seed[:])
 	decision, err := g.Policies.PlanExecution(ctx, a, s, service.GatewayRequestRoutingLayer(ctx), binary.BigEndian.Uint64(seed[:]))
 	if err != nil {
-		return decision, 0, err
+		return decision, 0, noPrice, err
 	}
 	if decision.Selected == nil {
 		if service.HasGatewayRoutingConstraints(ctx) {
-			return decision, 0, policy.NativePolicyDenied
+			return decision, 0, noPrice, policy.NativePolicyDenied
 		}
-		return decision, 0, unavailableModel
+		return decision, 0, noPrice, unavailableModel
 	}
 	b, ok := ids[decision.Selected.CandidateID]
 	if !ok || decision.Selected.FundingSource != funding || decision.Selected.ModelID != s.Model {
-		return decision, 0, unavailableModel
+		return decision, 0, noPrice, unavailableModel
 	}
-	return decision, b.account, nil
+	price := prices[decision.Selected.CandidateID]
+	decision.PriceVersion = price.Version()
+	return decision, b.account, price, nil
 }

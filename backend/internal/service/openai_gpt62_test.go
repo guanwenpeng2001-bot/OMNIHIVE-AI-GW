@@ -232,11 +232,19 @@ func TestGPT62BillingFailsClosedWithoutIntegratedTariff(t *testing.T) {
 		require.JSONEq(t, string(beforeJSON), string(afterJSON), "failed quotes cannot mutate shared rates")
 	}
 	require.NoError(t, validateOpenAIGPT62BillingTier("other-provider/gpt-6.2-sol", "ultrafast"))
-	// An explicit non-OpenAI provider with an unqualified ID keeps its own tariff.
-	for _, resolver := range []*ModelPricingResolver{nil, NewModelPricingResolver(nil, priced)} {
-		cost, err := priced.CalculateCostUnified(CostInput{Provider: "other-provider", Model: "gpt-6.2-sol", Tokens: UsageTokens{InputTokens: 1000}, RateMultiplier: 1, ServiceTier: "ultrafast", Resolver: resolver})
+	other := NewBillingService(&config.Config{}, newStubPricingServiceFromJSON(t, `{
+		"anthropic/gpt-6.2-sol":{"litellm_provider":"anthropic","input_cost_per_token":0.000007}
+	}`))
+	for _, resolver := range []*ModelPricingResolver{nil, NewModelPricingResolver(nil, other)} {
+		input := CostInput{Provider: "other-provider", Model: "gpt-6.2-sol", Tokens: UsageTokens{InputTokens: 1000}, RateMultiplier: 1, ServiceTier: "ultrafast", Resolver: resolver}
+		cost, err := other.CalculateCostUnified(input)
+		require.ErrorIs(t, err, ErrModelPricingUnavailable)
+		require.Zero(t, cost.ActualCost)
+
+		input.Provider = PlatformAnthropic
+		cost, err = other.CalculateCostUnified(input)
 		require.NoError(t, err)
-		require.InDelta(t, 0.004, cost.ActualCost, 1e-12)
+		require.InDelta(t, 0.014, cost.ActualCost, 1e-12)
 	}
 }
 

@@ -33,7 +33,7 @@ func loadSource(ctx context.Context, q queryer, target Target) (source, error) {
 	var connectionVersion int64
 	var endpoint string
 	var config, extra []byte
-	err := q.QueryRowContext(ctx, `SELECT pc.version, cs.version, pc.endpoint, pc.proxy_id, pc.verified_id,
+	err := q.QueryRowContext(ctx, `SELECT pc.workspace_id,pc.version, cs.version, pc.endpoint, pc.proxy_id, pc.verified_id,
 		coalesce(p.updated_at::text,''), a.platform, a.type, a.credentials,
 		jsonb_strip_nulls(jsonb_build_object('openai_responses_mode',a.extra->'openai_responses_mode',
 			'openai_responses_supported',a.extra->'openai_responses_supported'))
@@ -42,13 +42,13 @@ func loadSource(ctx context.Context, q queryer, target Target) (source, error) {
 		JOIN credential_secrets cs ON cs.account_id=a.id AND cs.workspace_id=a.workspace_id AND cs.revoked_at IS NULL
 		LEFT JOIN proxies p ON p.id=pc.proxy_id AND p.workspace_id=pc.workspace_id
 			AND p.status='active' AND p.deleted_at IS NULL AND (p.expires_at IS NULL OR p.expires_at>statement_timestamp())
-		WHERE pc.workspace_id=$1 AND pc.account_id=$2 AND pc.provider=$3 AND a.platform=pc.provider
+		WHERE pc.workspace_id=resolve_default_workspace_id() AND pc.account_id=$1 AND pc.provider=$2 AND a.platform=pc.provider
 			AND pc.state='active' AND NOT pc.legacy_dirty AND a.deleted_at IS NULL AND a.status='active'
 			AND a.parent_account_id IS NULL
 			AND (pc.proxy_id IS NULL OR p.id IS NOT NULL)
 			AND NOT EXISTS (SELECT 1 FROM identity_scope_quarantine x WHERE x.kind='accounts' AND x.resource_id=a.id)`,
-		domain.DefaultWorkspaceID, target.ConnectionID, target.Provider).
-		Scan(&connectionVersion, &s.credentialVersion, &endpoint, &s.proxyID, &s.verifiedID,
+		target.ConnectionID, target.Provider).
+		Scan(&s.account.WorkspaceID, &connectionVersion, &s.credentialVersion, &endpoint, &s.proxyID, &s.verifiedID,
 			&s.proxyRevision, &s.account.Platform, &s.account.Type, &config, &extra)
 	if err != nil {
 		return source{}, err
@@ -65,7 +65,7 @@ func loadSource(ctx context.Context, q queryer, target Target) (source, error) {
 	if err := json.Unmarshal(extra, &s.account.Extra); err != nil {
 		return source{}, err
 	}
-	s.account.ID, s.account.WorkspaceID = target.ConnectionID, domain.DefaultWorkspaceID
+	s.account.ID = target.ConnectionID
 	// The wizard version fences managed configuration changes. Responses mode
 	// also has a legacy writer in account extra and participates in the fence.
 	s.revision = catalog.Digest([4]string{
@@ -116,7 +116,7 @@ func importConnectionEvidence(ctx context.Context, tx *sql.Tx, id uuid.UUID, t T
 	err := tx.QueryRowContext(ctx, `SELECT snapshot, expires_at, statement_timestamp() FROM connection_verifications
 		WHERE id=$1 AND workspace_id=$2 AND account_id=$3 AND eligible AND credential_version=$4
 			AND proxy_revision=$5 AND expires_at>statement_timestamp()`,
-		s.verifiedID.String, domain.DefaultWorkspaceID, t.ConnectionID, s.credentialVersion, s.proxyRevision).Scan(&payload, &expiry, &now)
+		s.verifiedID.String, s.account.WorkspaceID, t.ConnectionID, s.credentialVersion, s.proxyRevision).Scan(&payload, &expiry, &now)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -175,7 +175,7 @@ func (p *ConnectionProber) observe(ctx context.Context, t Target) (probeResult, 
 	if !s.implements(t.Matrix) {
 		return inconclusive("MATRIX_UNAVAILABLE"), nil
 	}
-	secret, err := credentials.Resolve(ctx, tx, p.enc, domain.DefaultWorkspaceID, t.ConnectionID, s.credentialVersion)
+	secret, err := credentials.Resolve(ctx, tx, p.enc, s.account.WorkspaceID, t.ConnectionID, s.credentialVersion)
 	if err != nil {
 		return inconclusive("CREDENTIAL_UNAVAILABLE"), nil
 	}
@@ -183,7 +183,7 @@ func (p *ConnectionProber) observe(ctx context.Context, t Target) (probeResult, 
 	if s.account.IsOpenAIAgentIdentity() {
 		return inconclusive("MATRIX_UNAVAILABLE"), nil
 	}
-	proxy, _, err := legacy.Proxy(ctx, tx, domain.DefaultWorkspaceID, proxyPolicy(s.proxyID), false)
+	proxy, _, err := legacy.Proxy(ctx, tx, s.account.WorkspaceID, proxyPolicy(s.proxyID), false)
 	if err != nil {
 		return probeResult{}, err
 	}

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CatalogVerificationWorkbench from './components/CatalogVerificationWorkbench.vue'
 import { computed, onMounted, onScopeDispose, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Button, Card, Input, Modal, Select, pushUiToast } from '@/components/ui'
@@ -8,7 +9,6 @@ import { useAuthStore } from '@/stores/auth'
 import { useScopedRead } from '@/features/requests/useScopedRead'
 import { classifyAsyncError, type AsyncViewState } from '@/features/shared/asyncState'
 import OperationState from './OperationState.vue'
-import CatalogVerificationWorkbench from './components/CatalogVerificationWorkbench.vue'
 import WorkspaceTelemetryPanel from './components/WorkspaceTelemetryPanel.vue'
 import {
   generateCommandKey,
@@ -107,7 +107,7 @@ async function openIncidentModal() {
   incidentError.value = ''
   if (incidentComponents.value.length === 0) {
     try {
-      const summary = await requestGet<StatusSummary>('/public/status/summary')
+      const summary = await requestGet<StatusSummary>('/public/status')
       incidentComponents.value = (summary.components ?? []).map((item) => ({
         id: item.id,
         name: item.name
@@ -228,7 +228,10 @@ async function submitIncident() {
 
     <WorkspaceTelemetryPanel :is-zh="isZh" />
 
-    <CatalogVerificationWorkbench :is-zh="isZh" />
+    <CatalogVerificationWorkbench v-if="isAdmin" :is-zh="isZh" />
+    <a href="/admin/models" data-testid="ops-relocated-catalog-workbench-link" class="text-xs underline">
+      {{ isZh ? '查看模型目录' : 'View Model Catalog' }}
+    </a>
 
     <Modal
       v-model:open="incidentModalOpen"

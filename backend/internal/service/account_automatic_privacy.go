@@ -15,7 +15,10 @@ func EnsureAutomaticAccountPrivacy(ctx context.Context, admin AdminService, acco
 	}
 	workspaceID := account.WorkspaceID
 	if workspaceID <= 0 {
-		workspaceID = domain.DefaultWorkspaceID
+		workspaceID = domain.ResourceWorkspaceID(ctx)
+		if workspaceID <= 0 {
+			return
+		}
 	}
 	ctx = domain.WithWorkspaceScope(ctx, workspaceID)
 	fresh, err := admin.GetAccount(ctx, account.ID)
