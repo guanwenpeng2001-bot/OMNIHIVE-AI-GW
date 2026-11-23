@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 )
@@ -33,14 +34,17 @@ type ModelAccessGroup struct {
 }
 
 type ModelAccessSnapshot struct {
-	ProjectKeyPlatform string
-	KeyGroup           GroupModelAllowlist
-	Generation         int64
-	RevisionKnown      bool
-	Key                []string
-	Accounts           map[int64][]string
-	AccountExcludes    map[int64][]string
-	KeyExclude         []string
+	ProjectKeyPlatform  string
+	KeyGroup            GroupModelAllowlist
+	Generation          int64
+	RevisionKnown       bool
+	Key                 []string
+	Accounts            map[int64][]string
+	AccountExcludes     map[int64][]string
+	KeyExclude          []string
+	KeyRestriction      *identity.EffectiveKeyModels
+	AccountRestrictions map[int64]identity.EffectiveKeyModels
+	RestrictedKey       bool
 }
 
 type ModelAccessPolicyReader interface {
@@ -192,34 +196,16 @@ func (access authenticatedModelAccess) authorize(ctx context.Context, groupID *i
 
 func withModelAccessSnapshot(ctx context.Context, snapshot ModelAccessSnapshot) context.Context {
 	ctx = context.WithValue(ctx, modelAccessSnapshotKey{}, snapshot)
-	return WithVisibleModelKeyPolicy(ctx, snapshot.Key)
+	return WithVisibleModelKeyPolicy(ctx, snapshot.visibleKeyModels())
 }
 
-func WithProjectKeyModelPolicy(ctx context.Context, platform string) context.Context {
-	snapshot, _ := ctx.Value(modelAccessSnapshotKey{}).(ModelAccessSnapshot)
-	snapshot.ProjectKeyPlatform = platform
-	return context.WithValue(ctx, modelAccessSnapshotKey{}, snapshot)
-}
 func modelAccessAccountAllows(ctx context.Context, accountID int64, model string) bool {
 	if ctx == nil {
 		return true
 	}
 	snapshot, _ := ctx.Value(modelAccessSnapshotKey{}).(ModelAccessSnapshot)
-	for _, excluded := range snapshot.AccountExcludes[accountID] {
-		if excluded == model {
-			return false
-		}
-	}
-	models := snapshot.Accounts[accountID]
-	if models == nil {
-		return true
-	}
-	for _, allowed := range models {
-		if allowed == model {
-			return true
-		}
-	}
-	return false
+	match := identity.NativeModelMatch("", model)
+	return snapshot.AllowsCatalogAccountModel(accountID, match, match)
 }
 
 // AttachModelAccessPolicy bypasses credential caches: every authenticated
@@ -319,6 +305,7 @@ func (s *ModelAccessService) Preview(ctx context.Context, resource string, ident
 		platform = account.Platform
 		snapshot.Accounts[identifier] = policy
 		snapshot.AccountExcludes[identifier] = rule.Exclude
+		delete(snapshot.AccountRestrictions, identifier)
 		for _, groupID := range account.GroupIDs {
 			groupID := groupID
 			groupIDs = append(groupIDs, &groupID)
