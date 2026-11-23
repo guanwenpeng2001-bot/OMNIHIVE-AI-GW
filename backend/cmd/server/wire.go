@@ -20,6 +20,7 @@ import (
 	byokhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/byok"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/compare"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/quotes"
+	catalogadmin "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/admin"
 	modelshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
 	verificationhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/verification"
 	connectionshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
@@ -93,6 +94,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 		modelshttp.ProviderSet,
 		catalogSourceProvider,
 		modelsHandlerProvider,
+		catalogadmin.New,
 		service.NewPlatformPriceBook,
 		playgroundGatewayProvider,
 		catalogVerificationStoreProvider,

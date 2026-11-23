@@ -71,9 +71,8 @@ func (h *SettingHandler) ResetConfigOverrides(c *gin.Context) {
 		return
 	}
 	middleware.SetAuditAction(c, "admin.config.reset")
-	middleware.SetAuditExtra(c, map[string]any{"result": "success", "requested_count": len(keys)})
 	keysJSON, _ := json.Marshal(keys)
-	c.Set("config_reset_keys", string(keysJSON))
+	middleware.SetAuditExtra(c, map[string]any{"result": "success", "requested_count": len(keys), "config_reset_keys": string(keysJSON)})
 	settings, err := h.SystemSettingsProjection(c.Request.Context())
 	if err != nil {
 		response.ErrorFrom(c, err)

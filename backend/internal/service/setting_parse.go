@@ -290,6 +290,11 @@ func (s *SettingService) SeedInitialSettings(ctx context.Context, newInstallatio
 			delete(defaults, key)
 		}
 	}
+	if seed, ok := s.settingRepo.(interface {
+		SetMultipleIfAbsent(context.Context, map[string]string) error
+	}); ok {
+		return seed.SetMultipleIfAbsent(ctx, defaults)
+	}
 	return s.settingRepo.SetMultiple(ctx, defaults)
 }
 

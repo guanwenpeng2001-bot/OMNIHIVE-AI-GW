@@ -48,6 +48,8 @@ WITH defaults(setting_key, setting_value) AS (
 INSERT INTO settings (key, value, updated_at)
 SELECT setting_key, setting_value, NOW()
 FROM defaults
+WHERE setting_key NOT IN ('model_plaza_enabled', 'default_balance', 'default_concurrency')
+   OR EXISTS (SELECT 1 FROM users)
 ON CONFLICT (key) DO NOTHING;
 
 WITH registered(setting_key, source) AS (
@@ -90,6 +92,7 @@ WITH registered(setting_key, source) AS (
 INSERT INTO setting_overrides (setting_key, source, seeded_at, updated_at)
 SELECT setting_key, source, NULL, NOW()
 FROM registered
+WHERE EXISTS (SELECT 1 FROM settings WHERE key = registered.setting_key)
 ON CONFLICT (setting_key) DO NOTHING;
 
 -- Provider provenance cannot be reconstructed safely from an existing value.

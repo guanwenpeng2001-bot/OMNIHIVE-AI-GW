@@ -11,6 +11,7 @@ import (
 	audithttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/audit"
 	billinghttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/billing"
 	byokhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/byok"
+	catalogadmin "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/admin"
 	modelshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
 	verificationhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/verification"
 	connectionshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
@@ -43,6 +44,7 @@ func SetupRouter(
 	identityHandler *identityhttp.Handler,
 	connectionsHandler *connectionshttp.Handler,
 	modelsHandler *modelshttp.Handler,
+	catalogAdmin *catalogadmin.Handler,
 	verificationHandler *verificationhttp.Handler,
 	restoreHandler *restorehttp.Handler,
 	requestsHandler *requestshttp.Handler,
@@ -140,7 +142,7 @@ func SetupRouter(
 	}
 
 	// 注册路由
-	registerRoutes(r, handlers, identityHandler, connectionsHandler, modelsHandler, verificationHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, paymentEvidenceHandler, statusHandler, byokHandler, auditHandler, observabilityHandler, imageTaskCenter, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
+	registerRoutes(r, handlers, identityHandler, connectionsHandler, modelsHandler, catalogAdmin, verificationHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, paymentEvidenceHandler, statusHandler, byokHandler, auditHandler, observabilityHandler, imageTaskCenter, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
 
 	return r
 }
@@ -152,6 +154,7 @@ func registerRoutes(
 	identityHandler *identityhttp.Handler,
 	connectionsHandler *connectionshttp.Handler,
 	modelsHandler *modelshttp.Handler,
+	catalogAdmin *catalogadmin.Handler,
 	verificationHandler *verificationhttp.Handler,
 	restoreHandler *restorehttp.Handler,
 	requestsHandler *requestshttp.Handler,
@@ -229,6 +232,10 @@ func registerRoutes(
 		[]gin.HandlerFunc{gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog)})
 	taskhttp.Register(v2, imageTaskCenter,
 		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
+	adminCatalog := v2.Group("/admin/catalog/models", identityhttp.TenantHeaders, gin.HandlerFunc(adminAuth),
+		panelRateLimiter.Global(), gin.HandlerFunc(auditLog), middleware2.AdminComplianceGuard(settingService))
+	adminCatalog.GET("", catalogAdmin.List)
+	adminCatalog.GET("/:id", catalogAdmin.Detail)
 	v2.GET("/admin/extensions", identityhttp.TenantHeaders, gin.HandlerFunc(jwtAuth), middleware2.AdminOnly(),
 		panelRateLimiter.Global(), gin.HandlerFunc(auditLog), h.Admin.Plugin.ListExtensions)
 	connectionshttp.RegisterAuthorization(v1, connectionsHandler,

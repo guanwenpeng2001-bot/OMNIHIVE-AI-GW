@@ -54,6 +54,7 @@ func SkipAudit(c *gin.Context) {
 // scalar, non-secret operation summaries. Request bodies and arbitrary maps
 // are never accepted through this channel.
 var auditExtraAllowedKeys = map[string]struct{}{
+	"config_reset_keys": {},
 	"result": {}, "error_code": {}, "enabled": {}, "blocking_enabled": {},
 	"config_version": {}, "endpoint_count": {}, "scanner_count": {},
 	"all_groups": {}, "group_count": {}, "guard_endpoint_id": {},
@@ -115,6 +116,10 @@ func truncateAuditExtraString(value string, limit int) string {
 
 // auditSensitiveReads 需要审计的敏感 GET 读取（method+FullPath → 动作名）。
 var auditSensitiveReads = map[string]string{
+	"GET /api/v1/admin/config/effective": "admin.config.effective.read",
+	"GET /api/v2/admin/catalog/models": "admin.catalog.models.list",
+	"GET /api/v2/admin/catalog/models/:id": "admin.catalog.models.read",
+
 	"GET /api/v2/workspaces/:workspace_id/projects/:project_id/billing/adjustments/:id/payment-evidence": "billing.payment_evidence.read",
 	"GET /api/v2/admin/extensions":                       "admin.extensions.list",
 	"GET /api/v1/admin/accounts/data":                    "admin.accounts.export",
@@ -177,6 +182,7 @@ var playgroundAuditActions = map[string]string{
 // auditBodyOmittedRoutes contains routes with secrets or private content that
 // cannot be safely redacted by JSON field name.
 var auditBodyOmittedRoutes = map[string]struct{}{
+	"POST /api/v1/admin/config/reset": {},
 	"POST /api/v2/workspaces/:workspace_id/access-requests": {},
 	"POST /api/v2/workspaces/:workspace_id/access-requests/:id/decision": {},
 	"PUT /api/v2/workspaces/:workspace_id/projects/:project_id/billing/adjustments/:id/payment-evidence/:event_id": {},

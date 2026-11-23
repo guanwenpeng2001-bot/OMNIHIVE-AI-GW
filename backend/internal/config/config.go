@@ -2128,7 +2128,7 @@ func setDefaults() {
 
 	// Log
 	viper.SetDefault("log.level", "info")
-	viper.SetDefault("log.format", "console")
+	viper.SetDefault("log.format", "json")
 	viper.SetDefault("log.service_name", "omnihive")
 	viper.SetDefault("log.env", "production")
 	viper.SetDefault("log.caller", true)
@@ -2481,7 +2481,7 @@ func setDefaults() {
 	viper.SetDefault("idempotency.cleanup_interval_seconds", 60)
 	viper.SetDefault("idempotency.cleanup_batch_size", 500)
 
-	viper.SetDefault("model_catalog_refresh_enabled", true)
+	viper.SetDefault("model_catalog_refresh_enabled", false)
 	viper.SetDefault("bounded_model_probes_enabled", false)
 
 	// Gateway

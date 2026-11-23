@@ -41,7 +41,7 @@ func TestSettingAuthorityMigrationPreservesExplicitValues(t *testing.T) {
 	database, err := sql.Open("postgres", parsed.String())
 	require.NoError(t, err)
 	defer database.Close()
-	_, err = database.ExecContext(ctx, `CREATE TABLE settings (id BIGSERIAL PRIMARY KEY, key VARCHAR(100) NOT NULL UNIQUE, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`)
+	_, err = database.ExecContext(ctx, `CREATE TABLE users (id BIGSERIAL PRIMARY KEY); CREATE TABLE settings (id BIGSERIAL PRIMARY KEY, key VARCHAR(100) NOT NULL UNIQUE, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`)
 	require.NoError(t, err)
 	_, err = database.ExecContext(ctx, `INSERT INTO settings (key,value) VALUES ('default_balance','0'),('default_concurrency','0'),('model_plaza_enabled','true'),('model_plaza_description',''),('registration_enabled','false')`)
 	require.NoError(t, err)

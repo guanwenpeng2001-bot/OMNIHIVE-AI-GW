@@ -13,12 +13,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"entgo.io/ent/dialect"
+	entsql "entgo.io/ent/dialect/sql"
 	"github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -510,11 +513,13 @@ func createAdminUser(cfg *SetupConfig) (bool, string, error) {
 	if err := provisionAdminWorkspace(ctx, tx, adminID); err != nil {
 		return false, "", fmt.Errorf("failed to provision admin workspace: %w", err)
 	}
-	// Seed public features only after the initial administrator is created.
-	// Existing installations keep their explicitly configured settings.
-	if _, err := tx.ExecContext(ctx, `INSERT INTO settings (key, value, updated_at)
-		VALUES ('model_plaza_enabled', 'true', NOW()), ('registration_enabled', 'true', NOW())
-		ON CONFLICT (key) DO NOTHING`); err != nil {
+	seedConfig, err := config.LoadForBootstrap()
+	if err != nil {
+		return false, "", fmt.Errorf("failed to load initial settings configuration: %w", err)
+	}
+	driver := entsql.NewDriver(dialect.Postgres, entsql.Conn{ExecQuerier: tx})
+	settings := service.NewSettingService(repository.NewSettingRepository(ent.NewClient(ent.Driver(driver))), seedConfig)
+	if err := settings.SeedInitialSettings(ctx, true); err != nil {
 		return false, "", fmt.Errorf("failed to seed initial settings: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
