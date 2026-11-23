@@ -6637,6 +6637,9 @@ components:
           anyOf:
             - type: string
             - type: 'null'
+        source:
+          description: Origin of the sale tariff used for this estimate.
+          type: string
         estimated_charge:
           anyOf:
             - $ref: '#/components/schemas/CatalogMoney'

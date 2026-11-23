@@ -3159,6 +3159,8 @@ export interface components {
             /** @enum {string} */
             state: "estimated" | "free" | "unpriced";
             price_version: string | null;
+            /** @description Origin of the sale tariff used for this estimate. */
+            source?: string;
             estimated_charge: components["schemas"]["CatalogMoney"] | null;
             components: components["schemas"]["CatalogEstimateComponent"][];
             rounding_adjustment: string | null;
