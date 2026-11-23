@@ -46,7 +46,12 @@ function addMapping(mapping: ModelMappingEntry = { from: '', to: '' }) {
 
 <template>
   <section class="min-w-0 space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/30 p-4 sm:p-5" data-testid="account-model-configuration">
-    <h3 class="text-sm font-semibold text-[var(--foreground)]">{{ t('admin.accounts.editSections.models') }}</h3>
+    <div class="space-y-1">
+      <h3 class="text-sm font-semibold text-[var(--foreground)]">{{ t('admin.accounts.editSections.models') }}</h3>
+      <p data-testid="account-model-funnel-steps" class="text-xs text-[var(--muted-foreground)]">
+        1. {{ t('admin.accounts.modelSync.platformCandidates') }} -> 2. {{ t('admin.accounts.modelSync.nativeDiscovered') }} -> 3. {{ t('admin.accounts.modelSync.accountEffective') }} -> 4. {{ t('admin.accounts.modelSync.groupPublic') }}
+      </p>
+    </div>
     <ModelWhitelistSelector ref="selector" v-bind="$attrs" :model-value="modelValue" :model-mappings="mappings" @update:model-value="emit('update:modelValue', $event)" @update:model-mappings="emit('update:mappings', $event)" @selection-saved="emit('selection-saved', $event)" @validation-failed="revealValidation" />
     <details ref="mappingDetails" class="space-y-3 border-t border-[var(--border)] pt-3" data-testid="model-mappings">
       <summary class="cursor-pointer rounded-lg py-1.5 text-sm font-medium text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]">{{ t('admin.accounts.editSections.mappings', { count: mappings.length }) }}</summary>

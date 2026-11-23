@@ -2506,8 +2506,8 @@ function formatEventType(type: string): string {
                     <p class="text-xs text-oh-muted">
                       {{
                         isZh
-                          ? '上游连接启用后不会自动向终端用户公开模型。请按顺序完成以下三步，使模型在模型广场与客户端调用中可见：'
-                          : 'Activated upstream connections are not exposed to end users until grouped and priced. Complete these three steps to publish models:'
+                          ? '上游连接启用后需经过四段漏斗（1. 平台候选 -> 2. 账号原生发现 -> 3. 账号有效模型 -> 4. 分组对外可见）。请按顺序完成以下三步：'
+                          : 'Activated upstream connections follow the 4-stage funnel (1. Platform Candidates -> 2. Native Discovered -> 3. Account Effective -> 4. Group Visible). Complete these three steps:'
                       }}
                     </p>
                   </div>
@@ -2535,33 +2535,35 @@ function formatEventType(type: string): string {
                   </button>
                   <button
                     type="button"
+                    data-testid="wizard-next-step-channels-pricing"
                     class="rounded-oh-md border border-oh-default bg-oh-surface p-3 text-left transition-colors hover:border-oh-accent"
                     @click="router.push('/admin/channels/pricing')"
                   >
                     <div class="text-xs font-semibold text-oh-fg">
-                      {{ isZh ? '2. 配置渠道与定价' : '2. Configure Channel & Pricing' }}
+                      {{ isZh ? '2. 配置渠道与定价' : '2. Configure Channels & Pricing' }}
                     </div>
                     <p class="mt-1 text-[11px] text-oh-muted">
                       {{
                         isZh
-                          ? '在渠道目录中关联分组、设置模型映射与计费倍率并发布模型目录。'
-                          : 'Map models, configure token/request pricing, and publish catalog entries.'
+                          ? '在渠道与定价中关联路由分组、配置模型映射与销售价（区别于参考价（非结算价））。'
+                          : 'Bind routing groups, configure model mappings, and set Sale Rates (distinct from Reference Price).'
                       }}
                     </p>
                   </button>
                   <button
                     type="button"
+                    data-testid="wizard-next-step-admin-models"
                     class="rounded-oh-md border border-oh-default bg-oh-surface p-3 text-left transition-colors hover:border-oh-accent"
-                    @click="router.push('/model-plaza')"
+                    @click="router.push('/admin/models')"
                   >
                     <div class="text-xs font-semibold text-oh-fg">
-                      {{ isZh ? '3. 模型广场可见确认' : '3. Verify in Model Plaza' }}
+                      {{ isZh ? '3. 核验模型目录与分组对外可见' : '3. Verify in Model Catalog (/admin/models)' }}
                     </div>
                     <p class="mt-1 text-[11px] text-oh-muted">
                       {{
                         isZh
-                          ? '前往模型广场确认新发布的模型卡片、协议标签与定价展示无误。'
-                          : 'Confirm published model cards, protocol badges, and pricing in Model Plaza.'
+                          ? '前往模型目录 (/admin/models) 核验四段漏斗绑定、排查可路由但未定价 (P0) 并确认分组对外可见。'
+                          : 'Open Model Catalog (/admin/models) to verify the 4-stage funnel, check routable-but-unpriced models, and confirm Group Visible status.'
                       }}
                     </p>
                   </button>

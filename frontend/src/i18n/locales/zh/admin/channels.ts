@@ -61,8 +61,8 @@ export default {
         baseline: '比较基准 / 分母', compared: '待比较价格', savedCharge: '已保存配置样本费用', added: '新增', removed: '移除',
         fields: { context_window: '上下文 / 输入上限', max_context_window: '总上下文上限', max_output_tokens: '输出上限', input_modalities: '输入模态', output_modalities: '输出模态', supports_function_calling: '工具调用', reasoning: '推理', reasoning_control: '推理控制 / 挡位 / 预算', supported_reasoning_levels: '推理挡位', embedding_dimensions: '嵌入维度', task_limits: '任务类型限制' }
       },
-      title: '渠道管理',
-      description: '管理渠道和自定义模型定价',
+      title: '渠道与定价',
+      description: '管理渠道模型映射、销售价（区别于参考价（非结算价）、内部成本与实收结算价）及路由分组绑定',
       searchChannels: '搜索渠道...',
       createChannel: '创建渠道',
       editChannel: '编辑渠道',

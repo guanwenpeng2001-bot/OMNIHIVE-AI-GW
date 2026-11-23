@@ -7,6 +7,8 @@ import empty from '@/api/__tests__/fixtures/model-catalog-empty.json'
 import nonempty from '@/api/__tests__/fixtures/model-catalog-nonempty.json'
 import identityInvalid from '@/api/__tests__/fixtures/model-catalog-identity_invalid.json'
 import failedHistory from '@/api/__tests__/fixtures/model-catalog-failed_history.json'
+import en from '@/i18n/locales/en'
+import zh from '@/i18n/locales/zh'
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 
 describe('model catalog user-facing information', () => {
@@ -48,5 +50,31 @@ describe('model catalog user-facing information', () => {
     expect(details.findAll('div > p')).toHaveLength(1)
     expect(details.text()).toContain('Exact/999')
     expect(details.text()).not.toContain('hidden')
+  })
+  it('renders the canonical 4-stage funnel and preview/apply labels in zh and en without banned synonyms', () => {
+    const wrapper = mount(ModelCatalogDetails, {
+      props: { candidateCount: 10, summary: nonempty as AccountModelCatalogDetails }
+    })
+    const countsText = wrapper.get('[data-testid="catalog-counts"]').text()
+    expect(countsText).toContain('admin.accounts.modelSync.platformCandidates')
+    expect(countsText).toContain('admin.accounts.modelSync.nativeDiscovered')
+    expect(countsText).toContain('admin.accounts.modelSync.accountEffective')
+    expect(countsText).toContain('admin.accounts.modelSync.groupPublic')
+
+    expect(zh.admin.accounts.modelSync.platformCandidates).toBe('平台候选')
+    expect(zh.admin.accounts.modelSync.nativeDiscovered).toBe('账号原生发现')
+    expect(zh.admin.accounts.modelSync.accountEffective).toBe('账号有效模型')
+    expect(zh.admin.accounts.modelSync.groupPublic).toBe('分组对外可见')
+    expect(zh.admin.accounts.syncUpstreamModels).toBe('预览上游模型')
+    expect(zh.admin.accounts.modelSync.retrySnapshot).toBe('应用快照')
+    expect(zh.admin.accounts.catalogSource.preset).toBe('平台候选')
+
+    expect(en.admin.accounts.modelSync.platformCandidates).toBe('Platform Candidates')
+    expect(en.admin.accounts.modelSync.nativeDiscovered).toBe('Native Discovered')
+    expect(en.admin.accounts.modelSync.accountEffective).toBe('Account Effective')
+    expect(en.admin.accounts.modelSync.groupPublic).toBe('Group Visible')
+    expect(en.admin.accounts.syncUpstreamModels).toBe('Preview Upstream Models')
+    expect(en.admin.accounts.modelSync.retrySnapshot).toBe('Apply Snapshot')
+    expect(en.admin.accounts.catalogSource.preset).toBe('Platform Candidates')
   })
 })
