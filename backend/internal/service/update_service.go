@@ -43,9 +43,6 @@ const (
 	releaseManifestName    = "omnihive-release-manifest.json"
 	maxReleaseManifestSize = 64 * 1024
 
-	// Versions before the OmniHive v2 schema may not serve a migrated database.
-	minimumRollbackVersion = "v0.2.5"
-
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
 	allowedAssetHost    = "objects.githubusercontent.com"
@@ -143,9 +140,11 @@ type GitHubRelease struct {
 
 // RollbackVersion describes a release version the system can roll back to
 type RollbackVersion struct {
-	Version     string `json:"version"` // without "v" prefix, e.g. "0.1.146"
-	PublishedAt string `json:"published_at"`
-	HTMLURL     string `json:"html_url"`
+	EffectiveFloor  string `json:"effective_floor"`
+	ExclusionReason string `json:"exclusion_reason,omitempty"`
+	Version         string `json:"version"` // without "v" prefix, e.g. "0.1.146"
+	PublishedAt     string `json:"published_at"`
+	HTMLURL         string `json:"html_url"`
 }
 
 type GitHubAsset struct {
@@ -342,8 +341,8 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, version string, 
 	if tag == "" {
 		return fmt.Errorf("invalid release version %q", version)
 	}
-	if semver.Compare(tag, minimumRollbackVersion) < 0 {
-		return rollbackBelowFloor(tag, minimumRollbackVersion)
+	if _, err := s.checkRelease(ctx, tag, ""); err != nil {
+		return err
 	}
 
 	asset, checksum, manifest, err := selectUpdateAssets(tag, releaseAssets)
@@ -413,6 +412,10 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, version string, 
 		return fmt.Errorf("chmod failed: %w", err)
 	}
 
+	// Re-read after downloads: migrations may have raised the DB floor.
+	if _, err := s.checkRelease(ctx, tag, ""); err != nil {
+		return err
+	}
 	staged, err := s.stagePersistentBinary(exePath, newBinaryPath)
 	if err != nil {
 		return fmt.Errorf("persistent staging failed: %w", err)
@@ -519,11 +522,18 @@ func (s *UpdateService) rollback(ctx context.Context) error {
 	}
 	staged := false
 	if _, err := os.Stat(persistentBackup); err == nil {
-		if err := os.MkdirAll(filepath.Dir(persistentCurrent), 0755); err != nil {
-			return err
-		}
 		if err := s.verifyBackup(persistentBackup, floor); err != nil {
 			return fmt.Errorf("persistent rollback verification failed: %w", err)
+		}
+		paths := []string{persistentBackup}
+		if directBackup {
+			paths = append(paths, backupFile)
+		}
+		if err := s.revalidateRollbackFloor(ctx, floor, paths...); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(persistentCurrent), 0755); err != nil {
+			return err
 		}
 		if err := os.Rename(persistentBackup, persistentCurrent); err != nil {
 			return fmt.Errorf("persistent rollback failed: %w", err)
@@ -537,6 +547,11 @@ func (s *UpdateService) rollback(ctx context.Context) error {
 	}
 
 	if directBackup {
+		if !staged {
+			if err := s.revalidateRollbackFloor(ctx, floor, backupFile); err != nil {
+				return err
+			}
+		}
 		if err := os.Rename(backupFile, exePath); err != nil && !staged {
 			return fmt.Errorf("rollback failed: %w", err)
 		}
@@ -551,20 +566,45 @@ func (s *UpdateService) rollback(ctx context.Context) error {
 // strictly older than the current version (the current version itself is excluded),
 // newest first. Draft and prerelease entries are skipped.
 func (s *UpdateService) ListRollbackVersions(ctx context.Context) ([]RollbackVersion, error) {
+	report, err := s.ListRollbackEligibility(ctx)
+	return report.Versions, err
+}
+
+// ListRollbackEligibility adds exclusion diagnostics without changing the legacy
+// versions array consumed by existing clients.
+func (s *UpdateService) ListRollbackEligibility(ctx context.Context) (RollbackEligibilityReport, error) {
+	report := RollbackEligibilityReport{Versions: []RollbackVersion{}, ExcludedVersions: []RollbackVersion{}}
 	releases, err := s.fetchRollbackCandidates(ctx)
 	if err != nil {
-		return nil, err
+		return report, err
 	}
-
-	versions := make([]RollbackVersion, 0, len(releases))
+	floor, err := s.databaseRollbackFloor(ctx)
+	if err != nil {
+		return report, err
+	}
+	baseline, _ := ResolveReleaseCompatibility(floor, floor, "", false)
+	report.DatabaseFloor = floor
 	for _, r := range releases {
-		versions = append(versions, RollbackVersion{
-			Version:     strings.TrimPrefix(r.TagName, "v"),
-			PublishedAt: r.PublishedAt,
-			HTMLURL:     r.HTMLURL,
+		eligibility, err := s.rollbackCandidateEligibility(ctx, r)
+		if err != nil {
+			if eligibility.EffectiveFloor == "" {
+				eligibility.EffectiveFloor = baseline.EffectiveFloor
+			}
+			report.ExcludedVersions = append(report.ExcludedVersions, RollbackVersion{Version: strings.TrimPrefix(r.TagName, "v"), EffectiveFloor: eligibility.EffectiveFloor, ExclusionReason: err.Error()})
+			continue
+		}
+		report.Versions = append(report.Versions, RollbackVersion{
+			EffectiveFloor: eligibility.EffectiveFloor,
+			Version:        strings.TrimPrefix(r.TagName, "v"),
+			PublishedAt:    r.PublishedAt,
+			HTMLURL:        r.HTMLURL,
 		})
 	}
-	return versions, nil
+	// An outage during candidate verification must not look like an empty list.
+	if _, err := s.databaseRollbackFloor(ctx); err != nil {
+		return report, err
+	}
+	return report, nil
 }
 
 // RollbackToVersion downloads and installs a specific older version.
@@ -575,8 +615,8 @@ func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) e
 	if target == "" {
 		return ErrRollbackVersionNotAllowed
 	}
-	if semver.Compare(target, minimumRollbackVersion) < 0 {
-		return rollbackBelowFloor(target, minimumRollbackVersion)
+	if _, err := s.checkRelease(ctx, target, ""); err != nil {
+		return err
 	}
 
 	releases, err := s.fetchRollbackCandidates(ctx)
@@ -610,6 +650,10 @@ func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) e
 // fetchRollbackCandidates fetches recent releases and keeps the newest
 // maxRollbackVersions entries strictly older than the current version.
 func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubRelease, error) {
+	_, floorErr := s.databaseRollbackFloor(ctx)
+	if floorErr != nil {
+		return nil, floorErr
+	}
 	releases, err := s.githubClient.FetchRecentReleases(ctx, resolveGitHubRepo(), rollbackFetchPageSize)
 	if err != nil {
 		return nil, err
@@ -622,7 +666,7 @@ func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubR
 			continue
 		}
 		v := releaseVersion(r.TagName)
-		if v == "" || seen[v] || semver.Prerelease(v) != "" || semver.Compare(v, minimumRollbackVersion) < 0 {
+		if v == "" || seen[v] || semver.Prerelease(v) != "" {
 			continue
 		}
 		// Only versions strictly older than current (also excludes current itself)
@@ -813,33 +857,12 @@ func (s *UpdateService) verifyReleaseManifest(ctx context.Context, dir string, a
 	if err := s.githubClient.DownloadFile(ctx, asset.DownloadURL, manifestPath, maxReleaseManifestSize); err != nil {
 		return fmt.Errorf("download release manifest failed: %w", err)
 	}
-	if err := verifyReleaseChecksum(manifestPath, hash); err != nil {
-		return fmt.Errorf("release manifest verification failed: %w", err)
-	}
-	data, err := os.ReadFile(manifestPath)
+	floor, err := s.databaseRollbackFloor(ctx)
 	if err != nil {
 		return err
 	}
-	var manifest struct {
-		Product                string `json:"product"`
-		Version                string `json:"version"`
-		MinimumRollbackVersion string `json:"minimum_rollback_version"`
-	}
-	if err := json.Unmarshal(data, &manifest); err != nil {
-		return fmt.Errorf("invalid release manifest: %w", err)
-	}
-	if manifest.Product != updateBinaryName {
-		return fmt.Errorf("wrong product %q in release manifest: expected %s", manifest.Product, updateBinaryName)
-	}
-	if releaseVersion(manifest.Version) != version {
-		return fmt.Errorf("release manifest version %q does not match requested release %s", manifest.Version, version)
-	}
-	floor := releaseVersion(manifest.MinimumRollbackVersion)
-	if floor == "" || semver.Prerelease(floor) != "" || semver.Build(floor) != "" {
-		return fmt.Errorf("invalid minimum rollback version %q in release manifest", manifest.MinimumRollbackVersion)
-	}
-	if semver.Compare(version, floor) < 0 {
-		return rollbackBelowFloor(version, floor)
+	if _, err := CheckReleaseManifest(manifestPath, hash, version, floor, false); err != nil {
+		return fmt.Errorf("release manifest verification failed: %w", err)
 	}
 	return nil
 }
@@ -937,6 +960,9 @@ func (s *UpdateService) saveToCache(ctx context.Context, info *UpdateInfo) {
 
 // compareVersions compares two semantic versions
 func compareVersions(current, latest string) int {
+	if a, b := releaseVersion(current), releaseVersion(latest); a != "" && b != "" {
+		return semver.Compare(a, b)
+	}
 	currentParts := parseVersion(current)
 	latestParts := parseVersion(latest)
 
