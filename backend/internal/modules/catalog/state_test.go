@@ -40,6 +40,7 @@ func TestCatalogBillingDistinguishesMissingPartialConflictAndFree(t *testing.T) 
 	out, _ := money.NewRate("USD", "0.00002", "output_token", "1")
 	zeroIn, _ := money.NewRate("USD", "0", "input_token", "1")
 	zeroOut, _ := money.NewRate("USD", "0", "output_token", "1")
+	cache, _ := money.NewRate("USD", "0.000005", "cache_read_token", "1")
 	complete := Price{State: "priced", Source: "group", Input: &in, Output: &out, Version: new("v1")}
 	equivalent := complete
 	equivalent.Source, equivalent.Version = "channel", new("v2")
@@ -51,6 +52,8 @@ func TestCatalogBillingDistinguishesMissingPartialConflictAndFree(t *testing.T) 
 		{[]Price{{State: "error"}}, "error", "price_read_failed", "error"},
 		{[]Price{complete, {}}, "partial", "offer_price_missing", "unpriced"},
 		{[]Price{{State: "priced", Input: &in}}, "partial", "required_dimension_missing", "unpriced"},
+		{[]Price{{State: "priced", Additional: []RateBand{{Rate: cache, Kind: "cache_read"}}}}, "partial", "required_dimension_missing", "unpriced"},
+		{[]Price{{State: "priced"}}, "unpriced", "no_sale_tariff", "unpriced"},
 		{[]Price{{State: "free", Input: &zeroIn, Output: &zeroOut}}, "free", "", "free"},
 		{[]Price{complete, {State: "free", Input: &zeroIn, Output: &zeroOut}}, "conflict", "offers_disagree", "unpriced"},
 		{[]Price{complete, equivalent}, "priced", "", "priced"},

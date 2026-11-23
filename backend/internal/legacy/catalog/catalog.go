@@ -322,18 +322,7 @@ func projectEndpoint(p catalog.Perspective, provider string, b service.PlazaCata
 		return catalog.Endpoint{}, false
 	}
 	d := domain.PlatformAction(b.Identity, adapterAction)
-	mode := "unknown"
-	switch b.Endpoint {
-	case service.CompositeRouteEndpointResponses:
-		if descriptor, ok := domain.LookupPlatform(b.Identity.Platform); ok && descriptor.ResponsesPOST != "" && !descriptor.MultiProtocol {
-			mode = string(descriptor.ResponsesPOST)
-		}
-	case service.CompositeRouteEndpointMessages:
-		if b.Identity.Platform == service.PlatformAnthropic && domain.HostedAccountType(b.Identity.Platform) == "" &&
-			b.Identity.HostedAccountType != domain.AccountTypeBedrock && b.Identity.HostedAccountType != domain.AccountTypeServiceAccount {
-			mode = "native"
-		}
-	}
+	mode := catalogBindingMode(b)
 	tools := "unknown"
 	if action == "text.chat" && service.AuthoritativeCatalogModelField(b.Metadata, "supports_function_calling") {
 		if value := b.Metadata.SupportsFunctionCalling; value != nil && (!*value || mode == "native") {
@@ -375,6 +364,21 @@ func projectEndpoint(p catalog.Perspective, provider string, b service.PlazaCata
 		endpoint.RegionEvidence = &region
 	}
 	return endpoint, true
+}
+
+func catalogBindingMode(b service.PlazaCatalogBinding) string {
+	switch b.Endpoint {
+	case service.CompositeRouteEndpointResponses:
+		if descriptor, ok := domain.LookupPlatform(b.Identity.Platform); ok && descriptor.ResponsesPOST != "" && !descriptor.MultiProtocol {
+			return string(descriptor.ResponsesPOST)
+		}
+	case service.CompositeRouteEndpointMessages:
+		if b.Identity.Platform == service.PlatformAnthropic && domain.HostedAccountType(b.Identity.Platform) == "" &&
+			b.Identity.HostedAccountType != domain.AccountTypeBedrock && b.Identity.HostedAccountType != domain.AccountTypeServiceAccount {
+			return "native"
+		}
+	}
+	return "unknown"
 }
 
 func decimalText(n float64) string {

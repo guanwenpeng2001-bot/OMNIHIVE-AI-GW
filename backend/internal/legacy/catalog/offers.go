@@ -30,6 +30,7 @@ func (s *Source) modelOffers(ctx context.Context, p catalog.Perspective, model s
 					entry.Bindings = []catalog.ModelBinding{binding}
 				} else {
 					attachObservations(&entry, p, id, binding, b, endpoints[b.AccountID], now)
+					binding = entry.Bindings[0]
 				}
 				cached, found := prices[binding.BillingIdentity]
 				if s.prices != nil || !found {
@@ -107,12 +108,15 @@ func bindingFor(id catalog.ModelIdentity, groupID int64, offer service.PlazaCata
 	return catalog.ModelBinding{Identity: id, AccountID: b.AccountID, AccountLabel: b.AccountLabel, AccountType: b.Identity.HostedAccountType,
 		CredentialOwnerID: b.CredentialAccountID, CredentialRevision: b.CredentialIdentityRevision,
 		IdentityRevision: b.IdentityRevision, SnapshotRevision: b.SnapshotRevision, RulesRevision: b.RulesRevision,
-		Profile: b.Metadata.ProviderProfile, WireModel: b.UpstreamModel, Action: action, Protocol: protocol,
+		Profile: b.Metadata.ProviderProfile, WireModel: b.UpstreamModel, Action: action, Protocol: protocol, Mode: catalogBindingMode(b),
 		ChannelID: offer.ChannelID, OfferGroupID: groupID, BillingGroupID: groupID, BillingModelSource: offer.BillingModelSource,
 		BillingIdentity: catalog.NewModelIdentity(id.Provider, billingModel), Eligible: offer.Eligible, DiscoveryState: b.DiscoveryState, ObservedAt: observed}
 }
 
 func attachObservations(offer *catalog.Offer, p catalog.Perspective, id catalog.ModelIdentity, binding catalog.ModelBinding, b service.PlazaCatalogBinding, evidence postgres.EndpointEvidence, now time.Time) {
+	if !evidence.ForceGlobal && awsRegion.MatchString(evidence.Region) {
+		binding.Region = evidence.Region
+	}
 	offer.Bindings = append(offer.Bindings, binding)
 	if !p.EndpointMetadata {
 		return

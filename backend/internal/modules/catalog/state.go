@@ -155,6 +155,12 @@ func normalizedPrice(price Price) Price {
 			price.State, price.Reason, price.LegacyEquivalent = "conditional", "scenario_required", true
 		case (price.Input == nil) != (price.Output == nil):
 			price.State, price.Reason = "partial", "required_dimension_missing"
+		case price.State == "priced" && price.Input == nil && !slices.ContainsFunc(price.Additional, standaloneChargeRate):
+			if len(price.Additional) == 0 {
+				price.State, price.Reason = "unpriced", "no_sale_tariff"
+			} else {
+				price.State, price.Reason = "partial", "required_dimension_missing"
+			}
 		}
 	}
 	if price.Reason == "" {
@@ -180,6 +186,15 @@ func normalizedPrice(price Price) Price {
 		price.TimeBands = []TimeBand{}
 	}
 	return price
+}
+
+func standaloneChargeRate(band RateBand) bool {
+	switch band.Rate.Unit() {
+	case "request", "image", "second", "call", "audio_second", "video_second":
+		return true
+	default:
+		return false
+	}
 }
 
 func offerBilling(offers []Offer, public bool) (Billing, Price) {
