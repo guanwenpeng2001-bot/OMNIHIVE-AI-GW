@@ -8519,9 +8519,12 @@ components:
         batch: {type: boolean}
     ExactQuote:
       type: object
-      required: [state, price_version, source, estimated_charge, components, rounding_adjustment, effective_scope]
+      required: [state, billing_state, price_at, price_version, source, estimated_charge, components, rounding_adjustment, effective_scope]
       properties:
         state: {type: string, enum: [estimated, free, unpriced]}
+        billing_state:
+          $ref: '#/components/schemas/CatalogBillingState'
+        price_at: {type: string, format: date-time}
         reason:
           $ref: '#/components/schemas/PriceEstimateReason'
         price_version: {type: [string, 'null']}

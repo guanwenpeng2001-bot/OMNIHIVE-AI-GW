@@ -3875,6 +3875,9 @@ export interface components {
         ExactQuote: {
             /** @enum {string} */
             state: "estimated" | "free" | "unpriced";
+            billing_state: components["schemas"]["CatalogBillingState"];
+            /** Format: date-time */
+            price_at: string;
             reason?: components["schemas"]["PriceEstimateReason"];
             price_version: string | null;
             source: string | null;
