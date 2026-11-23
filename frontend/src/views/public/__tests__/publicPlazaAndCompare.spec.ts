@@ -414,10 +414,13 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
         route_state: 'ineligible',
         price_state: 'unpriced',
         availability_state: 'catalog_only',
-        reference_price: {
-          source: 'pi-ai',
-          input_rate: { currency: 'USD', amount: '5', per: '1000000', unit: 'input_token' },
-          output_rate: { currency: 'USD', amount: '40', per: '1000000', unit: 'output_token' }
+        billing: {
+          state: 'unpriced',
+          reference_price: {
+            source: 'pi-ai',
+            input_rate: { currency: 'USD', amount: '5', per: '1000000', unit: 'input_token' },
+            output_rate: { currency: 'USD', amount: '40', per: '1000000', unit: 'output_token' }
+          }
         }
       },
       {
@@ -567,7 +570,7 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
     apiGetMock.mockResolvedValueOnce({
       data: {
         model: multimodalCatalog[1],
-        reference_price: multimodalCatalog[1].reference_price
+        reference_price: multimodalCatalog[1].billing?.reference_price
       }
     })
     await router.push('/model-plaza/m_22222222222222222222222222222222')
@@ -614,10 +617,13 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
         route_state: 'ineligible',
         price_state: 'unpriced',
         availability_state: 'catalog_only',
-        reference_price: {
-          source: 'pi-ai',
-          input_rate: { currency: 'USD', amount: '5', per: '1000000', unit: 'input_token' },
-          output_rate: { currency: 'USD', amount: '40', per: '1000000', unit: 'output_token' }
+        billing: {
+          state: 'unpriced',
+          reference_price: {
+            source: 'pi-ai',
+            input_rate: { currency: 'USD', amount: '5', per: '1000000', unit: 'input_token' },
+            output_rate: { currency: 'USD', amount: '40', per: '1000000', unit: 'output_token' }
+          }
         }
       }
     ]

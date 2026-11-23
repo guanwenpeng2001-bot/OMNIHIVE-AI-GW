@@ -15,6 +15,12 @@ function baseSummary(overrides: Partial<CatalogModelSummary> = {}): CatalogModel
     regions: ['us'],
     context_tokens: '200000',
     maturity: 'stable',
+    catalog_state: 'listed',
+    access_state: 'unknown',
+    route_state: 'unknown',
+    price_state: 'unpriced',
+    input_rate: null,
+    output_rate: null,
     evidence_state: 'fresh',
     observed_at: '2026-11-22T00:00:00Z',
     ...overrides
@@ -56,7 +62,10 @@ describe('toCatalogModelVM 3-axis projection', () => {
           reason: 'no_sale_tariff',
           reference_price: {
             source: 'pi-ai',
-            observed_at: '2026-11-20T08:00:00Z',
+            state: 'priced',
+            additional_rates: null,
+            time_bands: null,
+            output_rate: null,
             input_rate: { currency: 'USD', amount: '3', per: '1000000', unit: 'input_token' }
           }
         }
@@ -182,8 +191,12 @@ describe('toCatalogModelVM 3-axis projection', () => {
         aliases: [],
         model_facts: [],
         common_facts: {
-          source: 'approved_registry',
-          state: 'fresh',
+          context_kind: 'input',
+          embedding_dimensions: null,
+          vision: null,
+          reasoning: null,
+          prompt_caching: null,
+          pdf: null,
           context_tokens: '128000',
           max_output_tokens: '16384',
           modalities: ['text'],
