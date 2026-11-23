@@ -18,9 +18,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/billing/settlement"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
 	pg "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/playground"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
@@ -76,7 +78,12 @@ func TestPaidPlayground(t *testing.T) {
 	ep := "ep_" + catalog.Digest([2]int64{p, account})[:32]
 	model := "model-a"
 	mid := catalog.StableID("openai", model)
-	c := snapshotReader{Version: "cat", Details: []catalog.Detail{{Model: catalog.Summary{ID: mid, Model: model, AccessState: "allowed", RouteState: "eligible"}, Endpoints: []catalog.Endpoint{{ID: ep, Capabilities: []catalog.Capability{{Protocol: "openai_chat", Action: "text.chat", Tools: "supported", VerifiedAt: &now, Evidence: catalog.Evidence{State: "fresh"}}}}}}}}
+	endpoints := []catalog.Endpoint{{ID: ep, Capabilities: []catalog.Capability{{Protocol: "openai_chat", Action: "text.chat", Tools: "supported", VerifiedAt: &now, Evidence: catalog.Evidence{State: "fresh"}}}}}
+	secondModel := catalog.StableID("openai", "model-b")
+	c := snapshotReader{Version: "cat", Details: []catalog.Detail{
+		{Model: catalog.Summary{ID: mid, Model: model, Provider: "openai", AccessState: "allowed", RouteState: "eligible"}, EligibleGroups: []int64{group}, Endpoints: endpoints},
+		{Model: catalog.Summary{ID: secondModel, Model: "model-b", Provider: "openai", AccessState: "allowed", RouteState: "eligible"}, EligibleGroups: []int64{group}, Endpoints: endpoints},
+	}}
 	cfg := &config.Config{}
 	repo := repository.NewUsageSettlementReceiptRepository(db)
 	financial := service.NewUsageSettlementService(repo, nil, nil)
@@ -146,7 +153,7 @@ func TestPaidPlayground(t *testing.T) {
 	direct := httptest.NewRecorder()
 	routes.ServeHTTP(direct, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader("{}")))
 	require.Equal(t, 403, direct.Code)
-	ids := postgres.New(db)
+	ids := postgres.NewWithCatalog(db, c)
 	h := New(&Gateway{DB: db, Access: ids, Scopes: ids, Keys: keys, Catalog: c, Policies: policy.NewStore(db, []byte("fixture")), Plans: plans, Routes: routes}, false)
 	router := gin.New()
 	Register(router.Group("/api/v2"), h, func(c *gin.Context) {
@@ -168,6 +175,68 @@ func TestPaidPlayground(t *testing.T) {
 	payload := func(text string) string {
 		return fmt.Sprintf(`{"api_key_id":"%d","model_id":"%s","protocol":"openai_chat","action":"text.chat","funding_acknowledged":true,"input":{"messages":[{"role":"user","content":"%s"}]}}`, key, mid, text)
 	}
+	list := fmt.Sprintf("%s/playground/keys/%d/models", base, key)
+	require.Equal(t, 401, send(ctx, 0, "GET", list, "", "").Code)
+	require.Equal(t, 404, send(ctx, actor, "GET", fmt.Sprintf("%s/playground/keys/%d/models", base, key+1000000), "", "").Code)
+	firstPage := send(ctx, actor, "GET", list+"?limit=1", "", "")
+	require.Equal(t, 200, firstPage.Code, firstPage.Body.String())
+	firstItems := gjson.GetBytes(firstPage.Body.Bytes(), "data.items")
+	require.Len(t, firstItems.Array(), 1)
+	require.Equal(t, "openai_chat", firstItems.Array()[0].Get("pairs.0.protocol").String())
+	cursor := gjson.GetBytes(firstPage.Body.Bytes(), "data.next_cursor").String()
+	require.NotEmpty(t, cursor)
+	secondPage := send(ctx, actor, "GET", list+"?limit=1&cursor="+cursor, "", "")
+	require.Equal(t, 200, secondPage.Code, secondPage.Body.String())
+	require.NotEqual(t, firstItems.Array()[0].Get("id").String(), gjson.GetBytes(secondPage.Body.Bytes(), "data.items.0.id").String())
+	require.Equal(t, 409, send(ctx, other, "GET", list+"?cursor="+cursor, "", "").Code)
+	require.Equal(t, 200, send(ctx, other, "GET", list, "", "").Code)
+	exec("INSERT INTO model_access_rules(workspace_id,api_key_id,models) VALUES($1,$2,'[]')", w, key)
+	require.Equal(t, 409, send(ctx, actor, "GET", list+"?cursor="+cursor, "", "").Code)
+	deniedPage := send(ctx, actor, "GET", list, "", "")
+	require.Equal(t, 200, deniedPage.Code, deniedPage.Body.String())
+	require.Empty(t, gjson.GetBytes(deniedPage.Body.Bytes(), "data.items").Array())
+	exec("DELETE FROM model_access_rules WHERE api_key_id=$1", key)
+	require.Zero(t, id("SELECT count(*) FROM playground_runs WHERE api_key_id=$1", key))
+	require.Zero(t, id("SELECT count(*) FROM api_key_budget_reservations WHERE api_key_id=$1", key))
+
+	expiry := now.Add(time.Hour)
+	projectInput := identity.CreateKey{Name: "restricted", GroupID: &group, Actions: []string{"text.chat"},
+		ModelAccess: identity.ModelAccess{Mode: "allow_list", IDs: []string{mid}}, ExpiresAt: &expiry}
+	restricted, err := ids.CreateKey(ctx, actor, w, p, projectInput, "selected-key-test")
+	require.NoError(t, err)
+	require.NotNil(t, restricted.Credential)
+	require.EqualValues(t, 1, id("SELECT count(*) FROM model_access_rules WHERE api_key_id=$1 AND models ? $2", restricted.ID, mid))
+	page := identity.Page{AsOf: time.Now().Add(time.Minute), Limit: 10}
+	rows, err := ids.ListProjectKeys(ctx, actor, w, p, page)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	row := rows[1]
+	require.Equal(t, restricted.ID, row.ID)
+	require.Equal(t, identity.ProjectPolicyKey, row.Kind)
+	require.Equal(t, identity.KeyActive, row.State)
+	require.Equal(t, "active", row.Status)
+	require.Equal(t, &group, row.GroupID)
+	require.WithinDuration(t, expiry, *row.ExpiresAt, time.Millisecond)
+	require.Nil(t, row.Credential)
+	restrictedList := fmt.Sprintf("%s/playground/keys/%d/models", base, restricted.ID)
+	exec("UPDATE model_access_rules SET models=jsonb_build_array($2::text) WHERE api_key_id=$1", restricted.ID, model)
+	restrictedModels := send(ctx, actor, "GET", restrictedList, "", "")
+	require.Equal(t, 200, restrictedModels.Code, restrictedModels.Body.String())
+	require.Equal(t, mid, gjson.GetBytes(restrictedModels.Body.Bytes(), "data.items.0.id").String())
+	exec("UPDATE model_access_rules SET models=jsonb_build_array($2::text) WHERE api_key_id=$1", restricted.ID, secondModel)
+	restrictedModels = send(ctx, actor, "GET", restrictedList, "", "")
+	require.Equal(t, 200, restrictedModels.Code, restrictedModels.Body.String())
+	require.Empty(t, gjson.GetBytes(restrictedModels.Body.Bytes(), "data.items").Array())
+	exec("DELETE FROM project_resources WHERE kind='api_keys' AND resource_id=$1", restricted.ID)
+	require.Equal(t, 404, send(ctx, actor, "GET", restrictedList, "", "").Code)
+	policy, err := ids.ReadProjectCredential(ctx, service.APIKeyCredentialDigest(*restricted.Credential))
+	require.ErrorIs(t, err, identity.ErrKeyAttribution)
+	require.Nil(t, policy)
+	exec("INSERT INTO project_resources(kind,resource_id,workspace_id,project_id) VALUES('api_keys',$1,$2,$3)", restricted.ID, w, p)
+	exec("UPDATE api_key_credentials SET revoked_at=now() WHERE api_key_id=$1", restricted.ID)
+	rows, err = ids.ListProjectKeys(ctx, actor, w, p, page)
+	require.NoError(t, err)
+	require.Equal(t, identity.KeyNoCredential, rows[1].State)
 	require.Equal(t, 401, send(ctx, 0, "POST", runs, "one", payload("private-prompt")).Code)
 	require.Equal(t, 404, send(ctx, other, "POST", runs, "one", payload("private-prompt")).Code)
 	result := send(ctx, actor, "POST", runs, "one", payload("private-prompt"))
@@ -240,4 +309,19 @@ func TestPaidPlayground(t *testing.T) {
 	paid := send(ctx, actor, "POST", first.DetailURL+"/replay", "replay", replay)
 	require.Contains(t, paid.Body.String(), "event: finished")
 	require.NotEqual(t, first.Request, paid.Header().Get("X-Request-ID"))
+	exec("INSERT INTO model_access_rules(workspace_id,api_key_id,models) VALUES($1,$2,'[]')", w, key)
+	require.Equal(t, unavailableModel.Status, send(ctx, actor, "POST", first.DetailURL+"/replay", "replay", replay).Code)
+	require.Equal(t, unavailableModel.Status, send(ctx, actor, "POST", first.DetailURL+"/replay", "replay-denied", replay).Code)
+	exec("DELETE FROM model_access_rules WHERE api_key_id=$1", key)
+	exec("UPDATE api_key_credentials SET status='grace',valid_until=now()+interval '1 hour' WHERE api_key_id=$1", key)
+	var graceDigest string
+	require.NoError(t, db.QueryRow("SELECT credential_digest FROM api_key_credentials WHERE api_key_id=$1", key).Scan(&graceDigest))
+	_, err = ids.ReadLegacyKeyScope(ctx, w, key, actor, graceDigest)
+	require.NoError(t, err)
+	rows, err = ids.ListProjectKeys(ctx, actor, w, p, page)
+	require.NoError(t, err)
+	require.Equal(t, identity.KeyNoCredential, rows[0].State)
+	require.Equal(t, keyIneligible.Status, send(ctx, actor, "POST", runs, "grace-only", payload("grace-only")).Code)
+	_, err = ids.ReadLegacyKeyScope(ctx, w, key, other, graceDigest)
+	require.ErrorIs(t, err, fault.NotFound)
 }

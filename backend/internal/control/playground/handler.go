@@ -31,18 +31,20 @@ type Handler struct {
 	TrustForwarded bool
 	// PreviewTTL controls explicitly consented text previews in this process.
 	// Zero disables retention. The default constructor uses thirty seconds.
-	PreviewTTL   time.Duration
-	previews     sync.Map
-	previewSlots chan struct{}
+	PreviewTTL        time.Duration
+	previews          sync.Map
+	previewSlots      chan struct{}
+	keyModelCursorKey []byte
 }
 
-func New(g *Gateway, trustForwarded bool) *Handler {
-	return &Handler{Gateway: g, TrustForwarded: trustForwarded, PreviewTTL: 30 * time.Second, previewSlots: make(chan struct{}, 128)}
+func New(g *Gateway, trustForwarded bool, cursorKey ...[]byte) *Handler {
+	return &Handler{Gateway: g, TrustForwarded: trustForwarded, PreviewTTL: 30 * time.Second, previewSlots: make(chan struct{}, 128), keyModelCursorKey: newKeyModelCursorKey(cursorKey)}
 }
 func (h *Handler) store() pg.Store { return pg.Store{DB: h.Gateway.DB} }
 func Register(parent *gin.RouterGroup, h *Handler, session ...gin.HandlerFunc) {
 	p := parent.Group("/workspaces/:workspace_id/projects/:project_id", append([]gin.HandlerFunc{identityhttp.TenantHeaders}, session...)...)
 	p.POST("/playground/runs", middleware.GatewayRoutingConstraints(), h.route("playground.run", h.submit))
+	p.GET("/playground/keys/:key_id/models", h.route("playground.run", h.listKeyModels))
 	p.GET("/playground/runs/by-idempotency-key", h.route("playground.read", func(c *gin.Context, a identity.Access) error {
 		key := c.GetHeader("Idempotency-Key")
 		if key == "" || len(key) > 200 {
@@ -87,6 +89,10 @@ func (h *Handler) route(action string, fn func(*gin.Context, identity.Access) er
 		p, f := strconv.ParseInt(c.Param("project_id"), 10, 64)
 		if e != nil || f != nil || w <= 0 || p <= 0 {
 			fail(c, fault.NotFound, nil)
+			return
+		}
+		if h.Gateway == nil || h.Gateway.Access == nil {
+			fail(c, pg.Unavailable, nil)
 			return
 		}
 		a, err := h.Gateway.Access.Evaluate(c.Request.Context(), sub.UserID, w, p, action)
@@ -200,6 +206,11 @@ func (h *Handler) submit(c *gin.Context, a identity.Access) error {
 	}
 	r, err := h.store().ByKey(ctx, a, key, fp[:])
 	if err == nil {
+		if parent != "" {
+			if err := h.revalidateReplay(ctx, a, r); err != nil {
+				return err
+			}
+		}
 		middleware.SetAuditExtra(c, map[string]any{"admission": "idempotent_replay"})
 		h.summary(c, a, r)
 		return nil
@@ -246,6 +257,11 @@ func (h *Handler) submit(c *gin.Context, a identity.Access) error {
 		return err
 	}
 	if !won {
+		if parent != "" {
+			if err := h.revalidateReplay(ctx, a, r); err != nil {
+				return err
+			}
+		}
 		middleware.SetAuditExtra(c, map[string]any{"admission": "idempotent_replay"})
 		h.summary(c, a, r)
 		return nil
@@ -253,7 +269,7 @@ func (h *Handler) submit(c *gin.Context, a identity.Access) error {
 	// Poll the durable cancel bit even while the native adapter awaits its first byte.
 	// The journal checks the same row at the dispatch boundary.
 	go h.monitor(runctx, cancel, r.Run)
-	planctx, plan, closePlan, err := h.Gateway.admit(p, r, in.Registration)
+	planctx, plan, closePlan, err := h.Gateway.admit(&p, r, in.Registration)
 	if err != nil {
 		final, stop := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 		defer stop()
@@ -369,6 +385,19 @@ func (h *Handler) submit(c *gin.Context, a identity.Access) error {
 	success(c, 200, data)
 	return nil
 }
+
+func (h *Handler) revalidateReplay(ctx context.Context, a identity.Access, run pg.Summary) error {
+	in := pg.Submit{Action: "text.chat"}
+	err := h.Gateway.DB.QueryRowContext(ctx, `SELECT api_key_id,payer_user_id,model_id,protocol FROM playground_runs
+ WHERE run_id=$1 AND workspace_id=$2 AND project_id=$3 AND actor_id=$4`, run.Run, a.WorkspaceID, a.ProjectID, a.ActorID).
+		Scan(&in.Key, &in.Payer, &in.Model, &in.Protocol)
+	if err != nil {
+		return err
+	}
+	_, _, _, err = h.Gateway.checkRunModel(ctx, a, in, time.Now().UTC())
+	return err
+}
+
 func (h *Handler) monitor(ctx context.Context, cancel context.CancelFunc, id string) {
 	t := time.NewTicker(250 * time.Millisecond)
 	defer t.Stop()

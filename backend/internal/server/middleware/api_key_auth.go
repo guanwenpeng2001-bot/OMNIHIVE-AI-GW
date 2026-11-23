@@ -118,10 +118,14 @@ func (r projectAuthResolver) ProjectCredential(ctx context.Context, digest strin
 	select {
 	case r.slots <- struct{}{}:
 		defer func() { <-r.slots }()
-		return r.GatewayScopes.ProjectCredential(ctx, digest)
+		return identity.ResolveProjectCredential(ctx, r.GatewayScopes, digest)
 	default:
 		return nil, service.ErrAPIKeyAuthOverloaded
 	}
+}
+
+func (r projectAuthResolver) LegacyScope(ctx context.Context, w, key, owner int64, digest string) (scope.Authorized, error) {
+	return identity.ResolveLegacyKeyScope(ctx, r.GatewayScopes, w, key, owner, digest)
 }
 
 // InstallProjectScopes installs the resolver before both protocol-specific auth handlers.
@@ -165,6 +169,12 @@ func authenticateKey(c *gin.Context, secret string, keys *service.APIKeyService,
 	}
 	if err != nil || key == nil {
 		switch {
+		case errors.Is(err, identity.ErrKeyAttribution):
+			SetAuditExtra(c, map[string]any{"reason": identity.ErrKeyAttribution.Reason})
+			MarkIngressRejected(c, IngressRejectInvalidAPIKey)
+			abort(401, "INVALID_API_KEY", "Invalid API key")
+		case errors.Is(err, fault.Forbidden):
+			abort(403, "ACTION_DENIED", "Access denied")
 		case errors.Is(err, fault.NotFound), errors.Is(err, service.ErrAPIKeyNotFound), err == nil:
 			recordInvalidAuthFailure(c, keys)
 			MarkIngressRejected(c, IngressRejectInvalidAPIKey)
@@ -183,9 +193,6 @@ func authenticateKey(c *gin.Context, secret string, keys *service.APIKeyService,
 		w = domain.DefaultWorkspaceID
 	}
 	ctx = domain.WithWorkspaceScope(ctx, w)
-	if policy != nil {
-		ctx = WithProjectKeyModelAccess(ctx, policy)
-	}
 	if scopes != nil {
 		var a scope.Authorized
 		if policy != nil {
@@ -207,11 +214,35 @@ func authenticateKey(c *gin.Context, secret string, keys *service.APIKeyService,
 			if key.GroupID != nil {
 				group = *key.GroupID
 			}
-			ctx = executioncompat.BindCredential(ctx, service.APIKeyCredentialDigest(secret), projectKeyAction(c), ip.GetSecurityClientIP(c, cfg.TrustForwardedIPForAPIKeyACL()), policy != nil, group)
+			digest, action, clientIP := service.APIKeyCredentialDigest(secret), projectKeyAction(c), ip.GetSecurityClientIP(c, cfg.TrustForwardedIPForAPIKeyACL())
+			project := policy != nil
+			ctx = journal.WithReauthorization(ctx, func(ctx context.Context, frozen scope.Authorized, model string) error {
+				bound := executioncompat.BindCredential(journal.WithReauthorization(ctx, nil), digest, action, clientIP, project, group)
+				if err := journal.Authorize(bound, frozen, model); err != nil {
+					return err
+				}
+				fresh, err := keys.AttachModelAccessPolicy(ctx, frozen.KeyID)
+				if err != nil {
+					return err
+				}
+				snapshot, loaded := service.ModelAccessFromContext(fresh)
+				if !loaded || snapshot.RestrictedKey != project {
+					return journal.ErrScope
+				}
+				match := identity.NativeModelMatch(snapshot.ProjectKeyPlatform, model)
+				if model != "" && !snapshot.AllowsKeyModel(model, match, match) {
+					return journal.ErrScope
+				}
+				return nil
+			})
 		}
 	}
 	ctx, err = keys.AttachModelAccessPolicy(ctx, key.ID)
 	if err != nil {
+		if errors.Is(err, service.ErrModelAccessNotFound) {
+			abort(401, "INVALID_API_KEY", "Invalid API key")
+			return
+		}
 		if google {
 			abortWithGoogleError(c, 503, "Model access policy unavailable")
 		} else {
@@ -219,6 +250,11 @@ func authenticateKey(c *gin.Context, secret string, keys *service.APIKeyService,
 		}
 		return
 	}
+	if snapshot, loaded := service.ModelAccessFromContext(ctx); loaded && snapshot.RestrictedKey != (policy != nil) {
+		abort(401, "INVALID_API_KEY", "Invalid API key")
+		return
+	}
+	ctx = WithProjectKeyModelAccess(ctx, policy)
 	c.Request = c.Request.WithContext(ctx)
 	ipAllowed := true
 	if len(key.IPWhitelist) > 0 || len(key.IPBlacklist) > 0 {
@@ -254,13 +290,13 @@ func authenticateKey(c *gin.Context, secret string, keys *service.APIKeyService,
 		c.Set("project_key_policy", policy)
 		action := projectKeyAction(c)
 		if isResponsesWebSocketRoute(c) {
-			if !slices.Contains(policy.Actions, action) || (policy.Mode == "allow_list" && len(policy.Models) == 0) {
+			if !slices.Contains(policy.Actions, action) || service.AuthenticatedKeyDeniesAll(ctx) {
 				abort(403, "ACTION_DENIED", "Access denied")
 				return
 			}
 		} else {
 			var models []string
-			if policy.Mode == "allow_list" && action != "" && action != "models.read" && action != "usage.read" && action != "tasks.read" {
+			if service.AuthenticatedKeyNeedsModel(ctx) && action != "" && !identity.KeyMetadataAction(action) {
 				if m := groupModelAllowlistModelFromParams(c); m != "" {
 					models = []string{m}
 				} else {
@@ -271,7 +307,7 @@ func authenticateKey(c *gin.Context, secret string, keys *service.APIKeyService,
 					}
 				}
 			}
-			if !policy.Allows(action, models) {
+			if !service.AllowsAuthenticatedKeyModels(ctx, policy, action, models) {
 				message := "Access denied"
 				if action == "models.read" || (action == "" && (path == "/v1/models" || path == "/models" || strings.HasPrefix(path, "/v1/models/") || strings.HasPrefix(path, "/models/"))) {
 					message = "Access denied; grant the models.read action to this project key"
@@ -337,18 +373,7 @@ func projectKeyAction(c *gin.Context) string {
 }
 
 func WithProjectKeyModelAccess(ctx context.Context, policy *identity.KeyPolicy) context.Context {
-	if policy == nil {
-		return ctx
-	}
-	ctx = service.WithProjectKeyModelPolicy(ctx, policy.Platform)
-	switch policy.Mode {
-	case "inherit":
-		return service.WithVisibleModelKeyPolicy(ctx, nil)
-	case "allow_list":
-		return service.WithVisibleModelKeyPolicy(ctx, policy.Models)
-	default:
-		return service.WithVisibleModelKeyPolicy(ctx, []string{})
-	}
+	return service.WithIssuedKeyPolicy(ctx, policy)
 }
 
 func AllowsProjectKeyModels(c *gin.Context, action string, models []string) bool {
@@ -363,7 +388,7 @@ func AllowsProjectKeyModels(c *gin.Context, action string, models []string) bool
 	if !ok || policy == nil {
 		return true
 	}
-	return policy.Allows(action, models)
+	return service.AllowsAuthenticatedKeyModels(c.Request.Context(), policy, action, models)
 }
 
 func apiKeyHeadersTooLarge(c *gin.Context) bool {
