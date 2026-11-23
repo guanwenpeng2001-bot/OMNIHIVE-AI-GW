@@ -117,6 +117,33 @@ func (e *plainEncryptor) Decrypt(ciphertext string) (string, error) {
 	return ciphertext, fmt.Errorf("not encrypted")
 }
 
+type memoryBackupSecretPayloadRepo struct {
+	payloads map[string]BackupSecretEnvelope
+	settings *mockSettingRepo
+}
+
+func (r *memoryBackupSecretPayloadRepo) Get(_ context.Context, key string) (*BackupSecretEnvelope, error) {
+	envelope, ok := r.payloads[key]
+	if !ok {
+		return nil, nil
+	}
+	return &envelope, nil
+}
+func (r *memoryBackupSecretPayloadRepo) Save(ctx context.Context, key, legacy string, envelope BackupSecretEnvelope) error {
+	if r.settings != nil {
+		_ = r.settings.Set(ctx, key, legacy)
+	}
+	r.payloads[key] = envelope
+	return nil
+}
+func (r *memoryBackupSecretPayloadRepo) Delete(_ context.Context, key string) error {
+	delete(r.payloads, key)
+	return nil
+}
+func (r *memoryBackupSecretPayloadRepo) SetMigrationState(_ context.Context, _, _, _, _ string) error {
+	return nil
+}
+
 type mockDumper struct {
 	dumpData []byte
 	dumpErr  error
@@ -174,6 +201,7 @@ type mockObjectStore struct {
 	uploadFileCalls  int
 	deletedKeys      []string
 	failDeleteKeys   map[string]error
+	corruptUploads   bool
 }
 
 type cancelingUploadFailureStore struct {
@@ -197,6 +225,9 @@ func (m *cancelingUploadFailureStore) UploadFile(_ context.Context, key string, 
 
 	m.mu.Lock()
 	m.objects[key] = data
+	if m.corruptUploads && len(data) > 0 {
+		m.objects[key][0] ^= 0xff
+	}
 	m.mu.Unlock()
 	m.cancel()
 	return 0, fmt.Errorf("injected upload failure after object landed")
@@ -220,6 +251,9 @@ func (m *mockObjectStore) Upload(_ context.Context, key string, body io.Reader, 
 	}
 	m.mu.Lock()
 	m.objects[key] = data
+	if m.corruptUploads && len(data) > 0 {
+		m.objects[key][0] ^= 0xff
+	}
 	m.mu.Unlock()
 	return int64(len(data)), nil
 }
@@ -286,7 +320,10 @@ func newTestBackupService(repo *mockSettingRepo, dumper DBDumper, store *mockObj
 	factory := func(_ context.Context, _ *BackupS3Config) (BackupObjectStore, error) {
 		return store, nil
 	}
-	return NewBackupService(repo, cfg, &plainEncryptor{}, factory, dumper)
+	svc := NewBackupService(repo, cfg, &plainEncryptor{}, factory, dumper)
+	svc.backupSecretCryptor = &backupSecretCryptor{current: bytes.Repeat([]byte{0x42}, 32)}
+	svc.SetSecretPayloadRepository(&memoryBackupSecretPayloadRepo{payloads: make(map[string]BackupSecretEnvelope), settings: repo})
+	return svc
 }
 
 // newTestBackupServiceEphemeralKey mirrors a deployment that never set
@@ -299,7 +336,9 @@ func newTestBackupServiceEphemeralKey(repo *mockSettingRepo) *BackupService {
 	factory := func(_ context.Context, _ *BackupS3Config) (BackupObjectStore, error) {
 		return newMockObjectStore(), nil
 	}
-	return NewBackupService(repo, cfg, &plainEncryptor{}, factory, &mockDumper{})
+	svc := NewBackupService(repo, cfg, &plainEncryptor{}, factory, &mockDumper{})
+	svc.backupSecretCryptor = &backupSecretCryptor{}
+	return svc
 }
 
 func seedS3Config(t *testing.T, repo *mockSettingRepo) {
@@ -426,6 +465,31 @@ func TestBackupService_EncryptionKeyConfigured(t *testing.T) {
 	require.False(t, newTestBackupServiceEphemeralKey(repo).EncryptionKeyConfigured())
 }
 
+func TestBackupSecretEnvelope_AuthenticatesAADAndSupportsPreviousKey(t *testing.T) {
+	current := bytes.Repeat([]byte{0x11}, 32)
+	previous := bytes.Repeat([]byte{0x22}, 32)
+	old := &backupSecretCryptor{current: previous}
+	envelope, err := old.seal("synthetic-secret", backupS3SecretAAD)
+	require.NoError(t, err)
+
+	rotated := &backupSecretCryptor{current: current, previous: previous}
+	plaintext, err := rotated.open(envelope, backupS3SecretAAD)
+	require.NoError(t, err)
+	require.Equal(t, "synthetic-secret", plaintext)
+	_, err = rotated.open(envelope, "wrong/aad")
+	require.ErrorIs(t, err, ErrBackupSecretUnreadable)
+}
+
+func TestBackupService_LoadS3Config_DoesNotTreatDecryptFailureAsPlaintext(t *testing.T) {
+	repo := newMockSettingRepo()
+	data, err := json.Marshal(BackupS3Config{Bucket: "bucket", AccessKeyID: "key", SecretAccessKey: "historical-plaintext"})
+	require.NoError(t, err)
+	require.NoError(t, repo.Set(context.Background(), settingKeyBackupS3Config, string(data)))
+	svc := newTestBackupService(repo, &mockDumper{}, newMockObjectStore())
+	_, err = svc.loadS3Config(context.Background())
+	require.ErrorIs(t, err, ErrBackupSecretUnreadable)
+}
+
 func TestBackupService_SaveRecordConcurrency(t *testing.T) {
 	repo := newMockSettingRepo()
 	svc := newTestBackupService(repo, &mockDumper{}, newMockObjectStore())
@@ -482,6 +546,7 @@ func TestBackupService_CreateBackup_Streaming(t *testing.T) {
 	record, err := svc.CreateBackup(context.Background(), "manual", 14)
 	require.NoError(t, err)
 	require.Equal(t, "completed", record.Status)
+	require.NotEmpty(t, record.VerifiedAt, "a completed backup must have remote verification")
 	require.Greater(t, record.SizeBytes, int64(0))
 	require.NotEmpty(t, record.S3Key)
 
@@ -489,6 +554,20 @@ func TestBackupService_CreateBackup_Streaming(t *testing.T) {
 	store.mu.Lock()
 	require.Len(t, store.objects, 1)
 	store.mu.Unlock()
+}
+
+func TestBackupService_CreateBackup_RemoteChecksumMismatchFails(t *testing.T) {
+	repo := newMockSettingRepo()
+	seedS3Config(t, repo)
+	store := newMockObjectStore()
+	store.corruptUploads = true
+	svc := newTestBackupService(repo, &mockDumper{dumpData: []byte("backup")}, store)
+
+	record, err := svc.CreateBackup(context.Background(), "manual", 14)
+	require.Error(t, err)
+	require.Equal(t, "failed", record.Status)
+	require.Empty(t, record.VerifiedAt)
+	require.Equal(t, "remote backup verification failed", record.ErrorMsg)
 }
 
 func TestBackupService_CreateBackup_SplitsCompressedArchive(t *testing.T) {
