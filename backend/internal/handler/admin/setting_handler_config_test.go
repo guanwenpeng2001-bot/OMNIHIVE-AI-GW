@@ -73,3 +73,32 @@ func TestResetConfigOverridesRejectsUnknownKeyWithoutDeleting(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, recorder.Code)
 	require.Equal(t, "keep", repo.values[service.SettingKeyLinuxDoConnectClientID])
 }
+
+func TestGetEffectiveConfigRedactsImageStorageObject(t *testing.T) {
+	const settingKey = "image_storage_config"
+	const fixture = "storage-redaction-fixture"
+	h, _ := newStepUpSwitchTestHandler(t, map[string]string{
+		settingKey: `{"enabled":true,"secret_access_key":"` + fixture + `"}`,
+	})
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/config/effective?group=image_storage", nil)
+	h.GetEffectiveConfig(ctx)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.NotContains(t, recorder.Body.String(), fixture)
+	var envelope struct {
+		Data dto.EffectiveConfigResponse `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &envelope))
+	for _, item := range envelope.Data.Items {
+		if item.Key == settingKey {
+			require.True(t, item.Sensitive)
+			require.NotNil(t, item.Configured)
+			require.True(t, *item.Configured)
+			require.Nil(t, item.Value)
+			require.Nil(t, item.Baseline)
+			return
+		}
+	}
+	t.Fatal("image storage configuration is missing")
+}
