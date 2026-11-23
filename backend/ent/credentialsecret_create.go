@@ -56,14 +56,6 @@ func (_c *CredentialSecretCreate) SetWorkspaceID(v int64) *CredentialSecretCreat
 	return _c
 }
 
-// SetNillableWorkspaceID sets the "workspace_id" field if the given value is not nil.
-func (_c *CredentialSecretCreate) SetNillableWorkspaceID(v *int64) *CredentialSecretCreate {
-	if v != nil {
-		_c.SetWorkspaceID(*v)
-	}
-	return _c
-}
-
 // SetReference sets the "reference" field.
 func (_c *CredentialSecretCreate) SetReference(v string) *CredentialSecretCreate {
 	_c.mutation.SetReference(v)
@@ -174,10 +166,6 @@ func (_c *CredentialSecretCreate) defaults() error {
 		}
 		v := credentialsecret.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
-	}
-	if _, ok := _c.mutation.WorkspaceID(); !ok {
-		v := credentialsecret.DefaultWorkspaceID
-		_c.mutation.SetWorkspaceID(v)
 	}
 	if _, ok := _c.mutation.Version(); !ok {
 		v := credentialsecret.DefaultVersion

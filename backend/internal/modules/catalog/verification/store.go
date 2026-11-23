@@ -115,7 +115,7 @@ func loadTarget(ctx context.Context, q queryer, id uuid.UUID) (Target, error) {
 const nextDueSQL = `CASE WHEN $1::int > 0 THEN statement_timestamp()+make_interval(secs=>$1) END`
 
 func (s *Store) CreateTarget(ctx context.Context, actor int64, key string, in CreateTarget) (Target, error) {
-	if err := authorize(ctx, s.access, actor, VerifyGrant); err != nil {
+	if err := s.authorize(ctx, actor, VerifyGrant); err != nil {
 		return Target{}, err
 	}
 	if err := validateKey(key); err != nil {
@@ -175,7 +175,7 @@ func (s *Store) CreateTarget(ctx context.Context, actor int64, key string, in Cr
 }
 
 func (s *Store) SetSchedule(ctx context.Context, actor int64, rawID string, expected int64, interval int) (Target, error) {
-	if err := authorize(ctx, s.access, actor, VerifyGrant); err != nil {
+	if err := s.authorize(ctx, actor, VerifyGrant); err != nil {
 		return Target{}, err
 	}
 	if err := validateInterval(interval); err != nil {
@@ -210,7 +210,7 @@ func (s *Store) SetSchedule(ctx context.Context, actor int64, rawID string, expe
 }
 
 func (s *Store) Target(ctx context.Context, actor int64, rawID string) (TargetDetail, error) {
-	if err := authorize(ctx, s.access, actor, VerifyGrant); err != nil {
+	if err := s.authorize(ctx, actor, VerifyGrant); err != nil {
 		return TargetDetail{}, err
 	}
 	id, err := prefixedID(rawID, "vt_")
@@ -276,10 +276,11 @@ func loadOperation(ctx context.Context, q queryer, id uuid.UUID) (identity.Opera
 	var op identity.Operation
 	var now time.Time
 	var target uuid.UUID
+	var workspace int64
 	var m Matrix
-	err := q.QueryRowContext(ctx, `SELECT j.state, j.actor_id, t.id, t.entry_id, t.adapter_version, t.action, t.account_mode, t.protocol, statement_timestamp()
+	err := q.QueryRowContext(ctx, `SELECT j.state, j.actor_id, t.id, t.entry_id, t.adapter_version, t.action, t.account_mode, t.protocol, statement_timestamp(),resolve_default_workspace_id()
 		FROM catalog_verification_jobs j JOIN catalog_verification_targets t ON t.id=j.target_id
-		WHERE j.id=$1`, id).Scan(&op.State, &op.OwnerID, &target, &m.EntryID, &m.AdapterVersion, &m.Action, &m.AccountMode, &m.Protocol, &now)
+		WHERE j.id=$1`, id).Scan(&op.State, &op.OwnerID, &target, &m.EntryID, &m.AdapterVersion, &m.Action, &m.AccountMode, &m.Protocol, &now, &workspace)
 	if errors.Is(err, sql.ErrNoRows) {
 		return identity.Operation{}, fault.NotFound
 	}
@@ -287,7 +288,7 @@ func loadOperation(ctx context.Context, q queryer, id uuid.UUID) (identity.Opera
 		return identity.Operation{}, err
 	}
 	op.ID = "cv_" + id.String()
-	op.StatusURL = fmt.Sprintf("/api/v2/workspaces/%d/operations/%s", domain.DefaultWorkspaceID, op.ID)
+	op.StatusURL = fmt.Sprintf("/api/v2/workspaces/%d/operations/%s", workspace, op.ID)
 	op.ResourceID, op.DelegatedAction = &m.EntryID, VerifyGrant
 	if op.State != "running" && op.State != "queued" {
 		obs, err := scanObservation(q.QueryRowContext(ctx, `SELECT `+observationFields+`
@@ -302,10 +303,17 @@ func loadOperation(ctx context.Context, q queryer, id uuid.UUID) (identity.Opera
 
 func (s *Store) ReadOperation(ctx context.Context, workspace, actor int64, rawID string) (identity.Operation, error) {
 	id, err := prefixedID(rawID, "cv_")
-	if err != nil || workspace != domain.DefaultWorkspaceID {
+	if err != nil {
 		return identity.Operation{}, fault.NotFound
 	}
-	if err := authorize(ctx, s.access, actor, VerifyGrant); err != nil {
+	def, err := domain.ResolveDefaultWorkspaceID(ctx, s.db)
+	if err != nil {
+		return identity.Operation{}, err
+	}
+	if workspace != def {
+		return identity.Operation{}, fault.NotFound
+	}
+	if err := s.authorize(ctx, actor, VerifyGrant); err != nil {
 		if denied(err) {
 			err = fault.NotFound
 		}

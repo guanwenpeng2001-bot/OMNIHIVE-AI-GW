@@ -27,20 +27,20 @@ func (s *workspaceSchedulerCache) GetAccount(_ context.Context, identifier int64
 }
 
 func TestWorkspaceSchedulerCacheCannotCrossUngroupedDomains(t *testing.T) {
-	cache := &workspaceSchedulerCache{accounts: []*Account{{ID: 101, WorkspaceID: 1}, {ID: 201, WorkspaceID: 2}, {ID: 102}}}
+	cache := &workspaceSchedulerCache{accounts: []*Account{{ID: 101, WorkspaceID: 17}, {ID: 201, WorkspaceID: 1}, {ID: 102}}}
 	scheduler := NewSchedulerSnapshotService(cache, nil, nil, nil, nil)
-	for _, workspaceID := range []int64{1, 2} {
-		ctx := domain.WithWorkspaceScope(context.Background(), workspaceID)
+	for _, workspaceID := range []int64{17, 1} {
+		ctx := domain.WithWorkspaceScope(domain.WithDefaultWorkspaceID(t.Context(), 17), workspaceID)
 		accounts, _, err := scheduler.ListSchedulableAccounts(ctx, nil, PlatformOpenAI, false)
 		require.NoError(t, err)
-		if workspaceID == 1 {
+		if workspaceID == 17 {
 			require.Len(t, accounts, 2)
 		} else {
 			require.Len(t, accounts, 1)
 			require.Equal(t, int64(201), accounts[0].ID)
 		}
 		foreignID := int64(201)
-		if workspaceID == 2 {
+		if workspaceID == 1 {
 			foreignID = 101
 		}
 		_, err = scheduler.GetAccount(ctx, foreignID)

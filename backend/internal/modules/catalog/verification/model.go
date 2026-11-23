@@ -13,7 +13,6 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 )
 
 const (
@@ -185,15 +184,19 @@ type Publication struct {
 	RollbackVersion *int64 `json:"rollback_version,string"`
 }
 
-func authorize(ctx context.Context, access identity.AccessEvaluator, actor int64, grant string) error {
+func (s *Store) authorize(ctx context.Context, actor int64, grant string) error {
 	if actor <= 0 {
 		return fault.Unauthenticated
 	}
-	scope, err := access.Evaluate(ctx, actor, domain.DefaultWorkspaceID, 0, grant)
+	workspace, err := domain.ResolveDefaultWorkspaceID(ctx, s.db)
 	if err != nil {
 		return err
 	}
-	if scope.ActorID != actor || scope.WorkspaceID != domain.DefaultWorkspaceID || scope.ProjectID != 0 {
+	scope, err := s.access.Evaluate(ctx, actor, workspace, 0, grant)
+	if err != nil {
+		return err
+	}
+	if scope.ActorID != actor || scope.WorkspaceID != workspace || scope.ProjectID != 0 {
 		return fault.Forbidden
 	}
 	return scope.Require(grant)

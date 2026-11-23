@@ -14,7 +14,6 @@ import (
 
 	"github.com/alitto/pond/v2"
 	"github.com/gin-gonic/gin"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 	pkghttputil "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httputil"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
@@ -461,9 +460,5 @@ func imageTaskJSONError(c *gin.Context, status int, code, message string) {
 }
 
 func imageTaskOwner(apiKey *service.APIKey) service.ImageTaskOwner {
-	workspaceID := apiKey.WorkspaceID
-	if workspaceID <= 0 {
-		workspaceID = domain.DefaultWorkspaceID
-	}
-	return service.ImageTaskOwner{UserID: apiKey.UserID, APIKeyID: apiKey.ID, WorkspaceID: workspaceID}
+	return service.ImageTaskOwner{UserID: apiKey.UserID, APIKeyID: apiKey.ID, WorkspaceID: apiKey.WorkspaceID}
 }

@@ -6,6 +6,11 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
+	identitydb "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/lib/pq"
 )
@@ -16,41 +21,44 @@ func NewWorkspaceRepository(database *sql.DB) service.WorkspaceRepository {
 	return &workspaceRepository{database: database}
 }
 
-func (r *workspaceRepository) List(ctx context.Context, userID int64, globalAdmin bool) ([]service.Workspace, error) {
-	rows, err := r.database.QueryContext(ctx, `SELECT workspace.id, workspace.name, workspace.is_default,
-		CASE WHEN $2 THEN 'admin' ELSE member.role END, workspace.created_at
-		FROM workspaces workspace LEFT JOIN workspace_members member ON member.workspace_id=workspace.id AND member.user_id=$1
-		WHERE $2 OR member.user_id IS NOT NULL ORDER BY workspace.id`, userID, globalAdmin)
+func (r *workspaceRepository) List(ctx context.Context, userID int64, _ bool) ([]service.Workspace, error) {
+	rows, err := identitydb.New(r.database).Memberships(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	workspaces := []service.Workspace{}
-	for rows.Next() {
-		var workspace service.Workspace
-		if err := rows.Scan(&workspace.ID, &workspace.Name, &workspace.IsDefault, &workspace.Role, &workspace.CreatedAt); err != nil {
-			return nil, err
-		}
-		workspaces = append(workspaces, workspace)
+	out := make([]service.Workspace, 0, len(rows))
+	for _, m := range rows {
+		out = append(out, service.Workspace{ID: m.ID, Name: m.Name, IsDefault: m.IsDefault, CreatedAt: m.CreatedAt, Role: effectiveRole(m), EffectiveAdmin: m.EffectiveAdmin, MembershipRole: m.Role, RoleSource: m.RoleSource})
 	}
-	return workspaces, rows.Err()
+	return out, nil
+}
+
+func effectiveRole(m identity.WorkspaceMembership) string {
+	if m.EffectiveAdmin {
+		return "admin"
+	}
+	if m.Role != nil {
+		return *m.Role
+	}
+	return ""
+}
+
+func (r *workspaceRepository) DefaultWorkspaceID(ctx context.Context) (int64, error) {
+	return domain.ResolveDefaultWorkspaceID(ctx, r.database)
 }
 
 func (r *workspaceRepository) Create(ctx context.Context, name string) (*service.Workspace, error) {
-	workspace := &service.Workspace{Name: name, Role: "admin"}
+	workspace := &service.Workspace{Name: name, Role: "admin", EffectiveAdmin: true}
 	err := r.database.QueryRowContext(ctx, `INSERT INTO workspaces(name) VALUES($1) RETURNING id, created_at`, name).Scan(&workspace.ID, &workspace.CreatedAt)
 	return workspace, err
 }
 
-func (r *workspaceRepository) Role(ctx context.Context, workspaceID, userID int64, globalAdmin bool) (string, error) {
-	var role string
-	err := r.database.QueryRowContext(ctx, `SELECT CASE WHEN $3 THEN 'admin' ELSE member.role END
-		FROM workspaces workspace LEFT JOIN workspace_members member ON member.workspace_id=workspace.id AND member.user_id=$2
-		WHERE workspace.id=$1 AND ($3 OR member.user_id IS NOT NULL)`, workspaceID, userID, globalAdmin).Scan(&role)
-	if errors.Is(err, sql.ErrNoRows) {
+func (r *workspaceRepository) Role(ctx context.Context, workspaceID, userID int64, _ bool) (string, error) {
+	m, err := identitydb.LookupMembership(ctx, r.database, userID, workspaceID)
+	if errors.Is(err, fault.NotFound) {
 		return "", service.ErrWorkspaceNotFound
 	}
-	return role, err
+	return effectiveRole(m), err
 }
 
 func (r *workspaceRepository) Members(ctx context.Context, workspaceID int64) ([]service.WorkspaceMember, error) {
@@ -70,30 +78,58 @@ func (r *workspaceRepository) Members(ctx context.Context, workspaceID int64) ([
 	return members, rows.Err()
 }
 
-func (r *workspaceRepository) SetMember(ctx context.Context, workspaceID, userID int64, role string) error {
-	result, err := r.database.ExecContext(ctx, `INSERT INTO workspace_members(workspace_id,user_id,role)
-		SELECT $1,id,$3 FROM users WHERE id=$2 AND deleted_at IS NULL
-		ON CONFLICT(workspace_id,user_id) DO UPDATE SET role=EXCLUDED.role,inherits_global_role=false,updated_at=NOW()`, workspaceID, userID, role)
+func (r *workspaceRepository) mutateMember(ctx context.Context, w int64, query string, args ...any) error {
+	tx, err := r.database.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	count, err := result.RowsAffected()
-	if err == nil && count == 0 {
+	defer tx.Rollback()
+	var locked int64
+	if err = tx.QueryRowContext(ctx, `SELECT id FROM workspaces WHERE id=$1 FOR NO KEY UPDATE`, w).Scan(&locked); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return service.ErrWorkspaceNotFound
+		}
+		return err
+	}
+	if actor, scoped := scope.From(ctx); scoped {
+		if actor.WorkspaceID != w {
+			return service.ErrWorkspaceNotFound
+		}
+		m, err := identitydb.LookupMembership(ctx, tx, actor.ActorID, w)
+		if errors.Is(err, fault.NotFound) {
+			return service.ErrWorkspaceNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if !m.EffectiveAdmin {
+			return service.ErrWorkspaceNotFound
+		}
+	}
+	result, err := tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
 		return service.ErrWorkspaceNotFound
 	}
-	return err
+	return tx.Commit()
+}
+
+func (r *workspaceRepository) SetMember(ctx context.Context, workspaceID, userID int64, role string) error {
+	return r.mutateMember(ctx, workspaceID, `INSERT INTO workspace_members(workspace_id,user_id,role)
+		SELECT $1,id,$3 FROM users WHERE id=$2 AND deleted_at IS NULL
+		ON CONFLICT(workspace_id,user_id) DO UPDATE SET role=EXCLUDED.role,inherits_global_role=false,updated_at=NOW()`, workspaceID, userID, role)
+
 }
 
 func (r *workspaceRepository) RemoveMember(ctx context.Context, workspaceID, userID int64) error {
-	result, err := r.database.ExecContext(ctx, `DELETE FROM workspace_members WHERE workspace_id=$1 AND user_id=$2`, workspaceID, userID)
-	if err != nil {
-		return err
-	}
-	count, err := result.RowsAffected()
-	if err == nil && count == 0 {
-		return service.ErrWorkspaceNotFound
-	}
-	return err
+	return r.mutateMember(ctx, workspaceID, `DELETE FROM workspace_members WHERE workspace_id=$1 AND user_id=$2`, workspaceID, userID)
+
 }
 
 func (r *workspaceRepository) ContainsResources(ctx context.Context, workspaceID int64, resource string, identifiers []int64) (bool, error) {

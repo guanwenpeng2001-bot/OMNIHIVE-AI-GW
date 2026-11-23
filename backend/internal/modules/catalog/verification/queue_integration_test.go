@@ -37,7 +37,9 @@ func TestVerificationQueuePostgres(t *testing.T) {
 		_, err := db.ExecContext(ctx, statement, args...)
 		require.NoError(t, err)
 	}
-	exec(`CREATE TABLE identity_actions(action text PRIMARY KEY, category text);
+	exec(`CREATE TABLE workspaces(id bigint PRIMARY KEY,is_default boolean); INSERT INTO workspaces VALUES(1,true);
+ CREATE FUNCTION resolve_default_workspace_id() RETURNS bigint LANGUAGE sql AS 'SELECT 1::bigint';
+ CREATE TABLE identity_actions(action text PRIMARY KEY, category text);
 		CREATE TABLE users (id bigint PRIMARY KEY,status text,role text,deleted_at timestamptz);
 		INSERT INTO users VALUES (1,'active','admin',NULL)`)
 	migration, err := migrations.FS.ReadFile("316_catalog_verification.sql")

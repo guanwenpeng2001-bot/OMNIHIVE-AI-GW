@@ -57,14 +57,6 @@ func (_c *ChannelMonitorRequestTemplateCreate) SetWorkspaceID(v int64) *ChannelM
 	return _c
 }
 
-// SetNillableWorkspaceID sets the "workspace_id" field if the given value is not nil.
-func (_c *ChannelMonitorRequestTemplateCreate) SetNillableWorkspaceID(v *int64) *ChannelMonitorRequestTemplateCreate {
-	if v != nil {
-		_c.SetWorkspaceID(*v)
-	}
-	return _c
-}
-
 // SetName sets the "name" field.
 func (_c *ChannelMonitorRequestTemplateCreate) SetName(v string) *ChannelMonitorRequestTemplateCreate {
 	_c.mutation.SetName(v)
@@ -196,10 +188,6 @@ func (_c *ChannelMonitorRequestTemplateCreate) defaults() error {
 		}
 		v := channelmonitorrequesttemplate.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
-	}
-	if _, ok := _c.mutation.WorkspaceID(); !ok {
-		v := channelmonitorrequesttemplate.DefaultWorkspaceID
-		_c.mutation.SetWorkspaceID(v)
 	}
 	if _, ok := _c.mutation.APIMode(); !ok {
 		v := channelmonitorrequesttemplate.DefaultAPIMode

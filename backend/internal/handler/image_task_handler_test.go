@@ -91,7 +91,7 @@ func testAsyncImageSubmitAndPoll(t *testing.T, platform, path string) {
 		submissionBudget = service.AttemptBudgetFromContext(c.Request.Context())
 		groupID := int64(3)
 		c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 7})
-		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{WorkspaceID: 1,
 			ID:      9,
 			UserID:  7,
 			GroupID: &groupID,
@@ -127,7 +127,7 @@ func testAsyncImageSubmitAndPoll(t *testing.T, platform, path string) {
 	cancelRequest()
 	close(release)
 	require.Eventually(t, func() bool {
-		got, err := tasks.Get(context.Background(), service.ImageTaskOwner{UserID: 7, APIKeyID: 9}, accepted.TaskID)
+		got, err := tasks.Get(context.Background(), service.ImageTaskOwner{WorkspaceID: 1, UserID: 7, APIKeyID: 9}, accepted.TaskID)
 		return err == nil && got.Status == service.ImageTaskStatusCompleted
 	}, time.Second, 10*time.Millisecond)
 	require.NoError(t, <-attemptErrors)
@@ -168,7 +168,7 @@ func TestAsyncImageHandlerDisabledReturns404(t *testing.T) {
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		groupID := int64(3)
-		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{WorkspaceID: 1,
 			ID:      9,
 			UserID:  7,
 			GroupID: &groupID,
@@ -215,7 +215,7 @@ func TestAsyncImageHandlerTaskDeadlineBlocksDetachedSend(t *testing.T) {
 	}
 	router := gin.New()
 	router.Use(OpsErrorLoggerMiddleware(nil), func(c *gin.Context) {
-		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{WorkspaceID: 1,
 			ID: 9, UserID: 7, Group: &service.Group{Platform: service.PlatformOpenAI, AllowImageGeneration: true},
 		})
 		c.Next()
@@ -236,7 +236,7 @@ func TestAsyncImageHandlerTaskDeadlineBlocksDetachedSend(t *testing.T) {
 	var accepted service.ImageTask
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &accepted))
 	require.Eventually(t, func() bool {
-		task, err := tasks.Get(context.Background(), service.ImageTaskOwner{UserID: 7, APIKeyID: 9}, accepted.ID)
+		task, err := tasks.Get(context.Background(), service.ImageTaskOwner{WorkspaceID: 1, UserID: 7, APIKeyID: 9}, accepted.ID)
 		return err == nil && task.Status == service.ImageTaskStatusFailed
 	}, time.Second, time.Millisecond)
 }
@@ -271,7 +271,7 @@ func TestAsyncImageHandlerQueueFullReturns503Not202(t *testing.T) {
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		groupID := int64(3)
-		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{WorkspaceID: 1,
 			ID:      9,
 			UserID:  7,
 			GroupID: &groupID,

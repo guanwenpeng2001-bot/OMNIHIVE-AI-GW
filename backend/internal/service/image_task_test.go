@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,11 +41,12 @@ func (s *imageTaskMemoryStore) Get(_ context.Context, _ string) (*ImageTaskRecor
 }
 
 func TestImageTaskServiceLifecycleAndOwnership(t *testing.T) {
+	ctx := domain.WithDefaultWorkspaceID(t.Context(), 17)
 	store := &imageTaskMemoryStore{}
 	svc := NewImageTaskServiceWithOptions(store, time.Hour, 10*time.Minute)
 	owner := ImageTaskOwner{UserID: 7, APIKeyID: 9}
 
-	created, err := svc.Create(context.Background(), owner)
+	created, err := svc.Create(ctx, owner)
 	require.NoError(t, err)
 	require.Equal(t, ImageTaskStatusProcessing, created.Status)
 	require.Equal(t, created.ID, created.TaskID)
@@ -53,13 +55,13 @@ func TestImageTaskServiceLifecycleAndOwnership(t *testing.T) {
 	require.Equal(t, owner.UserID, store.task.UserID)
 	require.Equal(t, owner.APIKeyID, store.task.APIKeyID)
 
-	_, err = svc.Get(context.Background(), ImageTaskOwner{UserID: 7, APIKeyID: 10}, created.ID)
+	_, err = svc.Get(ctx, ImageTaskOwner{UserID: 7, APIKeyID: 10}, created.ID)
 	require.ErrorIs(t, err, ErrImageTaskNotFound)
 
 	result := json.RawMessage(`{"created":123,"data":[{"url":"https://example.test/image.png"}]}`)
-	require.NoError(t, svc.Complete(context.Background(), created.ID, http.StatusOK, result))
+	require.NoError(t, svc.Complete(ctx, created.ID, http.StatusOK, result))
 
-	completed, err := svc.Get(context.Background(), owner, created.ID)
+	completed, err := svc.Get(ctx, owner, created.ID)
 	require.NoError(t, err)
 	require.Equal(t, ImageTaskStatusCompleted, completed.Status)
 	require.Equal(t, http.StatusOK, completed.HTTPStatus)
@@ -69,13 +71,14 @@ func TestImageTaskServiceLifecycleAndOwnership(t *testing.T) {
 }
 
 func TestImageTaskServiceInvalidResultBecomesFailed(t *testing.T) {
+	ctx := domain.WithDefaultWorkspaceID(t.Context(), 17)
 	store := &imageTaskMemoryStore{}
 	svc := NewImageTaskServiceWithOptions(store, time.Hour, time.Minute)
-	created, err := svc.Create(context.Background(), ImageTaskOwner{UserID: 1, APIKeyID: 2})
+	created, err := svc.Create(ctx, ImageTaskOwner{UserID: 1, APIKeyID: 2})
 	require.NoError(t, err)
 
-	require.NoError(t, svc.Complete(context.Background(), created.ID, http.StatusOK, json.RawMessage(`not-json`)))
-	got, err := svc.Get(context.Background(), ImageTaskOwner{UserID: 1, APIKeyID: 2}, created.ID)
+	require.NoError(t, svc.Complete(ctx, created.ID, http.StatusOK, json.RawMessage(`not-json`)))
+	got, err := svc.Get(ctx, ImageTaskOwner{UserID: 1, APIKeyID: 2}, created.ID)
 	require.NoError(t, err)
 	require.Equal(t, ImageTaskStatusFailed, got.Status)
 	require.Equal(t, http.StatusBadGateway, got.HTTPStatus)
@@ -83,34 +86,36 @@ func TestImageTaskServiceInvalidResultBecomesFailed(t *testing.T) {
 }
 
 func TestImageTaskServiceMapsStoreFailures(t *testing.T) {
+	ctx := domain.WithDefaultWorkspaceID(t.Context(), 17)
 	store := &imageTaskMemoryStore{saveErr: errors.New("redis down")}
 	svc := NewImageTaskService(store)
 
-	_, err := svc.Create(context.Background(), ImageTaskOwner{UserID: 1, APIKeyID: 2})
+	_, err := svc.Create(ctx, ImageTaskOwner{UserID: 1, APIKeyID: 2})
 	require.ErrorIs(t, err, ErrImageTaskUnavailable)
 }
 
 // The same user/key pair inside another workspace must not resolve the task:
 // task ownership includes the workspace recorded at admission.
 func TestImageTaskServiceRejectsCrossWorkspaceAccess(t *testing.T) {
+	ctx := domain.WithDefaultWorkspaceID(t.Context(), 17)
 	store := &imageTaskMemoryStore{}
 	svc := NewImageTaskServiceWithOptions(store, time.Hour, 10*time.Minute)
 	owner := ImageTaskOwner{UserID: 7, APIKeyID: 9, WorkspaceID: 1}
-	created, err := svc.Create(context.Background(), owner)
+	created, err := svc.Create(ctx, owner)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), store.task.WorkspaceID)
 
-	_, err = svc.Get(context.Background(), ImageTaskOwner{UserID: 7, APIKeyID: 9, WorkspaceID: 2}, created.ID)
+	_, err = svc.Get(ctx, ImageTaskOwner{UserID: 7, APIKeyID: 9, WorkspaceID: 2}, created.ID)
 	require.ErrorIs(t, err, ErrImageTaskNotFound)
 
 	// A legacy record without a workspace belongs to the default workspace.
 	legacy := &imageTaskMemoryStore{}
 	legacySvc := NewImageTaskServiceWithOptions(legacy, time.Hour, 10*time.Minute)
-	legacyCreated, err := legacySvc.Create(context.Background(), ImageTaskOwner{UserID: 7, APIKeyID: 9})
+	legacyCreated, err := legacySvc.Create(ctx, ImageTaskOwner{UserID: 7, APIKeyID: 9})
 	require.NoError(t, err)
 	legacy.task.WorkspaceID = 0
-	_, err = legacySvc.Get(context.Background(), ImageTaskOwner{UserID: 7, APIKeyID: 9, WorkspaceID: 2}, legacyCreated.ID)
+	_, err = legacySvc.Get(ctx, ImageTaskOwner{UserID: 7, APIKeyID: 9, WorkspaceID: 2}, legacyCreated.ID)
 	require.ErrorIs(t, err, ErrImageTaskNotFound)
-	_, err = legacySvc.Get(context.Background(), ImageTaskOwner{UserID: 7, APIKeyID: 9, WorkspaceID: 1}, legacyCreated.ID)
+	_, err = legacySvc.Get(ctx, ImageTaskOwner{UserID: 7, APIKeyID: 9, WorkspaceID: 17}, legacyCreated.ID)
 	require.NoError(t, err)
 }

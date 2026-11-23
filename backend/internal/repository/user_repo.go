@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	entsql "entgo.io/ent/dialect/sql"
 	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/apikey"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/authidentity"
@@ -20,11 +21,10 @@ import (
 	dbuser "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/user"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/userallowedgroup"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/usersubscription"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/lib/pq"
-
-	entsql "entgo.io/ent/dialect/sql"
 )
 
 type userRepository struct {
@@ -165,9 +165,13 @@ func (r *userRepository) create(ctx context.Context, userIn *service.User, guard
 	if created.Role == service.RoleAdmin {
 		role = "admin"
 	}
+	workspaceID, err := domain.ResolveDefaultWorkspaceID(txCtx, txClient)
+	if err != nil {
+		return fmt.Errorf("provision default workspace membership: %w", err)
+	}
 	if _, err := txClient.ExecContext(txCtx, `INSERT INTO workspace_members(workspace_id,user_id,role,created_at,updated_at,inherits_global_role)
- VALUES((SELECT id FROM workspaces WHERE is_default ORDER BY CASE WHEN id=1 THEN 0 ELSE 1 END,id LIMIT 1),$1,$2,$3,$3,true)
- ON CONFLICT(workspace_id,user_id) DO NOTHING`, created.ID, role, time.Now()); err != nil {
+ VALUES($4,$1,$2,$3,$3,true)
+ ON CONFLICT(workspace_id,user_id) DO NOTHING`, created.ID, role, time.Now(), workspaceID); err != nil {
 		return fmt.Errorf("provision default workspace membership: %w", err)
 	}
 
@@ -385,10 +389,13 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User, field
 		if updated.Role == service.RoleAdmin {
 			role = "admin"
 		}
+		workspaceID, err := domain.ResolveDefaultWorkspaceID(txCtx, txClient)
+		if err != nil {
+			return fmt.Errorf("synchronize default workspace role: %w", err)
+		}
 		if _, err := txClient.ExecContext(txCtx, `UPDATE workspace_members
  SET role=CASE WHEN inherits_global_role THEN $1 ELSE role END,updated_at=$2
- WHERE user_id=$3 AND ((inherits_global_role AND role<>$1)
- OR (workspace_id=(SELECT id FROM workspaces WHERE is_default ORDER BY CASE WHEN id=1 THEN 0 ELSE 1 END,id LIMIT 1) AND $4))`, role, time.Now(), updated.ID, existing.Role != updated.Role); err != nil {
+ WHERE workspace_id=$5 AND user_id=$3 AND ((inherits_global_role AND role<>$1) OR $4)`, role, time.Now(), updated.ID, existing.Role != updated.Role, workspaceID); err != nil {
 			return fmt.Errorf("synchronize default workspace role: %w", err)
 		}
 	}

@@ -74,8 +74,6 @@ var (
 	DefaultUpdatedAt func() time.Time
 	// UpdateDefaultUpdatedAt holds the default value on update for the "updated_at" field.
 	UpdateDefaultUpdatedAt func() time.Time
-	// DefaultWorkspaceID holds the default value on creation for the "workspace_id" field.
-	DefaultWorkspaceID int64
 	// ReferenceValidator is a validator for the "reference" field. It is called by the builders before save.
 	ReferenceValidator func(string) error
 	// DefaultVersion holds the default value on creation for the "version" field.

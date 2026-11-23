@@ -76,10 +76,15 @@ func (s *grokImportProbeScheduler) schedule(prober grokImportProber, admin servi
 
 func (s *grokImportProbeScheduler) scheduleTask(prober grokImportProber, admin service.AdminService, account *service.Account) {
 	accountID, workspaceID := account.ID, account.WorkspaceID
-	if workspaceID <= 0 {
-		workspaceID = domain.DefaultWorkspaceID
-	}
+
 	s.scheduleProbe(accountID, func(ctx context.Context) {
+		if workspaceID <= 0 {
+			fresh, err := admin.GetAccount(ctx, accountID)
+			if err != nil || fresh == nil || fresh.ID != accountID || fresh.WorkspaceID <= 0 {
+				return
+			}
+			workspaceID = fresh.WorkspaceID
+		}
 		ctx = domain.WithWorkspaceScope(ctx, workspaceID)
 		runGrokImportProbe(ctx, prober, admin, accountID)
 	})

@@ -298,7 +298,7 @@ func workspaceSchedulableAccounts(ctx context.Context, accounts []Account) []Acc
 	for _, account := range accounts {
 		owner := account.WorkspaceID
 		if owner == 0 {
-			owner = domain.DefaultWorkspaceID
+			owner = domain.ResolvedDefaultWorkspaceID(ctx)
 		}
 		if owner == workspaceID {
 			filtered = append(filtered, account)

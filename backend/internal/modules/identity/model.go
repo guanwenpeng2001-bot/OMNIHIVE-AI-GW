@@ -12,6 +12,7 @@ import (
 )
 
 type Project struct {
+	IsDefault   bool   `json:"is_default"`
 	ID          int64  `json:"id,string"`
 	WorkspaceID int64  `json:"workspace_id,string"`
 	Name        string `json:"name"`
@@ -148,8 +149,9 @@ type Page struct {
 }
 
 type Workspace struct {
-	ID   int64  `json:"workspace_id,string"`
-	Name string `json:"name"`
+	IsDefault bool   `json:"is_default"`
+	ID        int64  `json:"workspace_id,string"`
+	Name      string `json:"name"`
 }
 
 type GrantVersion struct {
@@ -159,16 +161,23 @@ type GrantVersion struct {
 }
 
 type Member struct {
-	ID       int64  `json:"id,string"`
-	UserID   int64  `json:"user_id,string"`
-	Email    string `json:"email"`
-	Username string `json:"username"`
-	Role     string `json:"role"`
-	Status   string `json:"status"`
-	Version  int64  `json:"version,string"`
+	RoleSource string `json:"role_source"`
+	ID         int64  `json:"id,string"`
+	UserID     int64  `json:"user_id,string"`
+	Email      string `json:"email"`
+	Username   string `json:"username"`
+	Role       string `json:"role"`
+	Status     string `json:"status"`
+	Version    int64  `json:"version,string"`
+}
+
+type ProjectGrant struct {
+	ProjectID int64    `json:"project_id,string"`
+	Actions   []string `json:"actions"`
 }
 
 type MemberGrants struct {
+	ProjectGrants []ProjectGrant `json:"project_grants"`
 	GrantVersion
 	ProjectIDs []string `json:"project_ids"`
 	Actions    []string `json:"actions"`

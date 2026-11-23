@@ -55,7 +55,7 @@ func securityAuditMediaTestMiddleware(c *gin.Context) {
 	groupID := int64(3)
 	user := &service.User{ID: 7, Username: "media-user", Email: "media@example.test"}
 	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
-		ID: 9, UserID: 7, User: user, Name: "media-key", GroupID: &groupID,
+		ID: 9, WorkspaceID: 17, UserID: 7, User: user, Name: "media-key", GroupID: &groupID,
 		Group: &service.Group{ID: groupID, Name: "media-group", Platform: service.PlatformOpenAI, AllowImageGeneration: true},
 	})
 	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 7, Concurrency: 2})

@@ -43,6 +43,7 @@ func TestW05PublicCatalogSettingsGuard(t *testing.T) {
 	h := New(authCheckingCatalog{base: &fixtureCatalog{revision: "guard"}, settings: settings}, nil, &config.Config{})
 	h.settings = settings
 	r := gin.New()
+	r.Use(fixtureDefault)
 	strict := func(c *gin.Context) {
 		if c.GetHeader("Authorization") != "Bearer valid-session" {
 			c.AbortWithStatus(401)
