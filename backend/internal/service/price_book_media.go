@@ -2,9 +2,19 @@ package service
 
 import (
 	"context"
+	"math"
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
+)
+
+const (
+	legacyImageCatalogSource = "legacy-fallback:image-global"
+	legacyImageDefaultSource = "legacy-fallback:image-default"
+	legacyVideoImageSource   = "legacy-fallback:video-image-2k"
+	legacyGrokMediaSource    = "legacy-fallback:grok-media"
+	legacyMediaVariantSource = "legacy-fallback:media-variant"
+	legacyGPTImageSource     = "legacy-fallback:gpt-image-token"
 )
 
 type saleMediaRate struct {
@@ -77,44 +87,50 @@ func (s *BillingService) imageSaleRate(provider, model, size string, group *Imag
 	if configured != nil {
 		return *configured, PricingSourceGroup, nil
 	}
-	if provider == "" {
-		return s.getDefaultImagePrice(model, size), "model_image_default", nil
-	}
-	if provider == PlatformGrok {
-		if price, found := getDefaultGrokImagineImagePrice(model, size); found {
-			return price, PricingSourceStaticFallback, nil
+	if provider != "" && !IsGPTImageGenerationModel(model) {
+		card, err := s.pricingService.providerModelPricing(provider, model, true)
+		if err != nil {
+			return 0, "", err
+		}
+		if card != nil && card.tariffDeleted {
+			return 0, "", ErrModelPricingUnavailable
+		}
+		if hasScopedImageRate(card) {
+			source := PricingSourceLiteLLM
+			if card.staticTariff {
+				source = PricingSourceStaticFallback
+			}
+			return scaleImageRate(card.OutputCostPerImage, size), source, nil
 		}
 	}
-	card, err := s.pricingService.providerModelPricing(provider, model, true)
-	if err != nil {
-		return 0, "", err
-	}
-	if card == nil || IsGPTImageGenerationModel(model) {
+	rate, source := s.legacyDefaultImageRate(model, size)
+	if math.IsNaN(rate) && IsGPTImageGenerationModel(model) {
 		return 0, "", ErrModelPricingUnavailable
 	}
-	if quote := card.sourceQuotes["output_cost_per_image"]; quote.Value == nil && card.OutputCostPerImage == 0 {
-		return 0, "", ErrModelPricingUnavailable
-	}
-	source := PricingSourceLiteLLM
-	if card.staticTariff {
+	if provider == PlatformGrok && source == legacyGrokMediaSource {
 		source = PricingSourceStaticFallback
 	}
-	scale := 1.0
+	return rate, source, nil
+}
+
+func hasScopedImageRate(card *LiteLLMModelPricing) bool {
+	return card != nil && (card.sourceQuotes["output_cost_per_image"].Value != nil || card.OutputCostPerImage != 0)
+}
+
+func scaleImageRate(base float64, size string) float64 {
 	switch size {
 	case "2K":
-		scale = 1.5
+		return base * 1.5
 	case "4K":
-		scale = 2
+		return base * 2
+	default:
+		return base
 	}
-	return card.OutputCostPerImage * scale, source, nil
 }
 
 func (s *BillingService) calculateImageSale(ctx context.Context, key *APIKey, model, size string, count int, multiplier float64) *CostBreakdown {
 	provider := priceBookProviderForKey(ctx, key)
 	group := imagePriceConfigFromAPIKey(key)
-	if provider == "" {
-		return s.CalculateImageCost(model, size, count, group, multiplier)
-	}
 	size = NormalizeImageBillingTierOrDefault(size)
 	rate, source, err := s.imageSaleRate(provider, model, size, group)
 	if err != nil {
@@ -127,19 +143,22 @@ func (s *BillingService) videoSaleRate(key *APIKey, provider, model, resolution 
 	if apiKeyHasConfiguredVideoPrice(key, model, resolution) {
 		return *key.Group.GetVideoPriceForModel(model, resolution), PricingSourceGroup, nil
 	}
-	if provider == PlatformGrok {
-		if rate, known := getDefaultGrokImagineVideoPrice(model, resolution); known {
+	if rate, known := getDefaultGrokImagineVideoPrice(model, resolution); known {
+		if provider == PlatformGrok {
 			return rate, PricingSourceStaticFallback, nil
 		}
+		return rate, legacyGrokMediaSource, nil
 	}
-	return 0, "", ErrModelPricingUnavailable
+	// v0.3.3 used the default 2K image rate as a per-second video tariff.
+	rate := s.getDefaultImagePrice(model, ImageBillingSize2K)
+	if !validBillingNumber(rate) {
+		return 0, "", ErrInvalidBillingAmount
+	}
+	return rate, legacyVideoImageSource, nil
 }
 
 func (s *BillingService) calculateVideoSale(ctx context.Context, key *APIKey, model, resolution string, count, duration int, multiplier float64) *CostBreakdown {
 	provider := priceBookProviderForKey(ctx, key)
-	if provider == "" {
-		return s.CalculateVideoCost(model, resolution, count, duration, videoPriceConfigFromAPIKey(key), multiplier)
-	}
 	if duration < 0 || count < 0 {
 		return pricingFailure(ErrInvalidBillingAmount)
 	}
@@ -153,7 +172,7 @@ func (s *BillingService) calculateVideoSale(ctx context.Context, key *APIKey, mo
 }
 
 func (s *BillingService) calculateSaleUnits(ctx context.Context, key *APIKey, provider, model string, mode BillingMode, label, source string, units, rate, multiplier float64) *CostBreakdown {
-	if !validBillingNumber(rate) || !validBillingNumber(units) {
+	if !validBillingNumber(rate) || !validBillingNumber(units) || !validBillingNumber(multiplier) {
 		return pricingFailure(ErrInvalidBillingAmount)
 	}
 	resolved := &ResolvedPricing{Mode: mode, Source: source, DefaultPerRequestPrice: rate, DefaultPerRequestPriceFound: true}

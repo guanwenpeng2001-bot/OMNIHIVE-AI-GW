@@ -185,18 +185,16 @@ func (p *GatewayRequestPlan) mediaBudgetAmount(ctx context.Context, resolver *Mo
 	if m.Count <= 0 || m.Numerator <= 0 || m.Denominator <= 0 || !validBillingNumber(base) {
 		return nil
 	}
-	descriptor, found, err := resolver.configuredPriceDescriptor(ctx, in)
-	if err != nil {
-		return nil
-	}
 	tier := m.Size
 	unit := m.Unit
 	multiplier := base
 	switch unit {
 	case "image":
+		in.Mode = BillingModeImage
 		tier = NormalizeImageBillingTierOrDefault(tier)
 		multiplier = resolveImageRateMultiplier(key, base)
 	case "video_second":
+		in.Mode = BillingModeVideo
 		tier = NormalizeVideoBillingResolutionOrDefault(tier)
 		unit = "second"
 		multiplier = resolveVideoRateMultiplier(key, base)
@@ -207,16 +205,19 @@ func (p *GatewayRequestPlan) mediaBudgetAmount(ctx context.Context, resolver *Mo
 	if !validBillingNumber(multiplier) {
 		return nil
 	}
+	descriptor, found, err := resolver.configuredPriceDescriptor(ctx, in)
+	if err != nil {
+		return nil
+	}
 	quantity := decimal.NewFromInt(m.Count).Mul(decimal.NewFromInt(m.Numerator))
 	divisor := decimal.NewFromInt(m.Denominator)
 	var price float64
 	if found {
-		var fact ModelUnitPrice
 		// A condition can specialize the unconditional rate. Include the latter
 		// when settlement can still select it for this same request.
 		matched := false
 		for _, condition := range []string{m.Quality, tier, ""} {
-			fact, err = descriptor.UnitPrice(unit, "output", condition)
+			fact, err := descriptor.UnitPrice(unit, "output", condition)
 			if err == nil {
 				price = math.Max(price, *fact.Sales)
 				matched = true
@@ -287,48 +288,12 @@ func (p *GatewayRequestPlan) mediaBudgetAmount(ctx context.Context, resolver *Mo
 				divisor = decimal.NewFromInt(1)
 			}
 		case unit == "image":
-			if in.Provider != "" {
-				price, _, err = p.billing.imageSaleRate(in.Provider, in.Model, tier, imagePriceConfigFromAPIKey(key))
-				if err != nil {
-					return nil
-				}
-				break
-			}
-			_, known := getDefaultGrokImagineImagePrice(in.Model, tier)
-			if !known && !apiKeyHasConfiguredImagePrice(key, tier) {
-				if p.billing.pricingService == nil {
-					return nil
-				}
-				raw := p.billing.pricingService.GetIdentifiedModelPricing(in.Model)
-				if raw == nil || !validBillingNumber(raw.OutputCostPerImage) || raw.OutputCostPerImage <= 0 || IsGPTImageGenerationModel(in.Model) {
-					return nil
-				}
-				scale := decimal.NewFromInt(1)
-				switch tier {
-				case "2K":
-					scale = decimal.New(15, -1)
-				case "4K":
-					scale = decimal.NewFromInt(2)
-				}
-				return budgetAmount(decimal.NewFromFloat(raw.OutputCostPerImage).Mul(scale).Mul(quantity).Mul(decimal.NewFromFloat(multiplier)), divisor)
-			}
-			price = p.billing.getImageUnitPrice(in.Model, tier, imagePriceConfigFromAPIKey(key))
+			price, _, err = p.billing.imageSaleRate(in.Provider, in.Model, tier, imagePriceConfigFromAPIKey(key))
 		case unit == "second":
-			if in.Provider != "" {
-				price, _, err = p.billing.videoSaleRate(key, in.Provider, in.Model, tier)
-				if err != nil {
-					return nil
-				}
-				break
-			}
-			_, known := getDefaultGrokImagineVideoPrice(in.Model, tier)
-			if !known && !apiKeyHasConfiguredVideoPrice(key, in.Model, tier) {
-				return nil
-			}
-			price = p.billing.getVideoUnitPrice(in.Model, tier, videoPriceConfigFromAPIKey(key))
+			price, _, err = p.billing.videoSaleRate(key, in.Provider, in.Model, tier)
 		}
 	}
-	if !validBillingNumber(price) {
+	if err != nil || !validBillingNumber(price) {
 		return nil
 	}
 	return budgetAmount(decimal.NewFromFloat(price).Mul(quantity).Mul(decimal.NewFromFloat(multiplier)), divisor)
