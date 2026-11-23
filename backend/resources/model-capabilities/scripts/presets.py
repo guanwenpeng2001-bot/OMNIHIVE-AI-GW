@@ -24,6 +24,37 @@ METHOD_REVIEW_SCOPES = {
     ("opencode_go", "opencode-go"): ("https://opencode.ai/docs/go/", "https://opencode.ai/zen/go/v1"),
     ("commandcode", "native"): ("https://api.commandcode.ai/provider/v1/models", ""),
 }
+RELEASED_PROJECTION_RECOVERY = "released_projection_recovery"
+
+
+def recovered_projection_digests(source):
+    """Validate archived projection identity without claiming a new observation."""
+    catalog.require("content_sha256" not in source and "observed_at" not in source,
+                    "released projection recovery is not a new upstream capture")
+    released = source.get("released_from", {})
+    repository, commit, path = (released.get(key, "") for key in ("repository", "commit", "path"))
+    catalog.require(isinstance(repository, str) and repository.startswith("https://") and
+                    isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{40}", commit) and
+                    path == "backend/internal/service/platform_model_presets.json" and
+                    source["url"] == f"{repository}/blob/{commit}/{path}",
+                    "recovered projections must identify a fixed released preset artifact")
+    artifact_hash = released.get("artifact_sha256", "")
+    catalog.require(isinstance(artifact_hash, str) and re.fullmatch(r"[0-9a-f]{64}", artifact_hash),
+                    "invalid released preset artifact hash")
+    catalog.require(isinstance(source.get("recovery_basis"), str) and source["recovery_basis"].strip(),
+                    "missing released projection recovery basis")
+    records = source.get("recovered_records")
+    catalog.require(isinstance(records, list) and records, "missing recovered projection identities")
+    result = {}
+    for record in records:
+        catalog.require(isinstance(record, dict), "invalid recovered projection identity")
+        identity = tuple(record.get(key) for key in ("platform", "provider_profile", "model_id"))
+        digest = record.get("projection_sha256", "")
+        catalog.require(all(isinstance(value, str) and value for value in identity) and
+                        identity not in result and isinstance(digest, str) and
+                        re.fullmatch(r"[0-9a-f]{64}", digest), "invalid/duplicate recovered projection")
+        result[identity] = digest
+    return result
 
 
 def reviewed_methods(profile, sources):
@@ -71,8 +102,13 @@ def reviewed_methods(profile, sources):
 def generate(inputs):
     catalog.require(inputs.get("schema_version") == 1, "unsupported preset source schema")
     sources = inputs["sources"]
-    for source in sources.values():
+    recovered, recovered_used = {}, set()
+    for source_id, source in sources.items():
         catalog.require(source["url"].startswith("https://"), "source must identify a public document")
+        if source.get("kind") == RELEASED_PROJECTION_RECOVERY:
+            recovered[source_id] = recovered_projection_digests(source)
+            continue
+        catalog.require("kind" not in source, "unsupported preset source kind")
         catalog.require(re.fullmatch(r"[0-9a-f]{64}", source["content_sha256"]), "invalid source hash")
         datetime.fromisoformat(source["observed_at"].replace("Z", "+00:00"))
     result, identities = [], set()
@@ -121,15 +157,28 @@ def generate(inputs):
                                     (isinstance(value, list) and value and all(
                                         (type(item) is int and item > 0) or (isinstance(item, str) and item)
                                         for item in value)), f"invalid task limit {key}")
-            fields = model.pop("field_sources", {})
-            for field in model:
-                fields.setdefault(field, source["url"])
-            model["field_sources"] = fields
-            model["source_content_hash"] = source["content_sha256"]
-            model["verified_at"] = source["observed_at"]
+            if source_id in recovered:
+                recovered_identity = (*identity, model["id"])
+                catalog.require(recovered[source_id].get(recovered_identity) ==
+                                catalog.digest(catalog.encode(model)),
+                                "released projection changed or crosses its recorded identity")
+                recovered_used.add((source_id, recovered_identity))
+                # Preserve the released row exactly. Missing field evidence or
+                # upstream hash/time stays missing; the artifact hash is not an
+                # upstream observation and cannot fill those gaps.
+            else:
+                fields = model.pop("field_sources", {})
+                for field in model:
+                    fields.setdefault(field, source["url"])
+                model["field_sources"] = fields
+                model["source_content_hash"] = source["content_sha256"]
+                model["verified_at"] = source["observed_at"]
         profile["models"].sort(key=lambda model: model["id"])
         profile["revision"] = catalog.digest(catalog.encode(profile))[:16]
         result.append(profile)
+    catalog.require(recovered_used == {(source_id, identity) for source_id, records in recovered.items()
+                                       for identity in records},
+                    "released projection recovery must reproduce every declared identity")
     return result
 
 

@@ -1,5 +1,6 @@
 import copy
 import unittest
+from unittest import mock
 
 import catalog
 import presets
@@ -155,6 +156,83 @@ class PresetEvidenceTests(unittest.TestCase):
             mutate(value)
             with self.assertRaises(ValueError):
                 presets.generate(value)
+
+    def test_released_projection_recovery_preserves_only_recorded_evidence(self):
+        source_id = "released-v0.3.3-missing-projections"
+        source = self.inputs["sources"][source_id]
+        self.assertEqual("released_projection_recovery", source["kind"])
+        self.assertEqual("94d8a70b39c46895cac3817f3b230fb5eabe2692", source["released_from"]["commit"])
+        self.assertEqual("a3f13e774f291715c9c3ebf291f6ae8caf7876c0aa5ba3d0c543b3c81c28a253",
+                         source["released_from"]["artifact_sha256"])
+        self.assertNotIn("content_sha256", source)
+        self.assertNotIn("observed_at", source)
+        self.assertEqual(5, len(source["recovered_records"]))
+        generated = {(profile["platform"], profile["provider_profile"], model["id"]): model
+                     for profile in self.generated for model in profile["models"]}
+        recovered = []
+        for profile in self.inputs["profiles"]:
+            for row in profile["models"]:
+                if row["source"] != source_id:
+                    continue
+                expected = {key: value for key, value in row.items() if key != "source"}
+                model = generated[profile["platform"], profile["provider_profile"], row["id"]]
+                self.assertEqual(expected, model)
+                self.assertEqual("unknown", model["task_type"])
+                self.assertEqual([], model["methods"])
+                for field in ("display_name", "lifecycle", "task_type", "methods", "reasoning_control"):
+                    self.assertNotIn(field, model["field_sources"])
+                if model["id"] == "ark-code-latest":
+                    self.assertNotIn("source_content_hash", model)
+                    self.assertNotIn("verified_at", model)
+                    self.assertEqual({"id"}, set(model["field_sources"]))
+                else:
+                    self.assertEqual("2026-10-11T00:18:20.140336Z", model["verified_at"])
+                    self.assertEqual(64, len(model["source_content_hash"]))
+                recovered.append(model)
+        self.assertEqual(5, len(recovered))
+
+    def test_released_projection_recovery_rejects_changed_or_incomplete_records(self):
+        source_id = "released-v0.3.3-missing-projections"
+        mutations = {
+            "new upstream observation": lambda source, row: source.update(observed_at="2026-11-22T00:00:00Z"),
+            "artifact hash as upstream evidence": lambda source, row: source.update(content_sha256="1" * 64),
+            "unfixed revision": lambda source, row: source["released_from"].update(commit="main"),
+            "missing artifact binding": lambda source, row: source["released_from"].pop("artifact_sha256"),
+            "missing recovery basis": lambda source, row: source.pop("recovery_basis"),
+            "unlisted identity": lambda source, row: source["recovered_records"].pop(),
+            "duplicate identity": lambda source, row: source["recovered_records"].append(
+                copy.deepcopy(source["recovered_records"][0])),
+            "invented ark verification": lambda source, row: row.update(
+                source_content_hash="2" * 64, verified_at="2026-11-22T00:00:00Z"),
+            "invented ark method": lambda source, row: row.update(methods=["chat_completions"]),
+            "invented field evidence": lambda source, row: row["field_sources"].update(
+                lifecycle="https://example.invalid/unsupported"),
+            "changed identity": lambda source, row: row.update(id="another-ark-alias"),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(label=label):
+                value = copy.deepcopy(self.inputs)
+                row = next(model for profile in value["profiles"] for model in profile["models"]
+                           if model["id"] == "ark-code-latest")
+                mutate(value["sources"][source_id], row)
+                with self.assertRaises(ValueError):
+                    presets.generate(value)
+        value = copy.deepcopy(self.inputs)
+        for profile in value["profiles"]:
+            profile["models"] = [row for row in profile["models"] if row["id"] != "ark-code-latest"]
+        with self.assertRaisesRegex(ValueError, "every declared identity"):
+            presets.generate(value)
+
+    def test_recovery_never_reads_output_and_keeps_normal_capture_validation(self):
+        with mock.patch.object(catalog, "read", side_effect=AssertionError("generation read another authority")):
+            self.assertEqual(self.generated, presets.generate(self.inputs))
+        for field, invalid in (("content_sha256", "missing"), ("observed_at", "not-an-observation-date")):
+            with self.subTest(field=field):
+                value = copy.deepcopy(self.inputs)
+                source = next(source for source in value["sources"].values() if "kind" not in source)
+                source[field] = invalid
+                with self.assertRaises(ValueError):
+                    presets.generate(value)
 
     def test_generation_does_not_mutate_inputs_and_revision_tracks_facts(self):
         self.assertEqual(self.inputs, catalog.read(presets.INPUTS))

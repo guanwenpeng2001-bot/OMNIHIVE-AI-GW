@@ -31,6 +31,10 @@ PROFILE_VERSION_FILES = (
     "internal/domain/compatible_plan.go",
     "internal/service/compatible_billing_plan.go",
 )
+PROJECTION_VERSION_FILES = (
+    "internal/modules/catalog/builtin.go",
+    "internal/modules/catalog/provenance.go",
+)
 PROVIDERS = "internal/domain/data/compatible_providers"
 
 
@@ -39,7 +43,7 @@ class ReleaseDependencyTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.backend = Path(temporary.name)
-        for name in (*ORIGINAL_VERSION_FILES, *PROFILE_VERSION_FILES,
+        for name in (*ORIGINAL_VERSION_FILES, *PROFILE_VERSION_FILES, *PROJECTION_VERSION_FILES,
                      "internal/service/platform_model_presets.json"):
             target = self.backend / name
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -73,9 +77,9 @@ class ReleaseDependencyTests(unittest.TestCase):
                          (release.MANIFEST.read_bytes(), release.PIN.read_bytes()))
 
     def test_original_dependencies_retained_with_profile_dependencies(self):
-        self.assertEqual(set(ORIGINAL_VERSION_FILES + PROFILE_VERSION_FILES),
+        self.assertEqual(set(ORIGINAL_VERSION_FILES + PROFILE_VERSION_FILES + PROJECTION_VERSION_FILES),
                          set(release.VERSION_FILES))
-        expected = set(ORIGINAL_VERSION_FILES + PROFILE_VERSION_FILES)
+        expected = set(ORIGINAL_VERSION_FILES + PROFILE_VERSION_FILES + PROJECTION_VERSION_FILES)
         expected.update(f"{PROVIDERS}/{name}" for name in ("index.json", "example.json"))
         self.assertEqual(expected, set(release.code_versions()))
 
@@ -85,6 +89,17 @@ class ReleaseDependencyTests(unittest.TestCase):
                 target = self.backend / name
                 original = target.read_bytes()
                 target.write_bytes(original + b"// changed profile selection\n")
+                try:
+                    self.assert_rejected_without_repin(name)
+                finally:
+                    target.write_bytes(original)
+
+    def test_each_projection_helper_edit_invalidates_unchanged_pin(self):
+        for name in PROJECTION_VERSION_FILES:
+            with self.subTest(dependency=name):
+                target = self.backend / name
+                original = target.read_bytes()
+                target.write_bytes(original + b"// changed compatibility projection\n")
                 try:
                     self.assert_rejected_without_repin(name)
                 finally:
@@ -118,7 +133,7 @@ class ReleaseDependencyTests(unittest.TestCase):
 
     def test_crlf_logical_normalization_for_go_and_json(self):
         baseline = release.code_versions()
-        for name in (*ORIGINAL_VERSION_FILES, *PROFILE_VERSION_FILES,
+        for name in (*ORIGINAL_VERSION_FILES, *PROFILE_VERSION_FILES, *PROJECTION_VERSION_FILES,
                      f"{PROVIDERS}/example.json", f"{PROVIDERS}/index.json"):
             target = self.backend / name
             target.write_bytes(target.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
@@ -126,7 +141,7 @@ class ReleaseDependencyTests(unittest.TestCase):
         release.validate_release(self.value)
 
     def test_missing_original_and_new_helpers_are_reported_together(self):
-        names = (ORIGINAL_VERSION_FILES[0], PROFILE_VERSION_FILES[0])
+        names = (ORIGINAL_VERSION_FILES[0], PROFILE_VERSION_FILES[0], PROJECTION_VERSION_FILES[0])
         for name in names:
             (self.backend / name).unlink()
         for name in names:

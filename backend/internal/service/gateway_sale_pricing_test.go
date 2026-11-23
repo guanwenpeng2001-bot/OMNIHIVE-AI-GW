@@ -11,11 +11,11 @@ import (
 
 func TestSalePricingBundlePinsRouteCaptureAndSettlement(t *testing.T) {
 	oldInput, oldOutput, groupOutput, personal := 0.01, 0.02, 0.02, 0.5
-	group := &Group{ID: 7, Platform: PlatformOpenAI, RateMultiplier: 1, ModelPricing: []ChannelModelPricing{{Models: []string{"native"}, OutputPrice: &groupOutput}}}
+	group := &Group{ID: 1, Platform: PlatformOpenAI, RateMultiplier: 1, ModelPricing: []ChannelModelPricing{{Models: []string{"native"}, OutputPrice: &groupOutput}}}
 	prices := &PricingService{pricingData: map[string]*LiteLLMModelPricing{"native": {InputCostPerToken: oldInput, OutputCostPerToken: oldOutput}}}
 	versions := &frozenChannelVersions{generation: 1}
 	channelPrice := 0.03
-	repository := &catalogChannelFixture{channels: []Channel{{ID: 1, Status: StatusActive, GroupIDs: []int64{7}, ModelPricing: []ChannelModelPricing{{Platform: PlatformOpenAI, Models: []string{"channel-native"}, InputPrice: &channelPrice, OutputPrice: &channelPrice}}}}}
+	repository := &catalogChannelFixture{channels: []Channel{{ID: 1, Status: StatusActive, GroupIDs: []int64{group.ID}, ModelPricing: []ChannelModelPricing{{Platform: PlatformOpenAI, Models: []string{"channel-native"}, InputPrice: &channelPrice, OutputPrice: &channelPrice}}}}}
 	channels := &ChannelService{repo: repository, groupRepo: versions}
 	rates := &userGroupRateResolverRepoStub{rate: &personal}
 	billing := &BillingService{pricingService: prices}
@@ -25,6 +25,10 @@ func TestSalePricingBundlePinsRouteCaptureAndSettlement(t *testing.T) {
 	ctx, captured, err := gateway.CaptureSalePricing(context.Background(), key, at)
 	require.NoError(t, err)
 	require.Nil(t, GatewayRequestPlanFromContext(ctx), "a pricing snapshot is not an admission")
+	capturedChannel := channels.GetChannelModelPricing(ctx, group.ID, "channel-native")
+	require.NotNil(t, capturedChannel)
+	require.NotNil(t, capturedChannel.InputPrice)
+	require.Equal(t, channelPrice, *capturedChannel.InputPrice)
 	resolver := NewModelPricingResolver(channels, billing)
 	quoted := resolver.Resolve(ctx, PricingInput{Provider: PlatformOpenAI, Model: "native", Group: captured.Group, GroupID: &captured.Group.ID})
 	_, contentVersion := pricingAuditIdentity(quoted)
@@ -43,7 +47,7 @@ func TestSalePricingBundlePinsRouteCaptureAndSettlement(t *testing.T) {
 		groupOutput = 40
 		personal = 9
 		fresh := 50.0
-		repository.channels = []Channel{{ID: 1, Status: StatusActive, GroupIDs: []int64{7}, ModelPricing: []ChannelModelPricing{{Platform: PlatformOpenAI, Models: []string{"channel-native"}, InputPrice: &fresh, OutputPrice: &fresh}}}}
+		repository.channels = []Channel{{ID: 1, Status: StatusActive, GroupIDs: []int64{group.ID}, ModelPricing: []ChannelModelPricing{{Platform: PlatformOpenAI, Models: []string{"channel-native"}, InputPrice: &fresh, OutputPrice: &fresh}}}}
 		versions.generation++
 		close(refreshed)
 	}()
@@ -59,7 +63,10 @@ func TestSalePricingBundlePinsRouteCaptureAndSettlement(t *testing.T) {
 	require.Equal(t, contentVersion, actualVersion, "a captured version must identify the rates actually charged")
 	require.Equal(t, oldInput, actual.BasePricing.InputPricePerToken)
 	require.Equal(t, oldOutput, actual.BasePricing.OutputPricePerToken)
-	require.Equal(t, channelPrice, *channels.GetChannelModelPricing(ctx, group.ID, "channel-native").InputPrice)
+	actualChannel := channels.GetChannelModelPricing(ctx, group.ID, "channel-native")
+	require.NotNil(t, actualChannel)
+	require.NotNil(t, actualChannel.InputPrice)
+	require.Equal(t, channelPrice, *actualChannel.InputPrice)
 	require.Equal(t, 0.5, gateway.ResolveUserGroupRateMultiplier(ctx, key.UserID, group.ID, 1))
 	// A cache/DB fault after capture cannot cause fallback or repricing.
 	rates.err, versions.failure = errors.New("unavailable"), errors.New("unavailable")

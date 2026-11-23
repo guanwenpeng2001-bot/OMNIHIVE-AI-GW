@@ -9,6 +9,8 @@ VERSION_FILES = (
     "internal/service/model_registry.go",
     "internal/service/model_registry_reload.go",
     "internal/service/model_registry_metadata.go",
+    "internal/modules/catalog/builtin.go",
+    "internal/modules/catalog/provenance.go",
     "internal/service/visible_model_resolver.go",
     "internal/service/upstream_models.go",
     "internal/service/platform_model_catalog.go",

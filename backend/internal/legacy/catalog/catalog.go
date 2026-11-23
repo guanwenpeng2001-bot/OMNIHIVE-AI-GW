@@ -167,9 +167,10 @@ func scopedBindingFacts(binding service.PlazaCatalogBinding, expires, now time.T
 	facts := binding.CatalogModelFacts(expires, now)
 	for i := range facts {
 		reason := "scoped_account_observation"
-		if facts[i].Source == "upstream_discovery" {
+		switch facts[i].Source {
+		case "upstream_discovery":
 			facts[i].Source = "account_discovery"
-		} else if facts[i].Source == "account_declaration" {
+		case "account_declaration":
 			reason = "scoped_account_declaration"
 		}
 		catalog.AttachProvenance(&facts[i], strconv.FormatInt(binding.SnapshotRevision, 10), "unreviewed", reason)

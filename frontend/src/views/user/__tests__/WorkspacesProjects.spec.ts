@@ -20,7 +20,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/api/workspaces', () => ({ workspacesAPI: mocks }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => mocks.auth }))
-vi.mock('@/stores/app', () => ({ useAppStore: () => mocks }))
+vi.mock('@/stores/app', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/stores/app')>()
+  return { ...actual, useAppStore: () => mocks }
+})
 vi.mock('vue-i18n', async (importOriginal) => {
   const actual = await importOriginal<typeof import('vue-i18n')>()
   return {

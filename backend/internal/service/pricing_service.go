@@ -941,15 +941,10 @@ func warnOrphanCacheTierFields(entries []string) {
 	logger.LegacyPrintf("service.pricing", "[Pricing] Warning: %d model(s) carry cache above-tier prices without a base cache price; used cache dimensions without a tariff require settlement review: %s", total, strings.Join(entries, ", "))
 }
 
-// applyPricingOverrides 把 override 文件的条目逐字段修补进原始目录数据。目录与回退
+// applyPricingOverrideEntries 把 override 文件的条目逐字段修补进原始目录数据。目录与回退
 // 文件的解析都经过 parsePricingData，因此 override 是最高优先级的数据源。这里只修补
 // 已存在的条目：目录/回退里都没有的模型由 mergeOverrideOnlyModels 在两层数据合并后
 // 统一并入——若在此处抢先建条目，纯 override 条目会挡住回退文件中同名完整条目的合并。
-func (s *PricingService) applyPricingOverrides(rawData map[string]json.RawMessage) map[string]json.RawMessage {
-	overrides := s.loadPricingOverrideEntries()
-	return applyPricingOverrideEntries(rawData, overrides)
-}
-
 func applyPricingOverrideEntries(rawData, overrides map[string]json.RawMessage) map[string]json.RawMessage {
 	if len(overrides) == 0 {
 		return rawData
@@ -1046,7 +1041,7 @@ func (s *PricingService) mergeOverrideOnlyModels(data map[string]*LiteLLMModelPr
 	if len(leftover) == 0 {
 		return data
 	}
-	// 复用主解析路径（含 above_XXXk 折算与有效性过滤）；applyPricingOverrides
+	// 复用主解析路径（含 above_XXXk 折算与有效性过滤）；applyPricingOverrideEntries
 	// 对已存在条目做的自我修补是幂等的，不会二次改值。
 	if body, err := json.Marshal(leftover); err == nil {
 		if parsed, err := s.parsePricingData(body); err == nil {

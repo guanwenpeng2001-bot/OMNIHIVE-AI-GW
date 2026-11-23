@@ -51,12 +51,21 @@ field and its public field evidence are omitted, never rendered as zero.
 ## Candidate preset source projections
 
 `preset-sources.json` stores price-free, reviewed projections of public model
-inventories. Each source has a URL, capture hash and observation date; each profile
+inventories. Each captured source has a URL, capture hash and observation date; each profile
 has a scope, gaps and exact model IDs. Raw pages stay outside the source tree.
 Historical namespaces missing from a new registry retain their original observation
 dates. Removed candidate IDs do not revoke account discovery or prove retirement.
 Lifecycle changes need separate official evidence. Public model names do not invent
 private endpoint IDs or establish aliases across hosting providers.
+
+An explicit `released_projection_recovery` source restores an omitted input from
+a fixed, already released preset artifact. It records the repository commit, path,
+artifact hash, exact platform/profile/model identities and original row hashes.
+That archival provenance establishes no new upstream observation or verification.
+The generator consumes only the restored source input, verifies every declared row,
+and preserves its original sparse field evidence and the presence or absence of
+upstream hash/date. It never reads the generated preset output as an input. The
+recovery keeps existing candidate facts without granting approval or account access.
 
 ```sh
 python -B backend/resources/model-capabilities/scripts/presets.py validate
