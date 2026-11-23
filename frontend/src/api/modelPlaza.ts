@@ -1,5 +1,8 @@
 /**
- * Model Plaza API（公开端点，可匿名访问）
+ * @deprecated Legacy v1 Model Plaza API（`/api/v1/model-plaza`）。
+ * New catalog callers MUST use `@/api/catalog` (`/api/v2/public/models` and scoped `/models`).
+ * Retained only as a compatibility shim until `/api/v1/model-plaza` is retired.
+ *
  * 以分组为中心的模型价目：分组信息 + 模型渠道定价。
  * 带 token 请求时后端会额外返回专属分组与用户专属倍率。
  */
@@ -113,7 +116,10 @@ export interface ModelPlazaResponse {
   groups: ModelPlazaGroup[]
 }
 
-/** 获取模型广场数据。开关未启用时后端返回 404。 */
+/**
+ * @deprecated Use `listPublicModels` from `@/api/catalog` instead.
+ * 获取模型广场数据。开关未启用时后端返回 404。
+ */
 export async function getModelPlaza(options?: { signal?: AbortSignal }): Promise<ModelPlazaResponse> {
   const { data } = await apiClient.get<ModelPlazaResponse>('/model-plaza', {
     signal: options?.signal
@@ -121,6 +127,7 @@ export async function getModelPlaza(options?: { signal?: AbortSignal }): Promise
   return data
 }
 
+/** @deprecated Use `catalogClient` from `@/api/catalog`. */
 export const modelPlazaAPI = { getModelPlaza }
 
 export default modelPlazaAPI

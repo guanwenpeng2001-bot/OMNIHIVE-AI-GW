@@ -1,443 +1,70 @@
 import { apiClient } from '@/api/client'
-import type { components } from '@/api/generated/openapi'
-import { normalizeApiError } from '@/utils/apiError'
+import {
+  comparePublicModels,
+  getPublicModel,
+  isCatalogAbortError,
+  isSnapshotExpiredError,
+  listPublicModels,
+  type CatalogRequestOptions
+} from '@/api/catalog'
+import type {
+  CatalogCompareInput,
+  CatalogCompareResult,
+  CatalogCompareRow,
+  CatalogListParams,
+  CatalogMetrics,
+  CatalogModelDetail,
+  CatalogModelPage,
+  CatalogModelSummary,
+  CatalogRate,
+  StatusComponent,
+  StatusDaily,
+  StatusIncident,
+  StatusIncidentPage,
+  StatusIncidentSummary,
+  StatusSummary,
+  StatusWindow
+} from '@/features/catalog/contract'
 
-export interface PublicRequestOptions {
-  signal?: AbortSignal
-}
+export type PublicRequestOptions = CatalogRequestOptions
+export type ListParams = CatalogListParams
+export type PublicRate = CatalogRate
+export type PublicCatalogMetrics = CatalogMetrics
+export type PublicModelSummary = CatalogModelSummary
+export type PublicModelPage = CatalogModelPage
+export type PublicModelDetail = CatalogModelDetail
+export type PublicCompareInput = CatalogCompareInput
+export type PublicCompareRow = CatalogCompareRow
+export type PublicCompareResponse = CatalogCompareResult
+export type PublicStatusWindow = StatusWindow
+export type PublicStatusDaily = StatusDaily
+export type PublicStatusComponent = StatusComponent
+export type PublicStatusIncidentSummary = StatusIncidentSummary
+export type PublicStatusIncident = StatusIncident
+export type PublicIncidentPage = StatusIncidentPage
+export type PublicStatusResponse = StatusSummary
 
-export function isSnapshotExpiredError(err: unknown): boolean {
-  const normalized = normalizeApiError(err)
-  if (normalized.status === 409 || normalized.status === 410) {
-    return true
-  }
-  const reason = String(normalized.reason || '').toUpperCase()
-  return reason === 'SNAPSHOT_EXPIRED'
-}
-
-export interface PublicRate {
-  amount: string
-  currency: string
-  per: string
-  unit: string
-}
-
-export interface PublicCatalogEvidence {
-  source: string
-  maturity: 'unknown' | 'stable' | 'experimental' | 'deprecated' | string
-  observed_at: string | null
-  expires_at: string | null
-  state: 'fresh' | 'stale' | 'unknown' | string
-}
-
-export interface PublicModelFacts {
-  source?: string
-  maturity?: 'unknown' | 'stable' | 'experimental' | 'deprecated' | string
-  observed_at?: string | null
-  expires_at?: string | null
-  state?: 'fresh' | 'stale' | 'unknown' | string
-  context_tokens?: string | null
-  max_output_tokens?: string | null
-  embedding_dimensions?: string | null
-  context_kind?: 'input' | 'total' | 'unspecified' | '' | string
-  tools?: boolean | null
-  vision?: boolean | null
-  reasoning?: boolean | null
-  prompt_caching?: boolean | null
-  pdf?: boolean | null
-  modalities?: string[] | null
-}
-
-export interface PublicCatalogCapability {
-  verified_extension_actions?: string[]
-  source?: string
-  maturity?: 'unknown' | 'stable' | 'experimental' | 'deprecated' | string
-  observed_at?: string | null
-  expires_at?: string | null
-  state?: 'fresh' | 'stale' | 'unknown' | string
-  action?: string
-  protocol?: string
-  mode?: 'native' | 'bridge' | 'unknown' | string
-  tools?: 'supported' | 'unsupported' | 'unknown' | string
-  stream?: 'supported' | 'unsupported' | 'unknown' | string
-  verified_at?: string | null
-  adapter_version?: string | null
-  limitations?: string[]
-}
-
-export interface PublicCatalogEndpoint {
-  id: string
-  provider: string
-  training: string
-  content_retention: string
-  regions: string[]
-  safety_retention_days: string | null
-  region_evidence?: PublicCatalogEvidence | null
-  privacy_evidence?: PublicCatalogEvidence | null
-  capabilities?: PublicCatalogCapability[]
-}
-
-export interface PublicRateBand {
-  rate: PublicRate
-  kind: string
-  min_tokens: string | null
-  max_tokens: string | null
-  label?: string
-}
-
-export interface PublicTimeBand {
-  timezone: string
-  start_time: string
-  end_time: string
-  weekdays_only: boolean
-  multiplier: string
-}
-
-export type PublicCatalogMetrics = components['schemas']['CatalogMetrics']
-
-export interface PublicCatalogBenchmark {
-  benchmark_id: string
-  unit: string
-  source: string
-  value: string
-  verified_at: string
-}
-
-export interface PublicModelCompatibility {
-  action: string
-  protocol: string
-  account_mode: string
-  adapter_version: string
-  maturity: 'candidate' | 'experimental' | 'stable' | 'deprecated' | 'closed' | string
-  publication_version: string
-  published_at: string
-}
-
-export interface PublicModelSummary {
-  id: string
-  model: string
-  display_name?: string
-  provider?: string | null
-  catalog_version?: string
-  context_tokens?: string | null
-  modalities?: string[] | null
-  protocols?: string[] | null
-  actions?: string[] | null
-  regions?: string[] | null
-  maturity?: 'unknown' | 'stable' | 'experimental' | 'deprecated' | string | null
-  catalog_state?: string | null
-  access_state?: 'allowed' | 'denied' | 'unknown' | 'requires_scope' | string | null
-  input_rate?: PublicRate | null
-  output_rate?: PublicRate | null
-  route_state?: string | null
-  price_state?: 'priced' | 'free' | 'unpriced' | 'error' | string | null
-  availability_state?: 'live' | 'catalog_only' | string | null
-  reference_price?: {
-    source?: string
-    input_rate?: PublicRate | null
-    output_rate?: PublicRate | null
-  } | null
-  observed_at?: string | null
-  evidence_state?: 'fresh' | 'stale' | 'unknown' | string | null
-  metrics?: PublicCatalogMetrics | null
-}
-
-export interface PublicModelPage {
-  items: PublicModelSummary[]
-  next_cursor?: string | null
-  as_of?: string | null
-  catalog_version?: string | null
-}
-
-export interface PublicModelDetail {
-  model: PublicModelSummary
-  aliases?: string[]
-  model_facts?: PublicModelFacts[]
-  capabilities?: PublicCatalogCapability[] | null
-  endpoints?: PublicCatalogEndpoint[]
-  price_version?: string | null
-  price_source?: string | null
-  reference_price?: { source: string; input_rate: PublicRate; output_rate: PublicRate }
-  additional_rates?: PublicRateBand[]
-  context_basis?: string
-  time_bands?: PublicTimeBand[]
-  metrics?: PublicCatalogMetrics | null
-  benchmarks?: PublicCatalogBenchmark[]
-  compatibility?: PublicModelCompatibility[]
-  documentation_url?: string | null
-  redactions?: string[]
-}
-
-export interface PublicCatalogMoney {
-  currency: string
-  amount: string
-}
-
-export interface PublicCatalogEstimate {
-  state: 'estimated' | 'unpriced' | string
-  price_version?: string | null
-  estimated_charge?: PublicCatalogMoney | null
-  components?: Array<{ kind: string; quantity: string; raw_amount: string }>
-  rounding_adjustment?: string | null
-}
-
-export type PublicCompareInput = components['schemas']['CatalogCompareInput']
-
-export interface PublicCompareRow {
-  model_id: string
-  capabilities?: {
-    tools?: 'supported' | 'unsupported' | 'unknown' | string
-    stream?: 'supported' | 'unsupported' | 'unknown' | string
-  } | null
-  metrics?: PublicCatalogMetrics | null
-  benchmarks?: PublicCatalogBenchmark[] | null
-  quote?: PublicCatalogEstimate | null
-}
-
-export interface PublicCompareResponse {
-  catalog_version?: string | null
-  as_of?: string | null
-  rows: PublicCompareRow[]
-}
-
-export type PublicStatusWindow = '1h' | '24h' | '7d' | '30d'
-
-export interface PublicStatusDaily {
-  date: string
-  state: string
-  reason?: string | null
-  sample_count: string
-  success_rate?: number | null
-}
-
-export interface PublicStatusComponent {
-  id: string
-  name?: string
-  state?: string
-  observed_state?: string
-  reason?: string | null
-  source?: 'gateway_observations' | 'unavailable' | string
-  freshness?: 'fresh' | 'stale' | 'unknown' | string
-  stale_after?: string | null
-  last_success?: string | null
-  success_rate?: number | null
-  sample_count?: string | null
-  minimum_sample_count?: string | null
-  ttft_sample_count?: string | null
-  ttft_p50_ms?: number | null
-  ttft_p95_ms?: number | null
-  stream_completion_rate?: number | null
-  counts?: Record<string, string>
-  history?: PublicStatusDaily[]
-}
-
-export interface PublicStatusIncidentSummary {
-  id: string
-  title: string
-  state: 'investigating' | 'identified' | 'monitoring' | 'resolved' | string
-  severity: 'degraded' | 'outage' | 'maintenance' | string
-  component_ids: string[]
-  started_at: string
-  resolved_at: string | null
-}
-
-export interface PublicStatusIncident extends PublicStatusIncidentSummary {
-  updates: Array<{
-    at: string
-    state: 'investigating' | 'identified' | 'monitoring' | 'resolved' | string
-    message: string
-  }>
-}
-
-export interface PublicIncidentPage {
-  items: PublicStatusIncidentSummary[]
-  next_cursor?: string | null
-  as_of?: string | null
-}
-
-export interface PublicStatusResponse {
-  components?: PublicStatusComponent[]
-  as_of?: string | null
-  window_start?: string | null
-  window_end?: string | null
-  data_lag_seconds?: number | null
-  overall?: string
-  incidents?: PublicStatusIncidentSummary[]
-  active_incident_count?: string | null
-  definitions?: {
-    success_rate?: string
-    stream_completion_rate?: string
-    ttft?: string
-    excluded_categories?: string[]
-    reported_categories?: string[]
-    aggregation_interval_seconds?: number
-    publication_delay_seconds?: number
-  }
-}
-
-export interface ListParams {
-  q?: string
-  provider?: string[]
-  protocol?: string[]
-  action?: string[]
-  modality?: string[]
-  region?: string[]
-  retention?: string[]
-  stability?: string[]
-  availability_state?: 'live' | 'catalog_only'
-  sort?: 'name' | 'price_input' | 'context' | 'ttft' | 'availability'
-  cursor?: string | null
-  limit?: number
-}
-
-function arrayParams(params: ListParams): Record<string, unknown> {
-  return {
-    q: params.q || undefined,
-    provider: params.provider?.length ? params.provider : undefined,
-    protocol: params.protocol?.length ? params.protocol : undefined,
-    action: params.action?.length ? params.action : undefined,
-    modality: params.modality?.length ? params.modality : undefined,
-    region: params.region?.length ? params.region : undefined,
-    retention: params.retention?.length ? params.retention : undefined,
-    stability: params.stability?.length ? params.stability : undefined,
-    availability_state: params.availability_state || undefined,
-    sort: params.sort,
-    cursor: params.cursor || undefined,
-    limit: params.limit ?? 20
-  }
+export {
+  comparePublicModels,
+  getPublicModel,
+  isCatalogAbortError,
+  isSnapshotExpiredError,
+  listPublicModels
 }
 
 function withoutImplicitTimezone(params: Record<string, unknown> = {}): Record<string, unknown> {
   return { ...params, timezone: undefined }
 }
 
-const STABLE_MODEL_ID_RE = /^m_[0-9a-f]{32}$/
-
-function normalizeModelIdentifier(raw: string): string {
-  const trimmed = String(raw ?? '').trim().replace(/^\/+|\/+$/g, '')
-  if (!trimmed.includes('%')) return trimmed
-  try {
-    return decodeURIComponent(trimmed).trim().replace(/^\/+|\/+$/g, '')
-  } catch {
-    return trimmed
-  }
-}
-
-function isNotFoundError(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false
-  const candidate = err as {
-    status?: number
-    code?: number | string
-    reason?: string
-    response?: { status?: number }
-  }
-  return (
-    candidate.status === 404 ||
-    candidate.code === 404 ||
-    candidate.code === 'NOT_FOUND' ||
-    candidate.reason === 'NOT_FOUND' ||
-    candidate.response?.status === 404
-  )
-}
-
-function matchesCanonicalModelSlug(item: PublicModelSummary, idOrSlug: string): boolean {
-  if (item.id === idOrSlug || item.model === idOrSlug) return true
-  if (item.provider && `${item.provider}/${item.model}` === idOrSlug) return true
-  return false
-}
-
-async function fetchPublicModelDirect(
-  idOrSlug: string,
-  catalogVersion?: string,
-  requestOptions?: PublicRequestOptions
-): Promise<PublicModelDetail> {
-  const { data } = await apiClient.get(
-    `/api/v2/public/models/${encodeURIComponent(idOrSlug)}`,
-    {
-      params: withoutImplicitTimezone(catalogVersion ? { catalog_version: catalogVersion } : {}),
-      ...(requestOptions?.signal ? { signal: requestOptions.signal } : {})
-    }
-  )
-  return (data?.data ?? data) as PublicModelDetail
-}
-
-export async function listPublicModels(
-  params: ListParams,
-  requestOptions?: PublicRequestOptions
-): Promise<PublicModelPage> {
-  const { data } = await apiClient.get('/api/v2/public/models', {
-    params: withoutImplicitTimezone(arrayParams(params)),
-    paramsSerializer: { indexes: null },
-    ...(requestOptions?.signal ? { signal: requestOptions.signal } : {})
-  })
-  return (data?.data ?? data) as PublicModelPage
-}
-
-export async function getPublicModel(
-  idOrSlug: string,
-  catalogVersion?: string,
-  requestOptions?: PublicRequestOptions
-): Promise<PublicModelDetail> {
-  const target = normalizeModelIdentifier(idOrSlug)
-  try {
-    return await fetchPublicModelDirect(target, catalogVersion, requestOptions)
-  } catch (err) {
-    if (STABLE_MODEL_ID_RE.test(target) || !isNotFoundError(err)) {
-      throw err
-    }
-
-    const primaryPage = await listPublicModels({ q: target, limit: 50 }, requestOptions)
-    let matched = (primaryPage.items ?? []).find((item) =>
-      matchesCanonicalModelSlug(item, target)
-    )
-
-    if (!matched && target.includes('/')) {
-      const slashIndex = target.indexOf('/')
-      const modelTail = target.slice(slashIndex + 1).trim()
-      if (modelTail) {
-        const tailPage = await listPublicModels({ q: modelTail, limit: 50 }, requestOptions)
-        matched = (tailPage.items ?? []).find((item) =>
-          matchesCanonicalModelSlug(item, target)
-        )
-      }
-    }
-
-    if (matched?.id && matched.id !== target) {
-      return fetchPublicModelDirect(matched.id, catalogVersion, requestOptions)
-    }
-    throw err
-  }
-}
-
-export async function comparePublicModels(
-  modelIds: string[],
-  options?: Omit<PublicCompareInput, 'model_ids'>,
-  requestOptions?: PublicRequestOptions
-): Promise<PublicCompareResponse> {
-  const payload: PublicCompareInput = {
-    model_ids: modelIds,
-    ...(options?.protocol ? { protocol: options.protocol } : {}),
-    ...(options?.action ? { action: options.action } : {}),
-    ...(options?.scenario ? { scenario: options.scenario } : {}),
-    ...(options?.price_at ? { price_at: options.price_at } : {})
-  }
-  const { data } = requestOptions?.signal
-    ? await apiClient.post('/api/v2/public/models/compare', payload, {
-        signal: requestOptions.signal
-      })
-    : await apiClient.post('/api/v2/public/models/compare', payload)
-  return (data?.data ?? data) as PublicCompareResponse
-}
-
 export async function getPublicStatus(
-  window?: PublicStatusWindow,
-  requestOptions?: PublicRequestOptions
-): Promise<PublicStatusResponse> {
+  window?: StatusWindow,
+  requestOptions?: CatalogRequestOptions
+): Promise<StatusSummary> {
   const { data } = await apiClient.get('/api/v2/public/status', {
     params: withoutImplicitTimezone(window ? { window } : {}),
     ...(requestOptions?.signal ? { signal: requestOptions.signal } : {})
   })
-  return (data?.data ?? data) as PublicStatusResponse
+  return (data?.data ?? data) as StatusSummary
 }
 
 export async function listPublicIncidents(
@@ -447,8 +74,8 @@ export async function listPublicIncidents(
     cursor?: string
     limit?: number
   },
-  requestOptions?: PublicRequestOptions
-): Promise<PublicIncidentPage> {
+  requestOptions?: CatalogRequestOptions
+): Promise<StatusIncidentPage> {
   const { data } = await apiClient.get('/api/v2/public/status/incidents', {
     params: withoutImplicitTimezone({
       from: params?.from || undefined,
@@ -458,16 +85,16 @@ export async function listPublicIncidents(
     }),
     ...(requestOptions?.signal ? { signal: requestOptions.signal } : {})
   })
-  return (data?.data ?? data) as PublicIncidentPage
+  return (data?.data ?? data) as StatusIncidentPage
 }
 
 export async function getPublicIncident(
   id: string,
-  requestOptions?: PublicRequestOptions
-): Promise<PublicStatusIncident> {
+  requestOptions?: CatalogRequestOptions
+): Promise<StatusIncident> {
   const { data } = await apiClient.get(`/api/v2/public/status/incidents/${encodeURIComponent(id)}`, {
     params: withoutImplicitTimezone(),
     ...(requestOptions?.signal ? { signal: requestOptions.signal } : {})
   })
-  return (data?.data ?? data) as PublicStatusIncident
+  return (data?.data ?? data) as StatusIncident
 }

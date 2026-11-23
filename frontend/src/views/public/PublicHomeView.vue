@@ -9,10 +9,10 @@ import Badge from '@/components/ui/Badge.vue'
 import { useAppStore, useAuthStore } from '@/stores'
 import {
   matchesModalityFilter,
-  resolveAvailabilityState,
   statusStateLabel,
   statusStateTone
 } from '@/features/public/format'
+import { toCatalogModelVM } from '@/features/catalog/viewModel'
 import {
   listPublicModels,
   getPublicStatus,
@@ -130,15 +130,16 @@ onMounted(() => {
           catalogResult.status === 'fulfilled' ? (catalogResult.value.items ?? []) : []
         const liveTextItems =
           liveTextResult.status === 'fulfilled' ? (liveTextResult.value.items ?? []) : []
+        const isLive = (m: PublicModelSummary) => toCatalogModelVM(m).availability.state === 'live'
         const preferredLive =
           liveTextItems.find(
-            (m) => resolveAvailabilityState(m) !== 'catalog_only' && matchesModalityFilter(m, 'text')
+            (m) => isLive(m) && matchesModalityFilter(m, 'text')
           ) ??
           catalogItems.find(
-            (m) => resolveAvailabilityState(m) === 'live' && matchesModalityFilter(m, 'text')
+            (m) => isLive(m) && matchesModalityFilter(m, 'text')
           ) ??
-          liveTextItems.find((m) => resolveAvailabilityState(m) !== 'catalog_only') ??
-          catalogItems.find((m) => resolveAvailabilityState(m) === 'live') ??
+          liveTextItems.find((m) => isLive(m)) ??
+          catalogItems.find((m) => isLive(m)) ??
           catalogItems.find((m) => matchesModalityFilter(m, 'text')) ??
           liveTextItems[0] ??
           catalogItems[0]
