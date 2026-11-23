@@ -654,10 +654,12 @@ describe('user KeysView column settings', () => {
       vi.spyOn(gatewayUrl, 'buildGatewayUrl').mockImplementation((path) => `${prefix}${path}`)
       const wrapper = await mountView()
       const gatewayRoot = new URL(prefix, window.location.origin).href
-      expect(wrapper.get('section code').text()).toBe(`${gatewayRoot}/v1`)
-      await wrapper.get('section button').trigger('click')
+      const endpoints = wrapper.findAll('.oh-endpoint-item')
+      const openaiRow = endpoints.find(row => row.text().includes(englishDashboard.keys.payAsYouGo.openai))!
+      expect(openaiRow.get('code').text()).toBe(`${gatewayRoot}/v1`)
+      await openaiRow.get('button').trigger('click')
       expect(copyToClipboard).toHaveBeenCalledWith(`${gatewayRoot}/v1`, englishDashboard.keys.payAsYouGo.copied)
-      const geminiRow = wrapper.findAll('section dl > div').find(row => row.text().includes(englishDashboard.keys.payAsYouGo.gemini))!
+      const geminiRow = endpoints.find(row => row.text().includes(englishDashboard.keys.payAsYouGo.gemini))!
       expect(geminiRow.get('code').text()).toBe(`${gatewayRoot}/v1beta`)
       await geminiRow.get('button').trigger('click')
       expect(copyToClipboard).toHaveBeenLastCalledWith(`${gatewayRoot}/v1beta`, englishDashboard.keys.payAsYouGo.copied)
