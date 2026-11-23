@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -80,11 +81,32 @@ func (b *PlatformPriceBook) Snapshot(ctx context.Context, at time.Time) context.
 		return ctx
 	}
 	r := b.resolver
-	p := &GatewayRequestPlan{spec: GatewayRequestSpec{PricingAt: at}, channels: r.channelService, billing: freezeBillingPricing(r.billingService, nil)}
+	p := &GatewayRequestPlan{spec: GatewayRequestSpec{PricingAt: at}, channels: r.channelService, billing: freezeBillingPricing(r.billingService, ModelRegistrySnapshotFromContext(ctx))}
 	if p.channels != nil {
 		p.channelSnapshot, p.channelError = p.channels.loadCache(ctx)
 	}
 	return context.WithValue(ctx, gatewayRequestPlanKey{}, p)
+}
+
+// PriceRevision identifies the live inputs for a catalog read fence.
+func (b *PlatformPriceBook) PriceRevision(ctx context.Context) (string, error) {
+	r := b.resolver
+	var generation int64
+	if r.channelService != nil {
+		var err error
+		generation, _, err = catalogEvidenceGeneration(ctx, r.channelService.groupRepo)
+		if err != nil {
+			return "", err
+		}
+	}
+	var source, overrides string
+	if r.billingService != nil && r.billingService.pricingService != nil {
+		prices := r.billingService.pricingService
+		prices.mu.RLock()
+		source, overrides = prices.localHash, prices.customFilesHash
+		prices.mu.RUnlock()
+	}
+	return fmt.Sprintf("%d:%s:%s:%s", generation, source, overrides, ModelRegistrySnapshotFromContext(ctx).Version()), nil
 }
 
 func (b *PlatformPriceBook) Resolve(ctx context.Context, binding pricing.Binding) (pricing.Tariff, error) {

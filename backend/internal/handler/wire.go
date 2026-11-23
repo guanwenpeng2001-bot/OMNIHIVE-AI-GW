@@ -54,6 +54,7 @@ func ProvideAdminHandlers(
 	authService *service.AuthService,
 	egressRuntime *service.ProxyGroupRuntime,
 	stagedImports *service.StagedAccountImportService,
+	workspaceService *service.WorkspaceService,
 ) *AdminHandlers {
 	credentialDrafts, _ := authService.PendingIdentityService()
 	credentialDrafts.SetEgressRuntime(egressRuntime)
@@ -66,6 +67,7 @@ func ProvideAdminHandlers(
 	grokOAuthHandler.SetCredentialDraftService(credentialDrafts)
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	accountHandler.SetOllamaCloudUsageService(ollamaCloudUsage)
+	accountHandler.SetDefaultWorkspaceResolver(workspaceService.DefaultWorkspaceID)
 	return &AdminHandlers{
 		Dashboard:              dashboardHandler,
 		User:                   userHandler,

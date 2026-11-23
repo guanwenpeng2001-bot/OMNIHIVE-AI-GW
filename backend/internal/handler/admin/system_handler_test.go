@@ -53,9 +53,9 @@ func (s *systemHandlerUpdateServiceStub) Rollback() error {
 	return nil
 }
 
-func (s *systemHandlerUpdateServiceStub) ListRollbackVersions(context.Context) ([]service.RollbackVersion, error) {
+func (s *systemHandlerUpdateServiceStub) ListRollbackEligibility(context.Context) (service.RollbackEligibilityReport, error) {
 	s.rollbackVersionsCall++
-	return s.rollbackVersions, s.rollbackVersionsErr
+	return service.RollbackEligibilityReport{DatabaseFloor: "v0.3.0", Versions: s.rollbackVersions}, s.rollbackVersionsErr
 }
 
 func (s *systemHandlerUpdateServiceStub) RollbackToVersion(ctx context.Context, version string) error {

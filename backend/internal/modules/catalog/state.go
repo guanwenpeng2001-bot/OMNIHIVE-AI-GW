@@ -57,6 +57,21 @@ type PricePort interface {
 	Describe(context.Context, PriceInput) (Price, error)
 }
 
+type omitSalePricesKey struct{}
+
+func WithoutSalePrices(ctx context.Context) context.Context {
+	return context.WithValue(ctx, omitSalePricesKey{}, true)
+}
+
+func OmitSalePrices(ctx context.Context) bool {
+	omit, _ := ctx.Value(omitSalePricesKey{}).(bool)
+	return omit
+}
+
+type PriceSnapshotPort interface {
+	Snapshot(context.Context, time.Time) context.Context
+}
+
 type PriceRevisionPort interface {
 	PriceRevision(context.Context) (string, error)
 }

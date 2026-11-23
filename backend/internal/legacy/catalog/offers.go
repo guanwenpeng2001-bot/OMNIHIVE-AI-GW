@@ -2,6 +2,7 @@ package legacy
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
@@ -14,7 +15,7 @@ func (s *Source) modelOffers(ctx context.Context, p catalog.Perspective, model s
 	out := make([]catalog.Offer, 0, len(model.CatalogOffers)+1)
 	for _, raw := range model.CatalogOffers {
 		offer := catalog.Offer{GroupID: group.ID, ChannelID: raw.ChannelID, Access: access,
-			Eligible:    raw.Eligible && (p.Public() || len(raw.Bindings) > 0),
+			Eligible:    raw.Eligible && (p.Public() || len(raw.Bindings) > 0) && (p.KeyID == 0 || len(raw.Bindings) > 0),
 			CatalogOnly: !raw.Eligible, Published: true, PublicationBasis: raw.PublicationBasis, EligibilityUnknown: model.EligibilityUnknown}
 		applicable := offer.Eligible && (p.Public() || offer.Access)
 		port := s.prices
@@ -25,7 +26,20 @@ func (s *Source) modelOffers(ctx context.Context, p catalog.Perspective, model s
 			prices := make(map[catalog.ModelIdentity]catalog.Price)
 			for _, b := range raw.Bindings {
 				entry := offer
-				binding := bindingFor(id, group.ID, raw, b)
+				binding := pricedBinding(bindingFor(id, group.ID, raw, b), group, userRates, p.Public())
+				if p.KeyID > 0 {
+					validator, ok := s.keysForCatalog.(keyCatalogValidator)
+					if !ok || !validator.CatalogKeyAllows(ctx, binding) {
+						continue
+					}
+					endpoint, verified := projectEndpoint(p, id.Provider, b, endpoints[b.AccountID], now)
+					if !verified || !slices.ContainsFunc(endpoint.Capabilities, func(cap catalog.Capability) bool {
+						return cap.Action == binding.Action && cap.Protocol == binding.Protocol && cap.State == "fresh" &&
+							cap.VerifiedAt != nil && !cap.VerifiedAt.After(now) && (cap.ExpiresAt == nil || cap.ExpiresAt.After(now))
+					}) {
+						continue
+					}
+				}
 				if p.Public() {
 					entry.Bindings = []catalog.ModelBinding{binding}
 				} else {
@@ -34,7 +48,7 @@ func (s *Source) modelOffers(ctx context.Context, p catalog.Perspective, model s
 				}
 				cached, found := prices[binding.BillingIdentity]
 				if s.prices != nil || !found {
-					cached = describe(ctx, port, p, id, binding, group, userRates, now, priceErr)
+					cached = describe(ctx, port, p, id, binding, group, now, priceErr)
 					prices[binding.BillingIdentity] = cached
 				}
 				entry.Price = cached
@@ -43,20 +57,20 @@ func (s *Source) modelOffers(ctx context.Context, p catalog.Perspective, model s
 			continue
 		}
 		for _, b := range raw.Bindings {
-			binding := bindingFor(id, group.ID, raw, b)
+			binding := pricedBinding(bindingFor(id, group.ID, raw, b), group, userRates, p.Public())
 			if p.Public() {
 				offer.Bindings = append(offer.Bindings, binding)
 			} else {
 				attachObservations(&offer, p, id, binding, b, endpoints[b.AccountID], now)
 			}
 		}
-		if applicable {
+		if applicable && p.KeyID == 0 {
 			binding := catalog.ModelBinding{ChannelID: raw.ChannelID, OfferGroupID: group.ID,
 				BillingGroupID: group.ID, BillingIdentity: id}
 			if len(offer.Bindings) != 0 {
 				binding = offer.Bindings[0]
 			}
-			offer.Price = describe(ctx, port, p, id, binding, group, userRates, now, priceErr)
+			offer.Price = describe(ctx, port, p, id, pricedBinding(binding, group, userRates, p.Public()), group, now, priceErr)
 		}
 		out = append(out, offer)
 	}
@@ -74,19 +88,39 @@ func (s *Source) modelOffers(ctx context.Context, p catalog.Perspective, model s
 	return out
 }
 
-func describe(ctx context.Context, port catalog.PricePort, p catalog.Perspective, id catalog.ModelIdentity, b catalog.ModelBinding, group service.PlazaGroup, userRates map[int64]float64, now time.Time, priceErr error) catalog.Price {
+func describe(ctx context.Context, port catalog.PricePort, p catalog.Perspective, id catalog.ModelIdentity, b catalog.ModelBinding, group service.PlazaGroup, now time.Time, priceErr error) catalog.Price {
+	if catalog.OmitSalePrices(ctx) {
+		return catalog.Price{}
+	}
 	if priceErr != nil {
 		return catalog.Price{State: "error"}
 	}
-	multiplier := group.RateMultiplier
-	if personal, ok := userRates[group.ID]; ok && !p.Public() {
-		multiplier = personal
+	in := catalog.PriceInput{Perspective: p, Identity: id, Binding: b, GroupID: group.ID, Multiplier: b.RateMultiplier, At: now}
+	var price catalog.Price
+	var err error
+	if scoped, ok := port.(interface {
+		DescribeForGroup(context.Context, catalog.PriceInput, *service.Group) (catalog.Price, error)
+	}); ok && group.PricingGroup() != nil {
+		price, err = scoped.DescribeForGroup(ctx, in, group.PricingGroup())
+	} else {
+		price, err = port.Describe(ctx, in)
 	}
-	price, err := port.Describe(ctx, catalog.PriceInput{Perspective: p, Identity: id, Binding: b, GroupID: group.ID, Multiplier: multiplier, At: now})
 	if err != nil {
 		return catalog.Price{State: "error"}
 	}
 	return price
+}
+
+func pricedBinding(binding catalog.ModelBinding, group service.PlazaGroup, userRates map[int64]float64, public bool) catalog.ModelBinding {
+	binding.RateMultiplier = group.RateMultiplier
+	if personal, ok := userRates[group.ID]; ok && !public {
+		binding.RateMultiplier = personal
+	}
+	binding.Funding = "wallet"
+	if group.SubscriptionType == service.SubscriptionTypeSubscription {
+		binding.Funding = "subscription"
+	}
+	return binding
 }
 
 func bindingFor(id catalog.ModelIdentity, groupID int64, offer service.PlazaCatalogOffer, b service.PlazaCatalogBinding) catalog.ModelBinding {

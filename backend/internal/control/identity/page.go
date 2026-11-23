@@ -100,11 +100,11 @@ func (h *Handler) keys(r request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := h.store.Keys(r.Request.Context(), r.actor, r.w, r.p, p)
+	rows, err := h.store.ListProjectKeys(r.Request.Context(), r.actor, r.w, r.p, p)
 	if err != nil {
 		return nil, err
 	}
-	return pageResult(h, r, "keys", p, rows, func(x domain.Key) int64 { return x.ID }), nil
+	return pageResult(h, r, "keys", p, rows, func(x domain.ProjectKeyRow) int64 { return x.ID }), nil
 }
 
 func (h *Handler) members(r request) (any, error) {

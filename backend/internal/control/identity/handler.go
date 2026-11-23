@@ -31,12 +31,12 @@ type Backend interface {
 	Project(context.Context, int64, int64, int64) (domain.Project, error)
 	KeyGroups(context.Context, int64, int64, int64, domain.Page) ([]domain.KeyGroup, error)
 	SetGroupProject(context.Context, int64, int64, int64, int64, bool, string) (int64, error)
-	Keys(context.Context, int64, int64, int64, domain.Page) ([]domain.Key, error)
+	ListProjectKeys(context.Context, int64, int64, int64, domain.Page) ([]domain.ProjectKeyRow, error)
 	Members(context.Context, int64, int64, domain.Page) ([]domain.Member, error)
 	MemberGrants(context.Context, int64, int64, int64) (domain.MemberGrants, error)
 	CreateProject(context.Context, int64, int64, string, string) (domain.Project, error)
 	ChangeProject(context.Context, int64, int64, int64, int64, string, bool) (domain.Project, error)
-	CreateKey(context.Context, int64, int64, int64, domain.CreateKey, string) (domain.Key, error)
+	CreateKey(context.Context, int64, int64, int64, domain.CreateKey, string) (domain.ProjectKeyRow, error)
 	SetGrants(context.Context, int64, int64, int64, int64, []int64, []string) (domain.GrantVersion, error)
 }
 
@@ -92,7 +92,11 @@ func route(status int, fn endpoint) gin.HandlerFunc {
 			fail(c, err)
 			return
 		}
-		c.JSON(status, gin.H{"code": 0, "message": "success", "data": data})
+		code := status
+		if key, ok := data.(domain.ProjectKeyRow); ok && key.Credential == nil {
+			code = http.StatusOK
+		}
+		c.JSON(code, gin.H{"code": 0, "message": "success", "data": data})
 	}
 }
 

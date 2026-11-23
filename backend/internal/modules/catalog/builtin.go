@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	modelcapabilities "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/resources/model-capabilities"
 	modelpricing "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/resources/model-pricing"
@@ -172,46 +172,16 @@ func SupplementalMethods(provider, model string) []string {
 	return nil
 }
 
-type piTokenRates struct {
-	Provider string      `json:"litellm_provider"`
-	Input    json.Number `json:"input_cost_per_token"`
-	Output   json.Number `json:"output_cost_per_token"`
-}
-
-type piPriceIndex struct {
-	prices  map[ModelIdentity]piTokenRates
-	version string
-}
-
-var piTokenPrices = sync.OnceValue(func() piPriceIndex {
-	var raw map[string]piTokenRates
-	artifact := modelpricing.PiSupplementJSON()
-	if err := json.Unmarshal(artifact, &raw); err != nil {
-		panic(err)
-	}
-	prices := make(map[ModelIdentity]piTokenRates)
-	for key, rate := range raw {
-		provider, model, ok := strings.Cut(key, "/")
-		if ok && provider == rate.Provider {
-			prices[NewModelIdentity(provider, model)] = rate
-		}
-	}
-	hash := sha256.Sum256(artifact)
-	return piPriceIndex{prices: prices, version: hex.EncodeToString(hash[:])}
+var piReferenceDigest = sync.OnceValue(func() string {
+	hash := sha256.Sum256(modelpricing.PiSupplementJSON())
+	return "sha256:" + hex.EncodeToString(hash[:])
 })
 
 func piReferencePrice(provider, model string) *Price {
-	rates, ok := piTokenPrices().prices[NewModelIdentity(provider, model)]
-	if !ok {
+	id := NewModelIdentity(provider, model)
+	ref := pricing.LookupReferencePrice(id.Provider, id.Model)
+	if ref == nil {
 		return nil
 	}
-	in, err := money.NewRate("USD", rates.Input.String(), "input_token", "1")
-	if err != nil {
-		return nil
-	}
-	out, err := money.NewRate("USD", rates.Output.String(), "output_token", "1")
-	if err != nil {
-		return nil
-	}
-	return &Price{State: "reference", Source: "pi-ai", Input: &in, Output: &out}
+	return &Price{State: "reference", Source: ref.Source, Input: ref.Input, Output: ref.Output}
 }

@@ -37,6 +37,11 @@ type KeyCatalogPort interface {
 	AuthorizeCatalogKey(context.Context, catalog.Perspective) (context.Context, int64, error)
 }
 
+type keyCatalogValidator interface {
+	CatalogKeyAllows(context.Context, catalog.ModelBinding) bool
+	ValidateCatalogKey(context.Context) error
+}
+
 func NewSourceWithPorts(store *postgres.Store, plaza *service.ModelPlazaService, settings *service.SettingService, keys *service.APIKeyService, ops *service.OpsService, prices catalog.PricePort, keyCatalog KeyCatalogPort) *Source {
 	return &Source{store: store, plaza: plaza, settings: settings, keys: keys, ops: ops, prices: prices, keysForCatalog: keyCatalog}
 }
@@ -67,11 +72,11 @@ func (s *Source) scopedGroups(ctx context.Context, p catalog.Perspective, resour
 	if keyGroup > 0 && !selection.Groups[keyGroup] {
 		return nil, nil, fault.NotFound
 	}
-	allowed, restrict, err := s.keys.GetUserGroupVisibility(ctx, p.Actor)
+	allowed, restrict, err := s.keys.GetUserGroupVisibility(ctx, catalogPayer(ctx, p))
 	if err != nil {
 		return nil, nil, err
 	}
-	bindable, err := s.keys.GetAvailableGroups(ctx, p.Actor)
+	bindable, err := s.keys.GetAvailableGroups(ctx, catalogPayer(ctx, p))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -134,10 +139,6 @@ func (s *Source) load(ctx context.Context, p catalog.Perspective, window catalog
 		}
 	}
 	fallbackRevision := s.plaza.CatalogPriceRevision()
-	ctx, err = s.plaza.FreezeCatalogRead(ctx)
-	if err != nil {
-		return catalog.Input{}, err
-	}
 	priceRevision := fallbackRevision
 	priceFence, hasPriceFence := s.prices.(catalog.PriceRevisionPort)
 	if hasPriceFence {
@@ -145,6 +146,13 @@ func (s *Source) load(ctx context.Context, p catalog.Perspective, window catalog
 		if err != nil {
 			return catalog.Input{}, err
 		}
+	}
+	if prices, ok := s.prices.(catalog.PriceSnapshotPort); ok {
+		ctx = prices.Snapshot(ctx, now)
+	}
+	ctx, err = s.plaza.FreezeCatalogRead(ctx)
+	if err != nil {
+		return catalog.Input{}, err
 	}
 	var groups []service.PlazaGroup
 	var resources []postgres.Resource
@@ -170,11 +178,11 @@ func (s *Source) load(ctx context.Context, p catalog.Perspective, window catalog
 			models, err = s.plaza.AdminCatalogInventory(ctx, accounts, registry)
 			groups = append(groups, service.PlazaGroup{Models: models})
 		}
-		if err == nil && p.EndpointMetadata {
+		if err == nil && (p.EndpointMetadata || keyGroup > 0) {
 			endpoints, err = s.store.EndpointEvidence(ctx, p, endpointAccounts(groups))
 		}
 		if err == nil && !admin {
-			userRates, priceErr = s.keys.GetUserGroupRates(ctx, p.Actor)
+			userRates, priceErr = s.keys.GetUserGroupRates(ctx, catalogPayer(ctx, p))
 		}
 	}
 	if err != nil {
@@ -257,6 +265,13 @@ func (s *Source) load(ctx context.Context, p catalog.Perspective, window catalog
 			return catalog.Input{}, service.ErrVisibleModelRevisionChanged
 		}
 	}
+	if keyGroup > 0 {
+		if validator, ok := s.keysForCatalog.(keyCatalogValidator); ok {
+			if err := validator.ValidateCatalogKey(ctx); err != nil {
+				return catalog.Input{}, err
+			}
+		}
+	}
 	if fallbackRevision != s.plaza.CatalogPriceRevision() {
 		return catalog.Input{}, service.ErrVisibleModelRevisionChanged
 	}
@@ -265,6 +280,13 @@ func (s *Source) load(ctx context.Context, p catalog.Perspective, window catalog
 	}
 	return out, nil
 }
+func catalogPayer(ctx context.Context, p catalog.Perspective) int64 {
+	if a, ok := scope.From(ctx); ok && a.FundingUserID > 0 {
+		return a.FundingUserID
+	}
+	return p.Actor
+}
+
 func verifiedExtensionActions(c catalog.Capability, labels []string) []string {
 	if c.State != "fresh" || c.VerifiedAt == nil {
 		return nil

@@ -225,7 +225,7 @@ func (g *Gateway) selectedCatalog(ctx context.Context, a identity.Access, key se
 	if g.Catalog == nil {
 		return result, pg.Unavailable
 	}
-	snap, err := g.Catalog.Snapshot(ctx, catalog.Perspective{
+	snap, err := g.Catalog.Snapshot(catalog.WithoutSalePrices(ctx), catalog.Perspective{
 		Actor: key.scope.FundingUserID, Workspace: a.WorkspaceID, Project: a.ProjectID,
 		AccessVersion: a.Version, EndpointMetadata: true,
 	}, asOf)
@@ -306,34 +306,106 @@ func (g *Gateway) checkRunModel(ctx context.Context, a identity.Access, in pg.Su
 	return key, models, model, err
 }
 
+type catalogKeyContextKey struct{}
+
+type catalogKeySelection struct {
+	access identity.Access
+	key selectedKey
+	accounts map[int64]struct{}
+}
+
+// AuthorizeCatalogKey reuses the same live credential, group and model
+// policy as Playground. Catalog acquisition receives the actual payer.
+func (g *Gateway) AuthorizeCatalogKey(ctx context.Context, p catalog.Perspective) (context.Context, int64, error) {
+	a, key, err := g.catalogKey(ctx, p, p.KeyID, 0)
+	if err != nil {
+		return ctx, 0, err
+	}
+	group := key.key.Group.ID
+	endpoints, err := g.eligibleAccounts(key.ctx, a, group)
+	if err != nil {
+		return ctx, 0, err
+	}
+	accounts := make(map[int64]struct{}, len(endpoints))
+	for _, account := range endpoints {
+		accounts[account] = struct{}{}
+	}
+	selection := catalogKeySelection{access: a, key: key, accounts: accounts}
+	return context.WithValue(key.ctx, catalogKeyContextKey{}, selection), group, nil
+}
+
+func (g *Gateway) CatalogKeyAllows(ctx context.Context, binding catalog.ModelBinding) bool {
+	selection, ok := ctx.Value(catalogKeyContextKey{}).(catalogKeySelection)
+	if !ok || binding.BillingGroupID != selection.key.key.Group.ID ||
+		!slices.Contains(selection.key.actions, binding.Action) {
+		return false
+	}
+	if _, ok := selection.accounts[binding.AccountID]; !ok {
+		return false
+	}
+	// A bare name cannot identify a provider inside a composite group.
+	// An exclusion by bare name still vetoes the binding.
+	id := binding.Identity
+	matches := func(entry string) bool {
+		return entry == id.ID() || selection.key.key.Group.Platform != service.PlatformComposite && entry == id.Model
+	}
+	excludes := func(entry string) bool { return entry == id.ID() || entry == id.Model }
+	return selection.key.models.AllowsKeyModel(id.Model, matches, excludes) &&
+		selection.key.models.AllowsCatalogAccountModel(binding.AccountID, matches, excludes)
+}
+
+func (g *Gateway) ValidateCatalogKey(ctx context.Context) error {
+	selection, ok := ctx.Value(catalogKeyContextKey{}).(catalogKeySelection)
+	if !ok {
+		return pg.Unavailable
+	}
+	return g.verifySelectionRevision(ctx, selection.access, selection.key)
+}
+
 // AuthorizeSelectedModel is the read-only port for selected-key quotes and
 // comparisons. Price lookup uses the returned payer and canonical model.
 func (g *Gateway) AuthorizeSelectedModel(ctx context.Context, p catalog.Perspective, keyID, payer int64, model, action, protocol string, asOf time.Time) (scope.Authorized, catalog.Detail, error) {
+	a, key, err := g.catalogKey(ctx, p, keyID, payer)
+	if err != nil {
+		return scope.Authorized{}, catalog.Detail{}, err
+	}
+	models, detail, err := g.checkSelectedModel(ctx, a, key, model, modelPair{action, protocol}, asOf, false)
+	if err != nil {
+		return scope.Authorized{}, catalog.Detail{}, err
+	}
+	accounts := make(map[int64]bool, len(detail.Endpoints))
+	for _, ep := range detail.Endpoints {
+		accounts[models.accounts[ep.ID]] = true
+	}
+	detail.Offers = slices.Clone(detail.Offers)
+	for i := range detail.Offers {
+		offer := &detail.Offers[i]
+		offer.Bindings = slices.DeleteFunc(slices.Clone(offer.Bindings), func(b catalog.ModelBinding) bool {
+			return !accounts[b.AccountID] || b.BillingGroupID != key.key.Group.ID
+		})
+	}
+	return key.scope, detail, nil
+}
+
+func (g *Gateway) catalogKey(ctx context.Context, p catalog.Perspective, keyID, payer int64) (identity.Access, selectedKey, error) {
 	if p.Public() || keyID <= 0 {
-		return scope.Authorized{}, catalog.Detail{}, fault.NotFound
+		return identity.Access{}, selectedKey{}, fault.NotFound
 	}
 	if g == nil || g.Access == nil {
-		return scope.Authorized{}, catalog.Detail{}, pg.Unavailable
+		return identity.Access{}, selectedKey{}, pg.Unavailable
 	}
 	a, err := g.Access.Evaluate(ctx, p.Actor, p.Workspace, p.Project, "models.read")
 	if err != nil {
-		return scope.Authorized{}, catalog.Detail{}, err
+		return a, selectedKey{}, err
 	}
 	if a.Version != p.AccessVersion {
-		return scope.Authorized{}, catalog.Detail{}, selectionChanged
+		return a, selectedKey{}, selectionChanged
 	}
 	if err := a.Require("keys.read"); err != nil {
-		return scope.Authorized{}, catalog.Detail{}, err
+		return a, selectedKey{}, err
 	}
 	key, err := g.checkSelectedKey(ctx, a, keyID, payer, false)
-	if err != nil {
-		return scope.Authorized{}, catalog.Detail{}, err
-	}
-	_, detail, err := g.checkSelectedModel(ctx, a, key, model, modelPair{action, protocol}, asOf, false)
-	if err != nil {
-		return scope.Authorized{}, catalog.Detail{}, err
-	}
-	return key.scope, detail, nil
+	return a, key, err
 }
 
 func (g *Gateway) checkSelectedModel(ctx context.Context, a identity.Access, key selectedKey, modelID string, pair modelPair, asOf time.Time, playground bool) (groupCatalog, catalog.Detail, error) {

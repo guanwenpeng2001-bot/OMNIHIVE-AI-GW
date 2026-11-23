@@ -141,6 +141,9 @@ func newProvisioningFixture(t *testing.T) *provisioningFixture {
 	t.Cleanup(f.audit.Stop)
 	adminAuth := middleware.NewAdminAuthMiddleware(f.auth, service.NewUserService(f.users, nil, nil, nil), settings, f.audit)
 	handlers := &handler.Handlers{Admin: &handler.AdminHandlers{APIKey: admin.NewAdminAPIKeyHandler(nil, keyService)}}
+	f.router.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(domain.WithDefaultWorkspaceID(c.Request.Context(), 1))
+	})
 	RegisterAdminRoutes(f.router.Group("/api/v1"), handlers, adminAuth, middleware.NewAuditLogMiddleware(f.audit),
 		middleware.StepUpAuthMiddleware(func(c *gin.Context) { c.Next() }), settings, nil)
 	// Use the actual gateway authentication and billing gates on a harmless local

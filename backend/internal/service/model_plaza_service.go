@@ -71,6 +71,9 @@ type PlazaGroup struct {
 	catalogGroup              *Group
 }
 
+// PricingGroup returns the hydrated group from this catalog read.
+func (g PlazaGroup) PricingGroup() *Group { return g.catalogGroup }
+
 // ModelPlazaService 聚合模型广场数据。
 //
 // 模型枚举来自渠道配置；token 模型的展示单价与阶梯由 BillingService 的阶梯表

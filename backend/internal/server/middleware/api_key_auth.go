@@ -189,8 +189,12 @@ func authenticateKey(c *gin.Context, secret string, keys *service.APIKeyService,
 	}
 	SetOpsFallbackAPIKey(c, key)
 	w := key.WorkspaceID
-	if w == 0 {
-		w = domain.DefaultWorkspaceID
+	if w <= 0 {
+		w = domain.ResolvedDefaultWorkspaceID(ctx)
+		if w <= 0 {
+			abort(503, "SCOPE_UNAVAILABLE", "Access policy unavailable")
+			return
+		}
 	}
 	ctx = domain.WithWorkspaceScope(ctx, w)
 	if scopes != nil {

@@ -18,6 +18,8 @@ import (
 	audithttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/audit"
 	billinghttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/billing"
 	byokhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/byok"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/compare"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/quotes"
 	modelshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
 	verificationhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/verification"
 	connectionshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
@@ -35,7 +37,10 @@ import (
 	legacyrestore "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/restore"
 	auditstore "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/audit"
 	byokdomain "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/byok"
+	legacycatalog "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
+	catalogpg "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog/postgres"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
 	verificationdomain "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog/verification"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/connections"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
@@ -86,6 +91,10 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 		identityhttp.ProviderSet,
 		connectionshttp.ProviderSet,
 		modelshttp.ProviderSet,
+		catalogSourceProvider,
+		modelsHandlerProvider,
+		service.NewPlatformPriceBook,
+		playgroundGatewayProvider,
 		catalogVerificationStoreProvider,
 		catalogVerificationHandlerProvider,
 		restorehttp.ProviderSet,
@@ -132,7 +141,40 @@ func requestsHandlerProvider(db *sql.DB, store *identitypostgres.Store, cfg *con
 	return handler.ProvideRequestsHandler(db, store, cfg)
 }
 
-func playgroundHandlerProvider(
+func catalogSourceProvider(
+	db *sql.DB,
+	store *catalogpg.Store,
+	plaza *service.ModelPlazaService,
+	settings *service.SettingService,
+	keys *service.APIKeyService,
+	ops *service.OpsService,
+	book *service.PlatformPriceBook,
+	access identity.AccessEvaluator,
+	scopes identity.GatewayScopes,
+) *legacycatalog.Source {
+	keyCatalog := &playgroundhttp.Gateway{DB: db, Access: access, Scopes: scopes, Keys: keys}
+	return legacycatalog.NewSourceWithPorts(store, plaza, settings, keys, ops, legacycatalog.PriceBookPort{PlatformPriceBook: book}, keyCatalog)
+}
+
+func modelsHandlerProvider(
+	db *sql.DB,
+	reader catalog.CatalogReader,
+	access identity.AccessEvaluator,
+	settings *service.SettingService,
+	book *service.PlatformPriceBook,
+	gateway *playgroundhttp.Gateway,
+	cfg *config.Config,
+) *modelshttp.Handler {
+	h := modelshttp.New(reader, access, cfg)
+	h.SetPlazaSettings(settings)
+	authorized := modelshttp.SalePriceBindings{Catalog: reader, Selected: gateway}
+	versions := pricing.VersionStore{DB: db}
+	h.SetQuoteService(quotes.Service{Catalog: reader, Book: book, Bindings: authorized, Published: versions, Selected: gateway})
+	h.SetComparePricePort(modelshttp.ComparePrices{Service: compare.Service{Catalog: reader, Book: book, Bindings: authorized, Published: versions}})
+	return h
+}
+
+func playgroundGatewayProvider(
 	db *sql.DB,
 	access identity.AccessEvaluator,
 	scopes identity.GatewayScopes,
@@ -143,18 +185,21 @@ func playgroundHandlerProvider(
 	gateway *service.GatewayService,
 	handlers *handler.Handlers,
 	composite *service.CompositeRouteResolver,
-	cfg *config.Config,
-) *playgroundhttp.Handler {
+) *playgroundhttp.Gateway {
 	dispatch := service.NewGatewayActionDispatch(routes.GatewayActionHandlers(handlers))
 	common := []gin.HandlerFunc{middleware.GatewayProtocol(), handler.InboundEndpointMiddleware()}
 	if handlers.MCP != nil {
 		common = append(common, handlers.MCP.GatewayExtensionMiddleware())
 	}
 	native := playgroundhttp.NativeRoutes(dispatch, composite, handlers.Gateway.ActionRequirement, common...)
-	return playgroundhttp.New(&playgroundhttp.Gateway{
+	return &playgroundhttp.Gateway{
 		DB: db, Access: access, Scopes: scopes, Keys: keys, Subscriptions: subscriptions,
 		Catalog: catalogReader, Policies: policies, Plans: gateway, Routes: native,
-	}, cfg.TrustForwardedIPForAPIKeyACL())
+	}
+}
+
+func playgroundHandlerProvider(gateway *playgroundhttp.Gateway, cfg *config.Config) *playgroundhttp.Handler {
+	return playgroundhttp.New(gateway, cfg.TrustForwardedIPForAPIKeyACL(), []byte(cfg.JWT.Secret))
 }
 
 func observabilityStoreProvider(supervisor *process.Supervisor, cfg *config.Config) (*exportstore.Store, error) {

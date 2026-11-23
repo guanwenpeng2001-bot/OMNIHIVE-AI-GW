@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
 )
@@ -18,6 +19,12 @@ type PublishedVersions interface {
 // BindingReader returns the authorized current offers for an action. Public
 // calls expose publishable offers only. A selected Key must be evaluated for
 // scope, expiry, action, model and billing-group access before returning a binding.
+// DetailBindingReader projects bindings from a detail already acquired and
+// authorized by the request. It avoids repeating the catalog read.
+type DetailBindingReader interface {
+	PriceBindingsForDetail(catalog.Perspective, catalog.Detail, string, string) []pricing.Binding
+}
+
 type BindingReader interface {
 	PriceBindings(context.Context, catalog.Perspective, string, int64, string, string, time.Time) ([]pricing.Binding, error)
 }
@@ -46,22 +53,32 @@ func (s Service) EstimateFor(ctx context.Context, p catalog.Perspective, d catal
 		return pricing.Unavailable(pricing.Missing), nil
 	}
 	if at.Before(asOf) {
-		return s.historicalEstimate(ctx, p, d.Model.ID, scenario.Usage, at)
+		return s.EstimateHistorical(ctx, p, d.Model.ID, scenario.Usage, at)
 	}
 	bindings := s.bindingReader()
-	if bindings == nil || d.Model.RouteState != "eligible" {
+	if bindings == nil || (!p.Public() && d.Model.RouteState != "eligible") {
 		if key != 0 {
 			return pricing.Result{}, fault.NotFound
 		}
 		return pricing.Unavailable(pricing.Missing), nil
 	}
-	authorized, err := bindings.PriceBindings(ctx, p, d.Model.ID, key, protocol, action, at)
-	if err != nil {
-		return pricing.Result{}, err
+	var authorized []pricing.Binding
+	if detailReader, ok := bindings.(DetailBindingReader); ok {
+		authorized = detailReader.PriceBindingsForDetail(p, d, protocol, action)
+	} else {
+		var err error
+		authorized, err = bindings.PriceBindings(ctx, p, d.Model.ID, key, protocol, action, at)
+		if err != nil {
+			return pricing.Result{}, err
+		}
 	}
 	if key != 0 && len(authorized) == 0 {
 		return pricing.Result{}, fault.NotFound
 	}
+	return s.EstimateLive(domain.WithWorkspaceScope(ctx, p.Workspace), authorized, scenario, at)
+}
+
+func (s Service) EstimateLive(ctx context.Context, authorized []pricing.Binding, scenario pricing.Scenario, at time.Time) (pricing.Result, error) {
 	if s.Book == nil {
 		return pricing.Unavailable(pricing.Missing), nil
 	}
@@ -110,7 +127,7 @@ func (s Service) EstimateFor(ctx context.Context, p catalog.Perspective, d catal
 	return chosen.Evaluate(scenario)
 }
 
-func (s Service) historicalEstimate(ctx context.Context, p catalog.Perspective, modelID string, usage pricing.Usage, at time.Time) (pricing.Result, error) {
+func (s Service) EstimateHistorical(ctx context.Context, p catalog.Perspective, modelID string, usage pricing.Usage, at time.Time) (pricing.Result, error) {
 	if s.Published == nil {
 		return pricing.Unavailable(pricing.Missing), nil
 	}

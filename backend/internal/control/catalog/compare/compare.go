@@ -40,6 +40,14 @@ type Service struct {
 	Bindings  quotes.BindingReader
 }
 
+func (s Service) EstimateLive(ctx context.Context, bindings []pricing.Binding, scenario pricing.Scenario, at time.Time) (pricing.Result, error) {
+	return (quotes.Service{Book: s.Book}).EstimateLive(ctx, bindings, scenario, at)
+}
+
+func (s Service) EstimateHistorical(ctx context.Context, p catalog.Perspective, model string, scenario pricing.Scenario, at time.Time) (pricing.Result, error) {
+	return (quotes.Service{Published: s.Published}).EstimateHistorical(ctx, p, model, scenario.Usage, at)
+}
+
 func (s Service) Compare(ctx context.Context, p catalog.Perspective, in Input) (Result, error) {
 	if len(in.IDs) < 1 || len(in.IDs) > 3 {
 		return Result{}, fault.Invalid("/model_ids")

@@ -5,12 +5,14 @@ import (
 	"encoding/hex"
 	"math/big"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
 )
@@ -146,12 +148,6 @@ func Matches(c catalog.Capability, action, protocol string) bool {
 	return c.State != "stale" && (action == "" || c.Action == action) && (protocol == "" || c.Protocol == protocol)
 }
 
-// Reference is retained for the legacy handler constructor during integration.
-// Catalog presentation data cannot be converted into an executable tariff.
-func Reference(_ catalog.Detail, _ time.Time) (pricing.Version, error) {
-	return pricing.Version{}, nil
-}
-
 type Input struct {
 	ModelID  string    `json:"model_id"`
 	APIKeyID *string   `json:"api_key_id,omitempty"`
@@ -160,15 +156,13 @@ type Input struct {
 	Scenario *Scenario `json:"scenario"`
 }
 
-// KeyPrices remains for the legacy handler constructor during integration.
-// Current Key quotes use BindingReader.
-type KeyPrices interface {
-	ResolveKeyPrice(context.Context, catalog.Perspective, int64, catalog.Detail, string, string, pricing.Usage, time.Time) (pricing.Version, error)
+type SelectedModelAuthorizer interface {
+	AuthorizeSelectedModel(context.Context, catalog.Perspective, int64, int64, string, string, string, time.Time) (scope.Authorized, catalog.Detail, error)
 }
 
 type Service struct {
 	Catalog   catalog.CatalogReader
-	Keys      KeyPrices
+	Selected  SelectedModelAuthorizer
 	Published PublishedVersions
 	Book      pricing.PriceBook
 	Bindings  BindingReader
@@ -205,6 +199,17 @@ func (s Service) Quote(ctx context.Context, p catalog.Perspective, in Input) (Qu
 		if err != nil || key <= 0 || strconv.FormatInt(key, 10) != *in.APIKeyID {
 			return Quote{}, fault.Invalid("/api_key_id")
 		}
+		if s.Selected != nil {
+			at := time.Now().UTC()
+			authorized, detail, err := s.Selected.AuthorizeSelectedModel(ctx, p, key, 0, in.ModelID, in.Action, in.Protocol, at)
+			if err != nil {
+				return Quote{}, err
+			}
+			payer := p
+			payer.Actor, payer.KeyID = authorized.FundingUserID, key
+			cost, err := s.EstimateFor(ctx, payer, detail, key, in.Protocol, in.Action, in.Scenario.PriceScenario(usage), at, at)
+			return Quote{Result: cost, Scope: effectiveScope(p)}, err
+		}
 		if s.bindingReader() == nil {
 			return Quote{}, fault.NotFound
 		}
@@ -217,14 +222,17 @@ func (s Service) Quote(ctx context.Context, p catalog.Perspective, in Input) (Qu
 		if d.Model.ID != in.ModelID || d.Model.AccessState != "allowed" {
 			continue
 		}
-		for _, capability := range d.Capabilities {
-			if !Matches(capability, in.Action, in.Protocol) {
-				continue
-			}
-			scope := &catalog.EffectiveScope{Workspace: p.Workspace, Project: p.Project, Version: p.AccessVersion}
-			cost, err := s.EstimateFor(ctx, p, d, key, in.Protocol, in.Action, in.Scenario.PriceScenario(usage), snap.AsOf, snap.AsOf)
-			return Quote{Result: cost, Scope: scope}, err
+		if len(d.EligibleBindings(p, in.Action, in.Protocol)) == 0 && !slices.ContainsFunc(d.Capabilities, func(capability catalog.Capability) bool {
+			return Matches(capability, in.Action, in.Protocol)
+		}) {
+			continue
 		}
+		cost, err := s.EstimateFor(ctx, p, d, key, in.Protocol, in.Action, in.Scenario.PriceScenario(usage), snap.AsOf, snap.AsOf)
+		return Quote{Result: cost, Scope: effectiveScope(p)}, err
 	}
 	return Quote{}, fault.NotFound
+}
+
+func effectiveScope(p catalog.Perspective) *catalog.EffectiveScope {
+	return &catalog.EffectiveScope{Workspace: p.Workspace, Project: p.Project, Version: p.AccessVersion}
 }

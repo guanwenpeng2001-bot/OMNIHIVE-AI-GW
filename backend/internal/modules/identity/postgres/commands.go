@@ -147,8 +147,8 @@ func normalized(values []string, field string) ([]string, error) {
 	return slices.Compact(out), nil
 }
 
-func (s *Store) CreateKey(ctx context.Context, actor, w, p int64, in identity.CreateKey, token string) (identity.Key, error) {
-	var out identity.Key
+func (s *Store) CreateKey(ctx context.Context, actor, w, p int64, in identity.CreateKey, token string) (identity.ProjectKeyRow, error) {
+	var out identity.ProjectKeyRow
 	var err error
 	in.Name, err = nameValue(in.Name)
 	if err != nil {
@@ -196,7 +196,7 @@ func (s *Store) CreateKey(ctx context.Context, actor, w, p int64, in identity.Cr
 			return fault.Invalid("/actions")
 		}
 		var err error
-		out, err = createOnce(ctx, tx, a, "POST keys", token, in, func() (identity.Key, error) {
+		out, err = createProjectKeyOnce(ctx, tx, a, token, in, func() (identity.Key, error) {
 			k := identity.Key{Name: in.Name, OwnerID: actor, Version: 1, Prefix: identity.ProjectKeyPrefix}
 			if in.ExpiresAt != nil && !in.ExpiresAt.After(time.Now()) {
 				return k, fault.Invalid("/expires_at")
@@ -236,7 +236,7 @@ func (s *Store) CreateKey(ctx context.Context, actor, w, p int64, in identity.Cr
 		return err
 	})
 	if err != nil {
-		return identity.Key{}, err
+		return identity.ProjectKeyRow{}, err
 	}
 	out.Credential = issued
 	return out, nil

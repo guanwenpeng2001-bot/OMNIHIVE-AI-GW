@@ -8,7 +8,6 @@ import (
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 )
 
 type Project struct {
@@ -74,28 +73,7 @@ type KeyPolicy struct {
 }
 
 func (p *KeyPolicy) Allows(action string, models []string) bool {
-	if !slices.Contains(p.Actions, action) {
-		return false
-	}
-	if action == "models.read" || action == "usage.read" || action == "tasks.read" {
-		return true
-	}
-	switch p.Mode {
-	case "inherit":
-		return true
-	case "allow_list":
-		if len(models) == 0 {
-			return false
-		}
-		for _, m := range models {
-			if !slices.Contains(p.Models, m) && (p.Platform == "" || !slices.Contains(p.Models, catalog.StableID(p.Platform, m))) {
-				return false
-			}
-		}
-		return true
-	default:
-		return false
-	}
+	return AllowsIssuedKeyModel(p, action, models)
 }
 
 const ProjectKeyPrefix = "oh_p_"

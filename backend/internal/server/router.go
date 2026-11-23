@@ -107,6 +107,9 @@ func SetupRouter(
 	// match a route group (for example a Base URL mistaken for a full endpoint).
 	r.Use(middleware2.GatewayUnknownRouteProtocol())
 	// Gin captures middleware when routes are registered.
+	if handlers.Workspace != nil {
+		r.Use(middleware2.DefaultWorkspaceResolution(handlers.Workspace.Service))
+	}
 	r.Use(middleware2.InstallProjectScopes(gatewayScopes, cfg))
 	r.Use(handler.InstallExecutionJournal(db, gatewayScopes))
 

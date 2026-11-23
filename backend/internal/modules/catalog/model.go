@@ -167,6 +167,8 @@ type ModelBinding struct {
 	ChannelID, OfferGroupID, BillingGroupID            int64
 	BillingIdentity                                    ModelIdentity
 	BillingModelSource                                 string
+	RateMultiplier                                     float64
+	Funding                                            string
 	Eligible                                           bool
 	DiscoveryState                                     string
 	ObservedAt                                         *time.Time

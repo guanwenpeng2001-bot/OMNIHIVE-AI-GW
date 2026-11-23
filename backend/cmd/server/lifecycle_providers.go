@@ -9,6 +9,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/journal"
 	process "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/runtime"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/redis/go-redis/v9"
 )
@@ -217,9 +218,17 @@ func provideBackupService(s *process.Supervisor, settingRepo service.SettingRepo
 	storeFactory service.BackupObjectStoreFactory,
 	dumper service.DBDumper,
 	lockCache service.LeaderLockCache,
-	db *sql.DB) *service.BackupService {
+	db *sql.DB, ops *service.OpsService) *service.BackupService {
 	svc := service.NewBackupService(settingRepo, cfg, encryptor, storeFactory, dumper)
 	svc.SetLeaderLock(lockCache, db)
+	svc.SetSecretPayloadRepository(repository.NewBackupSecretPayloadRepository(db))
+	svc.SetSchedulerAlertSink(func(ctx context.Context, runtime service.BackupSchedulerRuntime) {
+		_ = ops.RecordError(ctx, &service.OpsInsertErrorLogInput{
+			ErrorPhase: "internal", ErrorType: "backup_scheduler", ErrorSource: "backup",
+			ErrorOwner: "system", StatusCode: 503,
+			ErrorMessage: "Backup scheduler health: " + runtime.Health,
+		})
+	})
 	s.WorkerStart(svc.Start)
 	return svc
 }

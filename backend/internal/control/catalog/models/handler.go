@@ -3,7 +3,6 @@ package models
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -26,7 +25,6 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog/postgres"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
@@ -50,19 +48,6 @@ func New(reader catalog.CatalogReader, access identity.AccessEvaluator, cfg *con
 		quotes:    quotes.Service{Catalog: reader}}
 }
 
-func NewWithPricing(reader catalog.CatalogReader, access identity.AccessEvaluator, cfg *config.Config, db *sql.DB) *Handler {
-	h := New(reader, access, cfg)
-	if db != nil {
-		h.settings = plazaDBSettings{db}
-		published := pricing.VersionStore{DB: db}
-		h.quotes = quotes.Service{
-			Catalog:   reader,
-			Published: published,
-		}
-	}
-	return h
-}
-
 func (h *Handler) SetComparePricePort(port ComparePricePort) {
 	h.comparePrices = port
 }
@@ -75,34 +60,6 @@ func (h *Handler) SetPlazaSettings(settings *service.SettingService) {
 	h.settings = settings
 }
 
-// The production constructor already receives the settings database. Preserve
-// New's nil-settings behavior for embedded callers and existing tests.
-type plazaDBSettings struct{ db *sql.DB }
-
-func (s plazaDBSettings) GetModelPlazaRuntime(ctx context.Context) service.ModelPlazaRuntime {
-	runtime := service.ModelPlazaRuntime{}
-	rows, err := s.db.QueryContext(ctx, `SELECT key,value FROM settings WHERE key IN ('model_plaza_enabled','model_plaza_require_auth')`)
-	if err != nil {
-		return service.ModelPlazaRuntime{}
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var key, value string
-		if rows.Scan(&key, &value) != nil {
-			return service.ModelPlazaRuntime{}
-		}
-		if key == "model_plaza_enabled" {
-			runtime.Enabled = value == "true"
-		}
-		if key == "model_plaza_require_auth" {
-			runtime.RequireAuth = value == "true"
-		}
-	}
-	if rows.Err() != nil {
-		return service.ModelPlazaRuntime{}
-	}
-	return runtime
-}
 func (h *Handler) publicGuard(session []gin.HandlerFunc) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if h.settings == nil {
@@ -128,7 +85,7 @@ func (h *Handler) publicGuard(session []gin.HandlerFunc) gin.HandlerFunc {
 }
 
 var ProviderSet = wire.NewSet(
-	postgres.New, legacy.NewSource, catalog.NewReader, NewWithPricing,
+	postgres.New, catalog.NewReader,
 	wire.Bind(new(catalog.Acquisition), new(*legacy.Source)),
 	wire.Bind(new(catalog.CatalogPublisher), new(*postgres.Store)),
 	wire.Bind(new(catalog.CatalogReader), new(*catalog.Reader)),
@@ -185,7 +142,7 @@ func (h *Handler) perspective(ctx context.Context, c *gin.Context) (catalog.Pers
 	if workspace == "" {
 		id := domain.ResolvedDefaultWorkspaceID(ctx)
 		if id <= 0 {
-			return catalog.Perspective{}, errors.New("default workspace unavailable")
+			return catalog.Perspective{}, &fault.Fault{Status: 503, Reason: "SCOPE_UNAVAILABLE", Message: "The Default workspace is unavailable."}
 		}
 		return catalog.Perspective{Workspace: id}, nil
 	}
@@ -288,7 +245,7 @@ func writeFault(c *gin.Context, err error) {
 	switch f.Status {
 	case 401, 403, 404:
 		category = "access"
-	case 410:
+	case 409, 410:
 		category = "conflict"
 	case 503:
 		category, retry = "dependency", "retry_later"

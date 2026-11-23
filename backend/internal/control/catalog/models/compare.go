@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/quotes"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
@@ -18,6 +19,10 @@ type ComparePricePort interface {
 	EstimateCatalog(context.Context, catalog.Perspective, []catalog.ModelBinding, []money.Quantity, time.Time) (pricing.Result, string, string, error)
 }
 
+type compareScenarioPricePort interface {
+	EstimateCatalogScenario(context.Context, catalog.Perspective, string, []catalog.ModelBinding, pricing.Scenario, time.Time, time.Time) (pricing.Result, string, string, error)
+}
+
 type comparisonInput struct {
 	IDs      []string   `json:"model_ids"`
 	Protocol string     `json:"protocol"`
@@ -27,12 +32,7 @@ type comparisonInput struct {
 	KeyID    *string    `json:"api_key_id"`
 }
 
-type scenario struct {
-	Input    string `json:"input_tokens"`
-	Cached   string `json:"cached_input_tokens"`
-	Output   string `json:"output_tokens"`
-	Requests string `json:"requests"`
-}
+type scenario = quotes.Scenario
 
 type component struct {
 	Kind      string `json:"kind"`
@@ -98,9 +98,16 @@ func (h *Handler) compare(ctx context.Context, p catalog.Perspective, c *gin.Con
 		return nil, fault.Invalid("/protocol")
 	}
 	var quantities []money.Quantity
+	var exact pricing.Scenario
 	if in.Scenario != nil {
 		var err error
-		quantities, err = scenarioQuantities(*in.Scenario)
+		if _, ok := h.comparePrices.(compareScenarioPricePort); ok {
+			var usage pricing.Usage
+			usage, err = in.Scenario.Usage()
+			exact = in.Scenario.PriceScenario(usage)
+		} else {
+			quantities, err = scenarioQuantities(*in.Scenario)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -132,15 +139,26 @@ func (h *Handler) compare(ctx context.Context, p catalog.Perspective, c *gin.Con
 		if len(bindings) == 0 {
 			row.Quote.BillingState, row.Quote.Reason = "unpriced", "no_applicable_offer"
 		}
-		if quantities != nil && len(bindings) > 0 && h.comparePrices != nil && !at.Before(snapshot.AsOf.Add(-catalog.SnapshotTTL)) && !at.After(snapshot.AsOf) {
-			estimate, state, reason, err := h.comparePrices.EstimateCatalog(ctx, p, bindings, quantities, at)
+		if p.KeyID > 0 && len(bindings) == 0 {
+			return nil, fault.NotFound
+		}
+		if in.Scenario != nil && !at.After(snapshot.AsOf) && h.comparePrices != nil {
+			var estimate pricing.Result
+			var state, reason string
+			if port, ok := h.comparePrices.(compareScenarioPricePort); ok {
+				estimate, state, reason, err = port.EstimateCatalogScenario(ctx, p, id, bindings, exact, at, snapshot.AsOf)
+			} else if len(bindings) > 0 && !at.Before(snapshot.AsOf.Add(-catalog.SnapshotTTL)) {
+				estimate, state, reason, err = h.comparePrices.EstimateCatalog(ctx, p, bindings, quantities, at)
+			}
 			if err != nil {
 				return nil, err
 			}
-			row.Quote.State, row.Quote.BillingState, row.Quote.Reason = estimate.State, state, reason
-			row.Quote.PriceVersion, row.Quote.Charge, row.Quote.RoundingAdjustment = estimate.PriceVersion, estimate.Charge, estimate.RoundingAdjustment
-			for _, line := range estimate.Components {
-				row.Quote.Components = append(row.Quote.Components, component{Kind: line.Kind, Quantity: line.Quantity, RawAmount: line.RawAmount})
+			if estimate.State != "" {
+				row.Quote.State, row.Quote.BillingState, row.Quote.Reason = estimate.State, state, reason
+				row.Quote.PriceVersion, row.Quote.Charge, row.Quote.RoundingAdjustment = estimate.PriceVersion, estimate.Charge, estimate.RoundingAdjustment
+				for _, line := range estimate.Components {
+					row.Quote.Components = append(row.Quote.Components, component{Kind: line.Kind, Quantity: line.Quantity, RawAmount: line.RawAmount})
+				}
 			}
 		}
 		result.Rows = append(result.Rows, row)

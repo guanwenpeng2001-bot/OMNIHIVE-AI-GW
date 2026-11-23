@@ -24,7 +24,7 @@ services:
   # OmniHive Application
   # ===========================================================================
   omnihive:
-    image: ghcr.io/guanwenpeng2001-bot/omnihive-ai-gw:${OMNIHIVE_IMAGE_TAG:-v0.3.3}
+    image: ghcr.io/guanwenpeng2001-bot/omnihive-ai-gw:${OMNIHIVE_IMAGE_TAG:-v0.3.4}
     container_name: omnihive
     restart: unless-stopped
     # main.go grants shutdownApplication 20s; keep 10s for transport cleanup.
