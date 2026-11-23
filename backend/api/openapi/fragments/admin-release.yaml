@@ -71,9 +71,8 @@ components:
       properties:
         preserve_model_selection:
           type: boolean
-          default: false
           description: >-
-            Preserve the current model selection during metadata edits. When true, omit
+            Preserve the current model selection during metadata edits. Defaults to false. When true, omit
             credentials.model_mapping, credentials.model_whitelist, and extra.upstream_model_allowlist.
             Supplying any of these fields returns CONFLICTING_MODEL_SELECTION_INTENT.
             An explicit credentials.compact_model_mapping can still be edited or cleared.

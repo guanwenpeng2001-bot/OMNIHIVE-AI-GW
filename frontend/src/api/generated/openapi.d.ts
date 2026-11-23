@@ -2629,11 +2629,8 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         AdminAccountUpdate: {
-            /**
-             * @description Preserve the current model selection during metadata edits. When true, omit credentials.model_mapping, credentials.model_whitelist, and extra.upstream_model_allowlist. Supplying any of these fields returns CONFLICTING_MODEL_SELECTION_INTENT. An explicit credentials.compact_model_mapping can still be edited or cleared.
-             * @default false
-             */
-            preserve_model_selection: boolean;
+            /** @description Preserve the current model selection during metadata edits. Defaults to false. When true, omit credentials.model_mapping, credentials.model_whitelist, and extra.upstream_model_allowlist. Supplying any of these fields returns CONFLICTING_MODEL_SELECTION_INTENT. An explicit credentials.compact_model_mapping can still be edited or cleared. */
+            preserve_model_selection?: boolean;
             name?: string;
             notes?: string | null;
             /** @enum {string} */
