@@ -773,7 +773,7 @@
               </button>
               <!-- Import to CC Switch Button -->
               <button
-                v-if="canMutateRow(row) && !publicSettings?.hide_ccs_import_button"
+                v-if="(canMutateRow(row) || (isProjectMode && row.isOwnedByActor)) && !publicSettings?.hide_ccs_import_button"
                 @click="importToCcswitch(row)"
                 class="flex flex-col items-center gap-0.5 rounded-[var(--oh-r-sm,6px)] p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
               >
@@ -1883,6 +1883,13 @@ const consoleScopeStore = getConsoleScopeStore()
 const authStore = useAuthStore()
 
 type ScopedApiKeyRow = ApiKey & {
+  project_id?: string | number | null
+  workspace_id?: string | number | null
+  project_key_policy?: unknown
+  project_key_policy_id?: string | number | null
+  owner_type?: string
+  scope_type?: string
+  kind?: string
   isProjectRow?: boolean
   isOwnedByActor?: boolean
   secretScope?: [string | null, string | null]
@@ -2030,28 +2037,21 @@ function openCreateModal(): void {
   showCreateModal.value = true
 }
 
-function getScopeMutationOptions(): { workspaceId?: string | null } | undefined {
-  if (activeConsoleScope.value.mode === 'workspace' && activeConsoleScope.value.workspaceId) {
-    return { workspaceId: activeConsoleScope.value.workspaceId }
-  }
-  return undefined
+function hasProjectOwnership(row: ScopedApiKeyRow): boolean {
+  return row.isProjectRow === true || row.project_id != null || row.workspace_id != null ||
+    row.project_key_policy != null || row.project_key_policy_id != null || row.kind === 'project_policy' ||
+    row.owner_type === 'project' || row.scope_type === 'project'
 }
 
 function canMutateRow(row: ScopedApiKeyRow): boolean {
-  if (row.isProjectRow) {
-    return Boolean(
-      row.isOwnedByActor &&
-        activeConsoleScope.value.mode === 'workspace' &&
-        activeConsoleScope.value.workspaceId
-    )
-  }
-  return canWriteKeys.value
+  return isPersonalMode.value && canWriteKeys.value && !hasProjectOwnership(row)
 }
 
-const rotateKeyForScope = (
-  id: number,
-  options: { grace_ttl_hours?: number; revoke_previous?: boolean }
-) => keysAPI.rotate(id, { ...options, ...getScopeMutationOptions() })
+async function rotateKeyForScope(id: number, options: { grace_ttl_hours?: number; revoke_previous?: boolean }) {
+  const row = rotateTarget.value
+  if (!row || row.id !== id || !canMutateRow(row)) throw new Error(t('keys.failedToSave'))
+  return keysAPI.rotate(id, options)
+}
 
 function handleSwitchToPersonalScope(): void {
   const createKey = scopeGateState.value !== 'unavailable'
@@ -2484,8 +2484,7 @@ const bulkToggleSelectedKeys = async (targetStatus: 'active' | 'inactive') => {
   if (ids.length === 0 || bulkUpdating.value) return
   bulkUpdating.value = true
   try {
-    const opts = getScopeMutationOptions()
-    await Promise.all(ids.map((id) => keysAPI.toggleStatus(id, targetStatus, opts)))
+    await Promise.all(ids.map((id) => keysAPI.toggleStatus(id, targetStatus)))
     appStore.showSuccess(
       targetStatus === 'active' ? t('keys.keyEnabledSuccess') : t('keys.keyDisabledSuccess')
     )
@@ -2909,14 +2908,15 @@ const loadApiKeys = async () => {
     })
     if (!isCurrentRequest()) return
     usageStats.value = {}
-    apiKeys.value = response.items
+    const personalKeys = response.items.filter(key => !hasProjectOwnership(key))
+    apiKeys.value = personalKeys
     handleSelectionChange(selectedIds.value)
     pagination.value.total = response.total
     pagination.value.pages = response.pages
 
     // Load usage stats for all API keys in the list
-    if (response.items.length > 0) {
-      const keyIds = response.items.map((k) => k.id)
+    if (personalKeys.length > 0) {
+      const keyIds = personalKeys.map((k) => k.id)
       try {
         const usageResponse = await usageAPI.getDashboardApiKeysUsage(keyIds, { signal })
         if (!isCurrentRequest()) return
@@ -3167,7 +3167,7 @@ const toggleKeyStatus = async (key: ScopedApiKeyRow) => {
   if (!canMutateRow(key)) return
   const newStatus = key.status === 'active' ? 'inactive' : 'active'
   try {
-    await keysAPI.toggleStatus(key.id, newStatus, getScopeMutationOptions())
+    await keysAPI.toggleStatus(key.id, newStatus)
     appStore.showSuccess(
       newStatus === 'active' ? t('keys.keyEnabledSuccess') : t('keys.keyDisabledSuccess')
     )
@@ -3219,7 +3219,7 @@ const changeGroup = async (key: ScopedApiKeyRow, newGroupId: number | null) => {
 
   try {
     // group_id 0 is the explicit unbind value; null would mean "leave unchanged".
-    await keysAPI.update(key.id, { group_id: newGroupId ?? 0 }, getScopeMutationOptions())
+    await keysAPI.update(key.id, { group_id: newGroupId ?? 0 })
     appStore.showSuccess(t('keys.groupChangedSuccess'))
     loadApiKeys()
   } catch (error) {
@@ -3448,6 +3448,7 @@ const handleSubmit = async () => {
   submitting.value = true
   try {
     if (showEditModal.value && selectedKey.value) {
+      if (!canMutateRow(selectedKey.value)) return
       const updates: UpdateApiKeyRequest = {
         name: formData.value.name,
         group_id: formData.value.group_id,
@@ -3466,7 +3467,7 @@ const handleSubmit = async () => {
       if (shouldSubmitEditStatus(selectedKey.value, formData.value.status)) {
         updates.status = formData.value.status
       }
-      await keysAPI.update(selectedKey.value.id, updates, getScopeMutationOptions())
+      await keysAPI.update(selectedKey.value.id, updates)
       appStore.showSuccess(t('keys.keyUpdatedSuccess'))
     } else if (
       isProjectMode.value &&
@@ -3594,10 +3595,10 @@ const handleSubmit = async () => {
  * 若后端未返回消息则显示默认的国际化文本
  */
 const handleDelete = async () => {
-  if (!selectedKey.value) return
+  if (!selectedKey.value || !canMutateRow(selectedKey.value)) return
 
   try {
-    await keysAPI.delete(selectedKey.value.id, getScopeMutationOptions())
+    await keysAPI.delete(selectedKey.value.id)
     appStore.showSuccess(t('keys.keyDeletedSuccess'))
     showDeleteDialog.value = false
     loadApiKeys()

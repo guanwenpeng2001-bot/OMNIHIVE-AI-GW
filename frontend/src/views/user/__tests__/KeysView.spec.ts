@@ -390,6 +390,21 @@ describe('user KeysView column settings', () => {
     isCurrentStep.mockReturnValue(false)
   })
 
+  it('filters project ownership markers before rendering personal keys or fetching their usage', async () => {
+    const personal = { ...createApiKey(), project_id: null, workspace_id: null }
+    const markers = [
+      { workspace_id: '14' }, { project_id: 23 }, { project_key_policy: {} }, { kind: 'project_policy' },
+      { project_key_policy_id: '29' }, { owner_type: 'project' }, { scope_type: 'project' }
+    ]
+    listKeys.mockResolvedValue({
+      items: [personal, ...markers.map((marker, i) => ({ ...personal, ...marker, name: 'Project key', id: i + 20 }))],
+      total: markers.length + 1, pages: 1
+    })
+    const wrapper = await mountView()
+    expect(wrapper.getComponent(DataTableStub).props('data')).toEqual([personal])
+    expect(getDashboardApiKeysUsage).toHaveBeenCalledWith([personal.id], expect.any(Object))
+  })
+
   it('opens the personal key form when requested by onboarding', async () => {
     const wrapper = await mountView()
     await wrapper.setProps({ createPersonal: true })

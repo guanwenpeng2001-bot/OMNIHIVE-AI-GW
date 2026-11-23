@@ -114,7 +114,7 @@ const stubs = {
   DataTable: {
     props: ['data'],
     template:
-      '<div data-testid="keys-data-table"><span v-for="item in data" :key="item.id" data-testid="table-key-row">{{ item.name }}:{{ item.key }}</span></div>',
+      '<div data-testid="keys-data-table"><span v-for="item in data" :key="item.id" data-testid="table-key-row">{{ item.name }}:{{ item.key }}<slot name="cell-actions" :row="item" /></span></div>',
   },
   Pagination: { template: '<div />' },
   BaseDialog: {
@@ -212,6 +212,20 @@ describe('KeysView project-scoped API key group binding guard', () => {
       scope_version: '1',
       expires_at: new Date(Date.now() + 3600_000).toISOString(),
     })
+  })
+
+  it('omits legacy row mutation controls even for an actor-owned project key', async () => {
+    seedProjectScope('10', '20')
+    mocks.listProjectKeys.mockResolvedValue({ items: [{
+      id: '59', owner_id: '1', project_id: '20', name: 'Project key', state: 'active', version: '1'
+    }] })
+    const wrapper = mountKeysView()
+    await flushPromises()
+    const actions = wrapper.get('[data-testid="table-key-row"]').text()
+    expect(actions).toContain('keys.useKey')
+    for (const label of ['keys.disable', 'keys.rotateKey', 'common.edit', 'common.delete']) {
+      expect(actions).not.toContain(label)
+    }
   })
 
   it('switches from a project to Personal before opening the requested personal key form', async () => {
