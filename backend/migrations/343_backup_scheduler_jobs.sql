@@ -1,7 +1,13 @@
 CREATE TABLE IF NOT EXISTS backup_jobs (
     id TEXT PRIMARY KEY,
     triggered_by TEXT NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'skipped_not_leader')),
+    status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'skipped_not_leader', 'deleted')),
+    -- attempt_id/revision fence every worker update. A deleted row is retained
+    -- as a tombstone so a delayed worker cannot recreate a verified record for
+    -- an object that retention or an operator has already removed.
+    attempt_id TEXT NOT NULL,
+    revision BIGINT NOT NULL DEFAULT 1,
+    deleted_at TIMESTAMPTZ,
     progress TEXT,
     started_at TIMESTAMPTZ NOT NULL,
     finished_at TIMESTAMPTZ,
@@ -31,11 +37,13 @@ INSERT INTO backup_scheduler_state (state_key) VALUES ('backup_scheduler') ON CO
 
 -- Import legacy records once. IDs and restore-journal references remain inside
 -- record JSON, avoiding an irreversible rewrite of historical metadata.
-INSERT INTO backup_jobs (id, triggered_by, status, progress, started_at, finished_at, expires_at, error_message, object_manifest, verified_at, record, updated_at)
+INSERT INTO backup_jobs (id, triggered_by, status, attempt_id, revision, progress, started_at, finished_at, expires_at, error_message, object_manifest, verified_at, record, updated_at)
 SELECT
     item->>'id',
     COALESCE(item->>'triggered_by', 'manual'),
     CASE WHEN item->>'status' IN ('pending', 'running', 'completed', 'failed') THEN item->>'status' ELSE 'failed' END,
+    'legacy:' || item->>'id',
+    1,
     NULLIF(item->>'progress', ''),
     COALESCE(NULLIF(item->>'started_at', '')::timestamptz, now()),
     NULLIF(item->>'finished_at', '')::timestamptz,

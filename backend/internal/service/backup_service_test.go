@@ -120,9 +120,13 @@ func (e *plainEncryptor) Decrypt(ciphertext string) (string, error) {
 type memoryBackupSecretPayloadRepo struct {
 	payloads map[string]BackupSecretEnvelope
 	settings *mockSettingRepo
+	getErr   error
 }
 
 func (r *memoryBackupSecretPayloadRepo) Get(_ context.Context, key string) (*BackupSecretEnvelope, error) {
+	if r.getErr != nil {
+		return nil, r.getErr
+	}
 	envelope, ok := r.payloads[key]
 	if !ok {
 		return nil, nil
