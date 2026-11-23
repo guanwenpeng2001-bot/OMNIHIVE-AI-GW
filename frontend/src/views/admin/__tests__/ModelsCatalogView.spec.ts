@@ -563,6 +563,10 @@ describe('ModelsCatalogView (/admin/models) & inspector contract', () => {
   it('offers a local CSV export and no batch mutations on the read-only inspector', async () => {
     const wrapper = mountCatalogView()
     await flushPromises()
+    const links = wrapper.get('[data-testid="catalog-read-only-note"]').findAll('a')
+    expect(links.map(link => link.attributes('href'))).toEqual(['/admin/accounts', '/admin/channels/pricing'])
+    expect(wrapper.get('[data-testid="catalog-version-pill"]').classes()).toContain('break-all')
+    expect(wrapper.get('[data-testid="admin-models-table"]').element.parentElement?.classList.contains('overflow-x-auto')).toBe(true)
     expect(wrapper.find('[data-testid="open-batch-preview-modal"]').exists()).toBe(false)
     await wrapper.get('[data-testid="export-unpriced-csv"]').trigger('click')
     expect(wrapper.get('[data-testid="exported-csv-preview"]').text()).toContain('gpt-4.1')
@@ -579,7 +583,9 @@ describe('ModelsCatalogView (/admin/models) & inspector contract', () => {
     await flushPromises()
 
     const drawer = wrapper.get('[data-testid="admin-model-detail-drawer"]')
-    expect(drawer.find('[data-testid="catalog-verification-workbench"]').exists()).toBe(true)
+    const verification = drawer.get('[data-testid="catalog-verification-workbench"]')
+    expect(verification.findAll('form')).toHaveLength(1)
+    expect(verification.find('#catalog-target-model').exists()).toBe(false)
   })
 
   it('recovers from 410 SNAPSHOT_EXPIRED by prompting a fresh snapshot load', async () => {

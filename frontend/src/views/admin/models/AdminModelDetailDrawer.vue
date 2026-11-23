@@ -224,7 +224,7 @@ useOverlayDialog({
           "
           @click="activeTab = 'verification'"
         >
-          {{ isZh ? '目录核验与发布工作台' : 'Verification & Publication Workbench' }}
+          {{ isZh ? '核验记录' : 'Verification Records' }}
         </button>
       </div>
 
@@ -659,7 +659,7 @@ useOverlayDialog({
           v-show="activeTab === 'verification'"
           data-testid="drawer-verification-workbench-panel"
         >
-          <CatalogVerificationWorkbench :is-zh="isZh" />
+          <CatalogVerificationWorkbench :is-zh="isZh" read-only />
         </div>
       </div>
     </div>

@@ -1,9 +1,11 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { getRollbackVersions } from '@/api/admin/system'
 import VersionBadge from '../VersionBadge.vue'
 
-const { mockPerformUpdate, mockRestartService, mockFetchVersion, mockClearVersionCache, mockShowError } =
+const { badgeState, mockPerformUpdate, mockRestartService, mockFetchVersion, mockClearVersionCache, mockShowError } =
   vi.hoisted(() => ({
+    badgeState: { hasUpdate: true, updateCheckUnavailable: false },
     mockPerformUpdate: vi.fn(),
     mockRestartService: vi.fn(),
     mockFetchVersion: vi.fn(),
@@ -29,7 +31,7 @@ vi.mock('@/stores/app', () => ({
     versionLoading: false,
     currentVersion: '0.3.1',
     latestVersion: '0.3.2',
-    hasUpdate: true,
+    ...badgeState,
     releaseInfo: {
       name: 'v0.3.2',
       body: 'Release notes',
@@ -60,6 +62,8 @@ vi.mock('@/composables/useClipboard', () => ({
 
 describe('VersionBadge safety and lifecycle', () => {
   beforeEach(() => {
+    badgeState.hasUpdate = true
+    badgeState.updateCheckUnavailable = false
     vi.useFakeTimers()
     mockPerformUpdate.mockReset()
     mockRestartService.mockReset()
@@ -70,6 +74,23 @@ describe('VersionBadge safety and lifecycle', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it.each(['http', 'envelope'])('shows unavailable release and rollback checks within the admin panel (%s)', async shape => {
+    badgeState.hasUpdate = false
+    badgeState.updateCheckUnavailable = true
+    if (shape === 'http') vi.mocked(getRollbackVersions).mockRejectedValueOnce({ status: 503 })
+    else vi.mocked(getRollbackVersions).mockResolvedValueOnce({ versions: [], remote_status: 'unavailable' })
+    const wrapper = mount(VersionBadge, { global: { stubs: { Icon: true, ConfirmDialog: true } } })
+    expect(wrapper.text()).not.toContain('version.checkUnavailable')
+    await wrapper.get('button').trigger('click')
+    expect(wrapper.text()).toContain('version.checkUnavailable')
+    expect(wrapper.text()).not.toContain('version.upToDate')
+    await wrapper.findAll('button').find(button => button.text().includes('version.rollback'))!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('version.rollbackCheckUnavailable')
+    expect(wrapper.text()).not.toContain('version.noRollbackVersions')
+    wrapper.unmount()
   })
 
   it('requires confirmation before update, preserves needRestart on refresh, surfaces 403 restart errors, and cleans timers on unmount', async () => {
@@ -95,9 +116,12 @@ describe('VersionBadge safety and lifecycle', () => {
     })
     await flushPromises()
 
+    expect(mockFetchVersion).not.toHaveBeenCalled()
     // Open dropdown
     await wrapper.find('button').trigger('click')
     await flushPromises()
+
+    expect(mockFetchVersion).toHaveBeenCalledWith(false)
 
     // Clicking Update opens ConfirmDialog without calling performUpdate immediately
     await wrapper.get('[data-testid="version-update-now-btn"]').trigger('click')

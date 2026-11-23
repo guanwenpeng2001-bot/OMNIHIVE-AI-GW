@@ -65,6 +65,7 @@ export const useAppStore = defineStore('app', () => {
   let publicSettingsRequest: Promise<PublicSettings | null> | null = null
 
   // Version cache state
+  const updateCheckUnavailable = ref(false)
   const versionLoaded = ref<boolean>(false)
   const versionLoading = ref<boolean>(false)
   const currentVersion = ref<string>('')
@@ -404,15 +405,17 @@ export const useAppStore = defineStore('app', () => {
     versionLoading.value = true
     try {
       const data = await checkUpdatesAPI(force)
-      currentVersion.value = data.current_version
-      latestVersion.value = data.latest_version
-      hasUpdate.value = data.has_update
-      buildType.value = data.build_type || 'source'
-      releaseInfo.value = data.release_info || null
-      versionLoaded.value = true
+      updateCheckUnavailable.value = data.remote_status === 'unavailable'
+      currentVersion.value = data.current_version || currentVersion.value
+      latestVersion.value = updateCheckUnavailable.value ? '' : data.latest_version
+      hasUpdate.value = !updateCheckUnavailable.value && data.has_update
+      buildType.value = data.build_type || buildType.value
+      releaseInfo.value = updateCheckUnavailable.value ? null : data.release_info || null
+      versionLoaded.value = !updateCheckUnavailable.value
       return data
-    } catch (error) {
-      console.error('Failed to fetch version:', error)
+    } catch {
+      clearVersionCache()
+      updateCheckUnavailable.value = true
       return null
     } finally {
       versionLoading.value = false
@@ -424,6 +427,9 @@ export const useAppStore = defineStore('app', () => {
    */
   function clearVersionCache(): void {
     versionLoaded.value = false
+    updateCheckUnavailable.value = false
+    latestVersion.value = ''
+    releaseInfo.value = null
     hasUpdate.value = false
   }
 
@@ -618,6 +624,7 @@ export const useAppStore = defineStore('app', () => {
 
     // Version state
     versionLoaded,
+    updateCheckUnavailable,
     versionLoading,
     currentVersion,
     latestVersion,

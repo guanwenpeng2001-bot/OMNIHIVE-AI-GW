@@ -409,9 +409,8 @@ apiClient.interceptors.response.use(
               const refreshStatus = refreshError.response?.status ?? 0
               if (refreshStatus === 0 || refreshStatus === 429 || refreshStatus >= 500) {
                 return Promise.reject(normalizeApiError({
-                  status: refreshStatus,
-                  reason: 'TOKEN_REFRESH_UNAVAILABLE',
-                  message: normalizeApiError(refreshError).message
+                  ...normalizeApiError(refreshError),
+                  reason: 'TOKEN_REFRESH_UNAVAILABLE'
                 }))
               }
             }

@@ -11,7 +11,7 @@
             ? 'border-[var(--warn)]/35 bg-[var(--warn)]/12 text-[var(--warn-text)]'
             : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
         ]"
-        :title="hasUpdate ? t('version.updateAvailable') : t('version.upToDate')"
+        :title="hasUpdate ? t('version.updateAvailable') : t('version.currentVersion')"
       >
         <span v-if="currentVersion" class="font-medium">{{ formatVersionTag(currentVersion) }}</span>
         <span
@@ -26,7 +26,7 @@
           <span class="relative inline-flex h-2 w-2 rounded-full bg-amber-500"></span>
         </span>
         <span
-          v-if="!hasUpdate"
+          v-if="appStore.versionLoaded && !hasUpdate"
           class="h-1.5 w-1.5 rounded-full"
           :class="loading ? 'bg-amber-400' : 'bg-emerald-500/70'"
           aria-hidden="true"
@@ -109,7 +109,7 @@
                   <span v-else class="text-2xl font-bold text-[var(--muted-foreground)]">--</span>
                   <!-- Show check mark when up to date -->
                   <span
-                    v-if="!hasUpdate"
+                    v-if="appStore.versionLoaded && !hasUpdate"
                     class="flex h-5 w-5 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30"
                   >
                     <svg
@@ -125,7 +125,10 @@
                     </svg>
                   </span>
                 </div>
-                <p class="mt-1 text-xs text-[var(--muted-foreground)]">
+                <p v-if="appStore.updateCheckUnavailable" role="status" class="mt-1 text-xs text-[var(--muted-foreground)]">
+                  {{ t('version.checkUnavailable') }}
+                </p>
+                <p v-else class="mt-1 text-xs text-[var(--muted-foreground)]">
                   {{
                     hasUpdate
                       ? t('version.latestVersion') + ': v' + latestVersion
@@ -545,11 +548,11 @@
                       </div>
 
                       <!-- Load error + retry -->
-                      <div v-else-if="rollbackVersionsError" class="space-y-2">
+                      <div v-else-if="rollbackRemoteUnavailable || rollbackVersionsError" class="space-y-2">
                         <p
-                          class="rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs text-red-600 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400"
+                          class="text-xs text-[var(--muted-foreground)]"
                         >
-                          {{ rollbackVersionsError }}
+                          {{ rollbackRemoteUnavailable ? t('version.rollbackCheckUnavailable') : rollbackVersionsError }}
                         </p>
                         <button
                           @click="loadRollbackVersions"
@@ -750,7 +753,7 @@
 </template>
 
 <script setup lang="ts">
-import { extractApiErrorMessage } from '@/utils/apiError'
+import { extractApiErrorMessage, normalizeApiError } from '@/utils/apiError'
 
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -922,6 +925,7 @@ function executeConfirmedAction() {
 const rollbackPanelOpen = ref(false)
 const rollbackVersions = ref<RollbackVersionInfo[]>([])
 const rollbackVersionsLoading = ref(false)
+const rollbackRemoteUnavailable = ref(false)
 const rollbackVersionsError = ref('')
 const selectedRollbackVersion = ref('')
 const rollingBack = ref(false)
@@ -964,6 +968,7 @@ const isReleaseBuild = computed(() => buildType.value === 'release')
 
 function toggleDropdown() {
   dropdownOpen.value = !dropdownOpen.value
+  if (dropdownOpen.value) void appStore.fetchVersion(false)
 }
 
 function closeDropdown() {
@@ -1009,6 +1014,7 @@ async function handleUpdate() {
 function resetRollbackState() {
   rollbackPanelOpen.value = false
   rollbackVersions.value = []
+  rollbackRemoteUnavailable.value = false
   rollbackVersionsError.value = ''
   selectedRollbackVersion.value = ''
   rollbackError.value = ''
@@ -1032,14 +1038,16 @@ async function toggleRollbackPanel() {
 async function loadRollbackVersions() {
   if (!isAdmin.value) return
   rollbackVersionsLoading.value = true
+  rollbackRemoteUnavailable.value = false
   rollbackVersionsError.value = ''
   try {
     const data = await getRollbackVersions()
-    rollbackVersions.value = data.versions || []
+    rollbackRemoteUnavailable.value = data.remote_status === 'unavailable'
+    rollbackVersions.value = rollbackRemoteUnavailable.value ? [] : data.versions || []
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { message?: string } }; message?: string }
-    rollbackVersionsError.value =
-      extractApiErrorMessage(err, '') || t('version.loadVersionsFailed')
+    const err = normalizeApiError(error)
+    rollbackRemoteUnavailable.value = err.status === 503 || err.reason === 'UPDATE_CHECK_UNAVAILABLE'
+    if (!rollbackRemoteUnavailable.value) rollbackVersionsError.value = err.message || t('version.loadVersionsFailed')
   } finally {
     rollbackVersionsLoading.value = false
   }
@@ -1189,10 +1197,6 @@ function handleClickOutside(event: MouseEvent) {
 }
 
 onMounted(() => {
-  if (isAdmin.value) {
-    // Use cached version if available, otherwise fetch
-    appStore.fetchVersion(false)
-  }
   document.addEventListener('click', handleClickOutside)
 })
 
