@@ -247,7 +247,12 @@ jobs:
           TEST_REDIS_URL: redis://127.0.0.1:56380/0
           IP_GROUP_DEDICATED_TESTS: "1"
           IP_GROUP_TEST_PASSWORD: postgres
-        run: make test-unit
+        run: |
+          log_path="$RUNNER_TEMP/omnihive-unit.log"
+          exec 3>&1 4>&2
+          exec >"$log_path" 2>&1
+          trap 'test_status=$?; trap - EXIT; exec 1>&3 2>&4; python3 ../scripts/summarize-go-test-log.py "$log_path" || true; exit "$test_status"' EXIT
+          make test-unit
       - name: Integration tests (skip-is-fail)
         working-directory: backend
         env:
@@ -301,6 +306,10 @@ jobs:
         # packages, then reset the two state-sensitive suites exactly as the
         # local quality gate does before running them.
         run: |
+          log_path="$RUNNER_TEMP/omnihive-integration.log"
+          exec 3>&1 4>&2
+          exec >"$log_path" 2>&1
+          trap 'test_status=$?; trap - EXIT; exec 1>&3 2>&4; python3 ../scripts/summarize-go-test-log.py "$log_path" || true; exit "$test_status"' EXIT
           set -e
           reset_db() {
             for db in job_test stats_test billing_audit_test backup_data_test be09_journal_test model_access_test ops_billing_backlog_test scheduler_recovery_test scheduler_resources_test prompt_audit_test; do
@@ -318,6 +327,14 @@ jobs:
           ../scripts/go-test-strict.sh -p 1 -mod=readonly -tags=integration -count=1 ./internal/control/status
           reset_db
           ../scripts/go-test-strict.sh -p 1 -mod=readonly -tags=integration -count=1 ./internal/repository
+      - name: Preserve full strict Go logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: strict-go-test-logs
+          path: ${{ runner.temp }}/omnihive-*.log
+          if-no-files-found: ignore
+          retention-days: 7
 
   postgres:
     name: PostgreSQL ${{ matrix.postgres }} / ${{ matrix.test-case.test }}
@@ -611,6 +628,8 @@ jobs:
             exit 1
           fi
           echo "quality-gate stages: $actual"
+      - name: Reproduce offline model source artifacts
+        run: python3 -B -m unittest discover -s backend/resources/model-capabilities/scripts -p 'test_*.py'
       - name: Protocol contracts, generated drift and independence
         run: scripts/quality-gate.sh contracts generated-drift independence
 

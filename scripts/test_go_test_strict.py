@@ -9,7 +9,7 @@ when:
   2. ``-run`` was supplied but a package executed zero tests (the historical
      "contract test is a no-op" bug), emitted ``[no test files]`` or
      ``testing: warning: no tests to run``;
-  3. the stream contains a ``fail`` event.
+  3. the stream contains a ``fail`` or ``build-fail`` event.
 
 The allowlist is deliberately split in two:
 
@@ -260,7 +260,20 @@ class StrictGate:
     def feed(self, event: dict) -> None:
         action = event.get("Action", "")
         name = event.get("Test", "")
-        package = event.get("Package", "")
+        package = event.get("Package", "") or event.get("ImportPath", "")
+
+        # Newer Go versions interleave BuildEvents with TestEvents. These use
+        # ImportPath instead of Package; dropping them hides the actual compiler
+        # error behind the later generic package/setup failure.
+        if action == "build-output":
+            sys.stdout.write(event.get("Output", ""))
+            return
+
+        if action == "build-fail":
+            label = package or "unknown build target"
+            self.failures.append(f"{label}: build failed")
+            self.violations.append(f"{label}: build failed")
+            return
 
         if action == "start" and package:
             self.packages.append(package)
@@ -450,6 +463,32 @@ class StrictGateSelfTest(unittest.TestCase):
         events = list(package_events([("TestPasses", "pass")]))
         events.append({"Action": "fail", "Package": "e/example", "Test": "TestPasses"})
         self.assertEqual(1, self.evaluate(events))
+
+    def test_build_failure_fails_without_test_failure_event(self) -> None:
+        events = list(package_events([("TestOtherPackagePasses", "pass")]))
+        events.append({"Action": "build-fail", "ImportPath": "e/broken [e/broken.test]"})
+        self.assertEqual(1, self.evaluate(events))
+
+    def test_build_output_and_import_path_are_visible(self) -> None:
+        output, errors = io.StringIO(), io.StringIO()
+        events = [
+            {"Action": "build-output", "ImportPath": "e/broken", "Output": "broken_test.go:9: undefined: missingFixture\n"},
+            {"Action": "build-fail", "ImportPath": "e/broken"},
+        ]
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+            result = run_check("unit", False, (), [json.dumps(event) for event in events])
+        self.assertEqual(1, result)
+        self.assertIn("undefined: missingFixture", output.getvalue())
+        self.assertIn("e/broken: build failed", errors.getvalue())
+
+    def test_build_output_does_not_count_as_executed_test(self) -> None:
+        events = [{"Action": "build-output", "ImportPath": "e/example", "Output": "compiler diagnostic\n"}]
+        self.assertEqual(1, self.evaluate(events, run_present=True))
+
+    def test_build_output_alone_does_not_reject_a_successful_test(self) -> None:
+        events = [{"Action": "build-output", "ImportPath": "e/example", "Output": "compiler warning\n"}]
+        events.extend(package_events([("TestPasses", "pass")]))
+        self.assertEqual(0, self.evaluate(events))
 
     def test_run_with_zero_tests_fails(self) -> None:
         events = [

@@ -139,7 +139,7 @@ func (r *settingRepository) ResetOverrides(ctx context.Context, keys []string, e
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	rows, err := tx.Setting.Query().All(ctx)
 	if err != nil {
 		return err

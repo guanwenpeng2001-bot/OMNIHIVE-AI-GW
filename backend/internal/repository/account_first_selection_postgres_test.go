@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testresources"
 	"github.com/stretchr/testify/require"
@@ -117,6 +118,40 @@ func TestAccountSelectionConflictsDedicatedPostgres(t *testing.T) {
 			loser := map[string]string{"loser": "loser"}
 			_, err = repository.ReplaceAccountModelSelectionScope(ctx, account.ID, baseline, service.AccountModelAllowlist{Enabled: false}, &loser)
 			require.ErrorIs(t, err, service.ErrAccountModelCatalogConflict)
+		})
+	}
+}
+
+func TestDeletedAccountSelectionScopeDedicatedPostgres(t *testing.T) {
+	for _, ownWorkspace := range []bool{true, false} {
+		name := "deleted_after_own_workspace_preview"
+		if !ownWorkspace {
+			name = "foreign_workspace_tombstone_is_not_disclosed"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			repository, client := firstSelectionRepository(t)
+			account := &service.Account{Name: "deleted-selection-fixture", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture"}, Status: service.StatusActive, Concurrency: 1}
+			require.NoError(t, repository.Create(ctx, account))
+			preview, err := repository.GetByID(ctx, account.ID)
+			require.NoError(t, err)
+			require.Positive(t, preview.WorkspaceID)
+			_, err = client.ExecContext(ctx, "UPDATE accounts SET deleted_at=NOW() WHERE id=$1", account.ID)
+			require.NoError(t, err)
+			workspaceID := preview.WorkspaceID
+			if !ownWorkspace {
+				workspaceID++
+			}
+			mapping := map[string]string{"loser": "loser"}
+			_, err = repository.ReplaceAccountModelSelectionScope(domain.WithWorkspaceScope(ctx, workspaceID), account.ID, preview.ModelCatalogBaseline(), service.AccountModelAllowlist{Enabled: true, Models: []string{"loser"}}, &mapping)
+			if ownWorkspace {
+				require.ErrorIs(t, err, service.ErrAccountModelCatalogConflict)
+				require.NotErrorIs(t, err, service.ErrAccountNotFound)
+			} else {
+				require.ErrorIs(t, err, service.ErrAccountNotFound)
+				require.NotErrorIs(t, err, service.ErrAccountModelCatalogConflict)
+			}
+			require.NotErrorIs(t, err, service.ErrAccountConnectionManaged)
 		})
 	}
 }

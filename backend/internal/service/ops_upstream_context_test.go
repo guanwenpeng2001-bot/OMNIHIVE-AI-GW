@@ -298,7 +298,7 @@ func TestOpsServiceGetErrorLogByIDNormalizesLegacyProxyAttribution(t *testing.T)
 			return &OpsErrorLogDetail{UpstreamErrors: `[{"account_id":42,"kind":"http_error"}]`}, nil
 		},
 	}
-	svc := NewOpsService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	svc := newReadyOpsServiceForTest(t, repo)
 
 	detail, err := svc.GetErrorLogByID(context.Background(), 1)
 	require.NoError(t, err)

@@ -168,6 +168,7 @@ export default {
   nav: {
     helpGuide: 'Guide',
     dashboard: 'Dashboard',
+    workspaces: 'Workspaces',
     announcements: 'Announcements',
     apiKeys: 'API Keys',
     byok: 'BYOK Credentials',

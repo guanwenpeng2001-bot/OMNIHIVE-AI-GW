@@ -45,7 +45,11 @@ func (tx accountConfigurationRecordingTx) ExecContext(ctx context.Context, query
 }
 
 func (tx accountConfigurationRecordingTx) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	return tx.Tx.(*entsql.Tx).QueryContext(ctx, query, args...)
+	sqlTx, ok := tx.Tx.(*entsql.Tx)
+	if !ok {
+		return nil, errors.New("recording account configuration transaction must support SQL queries")
+	}
+	return sqlTx.QueryContext(ctx, query, args...)
 }
 
 func recordingAccountConfigurationRepository(t *testing.T, recorder *recordingSQLExecutor) *accountRepository {
@@ -119,6 +123,7 @@ func TestAccountConfigurationGuardDoesNotRevealForeignAccounts(t *testing.T) {
 	repo := newAccountRepositoryWithSQL(client, db, nil)
 	mock.ExpectBegin()
 	mock.ExpectQuery("account_configuration_owner_lock.*workspace_id = 9").WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectQuery("account_model_selection_tombstone.*workspace_id = 9").WithArgs(int64(77)).WillReturnRows(sqlmock.NewRows([]string{"exists"}))
 	mock.ExpectRollback()
 	_, err = repo.ReplaceAccountModelSelectionScope(domain.WithWorkspaceScope(context.Background(), 9), 77, service.AccountModelCatalogBaseline{}, service.AccountModelAllowlist{}, nil)
 	require.ErrorIs(t, err, service.ErrAccountNotFound)

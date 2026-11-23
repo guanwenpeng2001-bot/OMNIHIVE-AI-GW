@@ -4828,6 +4828,26 @@ func (r *accountRepository) ReplaceAccountModelSelectionScope(ctx context.Contex
 		return nil, err
 	}
 	if len(locked) != 1 {
+		// A deleted row in this workspace invalidates an earlier preview. Keep
+		// the scope filter on this read so foreign or absent accounts remain
+		// indistinguishable and never reach the connection metadata query.
+		rows, err := tx.QueryContext(ctx, `/* account_model_selection_tombstone */
+SELECT 1 FROM accounts WHERE id=$1 AND deleted_at IS NOT NULL`+workspaceClause(ctx, "workspace_id"), id)
+		if err != nil {
+			return nil, err
+		}
+		deleted := rows.Next()
+		readErr := rows.Err()
+		closeErr := rows.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
+		if deleted {
+			return nil, service.ErrAccountModelCatalogConflict
+		}
 		return nil, service.ErrAccountNotFound
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE accounts SET

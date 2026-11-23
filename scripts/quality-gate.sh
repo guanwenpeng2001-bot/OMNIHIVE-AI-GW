@@ -107,7 +107,7 @@ SELECTED=("${DEDUPED[@]}")
 
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 LOG_DIR="${QUALITY_GATE_LOG_DIR:-${ROOT}/.quality-gate/logs/${RUN_ID}}"
-mkdir -p "$LOG_DIR" "${ROOT}/.quality-gate/tmp" "${ROOT}/.quality-gate/tools"
+mkdir -p "$LOG_DIR" "${ROOT}/.quality-gate/logs" "${ROOT}/.quality-gate/tmp" "${ROOT}/.quality-gate/tools"
 ln -sfn "$LOG_DIR" "${ROOT}/.quality-gate/logs/latest"
 SUMMARY="${LOG_DIR}/summary.txt"
 FAILED=()
@@ -128,6 +128,9 @@ REDIS_ADDR=""
 REDIS_CLI=""
 REDIS_EXTERNAL=0
 SERVICES_READY=0
+SMOKE_BUILD_DIR=""
+SMOKE_BOOTSTRAP_PID=""
+SMOKE_SERVER_PID=""
 
 log() { printf '[quality-gate] %s\n' "$*"; }
 
@@ -318,7 +321,28 @@ ensure_services() {
   SERVICES_READY=1
 }
 
+stop_smoke() {
+  local pid
+  for pid in "$SMOKE_SERVER_PID" "$SMOKE_BOOTSTRAP_PID"; do
+    if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
+      kill "$pid" >/dev/null 2>&1 || true
+      wait "$pid" >/dev/null 2>&1 || true
+    fi
+  done
+  SMOKE_SERVER_PID=""
+  SMOKE_BOOTSTRAP_PID=""
+  if [[ -n "$SMOKE_BUILD_DIR" && -d "$SMOKE_BUILD_DIR" ]]; then
+    if [[ $KEEP_SERVICES -eq 1 ]]; then
+      log "keeping smoke state at ${SMOKE_BUILD_DIR}"
+    else
+      rm -rf "$SMOKE_BUILD_DIR"
+    fi
+  fi
+  SMOKE_BUILD_DIR=""
+}
+
 stop_services() {
+  stop_smoke
   [[ $KEEP_SERVICES -eq 1 ]] && {
     log "keeping disposable services (--keep)"
     return 0
@@ -352,7 +376,12 @@ reset_test_databases() {
 finish() {
   local code=$?
   trap - EXIT INT TERM
+  set +e
   stop_services
+  local cleanup_code=$?
+  if [[ $code -eq 0 && $cleanup_code -ne 0 ]]; then
+    code=$cleanup_code
+  fi
   exit "$code"
 }
 trap finish EXIT
@@ -360,11 +389,27 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 run_stage() {
-  local name="$1" start end duration status
+  local name="$1" start end duration status stage_code
   shift
   start="$(date +%s)"
   log "${name}: starting"
-  if "$@" >"${LOG_DIR}/${name}.log" 2>&1; then
+  # Calling a shell function in `if`/`!`/`||` suppresses errexit throughout
+  # that function, even after `set -e`. Keep the stage as a standalone child
+  # command and collect its result in the parent with errexit temporarily off.
+  # Each child owns and cleans up its disposable services, including failures
+  # during bootstrap; cwd, exports and partial startup never leak to a stage.
+  set +e
+  (
+    set -Eeuo pipefail
+    shopt -s inherit_errexit
+    trap finish EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    "$@"
+  ) >"${LOG_DIR}/${name}.log" 2>&1
+  stage_code=$?
+  set -e
+  if [[ $stage_code -eq 0 ]]; then
     status=PASS
   else
     status=FAIL
@@ -453,9 +498,12 @@ stage_backend() {
     return
   fi
 
-  local status=0 pkg
+  local status=0 pkg package_output
   local -a packages=() filtered=()
-  mapfile -t packages < <(go list -tags=integration ./...)
+  # Process substitution would hide a failing go-list producer from mapfile.
+  package_output="$(go list -tags=integration ./...)"
+  [[ -n "$package_output" ]] || { echo "integration package list is empty" >&2; return 1; }
+  mapfile -t packages <<<"$package_output"
   for pkg in "${packages[@]}"; do
     case "$pkg" in
       */internal/control/status|*/internal/repository) ;;
@@ -505,11 +553,14 @@ stage_frontend() {
 
 stage_contracts() {
   cd "${ROOT}"
-  local file count=0
+  python3 "${ROOT}/scripts/test_quality_gate_error_propagation.py"
+  python3 "${ROOT}/scripts/test_go_test_strict.py" --self-test
+  local file count=0 fixture_list="${LOG_DIR}/contract-fixtures.list"
+  find contracts/protocol contracts/api -type f -name '*.json' -print0 | sort -z >"$fixture_list"
   while IFS= read -r -d '' file; do
     python3 -m json.tool "$file" >/dev/null
     count=$((count + 1))
-  done < <(find contracts/protocol contracts/api -type f -name '*.json' -print0 | sort -z)
+  done <"$fixture_list"
   echo "validated ${count} protocol and API JSON fixtures"
   cd "${ROOT}/backend"
   # openai_gateway_handler_attempt_test.go is //go:build unit; without the tag
@@ -627,16 +678,12 @@ stage_smoke() {
   require_command openssl
   install_jq
   ensure_frontend_dist
-  if [[ $PG_EXTERNAL -eq 1 || $REDIS_EXTERNAL -eq 1 ]]; then
-    FORCE_ISOLATED=1
-    PG_EXTERNAL=0
-    REDIS_EXTERNAL=0
-    SERVICES_READY=0
-    ensure_services
-  else
-    ensure_services
-  fi
+  # Smoke bootstraps and drops databases, so it always owns its fixture rather
+  # than borrowing the backend stage's external or partially initialized one.
+  FORCE_ISOLATED=1
+  ensure_services
   local build_dir="${ROOT}/.quality-gate/tmp/smoke.$$"
+  SMOKE_BUILD_DIR="$build_dir"
   local data_dir="${build_dir}/data"
   local fixture_dir="${build_dir}/tls"
   mkdir -p "$data_dir" "$fixture_dir"
@@ -690,6 +737,7 @@ stage_smoke() {
   echo "+ bootstrap server (auto setup)"
   "${build_dir}/omnihive" >"${build_dir}/bootstrap.log" 2>&1 &
   local bootstrap_pid=$!
+  SMOKE_BOOTSTRAP_PID="$bootstrap_pid"
   for _ in $(seq 1 240); do
     if [[ -f "${data_dir}/.installed" && -f "$CONFIG_FILE" ]]; then
       break
@@ -704,6 +752,7 @@ stage_smoke() {
   [[ -f "$CONFIG_FILE" ]] || { echo "bootstrap did not write config" >&2; return 1; }
   kill "$bootstrap_pid" >/dev/null 2>&1 || true
   wait "$bootstrap_pid" >/dev/null 2>&1 || true
+  SMOKE_BOOTSTRAP_PID=""
 
   cat >>"$CONFIG_FILE" <<EOF
 security:
@@ -721,6 +770,7 @@ EOF
   echo "+ start production embed binary on 127.0.0.1:${server_port}"
   "${build_dir}/omnihive" >"${build_dir}/server.log" 2>&1 &
   local server_pid=$!
+  SMOKE_SERVER_PID="$server_pid"
   wait_for_http_401 "http://127.0.0.1:${server_port}/api/v2/me/scopes" "$server_pid" || {
     tail -n 60 "${build_dir}/server.log" >&2 || true
     kill "$server_pid" >/dev/null 2>&1 || true
@@ -752,7 +802,8 @@ EOF
     catalog_ready=1
   fi
 
-  local failed=0 script
+  local failed=0 script smoke_list="${LOG_DIR}/smoke-scripts.list"
+  find contracts/migrations -mindepth 2 -maxdepth 2 -name smoke.sh -print0 | sort -z >"$smoke_list"
   while IFS= read -r -d '' script; do
     if [[ "$script" == *"/catalog/smoke.sh" && $catalog_ready -eq 0 ]]; then
       echo "SKIP ${script}: requires a catalog fixture (visible account/channel/group model)"
@@ -774,15 +825,9 @@ EOF
       } >>"${LOG_DIR}/smoke-failures.log"
       failed=1
     fi
-  done < <(find contracts/migrations -mindepth 2 -maxdepth 2 -name smoke.sh -print0 | sort -z)
+  done <"$smoke_list"
 
-  kill "$server_pid" >/dev/null 2>&1 || true
-  wait "$server_pid" >/dev/null 2>&1 || true
-  if [[ $KEEP_SERVICES -eq 1 ]]; then
-    log "keeping smoke state at ${build_dir}"
-  else
-    rm -rf "$build_dir"
-  fi
+  stop_smoke
   return "$failed"
 }
 

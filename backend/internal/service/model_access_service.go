@@ -95,20 +95,6 @@ func ResolveModelAccessRule(rule ModelAccessRule, named []string) []string {
 	return identity.ResolveModelRule(rule, named)
 }
 
-func intersectAccessModels(models, allowed []string) []string {
-	permitted := make(map[string]bool, len(allowed))
-	for _, model := range allowed {
-		permitted[model] = true
-	}
-	result := []string{}
-	for _, model := range models {
-		if permitted[model] {
-			result = append(result, model)
-		}
-	}
-	return result
-}
-
 type modelAccessSnapshotKey struct{}
 
 type authenticatedModelAccessKey struct{}

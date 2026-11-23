@@ -168,6 +168,7 @@ export default {
   nav: {
     helpGuide: '使用指南',
     dashboard: '仪表盘',
+    workspaces: '工作区',
     announcements: '公告',
     apiKeys: 'API 密钥',
     byok: '自带密钥',

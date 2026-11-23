@@ -46,7 +46,11 @@ func (s *settingUpdateRepoStub) SetMultiple(ctx context.Context, settings map[st
 }
 
 func (s *settingUpdateRepoStub) GetAll(ctx context.Context) (map[string]string, error) {
-	panic("unexpected GetAll call")
+	values := make(map[string]string, len(s.updates))
+	for key, value := range s.updates {
+		values[key] = value
+	}
+	return values, nil
 }
 
 func (s *settingUpdateRepoStub) Delete(ctx context.Context, key string) error {
