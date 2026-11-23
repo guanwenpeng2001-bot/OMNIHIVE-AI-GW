@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
-	"golang.org/x/mod/semver"
 )
 
 // Backup metadata is authenticated separately from the writable update volume.
@@ -113,10 +112,25 @@ func (s *UpdateService) databaseRollbackFloor(ctx context.Context) (string, erro
 	if floor == "" {
 		return "", fmt.Errorf("invalid persisted rollback floor")
 	}
-	if semver.Compare(floor, minimumRollbackVersion) < 0 {
-		floor = minimumRollbackVersion
-	}
 	return floor, nil
+}
+
+// Digest verification may take time on a large backup. Refresh DB policy after
+// it completes, before changing either the persistent or executable path.
+func (s *UpdateService) revalidateRollbackFloor(ctx context.Context, previous string, paths ...string) error {
+	floor, err := s.databaseRollbackFloor(ctx)
+	if err != nil {
+		return err
+	}
+	if floor == previous {
+		return nil
+	}
+	for _, path := range paths {
+		if err := s.verifyBackup(path, floor); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *UpdateService) verifyBackup(path, floor string) error {
@@ -152,8 +166,6 @@ func (s *UpdateService) verifyBackup(path, floor string) error {
 		}
 		return err
 	}
-	if semver.Compare(releaseVersion(m.Version), floor) < 0 {
-		return rollbackBelowFloor(m.Version, floor)
-	}
-	return nil
+	_, err = ResolveReleaseCompatibility(m.Version, floor, "", false)
+	return err
 }

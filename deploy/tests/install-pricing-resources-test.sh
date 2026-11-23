@@ -38,6 +38,9 @@ printf '{"product":"omnihive","version":"%s","minimum_rollback_version":"0.2.5"}
 archive_name_expected=omnihive_0.2.5_linux_amd64.tar.gz
 mkdir -p "$TEST_DIR/archive/resources/model-pricing"
 printf '#!/bin/sh\nexit 0\n' > "$TEST_DIR/archive/omnihive"
+# This suite isolates archive/pricing behavior; CLI policy has its own tests.
+printf '#!/bin/sh\nexit 0\n' > "$TEST_DIR/archive/omnihivectl"
+chmod +x "$TEST_DIR/archive/omnihivectl"
 cp "$ROOT_DIR/backend/resources/model-pricing/"*.json "$TEST_DIR/archive/resources/model-pricing/"
 tar -czf "$TEST_DIR/release.tar.gz" -C "$TEST_DIR/archive" .
 INSTALL_DIR="$TEST_DIR/installed"

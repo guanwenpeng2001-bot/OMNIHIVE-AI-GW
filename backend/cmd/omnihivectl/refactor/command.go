@@ -16,11 +16,17 @@ import (
 	"github.com/lib/pq"
 )
 
-const usage = "Usage: omnihivectl refactor (inventory|status) --format=json"
+const usage = "Usage: omnihivectl refactor (inventory|status) --format=json\n       omnihivectl release check --target VERSION --manifest PATH --checksums PATH --json"
 
 // Run accepts arguments after the refactor subcommand. It returns an exit
 // code so the parent CLI can own process and signal handling.
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "release" {
+		return runRelease(ctx, args[1:], stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "refactor" {
+		args = args[1:]
+	}
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
 		fmt.Fprintln(stdout, usage)
 		return 0

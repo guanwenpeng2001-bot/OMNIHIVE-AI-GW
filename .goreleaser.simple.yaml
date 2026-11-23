@@ -7,9 +7,7 @@ project_name: omnihive
 before:
   hooks:
     - >-
-      sh -c 'mkdir -p .cache/omnihive-release &&
-      printf "{\"product\":\"omnihive\",\"version\":\"%s\",\"minimum_rollback_version\":\"0.3.0\",\"commit\":\"%s\"}\n"
-      "{{ .Version }}" "{{ .Commit }}" > .cache/omnihive-release/omnihive-release-manifest.json'
+      bash scripts/release-manifest.sh "{{ .Version }}" "{{ .Commit }}"
 
 builds:
   - id: omnihive

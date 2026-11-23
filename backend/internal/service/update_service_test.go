@@ -40,6 +40,7 @@ func (s *updateServiceCacheStub) SetUpdateInfo(_ context.Context, data string, _
 }
 
 type updateServiceGitHubClientStub struct {
+	autoManifest   bool
 	latestErr      error
 	repo           string
 	archive        []byte
@@ -60,7 +61,10 @@ func (s *updateServiceGitHubClientStub) FetchRecentReleases(context.Context, str
 	return s.recentReleases, s.recentErr
 }
 
-func (s *updateServiceGitHubClientStub) DownloadFile(_ context.Context, _ string, dest string, _ int64) error {
+func (s *updateServiceGitHubClientStub) DownloadFile(_ context.Context, url string, dest string, _ int64) error {
+	if s.autoManifest {
+		s.setManifestFixture(url)
+	}
 	if filepath.Base(dest) == releaseManifestName || filepath.Base(dest) == "release-manifest.json" {
 		return os.WriteFile(dest, s.manifest, 0600)
 	}
@@ -70,7 +74,10 @@ func (s *updateServiceGitHubClientStub) DownloadFile(_ context.Context, _ string
 	panic("DownloadFile should not be called when no update is available")
 }
 
-func (s *updateServiceGitHubClientStub) FetchChecksumFile(context.Context, string) ([]byte, error) {
+func (s *updateServiceGitHubClientStub) FetchChecksumFile(_ context.Context, url string) ([]byte, error) {
+	if s.autoManifest {
+		s.setManifestFixture(url)
+	}
 	if s.checksumErr != nil {
 		return nil, s.checksumErr
 	}
@@ -101,12 +108,27 @@ func TestUpdateServicePerformUpdateNoUpdateReturnsSentinel(t *testing.T) {
 }
 
 func newRollbackTestService(current string, releases []*GitHubRelease) *UpdateService {
-	return NewUpdateService(
+	for _, r := range releases {
+		_, assets := updateTestRelease(strings.TrimPrefix(r.TagName, "v"), nil, "omnihive", "0.2.5")
+		for _, a := range assets {
+			r.Assets = append(r.Assets, GitHubAsset{Name: a.Name, BrowserDownloadURL: "https://github.com/fixture/" + r.TagName + "/" + a.Name})
+		}
+	}
+	svc := NewUpdateService(
 		&updateServiceCacheStub{},
-		&updateServiceGitHubClientStub{recentReleases: releases},
+		&updateServiceGitHubClientStub{recentReleases: releases, autoManifest: true},
 		current,
 		"release",
 	)
+	svc.readRollbackFloor = func(context.Context) (string, error) { return OldestSupportedRelease, nil }
+	return svc
+}
+
+func (s *updateServiceGitHubClientStub) setManifestFixture(url string) {
+	parts := strings.Split(url, "/")
+	version := parts[len(parts)-2]
+	c, _ := updateTestRelease(strings.TrimPrefix(version, "v"), nil, "omnihive", "0.2.5")
+	s.manifest, s.checksums = c.manifest, c.checksums
 }
 
 func TestUpdateServiceListRollbackVersionsFiltersAndCaps(t *testing.T) {
@@ -169,6 +191,7 @@ func TestUpdateServiceListRollbackVersionsPropagatesFetchError(t *testing.T) {
 		"0.2.147",
 		"release",
 	)
+	svc.readRollbackFloor = func(context.Context) (string, error) { return OldestSupportedRelease, nil }
 
 	_, err := svc.ListRollbackVersions(context.Background())
 
@@ -210,6 +233,7 @@ func TestUpdateServiceRollbackToVersionAcceptsVPrefix(t *testing.T) {
 	}
 	svc := newRollbackTestService("0.2.147", releases)
 
+	releases[1].Assets = nil
 	err := svc.RollbackToVersion(context.Background(), "v0.2.146")
 
 	require.Error(t, err)
@@ -326,6 +350,7 @@ func TestUpdateServicePersistentUpdateAndRollback(t *testing.T) {
 			client, assets := updateTestRelease("0.2.5", archive, "omnihive", "0.2.5")
 			svc := NewUpdateService(&updateServiceCacheStub{}, client, "0.2.4", "release")
 			prepareRollbackService(t, svc)
+			svc.readRollbackFloor = func(context.Context) (string, error) { return OldestSupportedRelease, nil }
 			svc.executablePath = func() (string, error) { return exe, nil }
 			require.NoError(t, svc.applyReleaseAssets(context.Background(), "0.2.5", assets))
 			content, err := os.ReadFile(current)
@@ -437,9 +462,11 @@ func TestUpdateServiceRejectsUnverifiedReleasesBeforeReplacingBinary(t *testing.
 			client.release = release
 			client.recentReleases = []*GitHubRelease{release}
 			update := NewUpdateService(&updateServiceCacheStub{}, client, "0.2.4", "release")
+			update.readRollbackFloor = func(context.Context) (string, error) { return OldestSupportedRelease, nil }
 			update.executablePath = func() (string, error) { return exe, nil }
 			require.ErrorContains(t, update.PerformUpdate(context.Background()), tc.want)
 			rollback := NewUpdateService(&updateServiceCacheStub{}, client, "0.2.6", "release")
+			rollback.readRollbackFloor = update.readRollbackFloor
 			rollback.executablePath = update.executablePath
 			require.ErrorContains(t, rollback.RollbackToVersion(context.Background(), "0.2.5"), tc.want)
 
@@ -507,6 +534,7 @@ func TestUpdateServicePersistentStageWhenDirectSwapFails(t *testing.T) {
 	client, assets := updateTestRelease("0.2.5", archive, "omnihive", "0.2.5")
 	svc := NewUpdateService(nil, client, "0.2.4", "release")
 	prepareRollbackService(t, svc)
+	svc.readRollbackFloor = func(context.Context) (string, error) { return OldestSupportedRelease, nil }
 	svc.executablePath = func() (string, error) { return exe, nil }
 	require.NoError(t, svc.applyReleaseAssets(context.Background(), "0.2.5", assets))
 	content, err := os.ReadFile(exe)
@@ -585,6 +613,7 @@ func TestUpdateServiceDirectRollbackVerifiesManifestDigestAndFloor(t *testing.T)
 }
 
 func TestCompareVersionsOrdersPrereleaseBeforeRelease(t *testing.T) {
+	require.Equal(t, -1, compareVersions("0.3.4-rc.2", "0.3.4-rc.10"))
 	require.Equal(t, -1, compareVersions("0.3.0-rc.1", "0.3.0"))
 	require.Equal(t, 1, compareVersions("0.3.0", "0.3.0-rc.1"))
 	require.Equal(t, 0, compareVersions("v0.3.0", "0.3.0"))
