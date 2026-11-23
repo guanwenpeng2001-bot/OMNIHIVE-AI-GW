@@ -23,7 +23,7 @@ paths:
       operationId: listAdminRollbackVersions
       responses:
         '200':
-          description: Rollback eligibility for recent releases
+          description: Rollback eligibility, with local backup candidates when GitHub is unavailable
           content:
             application/json:
               schema:
@@ -34,6 +34,26 @@ paths:
                   message: {type: string}
                   data:
                     $ref: '#/components/schemas/AdminRollbackEligibility'
+  /api/v1/admin/system/check-updates:
+    get:
+      operationId: checkAdminSystemUpdates
+      parameters:
+      - name: force
+        in: query
+        schema: {type: boolean, default: false}
+      responses:
+        '200':
+          description: Release check, including an unavailable result if GitHub cannot be reached
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data:
+                    $ref: '#/components/schemas/AdminUpdateInfo'
   /api/v1/admin/backups/schedule:
     get:
       operationId: getAdminBackupSchedule
@@ -106,15 +126,50 @@ components:
         html_url: {type: string}
     AdminRollbackEligibility:
       type: object
-      required: [database_floor, versions, excluded_versions]
+      required: [database_floor, current_version, remote_status, versions, excluded_versions, local_versions]
       properties:
         database_floor: {type: string}
+        current_version: {type: string}
+        remote_status: {type: string, enum: [available, unavailable]}
+        remote_reason: {type: string}
         versions:
           type: array
           items: {$ref: '#/components/schemas/AdminRollbackVersion'}
         excluded_versions:
           type: array
           items: {$ref: '#/components/schemas/AdminRollbackVersion'}
+        local_versions:
+          description: Verified local backup versions reported during a remote outage. Omit the version when requesting a local rollback.
+          type: array
+          items: {$ref: '#/components/schemas/AdminRollbackVersion'}
+    AdminUpdateInfo:
+      type: object
+      required: [current_version, latest_version, has_update, cached, build_type, remote_status]
+      properties:
+        current_version: {type: string}
+        latest_version: {type: string}
+        has_update: {type: boolean}
+        cached: {type: boolean}
+        build_type: {type: string, enum: [source, release]}
+        remote_status: {type: string, enum: [available, cached, unavailable]}
+        warning: {type: string}
+        release_info:
+          type: object
+          required: [name, body, published_at, html_url]
+          properties:
+            name: {type: string}
+            body: {type: string}
+            published_at: {type: string}
+            html_url: {type: string}
+            assets:
+              type: array
+              items:
+                type: object
+                required: [name, download_url, size]
+                properties:
+                  name: {type: string}
+                  download_url: {type: string}
+                  size: {type: integer, format: int64}
     AdminBackupSchedule:
       type: object
       properties:
@@ -126,7 +181,7 @@ components:
       allOf:
       - $ref: '#/components/schemas/AdminBackupSchedule'
       - type: object
-        required: [enabled, cron_expr, retain_days, retain_count, runtime, backup_secret_key]
+        required: [enabled, cron_expr, retain_days, retain_count, runtime, backup_secret_key, restore]
         properties:
           runtime:
             type: object
@@ -151,6 +206,12 @@ components:
               configured: {type: boolean}
               migration_required: {type: boolean}
               key_id: {type: string}
+          restore:
+            type: object
+            required: [status]
+            properties:
+              status: {type: string, enum: [disabled, available, unavailable]}
+              reason: {type: string}
     AdminVerifiedBackup:
       type: object
       additionalProperties: true

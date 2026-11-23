@@ -46,6 +46,28 @@ func (r *apiKeyRepository) activeQuery() *dbent.APIKeyQuery {
 	return r.client.APIKey.Query().Where(apikey.DeletedAtIsNil())
 }
 
+// Default attribution is installed even for personal keys. Explicit non-Default
+// bindings and all project policy rows are project-owned.
+const personalAPIKeyPredicate = `NOT EXISTS (
+	SELECT 1 FROM project_key_policies AS policy WHERE policy.api_key_id = %[1]s
+) AND NOT EXISTS (
+	SELECT 1 FROM project_resources AS resource
+	JOIN projects AS project ON project.id = resource.project_id AND project.workspace_id = resource.workspace_id
+	WHERE resource.kind = 'api_keys' AND resource.resource_id = %[1]s AND NOT project.is_default
+)`
+
+func (r *apiKeyRepository) managementQuery(ctx context.Context) *dbent.APIKeyQuery {
+	q := r.activeQuery()
+	if service.IsLegacyKeyManagement(ctx) && r.client.Driver().Dialect() == dialect.Postgres {
+		q.Where(personalAPIKey)
+	}
+	return q
+}
+
+func personalAPIKey(s *entsql.Selector) {
+	s.Where(entsql.ExprP(fmt.Sprintf(personalAPIKeyPredicate, s.C(apikey.FieldID))))
+}
+
 func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) error {
 	return r.CreateInProject(ctx, key, 0)
 }
@@ -169,7 +191,7 @@ func (r *apiKeyRepository) CreateInProject(ctx context.Context, key *service.API
 }
 
 func (r *apiKeyRepository) GetByID(ctx context.Context, id int64) (*service.APIKey, error) {
-	m, err := r.activeQuery().
+	m, err := r.managementQuery(ctx).
 		Where(apikey.IDEQ(id)).
 		WithUser().
 		WithGroup().
@@ -198,7 +220,7 @@ func (r *apiKeyRepository) GetByID(ctx context.Context, id int64) (*service.APIK
 //   - 不加载完整的 API Key 实体及其关联数据（User、Group 等）
 //   - 适用于删除等只需 key 与用户 ID 的场景
 func (r *apiKeyRepository) GetKeyAndOwnerID(ctx context.Context, id int64) (string, int64, error) {
-	m, err := r.activeQuery().
+	m, err := r.managementQuery(ctx).
 		Where(apikey.IDEQ(id)).
 		Select(apikey.FieldUserID).
 		Only(ctx)
@@ -516,6 +538,9 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey, fiel
 	builder := client.APIKey.Update().
 		Where(apikey.IDEQ(key.ID), apikey.DeletedAtIsNil()).
 		SetUpdatedAt(now)
+	if service.IsLegacyKeyManagement(ctx) && client.Driver().Dialect() == dialect.Postgres {
+		builder.Where(personalAPIKey)
+	}
 	if fields.TPMLimit {
 		builder.SetTpmLimit(key.TPMLimit)
 	}
@@ -662,10 +687,15 @@ func (r *apiKeyRepository) DeleteWithAudit(ctx context.Context, id int64) error 
 
 func (r *apiKeyRepository) softDeleteAPIKey(ctx context.Context, exec *dbent.Client, id int64) error {
 	now := time.Now().UTC()
-	res, err := exec.ExecContext(ctx, `
+	query := `
 		UPDATE api_keys
 		SET deleted_at = $2, updated_at = $2
-		WHERE id = $1 AND deleted_at IS NULL`, id, now)
+		WHERE id = $1 AND deleted_at IS NULL`
+	personalOnly := service.IsLegacyKeyManagement(ctx) && exec.Driver().Dialect() == dialect.Postgres
+	if personalOnly {
+		query += " AND " + fmt.Sprintf(personalAPIKeyPredicate, "api_keys.id")
+	}
+	res, err := exec.ExecContext(ctx, query, id, now)
 	if err != nil {
 		return err
 	}
@@ -675,9 +705,11 @@ func (r *apiKeyRepository) softDeleteAPIKey(ctx context.Context, exec *dbent.Cli
 	}
 	if affected == 0 {
 		// 并发/重复删除:记录已存在(已软删)则幂等返回 nil(defer 回滚空事务),否则 NotFound。
-		exists, existErr := r.client.APIKey.Query().
-			Where(apikey.IDEQ(id)).
-			Exist(mixins.SkipSoftDelete(ctx))
+		query := r.client.APIKey.Query().Where(apikey.IDEQ(id))
+		if personalOnly {
+			query.Where(personalAPIKey)
+		}
+		exists, existErr := query.Exist(mixins.SkipSoftDelete(ctx))
 		if existErr != nil {
 			return existErr
 		}
@@ -689,8 +721,8 @@ func (r *apiKeyRepository) softDeleteAPIKey(ctx context.Context, exec *dbent.Cli
 	return nil
 }
 
-func (r *apiKeyRepository) apiKeyListByUserIDQuery(userID int64, filters service.APIKeyListFilters) *dbent.APIKeyQuery {
-	q := r.activeQuery().Where(apikey.UserIDEQ(userID))
+func (r *apiKeyRepository) apiKeyListByUserIDQuery(ctx context.Context, userID int64, filters service.APIKeyListFilters) *dbent.APIKeyQuery {
+	q := r.managementQuery(ctx).Where(apikey.UserIDEQ(userID))
 
 	if filters.Search != "" {
 		q = q.Where(apikey.Or(
@@ -713,7 +745,7 @@ func (r *apiKeyRepository) apiKeyListByUserIDQuery(userID int64, filters service
 }
 
 func (r *apiKeyRepository) ListByUserID(ctx context.Context, userID int64, params pagination.PaginationParams, filters service.APIKeyListFilters) ([]service.APIKey, *pagination.PaginationResult, error) {
-	q := r.apiKeyListByUserIDQuery(userID, filters)
+	q := r.apiKeyListByUserIDQuery(ctx, userID, filters)
 
 	total, err := q.Count(ctx)
 	if err != nil {
@@ -756,7 +788,7 @@ func (r *apiKeyRepository) ListAllByUserID(ctx context.Context, userID int64, fi
 	// Callers use this for account management/deletion checks. Bound the legacy
 	// unpaged surface so a user with an abnormal key history cannot make its
 	// relation hydration consume arbitrary memory.
-	keys, err := r.apiKeyListByUserIDQuery(userID, filters).
+	keys, err := r.apiKeyListByUserIDQuery(ctx, userID, filters).
 		WithGroup().
 		Order(dbent.Asc(apikey.FieldID)).
 		Limit(apiKeyUnpagedListLimit).
@@ -1058,10 +1090,13 @@ func (r *apiKeyRepository) ClearGroupIDByGroupID(ctx context.Context, groupID in
 // UpdateGroupIDByUserAndGroup 将用户下绑定 oldGroupID 的所有 Key 迁移到 newGroupID
 func (r *apiKeyRepository) UpdateGroupIDByUserAndGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (int64, error) {
 	client := clientFromContext(ctx, r.client)
-	n, err := client.APIKey.Update().
+	builder := client.APIKey.Update().
 		Where(apikey.UserIDEQ(userID), apikey.GroupIDEQ(oldGroupID), apikey.DeletedAtIsNil()).
-		SetGroupID(newGroupID).
-		Save(ctx)
+		SetGroupID(newGroupID)
+	if service.IsLegacyKeyManagement(ctx) && client.Driver().Dialect() == dialect.Postgres {
+		builder.Where(personalAPIKey)
+	}
+	n, err := builder.Save(ctx)
 	return int64(n), err
 }
 

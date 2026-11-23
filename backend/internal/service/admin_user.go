@@ -215,6 +215,11 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 		return nil, err
 	}
 
+	if input.Balance != nil && *input.Balance != user.Balance {
+		return nil, infraerrors.BadRequest("BALANCE_UPDATE_REQUIRES_BALANCE_ENDPOINT",
+			"Use POST /api/v1/admin/users/{id}/balance to change the balance.")
+	}
+
 	// Protect admin users: cannot disable admin accounts
 	if user.Role == "admin" && input.Status == "disabled" {
 		return nil, errors.New("cannot disable admin user")

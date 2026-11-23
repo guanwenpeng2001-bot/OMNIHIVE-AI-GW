@@ -169,6 +169,12 @@ type BackupScheduleStatus struct {
 	Runtime            BackupSchedulerRuntime `json:"runtime"`
 	LastVerifiedBackup *BackupRecord          `json:"last_verified_backup,omitempty"`
 	BackupSecretKey    BackupSecretKeyStatus  `json:"backup_secret_key"`
+	Restore            RestoreRuntimeStatus   `json:"restore"`
+}
+
+type RestoreRuntimeStatus struct {
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
 }
 
 // BackupSchedulerAlertSink is a narrow adapter for Ops. The composition root
@@ -581,6 +587,10 @@ func (s *BackupService) GetScheduleStatus(ctx context.Context) (*BackupScheduleS
 		return nil, err
 	}
 	status := &BackupScheduleStatus{BackupScheduleConfig: *cfg, Runtime: s.getSchedulerRuntime(ctx), BackupSecretKey: s.BackupSecretKeyStatus(ctx)}
+	status.Restore = RestoreRuntimeStatus{Status: "disabled"}
+	if control, ok := s.boundRestoreControl().(interface{ RestoreStatus() RestoreRuntimeStatus }); ok {
+		status.Restore = control.RestoreStatus()
+	}
 	s.applySchedulerAlertThreshold(cfg, &status.Runtime)
 	if records, err := s.ListBackups(ctx); err == nil {
 		for i := range records {

@@ -184,19 +184,54 @@ func TestUpdateServiceListRollbackVersionsEmptyWhenNoneOlder(t *testing.T) {
 	require.Empty(t, versions)
 }
 
-func TestUpdateServiceListRollbackVersionsPropagatesFetchError(t *testing.T) {
+func TestUpdateServiceRollbackEligibilityDegradesOnGitHubFailure(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OMNIHIVE_DATA_DIR", dir)
+	exe := filepath.Join(dir, updateBinaryName)
+	require.NoError(t, os.WriteFile(exe, []byte("running binary"), 0755))
 	svc := NewUpdateService(
 		&updateServiceCacheStub{},
 		&updateServiceGitHubClientStub{recentErr: errors.New("github unavailable")},
-		"0.2.147",
+		"0.3.3",
 		"release",
 	)
-	svc.readRollbackFloor = func(context.Context) (string, error) { return OldestSupportedRelease, nil }
+	svc.backupKey = bytes.Repeat([]byte{1}, 32)
+	svc.executablePath = func() (string, error) { return exe, nil }
+	svc.readRollbackFloor = func(context.Context) (string, error) { return "0.3.2", nil }
+	backup := exe + ".backup"
+	require.NoError(t, os.WriteFile(backup, []byte("local backup"), 0755))
+	require.NoError(t, svc.prepareBackupManifest(backup))
+	svc.currentVersion = "0.3.4"
 
-	_, err := svc.ListRollbackVersions(context.Background())
+	report, err := svc.ListRollbackEligibility(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "v0.3.2", report.DatabaseFloor)
+	require.Equal(t, "0.3.4", report.CurrentVersion)
+	require.Equal(t, "unavailable", report.RemoteStatus)
+	require.NotEmpty(t, report.RemoteReason)
+	require.Empty(t, report.Versions)
+	require.Equal(t, []RollbackVersion{{Version: "0.3.3", EffectiveFloor: "v0.3.2"}}, report.LocalVersions)
 
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "github unavailable")
+	require.NoError(t, os.WriteFile(backup, []byte("invalid backup"), 0755))
+	report, err = svc.ListRollbackEligibility(t.Context())
+	require.NoError(t, err)
+	require.Empty(t, report.LocalVersions)
+	require.ErrorContains(t, svc.RollbackToVersion(t.Context(), "0.3.3"), "github unavailable")
+}
+
+func TestUpdateServiceCheckUpdateDegradesWithoutAuthorizingAnUpdate(t *testing.T) {
+	svc := NewUpdateService(&updateServiceCacheStub{},
+		&updateServiceGitHubClientStub{latestErr: errors.New("github unavailable")}, "0.3.4", "release")
+	for _, force := range []bool{false, true} {
+		info, err := svc.CheckUpdate(t.Context(), force)
+		require.ErrorIs(t, err, ErrUpdateCheckUnavailable)
+		require.Equal(t, "unavailable", info.RemoteStatus)
+		require.Equal(t, "0.3.4", info.CurrentVersion)
+		require.Equal(t, "0.3.4", info.LatestVersion)
+		require.False(t, info.HasUpdate)
+		require.NotEmpty(t, info.Warning)
+	}
+	require.ErrorIs(t, svc.PerformUpdate(t.Context()), ErrUpdateCheckUnavailable)
 }
 
 func TestUpdateServiceRollbackToVersionRejectsDisallowedTargets(t *testing.T) {

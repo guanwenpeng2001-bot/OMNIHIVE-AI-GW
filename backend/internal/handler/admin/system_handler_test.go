@@ -103,6 +103,7 @@ func newSystemHandlerTestRouter(t *testing.T, updateSvc *systemHandlerUpdateServ
 	router := gin.New()
 	router.POST("/api/v1/admin/system/update", handler.PerformUpdate)
 	router.POST("/api/v1/admin/system/rollback", handler.Rollback)
+	router.GET("/api/v1/admin/system/check-updates", handler.CheckUpdates)
 	router.GET("/api/v1/admin/system/rollback-versions", handler.GetRollbackVersions)
 	return router
 }
@@ -315,7 +316,7 @@ func TestSystemHandlerGetRollbackVersions(t *testing.T) {
 
 func TestSystemHandlerGetRollbackVersionsError(t *testing.T) {
 	updateSvc := &systemHandlerUpdateServiceStub{
-		rollbackVersionsErr: errors.New("github unavailable"),
+		rollbackVersionsErr: errors.New("database rollback floor is unavailable"),
 	}
 	repo := newMemoryIdempotencyRepoStub()
 	router := newSystemHandlerTestRouter(t, updateSvc, repo)
@@ -325,6 +326,21 @@ func TestSystemHandlerGetRollbackVersionsError(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestSystemHandlerCheckUpdatesReportsUnavailableWithHTTP200(t *testing.T) {
+	updateSvc := &systemHandlerUpdateServiceStub{
+		updateInfo: &service.UpdateInfo{CurrentVersion: "0.3.4", LatestVersion: "0.3.4", RemoteStatus: "unavailable",
+			BuildType: "release", Warning: "GitHub release information is unavailable."},
+		checkErr: service.ErrUpdateCheckUnavailable,
+	}
+	router := newSystemHandlerTestRouter(t, updateSvc, newMemoryIdempotencyRepoStub())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/system/check-updates?force=true", nil))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, []bool{true}, updateSvc.checkForces)
+	require.JSONEq(t, `{"code":0,"message":"success","data":{"current_version":"0.3.4","latest_version":"0.3.4","has_update":false,"cached":false,"build_type":"release","remote_status":"unavailable","warning":"GitHub release information is unavailable."}}`, rec.Body.String())
 }
 
 func TestSystemHandlerPerformUpdateReportsReleaseLookupFailure(t *testing.T) {

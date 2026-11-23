@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 )
@@ -134,38 +135,76 @@ func (s *UpdateService) revalidateRollbackFloor(ctx context.Context, previous st
 }
 
 func (s *UpdateService) verifyBackup(path, floor string) error {
-	f, err := os.Open(path + ".manifest.json")
-	if errors.Is(err, os.ErrNotExist) {
-		return ErrRollbackManifestInvalid.WithCause(err)
-	}
+	m, err := s.verifiedBackupManifest(path)
 	if err != nil {
-		return fmt.Errorf("read backup manifest: %w", err)
-	}
-	defer f.Close()
-	b, err := io.ReadAll(io.LimitReader(f, maxReleaseManifestSize+1))
-	if err != nil {
-		return fmt.Errorf("read backup manifest: %w", err)
-	}
-	var m backupManifest
-	if len(b) > maxReleaseManifestSize {
-		return ErrRollbackManifestInvalid
-	}
-	if err = json.Unmarshal(b, &m); err != nil {
-		return ErrRollbackManifestInvalid.WithCause(err)
-	}
-	mac, err := s.backupMAC(m)
-	if err != nil {
-		return ErrRollbackManifestInvalid.WithCause(err)
-	}
-	if !hmac.Equal(m.MAC, mac) || m.Product != updateBinaryName || backupVersion(m.Version) == "" {
-		return ErrRollbackManifestInvalid
-	}
-	if err := verifyReleaseChecksum(path, m.Digest); err != nil {
-		if errors.Is(err, errReleaseChecksumMismatch) || errors.Is(err, os.ErrNotExist) {
-			return ErrRollbackManifestInvalid.WithCause(err)
-		}
 		return err
 	}
 	_, err = ResolveReleaseCompatibility(m.Version, floor, "", false)
 	return err
+}
+
+func (s *UpdateService) verifiedBackupManifest(path string) (m backupManifest, err error) {
+	f, err := os.Open(path + ".manifest.json")
+	if errors.Is(err, os.ErrNotExist) {
+		return m, ErrRollbackManifestInvalid.WithCause(err)
+	}
+	if err != nil {
+		return m, fmt.Errorf("read backup manifest: %w", err)
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, maxReleaseManifestSize+1))
+	if err != nil {
+		return m, fmt.Errorf("read backup manifest: %w", err)
+	}
+	if len(b) > maxReleaseManifestSize {
+		return m, ErrRollbackManifestInvalid
+	}
+	if err = json.Unmarshal(b, &m); err != nil {
+		return m, ErrRollbackManifestInvalid.WithCause(err)
+	}
+	mac, err := s.backupMAC(m)
+	if err != nil {
+		return m, ErrRollbackManifestInvalid.WithCause(err)
+	}
+	if !hmac.Equal(m.MAC, mac) || m.Product != updateBinaryName || backupVersion(m.Version) == "" {
+		return m, ErrRollbackManifestInvalid
+	}
+	if err := verifyReleaseChecksum(path, m.Digest); err != nil {
+		if errors.Is(err, errReleaseChecksumMismatch) || errors.Is(err, os.ErrNotExist) {
+			return m, ErrRollbackManifestInvalid.WithCause(err)
+		}
+		return m, err
+	}
+	return m, nil
+}
+
+func (s *UpdateService) localRollbackVersions(floor string) []RollbackVersion {
+	paths := []string{persistentRollbackBackup()}
+	if exe, err := s.executablePath(); err == nil {
+		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+			paths = append(paths, resolved+".backup")
+		}
+	}
+	versions := make([]RollbackVersion, 0, len(paths))
+	seen := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		m, err := s.verifiedBackupManifest(path)
+		if err != nil {
+			continue
+		}
+		eligibility, _ := ResolveReleaseCompatibility(m.Version, floor, "", false)
+		version := strings.TrimPrefix(eligibility.Target, "v")
+		if seen[version] {
+			continue
+		}
+		seen[version] = true
+		versions = append(versions, RollbackVersion{
+			Version: version, EffectiveFloor: eligibility.EffectiveFloor, ExclusionReason: eligibility.ExclusionReason,
+		})
+	}
+	return versions
 }
