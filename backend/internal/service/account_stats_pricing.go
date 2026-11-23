@@ -47,7 +47,17 @@ func resolveAccountStatsCost(
 		return nil
 	}
 
-	platform := channelService.GetGroupPlatform(ctx, groupID)
+	platform := channelLookupPlatform(ctx, channelService.GetGroupPlatform(ctx, groupID))
+
+	var frozenAt time.Time
+	if billingService != nil {
+		billingService = billingService.forGatewayRequest(ctx)
+		frozenAt = billingService.frozenPricingAt
+	}
+	pricingAt, _, err = pricingEvaluationInstant(ctx, pricingAt, frozenAt)
+	if err != nil {
+		return nil
+	}
 
 	// 优先级 1：自定义规则（始终尝试）
 	if cost := tryCustomRulesAt(channel, accountID, groupID, platform, upstreamModel, tokens, requestCount, pricingAt, reasoningEffort); cost != nil {
@@ -67,7 +77,7 @@ func resolveAccountStatsCost(
 	// They enter the reference-cost fallback only after custom rules and the
 	// apply-customer-pricing switch, preserving existing precedence.
 	resolver := NewModelPricingResolver(channelService, billingService)
-	descriptor, found, err := resolver.configuredPriceDescriptor(ctx, PricingInput{Model: upstreamModel, GroupID: &groupID, Group: &Group{Platform: platform}})
+	descriptor, found, err := resolver.configuredPriceDescriptor(ctx, PricingInput{Model: upstreamModel, GroupID: &groupID, Group: &Group{Platform: platform}, PricingAt: pricingAt})
 	if err == nil && found {
 		if cost, costErr := descriptor.tokenCost(tokens); costErr == nil {
 			return &cost
@@ -76,7 +86,7 @@ func resolveAccountStatsCost(
 	}
 	// 优先级 3：模型定价文件（LiteLLM）默认价格
 	if billingService != nil {
-		return tryModelFilePricing(billingService.forGatewayRequest(ctx), upstreamModel, tokens, serviceTier, pricingAt, longContextPricingEnabled, reasoningEffort)
+		return tryModelFilePricingForProvider(billingService, platform, upstreamModel, tokens, serviceTier, pricingAt, longContextPricingEnabled, reasoningEffort)
 	}
 
 	return nil
@@ -86,18 +96,27 @@ func resolveAccountStatsCost(
 // 与用户计费共用同一条定价管线，避免这里维护第二份"单价 × token 数"实现后，
 // 每加一个定价特性都要手工镜像一次。解析器不配置渠道或分组，保持优先级 3 的
 // 语义：只取模型定价文件，不引入自定义售价。
+//
+//nolint:unused // legacy helper remains referenced by //go:build unit tests.
 func tryModelFilePricing(billingService *BillingService, model string, tokens UsageTokens, serviceTier string, pricingAt time.Time, longContextPricingEnabled bool, reasoningEfforts ...string) *float64 {
+	return tryModelFilePricingForProvider(billingService, "", model, tokens, serviceTier, pricingAt, longContextPricingEnabled, reasoningEfforts...)
+}
+
+// Keep cost-file lookup free of customer group/lane pricing. The caller passes
+// only the actual provider, captured billing service, and selected instant.
+func tryModelFilePricingForProvider(billingService *BillingService, provider, model string, tokens UsageTokens, serviceTier string, pricingAt time.Time, longContextPricingEnabled bool, reasoningEfforts ...string) *float64 {
 	reasoningEffort := ""
 	if len(reasoningEfforts) > 0 {
 		reasoningEffort = reasoningEfforts[0]
 	}
 	resolver := NewModelPricingResolver(nil, billingService)
-	resolved := resolver.Resolve(context.Background(), PricingInput{Model: model})
+	resolved := resolver.Resolve(context.Background(), PricingInput{Provider: provider, Model: model, PricingAt: pricingAt})
 	// 无分组的解析结果默认开启长上下文，CostInput.LongContextBillingEnabled=false 无法否决，
 	// 因此直接覆写解析结果。
 	resolved.longContextPricingEnabled = longContextPricingEnabled
 	breakdown, err := billingService.CalculateCostUnified(CostInput{
 		Ctx:             context.Background(),
+		Provider:        provider,
 		Model:           model,
 		Tokens:          tokens,
 		RateMultiplier:  1,

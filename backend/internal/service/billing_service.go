@@ -1964,11 +1964,11 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 	// New legacy calculations record the same actual clock as unified ones;
 	// replay continues to read only the previously persisted snapshot.
 	if s.frozenPricingAt.IsZero() {
-		at, _, err := pricingEvaluationInstant(nil, time.Time{}, time.Time{})
+		at, _, err := pricingEvaluationInstant(context.Background(), time.Time{}, time.Time{})
 		if err != nil {
 			return pricingFailure(err), err
 		}
-		s = frozenBillingService(s, ModelRegistrySnapshotFromContext(nil), at)
+		s = frozenBillingService(s, ModelRegistrySnapshotFromContext(context.Background()), at)
 	}
 	if err := validateOpenAIGPT62BillingTier(model, serviceTier, providers...); err != nil {
 		return pricingFailure(err), err

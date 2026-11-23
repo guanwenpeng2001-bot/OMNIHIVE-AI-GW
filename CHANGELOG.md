@@ -15,6 +15,7 @@ This project follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/
 - WorkBuddy account edits preserve saved model selections and aliases after reopening. The same hydration fix covers Gemini/Anthropic OAuth and existing Kilo/OpenCode modes.
 - Public model names no longer select an arbitrary provider. Missing availability remains unknown; published state is independent of routing. Catalog, pricing layouts, details and command search use the same model IDs and price presentation.
 - Provider identity and one pricing instant now propagate through legacy cost calculation and frozen receipts. A partial sale override cannot borrow another provider's same-named price; unknown-model checks reuse the versioned pricing index instead of scanning the entire catalog.
+- Account cost resolution preserves the request's pricing instant, explicit provider and independent long-context policy; customer sale settings do not overwrite the account cost gate.
 
 ### Changed
 

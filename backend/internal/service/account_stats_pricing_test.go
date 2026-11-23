@@ -749,6 +749,87 @@ func TestResolveAccountStatsCost_DeepSeekPricingPriority(t *testing.T) {
 	}
 }
 
+func TestResolveAccountStatsCost_ZeroPricingAtUsesFrozenTokenContext(t *testing.T) {
+	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 500, CacheReadTokens: 1000}
+	baseCost := 1000*1.5e-7 + 500*6e-7 + 1000*3e-9
+	for _, testCase := range []struct {
+		name       string
+		at         time.Time
+		multiplier float64
+	}{
+		{"peak", time.Date(2026, time.August, 24, 2, 0, 0, 0, time.UTC), 2},
+		{"off_peak", time.Date(2026, time.August, 24, 5, 0, 0, 0, time.UTC), 1},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Only the request clock is present: no plan, bundle, or explicit PricingAt.
+			ctx := context.WithValue(context.Background(), gatewayTokenRequestPricingAtCtxKey{}, testCase.at)
+			channels := newTestChannelServiceForStats(t, &Channel{ID: 1, Status: StatusActive}, 10, PlatformDeepseek)
+			cost := resolveAccountStatsCost(ctx, channels, newTestBillingService(),
+				1, 10, "deepseek-v4-flash", tokens, 1, 99, "", time.Time{}, true)
+			require.NotNil(t, cost)
+			require.InDelta(t, baseCost*testCase.multiplier, *cost, 1e-12)
+		})
+	}
+}
+
+func TestResolveAccountStatsCost_UsesProviderBoundModelFileAndCompositeTarget(t *testing.T) {
+	pricingAt := time.Date(2026, time.August, 24, 5, 0, 0, 0, time.UTC)
+	tokens := UsageTokens{InputTokens: 100, OutputTokens: 50}
+	for _, testCase := range []struct {
+		name          string
+		groupPlatform string
+		target        string
+		customRule    bool
+		applyPricing  bool
+		wantNil       bool
+		wantCost      float64
+	}{
+		{name: "same_provider", groupPlatform: "provider-a", wantCost: 2},
+		{name: "foreign_provider", groupPlatform: "provider-c", wantNil: true},
+		{name: "composite_target_has_no_own_tariff", groupPlatform: PlatformComposite, target: "provider-b", wantNil: true},
+		{name: "composite_target_custom_rule", groupPlatform: PlatformComposite, target: "provider-b", customRule: true, wantCost: 5},
+		{name: "composite_custom_rule_precedes_customer_price", groupPlatform: PlatformComposite, target: "provider-b", customRule: true, applyPricing: true, wantCost: 5},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			billing := NewBillingService(&config.Config{}, &PricingService{
+				pricingData: map[string]*LiteLLMModelPricing{
+					"provider-a/same": {
+						LiteLLMProvider:    "provider-a",
+						InputCostPerToken:  0.01,
+						OutputCostPerToken: 0.02,
+					},
+				},
+			})
+			channel := &Channel{ID: 1, Status: StatusActive, ApplyPricingToAccountStats: testCase.applyPricing}
+			if testCase.customRule {
+				channel.AccountStatsPricingRules = []AccountStatsPricingRule{{
+					AccountIDs: []int64{1},
+					Pricing: []ChannelModelPricing{
+						{Platform: "provider-a", Models: []string{"same"}, InputPrice: testPtrFloat64(9), OutputPrice: testPtrFloat64(9)},
+						{Platform: "provider-b", Models: []string{"same"}, InputPrice: testPtrFloat64(0.03), OutputPrice: testPtrFloat64(0.04)},
+					},
+				}}
+			}
+			channels := newTestChannelServiceForStats(t, channel, 10, testCase.groupPlatform)
+			ctx := context.Background()
+			if testCase.target != "" {
+				ctx = WithResolvedTargetPlatform(ctx, testCase.target)
+			}
+
+			cost := resolveAccountStatsCost(ctx, channels, billing,
+				1, 10, "same", tokens, 1, 99, "", pricingAt, true)
+			if testCase.wantNil {
+				// No internal-cost override: the caller retains its normal account-cost
+				// fallback. This is not a zero-price customer request.
+				require.Nil(t, cost)
+				return
+			}
+			require.NotNil(t, cost)
+			require.InDelta(t, testCase.wantCost, *cost, 1e-12)
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // resolveAccountStatsCost — integration tests covering the 4-level priority chain
 // ---------------------------------------------------------------------------
@@ -1040,6 +1121,7 @@ func TestApplyAccountStatsCost_UsesUsageLogServiceTier(t *testing.T) {
 }
 
 func TestApplyAccountStatsCost_LongContextFollowsAccountGate(t *testing.T) {
+	pricingAt := time.Date(2026, time.August, 17, 5, 0, 0, 0, time.UTC)
 	// 渠道售价不参与优先级 3：结果只取模型定价文件。
 	channel := &Channel{
 		ID:     1,
@@ -1080,7 +1162,7 @@ func TestApplyAccountStatsCost_LongContextFollowsAccountGate(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			usageLog := &UsageLog{ServiceTier: &testCase.tier}
 			applyAccountStatsCost(context.Background(), usageLog, channels, billing,
-				1, 10, "gpt-5.6-sol", "gpt-5.6-sol", tokens, 999, time.Time{},
+				1, 10, "gpt-5.6-sol", "gpt-5.6-sol", tokens, 999, pricingAt,
 				accountStatsLongContextPricingEnabled(testCase.gate))
 			require.NotNil(t, usageLog.AccountStatsCost)
 			require.InDelta(t, testCase.wantCost, *usageLog.AccountStatsCost, 1e-12)

@@ -271,13 +271,18 @@ func TestCalculateCostUnified_ChannelTimePricingDoesNotApplyToGroupPricing(t *te
 func TestCalculateCostUnified_ChannelTimePricingDoesNotApplyOutsideMatchingTime(t *testing.T) {
 	resolved := channelTimeResolvedForTest(&ModelPricing{InputPricePerToken: 0.001}, nil)
 	billing := NewBillingService(&config.Config{}, nil)
+	outsideWindow := time.Date(2026, 8, 17, 5, 0, 0, 0, time.UTC)
 
 	for _, pricingAt := range []time.Time{
 		time.Time{},
-		time.Date(2026, 8, 17, 5, 0, 0, 0, time.UTC),
+		outsideWindow,
 	} {
+		ctx := context.Background()
+		if pricingAt.IsZero() {
+			ctx = context.WithValue(ctx, gatewayTokenRequestPricingAtCtxKey{}, outsideWindow)
+		}
 		cost, err := billing.CalculateCostUnified(CostInput{
-			Ctx:       context.Background(),
+			Ctx:       ctx,
 			Model:     "model",
 			Tokens:    UsageTokens{InputTokens: 1000},
 			Resolver:  &ModelPricingResolver{},
@@ -287,6 +292,25 @@ func TestCalculateCostUnified_ChannelTimePricingDoesNotApplyOutsideMatchingTime(
 		require.NoError(t, err)
 		require.InDelta(t, 1.0, cost.TotalCost, 1e-12)
 	}
+}
+
+func TestCalculateCostUnified_ChannelTimePricingZeroInputUsesMatchingFrozenTime(t *testing.T) {
+	insideWindow := time.Date(2026, 8, 17, 1, 0, 0, 0, time.UTC)
+	ctx := context.WithValue(context.Background(), gatewayTokenRequestPricingAtCtxKey{}, insideWindow)
+	billing := NewBillingService(&config.Config{}, nil)
+
+	cost, err := billing.CalculateCostUnified(CostInput{
+		Ctx:            ctx,
+		Model:          "model",
+		Tokens:         UsageTokens{InputTokens: 1000},
+		RateMultiplier: 1,
+		Resolver:       &ModelPricingResolver{},
+		Resolved:       channelTimeResolvedForTest(&ModelPricing{InputPricePerToken: 0.001}, nil),
+	})
+	require.NoError(t, err)
+	require.InDelta(t, 2.0, cost.InputCost, 1e-12)
+	require.InDelta(t, 2.0, cost.TotalCost, 1e-12)
+	require.InDelta(t, 2.0, cost.ActualCost, 1e-12)
 }
 
 func TestApplyCostBreakdownMultiplierScalesAllMonetaryFields(t *testing.T) {
