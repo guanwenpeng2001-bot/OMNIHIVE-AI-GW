@@ -255,7 +255,7 @@ func projectModel(p Perspective, m Candidate, entries []RegistryModel, w Window,
 	reference := piReferencePrice(m.Provider, m.Model)
 	if reference != nil {
 		provenance = append(provenance, Provenance{Field: "reference_price", State: "known", SourceKind: PiAIReference,
-			RecordKey: m.Provider + "/" + m.Model, ArtifactVersion: piTokenPrices().version, Provider: m.Provider,
+			RecordKey: m.Provider + "/" + m.Model, ArtifactVersion: piReferenceDigest(), Provider: m.Provider,
 			MatchRule: "exact_public_name", Trust: "reference", Scope: "public"})
 	}
 	d.Provenance = redactProvenance(p, append(provenance, historical...))
