@@ -98,4 +98,7 @@ func TestPiCapabilitySupplementProjectsNewModelWithExactProvider(t *testing.T) {
 	require.Equal(t, new(int64(8192)), facts.Output)
 	require.Equal(t, new(false), facts.Reasoning)
 	require.Equal(t, new(true), facts.Vision)
+	*facts.Vision = false
+	again := Project(Perspective{}, input, Window{}, time.Now()).Details[0]
+	require.Equal(t, new(true), again.CommonFacts.Vision)
 }

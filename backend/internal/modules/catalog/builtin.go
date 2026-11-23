@@ -112,7 +112,15 @@ func supplementalFacts(id ModelIdentity) []RegistryModel {
 			continue
 		}
 		modalities, actions := TaskPresentation(m.Mode)
-		f := Facts{Reasoning: m.Reasoning, Vision: m.Vision, SupportedMethods: slices.Clone(m.Methods)}
+		f := Facts{SupportedMethods: slices.Clone(m.Methods)}
+		if m.Reasoning != nil {
+			reasoning := *m.Reasoning
+			f.Reasoning = &reasoning
+		}
+		if m.Vision != nil {
+			vision := *m.Vision
+			f.Vision = &vision
+		}
 		if m.Context > 0 {
 			f.Context, f.ContextKind = &m.Context, m.ContextKind
 		} else if m.Input > 0 {
