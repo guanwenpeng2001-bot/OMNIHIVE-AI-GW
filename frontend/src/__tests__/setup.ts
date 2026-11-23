@@ -6,7 +6,11 @@ import { config, disableAutoUnmount } from '@vue/test-utils'
 import { afterAll, vi } from 'vitest'
 
 // Each spec registers its own auto-unmount hook when workers are reused.
-afterAll(disableAutoUnmount)
+afterAll(() => {
+  disableAutoUnmount()
+  vi.unstubAllGlobals()
+  vi.useRealTimers()
+})
 
 function createMemoryStorage(): Storage {
   const values = new Map<string, string>()

@@ -75,6 +75,7 @@ vi.mock('@/api/admin', () => ({
     proxies: { getAll: mockGetProxies },
     tlsFingerprintProfiles: { list: vi.fn().mockResolvedValue([]) },
     settings: {
+      getSettings: vi.fn().mockResolvedValue({ account_quota_notify_enabled: false }),
       getWebSearchEmulationConfig: vi.fn().mockResolvedValue({ enabled: false })
     },
     accounts: {

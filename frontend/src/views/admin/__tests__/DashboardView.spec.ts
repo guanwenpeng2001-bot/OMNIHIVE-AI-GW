@@ -30,7 +30,10 @@ vi.mock('@/stores/app', () => ({
   })
 }))
 
-vi.mock('vue-router', () => ({
+vi.mock('@/api/catalog', () => ({ listPublicModels: vi.fn().mockResolvedValue({ items: [] }) }))
+
+vi.mock('vue-router', async () => ({
+  RouterLink: (await import('@vue/test-utils')).RouterLinkStub,
   useRouter: () => ({
     push: vi.fn()
   })

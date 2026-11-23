@@ -71,6 +71,7 @@ vi.mock('@/api/client', () => ({
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     settings: {
+      getSettings: vi.fn().mockResolvedValue({ account_quota_notify_enabled: false }),
       getWebSearchEmulationConfig: vi.fn().mockResolvedValue({ enabled: false })
     },
     accounts: {
