@@ -11,7 +11,7 @@ import (
 
 func TestResetConfigOverridesReloadsOpsAfterCommit(t *testing.T) {
 	repo := &registrySettingRepoStub{values: map[string]string{
-		SettingKeyOpsAdvancedSettings:  `{"advanced":true}`,
+		SettingKeyOpsAdvancedSettings: `{"advanced":true}`,
 		SettingKeyOpsRuntimeLogConfig: `{"level":"warn"}`,
 	}}
 	svc := registryService(repo)
