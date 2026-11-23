@@ -1215,21 +1215,7 @@ components:
         catalog_version:
           type: string
     CatalogPriceScenario:
-      type: object
-      required: []
-      properties:
-        input_tokens:
-          type: string
-          pattern: ^(0|[1-9][0-9]*)$
-        cached_input_tokens:
-          type: string
-          pattern: ^(0|[1-9][0-9]*)$
-        output_tokens:
-          type: string
-          pattern: ^(0|[1-9][0-9]*)$
-        requests:
-          type: string
-          pattern: ^(0|[1-9][0-9]*)$
+      $ref: '#/components/schemas/ExactPriceScenario'
     CatalogCompareInput:
       type: object
       required:
@@ -1282,7 +1268,10 @@ components:
         billing_state:
           $ref: '#/components/schemas/CatalogBillingState'
         reason:
-          type: string
+          description: Explains an unavailable estimate or describes the catalog billing state when no estimate was requested.
+          anyOf:
+          - $ref: '#/components/schemas/PriceEstimateReason'
+          - type: string
         price_at:
           type: string
           format: date-time

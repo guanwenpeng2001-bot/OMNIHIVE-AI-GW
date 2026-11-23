@@ -1,0 +1,166 @@
+paths:
+  /api/v1/admin/accounts/{id}:
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema: {type: integer, format: int64, minimum: 1}
+    put:
+      operationId: updateAdminAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminAccountUpdate'
+      responses:
+        '200':
+          description: Updated account
+        '400':
+          description: Invalid update, including conflicting model selection intent
+  /api/v1/admin/system/rollback-versions:
+    get:
+      operationId: listAdminRollbackVersions
+      responses:
+        '200':
+          description: Rollback eligibility for recent releases
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data:
+                    $ref: '#/components/schemas/AdminRollbackEligibility'
+  /api/v1/admin/backups/schedule:
+    get:
+      operationId: getAdminBackupSchedule
+      responses:
+        '200':
+          $ref: '#/components/responses/AdminBackupScheduleResponse'
+    put:
+      operationId: updateAdminBackupSchedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminBackupSchedule'
+      responses:
+        '200':
+          $ref: '#/components/responses/AdminBackupScheduleResponse'
+components:
+  responses:
+    AdminBackupScheduleResponse:
+      description: Schedule configuration and observed scheduler status
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message, data]
+            properties:
+              code: {const: 0}
+              message: {type: string}
+              data:
+                $ref: '#/components/schemas/AdminBackupScheduleStatus'
+  schemas:
+    AdminAccountUpdate:
+      type: object
+      properties:
+        preserve_model_selection:
+          type: boolean
+          default: false
+          description: >-
+            Preserve the current model selection during metadata edits. When true, omit
+            credentials.model_mapping, credentials.model_whitelist, and extra.upstream_model_allowlist.
+            Supplying any of these fields returns CONFLICTING_MODEL_SELECTION_INTENT.
+            An explicit credentials.compact_model_mapping can still be edited or cleared.
+        name: {type: string}
+        notes: {type: [string, 'null']}
+        type: {type: string, enum: [oauth, setup-token, apikey, upstream, bedrock, service_account]}
+        credentials: {type: object, additionalProperties: true}
+        extra: {type: object, additionalProperties: true}
+        proxy_id: {type: [integer, 'null'], format: int64}
+        proxy_group_id: {type: [integer, 'null'], format: int64}
+        concurrency: {type: integer}
+        priority: {type: integer}
+        rate_multiplier: {type: number}
+        load_factor: {type: integer}
+        status: {type: string, enum: [active, inactive, error]}
+        group_ids: {type: array, items: {type: integer, format: int64}}
+        expires_at: {type: [integer, 'null'], format: int64}
+        auto_pause_on_expired: {type: boolean}
+        upstream_billing_probe_enabled: {type: boolean}
+        upstream_billing_rate_sync_enabled: {type: boolean}
+        confirm_mixed_channel_risk: {type: boolean}
+        tpm_limit: {type: [integer, 'null'], format: int64}
+    AdminRollbackVersion:
+      type: object
+      required: [version, effective_floor, published_at, html_url]
+      properties:
+        version: {type: string}
+        effective_floor: {type: string}
+        exclusion_reason: {type: string}
+        published_at: {type: string}
+        html_url: {type: string}
+    AdminRollbackEligibility:
+      type: object
+      required: [database_floor, versions, excluded_versions]
+      properties:
+        database_floor: {type: string}
+        versions:
+          type: array
+          items: {$ref: '#/components/schemas/AdminRollbackVersion'}
+        excluded_versions:
+          type: array
+          items: {$ref: '#/components/schemas/AdminRollbackVersion'}
+    AdminBackupSchedule:
+      type: object
+      properties:
+        enabled: {type: boolean}
+        cron_expr: {type: string}
+        retain_days: {type: integer, default: 14}
+        retain_count: {type: integer}
+    AdminBackupScheduleStatus:
+      allOf:
+      - $ref: '#/components/schemas/AdminBackupSchedule'
+      - type: object
+        required: [enabled, cron_expr, retain_days, retain_count, runtime, backup_secret_key]
+        properties:
+          runtime:
+            type: object
+            required: [loaded, health, leader_required, timezone]
+            properties:
+              loaded: {type: boolean}
+              health: {type: string}
+              leader_required: {type: boolean}
+              timezone: {type: string}
+              next_run_at: {type: string, format: date-time}
+              last_attempt_at: {type: string, format: date-time}
+              last_success_at: {type: string, format: date-time}
+              last_verified_at: {type: string, format: date-time}
+              last_error: {type: string}
+          last_verified_backup:
+            $ref: '#/components/schemas/AdminVerifiedBackup'
+          backup_secret_key:
+            type: object
+            required: [source, configured, migration_required]
+            properties:
+              source: {type: string}
+              configured: {type: boolean}
+              migration_required: {type: boolean}
+              key_id: {type: string}
+    AdminVerifiedBackup:
+      type: object
+      additionalProperties: true
+      required: [id, status, file_name, size_bytes]
+      properties:
+        id: {type: string}
+        status: {type: string}
+        file_name: {type: string}
+        size_bytes: {type: integer, format: int64}
+        checksum: {type: string}
+        verified_at: {type: string, format: date-time}
+        verification_error: {type: string}

@@ -68,6 +68,14 @@ components:
         audio_seconds: { $ref: '#/components/schemas/ExactDuration' }
         video_seconds: { $ref: '#/components/schemas/ExactDuration' }
         size_tier: { type: string, maxLength: 80 }
+        service_tier: {type: string, maxLength: 80}
+        reasoning_effort: {type: string, maxLength: 80}
+        thinking_enabled: {type: [boolean, 'null']}
+        explicit_cache: {type: boolean}
+        batch: {type: boolean}
+    PriceEstimateReason:
+      type: string
+      enum: [missing_price, partial_price, conflicting_prices, scenario_required]
     ExactQuoteLine:
       type: object
       required: [kind, quantity, raw_amount, numerator, denominator]
@@ -82,6 +90,8 @@ components:
       required: [state, price_version, source, estimated_charge, components, rounding_adjustment, effective_scope]
       properties:
         state: { type: string, enum: [estimated, free, unpriced] }
+        reason:
+          $ref: '#/components/schemas/PriceEstimateReason'
         price_version: { type: [string, 'null'] }
         source: { type: [string, 'null'] }
         estimated_charge:

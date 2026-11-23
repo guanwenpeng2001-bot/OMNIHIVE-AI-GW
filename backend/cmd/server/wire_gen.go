@@ -17,7 +17,10 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/audit"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/billing"
 	byok2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/byok"
+	admin2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/admin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/compare"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/quotes"
 	verification2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/verification"
 	connections2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
@@ -44,6 +47,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/ops/export"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/payments"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/runtime"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
@@ -265,7 +269,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	adminAnnouncementHandler := admin.NewAnnouncementHandler(announcementService)
 	backupObjectStoreFactory := repository.NewS3BackupStoreFactory()
 	pgDumper := repository.NewPgDumper(cfg, db)
-	backupService := provideBackupService(supervisor, settingRepository, cfg, aesEncryptor, backupObjectStoreFactory, pgDumper, leaderLockCache, db)
+	backupService := provideBackupService(supervisor, settingRepository, cfg, aesEncryptor, backupObjectStoreFactory, pgDumper, leaderLockCache, db, opsService)
 	imageStorageFactory := repository.ProvideImageStorageFactory()
 	imageStorageSettingService := service.ProvideImageStorageSettingService(settingRepository, aesEncryptor, backupService, imageStorageFactory, cfg)
 	backupHandler := admin.NewBackupHandler(backupService, userService, imageStorageSettingService)
@@ -290,7 +294,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	registry := payment.ProvideRegistry()
 	defaultLoadBalancer := payment.ProvideDefaultLoadBalancer(client, encryptionKey)
 	paymentService := service.ProvidePaymentService(client, registry, defaultLoadBalancer, redeemService, subscriptionService, paymentConfigService, userRepository, groupRepository, affiliateService, notificationEmailService)
-	settingHandler := handler.ProvideAdminSettingHandler(settingService, emailService, turnstileService, aliyunCaptchaService, opsService, paymentConfigService, paymentService, userAttributeService, notificationEmailService, totpService, userService)
+	settingHandler := handler.ProvideAdminSettingHandler(settingService, emailService, turnstileService, aliyunCaptchaService, opsService, paymentConfigService, paymentService, userAttributeService, notificationEmailService, totpService, userService, imageStorageSettingService)
 	opsHandler := admin.NewOpsHandler(opsService)
 	updateCache := repository.NewUpdateCache(redisClient)
 	gitHubReleaseClient := repository.ProvideGitHubReleaseClient(cfg)
@@ -343,7 +347,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	upstreamBillingProbeService := provideUpstreamBillingProbeService(supervisor, accountRepository, accountTestService, settingService, leaderLockCache, db)
 	stagedImportReceiptRepository := repository.NewStagedImportReceiptRepository()
 	stagedAccountImportService := service.NewStagedAccountImportService(stagedImportReceiptRepository, aesEncryptor)
-	adminHandlers := handler.ProvideAdminHandlers(dashboardHandler, adminUserHandler, groupHandler, accountHandler, adminAnnouncementHandler, backupHandler, oAuthHandler, openAIOAuthHandler, geminiOAuthHandler, antigravityOAuthHandler, grokOAuthHandler, workBuddyOAuthHandler, cnProviderHandler, proxyHandler, proxyGroupHandler, adminRedeemHandler, promoHandler, settingHandler, opsHandler, systemHandler, adminSubscriptionHandler, adminUsageHandler, userAttributeHandler, errorPassthroughHandler, tlsFingerprintProfileHandler, pluginHandler, adminAPIKeyHandler, scheduledTestHandler, channelHandler, channelMonitorHandler, channelMonitorRequestTemplateHandler, contentModerationHandler, promptAdminHandler, paymentHandler, affiliateHandler, complianceHandler, auditLogHandler, credentialSecretHandler, upstreamBillingProbeService, ollamaCloudUsageService, authService, proxyGroupRuntime, stagedAccountImportService)
+	adminHandlers := handler.ProvideAdminHandlers(dashboardHandler, adminUserHandler, groupHandler, accountHandler, adminAnnouncementHandler, backupHandler, oAuthHandler, openAIOAuthHandler, geminiOAuthHandler, antigravityOAuthHandler, grokOAuthHandler, workBuddyOAuthHandler, cnProviderHandler, proxyHandler, proxyGroupHandler, adminRedeemHandler, promoHandler, settingHandler, opsHandler, systemHandler, adminSubscriptionHandler, adminUsageHandler, userAttributeHandler, errorPassthroughHandler, tlsFingerprintProfileHandler, pluginHandler, adminAPIKeyHandler, scheduledTestHandler, channelHandler, channelMonitorHandler, channelMonitorRequestTemplateHandler, contentModerationHandler, promptAdminHandler, paymentHandler, affiliateHandler, complianceHandler, auditLogHandler, credentialSecretHandler, upstreamBillingProbeService, ollamaCloudUsageService, authService, proxyGroupRuntime, stagedAccountImportService, workspaceService)
 	userMsgQueueCache := repository.NewUserMsgQueueCache(redisClient)
 	userMessageQueueService := provideUserMessageQueueService(supervisor, userMsgQueueCache, rpmCacheImpl, cfg)
 	legacyEngine := securityaudit.NewLegacyModerationAdapter(contentModerationService)
@@ -385,7 +389,8 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	openAIQuotaAutoResetService := provideOpenAIQuotaAutoResetService(supervisor, accountRepository, openAIQuotaService, rateLimitService, idempotencyCoordinator, auditLogService, settingService, leaderLockCache)
 	handlers := handler.ProvideHandlers(modelAccessHandler, workspaceHandler, authHandler, userHandler, apiKeyHandler, usageHandler, redeemHandler, subscriptionHandler, announcementHandler, channelMonitorUserHandler, channelTelemetryHandler, adminHandlers, gatewayHandler, openAIGatewayHandler, handlerSettingHandler, totpHandler, passkeyHandler, handlerPaymentHandler, paymentWebhookHandler, availableChannelHandler, modelPlazaHandler, asyncImageHandler, batchImageHandler, gatewayResourceHandler, usageSettlementService, mcpGrantStore, totpService, idempotencyCoordinator, idempotencyCleanupService, openAIQuotaAutoResetService)
 	postgresStore := postgres.New(db)
-	source := legacy.NewSource(postgresStore, modelPlazaService, settingService, apiKeyService, opsService)
+	platformPriceBook := service.NewPlatformPriceBook(modelPricingResolver)
+	source := catalogSourceProvider(db, postgresStore, modelPlazaService, settingService, apiKeyService, opsService, platformPriceBook)
 	reader := catalog.NewReader(source, postgresStore)
 	store2 := postgres2.NewWithCatalog(db, reader)
 	connectionsStore := connections.New(db, store2, aesEncryptor, accountTestService, cfg)
@@ -402,12 +407,14 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	operations := provideIdentityOperations(connectionsStore, restoreRuntime, requestsHandler, billingHandler, byokStore, auditStore, paymentsHandler, verificationStore)
 	identityHandler := identity.New(store2, operations, cfg)
 	connectionsHandler := connections2.New(connectionsStore)
-	modelsHandler := models.NewWithPricing(reader, store2, cfg, db)
+	policyStore := policies.NewStore(db, cfg)
+	gateway := playgroundGatewayProvider(db, store2, store2, apiKeyService, subscriptionService, reader, policyStore, gatewayService, handlers, compositeRouteResolver)
+	modelsHandler := modelsHandlerProvider(db, reader, store2, settingService, platformPriceBook, gateway, cfg)
+	adminHandler := admin2.New(reader, store2, cfg)
 	verificationHandler := catalogVerificationHandlerProvider(verificationStore)
 	restoreHandler := restore2.New(restoreRuntime)
-	policyStore := policies.NewStore(db, cfg)
 	policiesHandler := policies.New(policyStore, store2)
-	playgroundHandler := playgroundHandlerProvider(db, store2, store2, apiKeyService, subscriptionService, reader, policyStore, gatewayService, handlers, compositeRouteResolver, cfg)
+	playgroundHandler := playgroundHandlerProvider(gateway, cfg)
 	statusHandler := statusHandlerProvider(db, store2, cfg, opsService)
 	byokHandler := byokHandlerProvider(byokStore)
 	observer := auditObserverProvider()
@@ -424,7 +431,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	apiKeyAuthMiddleware := middleware.NewAPIKeyAuthMiddleware(apiKeyService, subscriptionService, cfg)
 	auditLogMiddleware := middleware.NewAuditLogMiddleware(auditLogService)
 	stepUpAuthMiddleware := middleware.NewStepUpAuthMiddleware(totpService, userService, settingService)
-	engine := server.ProvideRouter(cfg, handlers, identityHandler, connectionsHandler, modelsHandler, verificationHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, paymentsHandler, statusHandler, byokHandler, auditHandler, observabilityHandler, tasksHandler, store2, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient, db)
+	engine := server.ProvideRouter(cfg, handlers, identityHandler, connectionsHandler, modelsHandler, adminHandler, verificationHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, paymentsHandler, statusHandler, byokHandler, auditHandler, observabilityHandler, tasksHandler, store2, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient, db)
 	httpServer := server.ProvideHTTPServer(cfg, engine)
 	opsMetricsCollector := provideOpsMetricsCollector(supervisor, opsRepository, settingRepository, accountRepository, concurrencyService, db, redisClient, cfg)
 	opsAggregationService := provideOpsAggregationService(supervisor, opsRepository, settingRepository, db, redisClient, cfg)
@@ -486,7 +493,40 @@ func requestsHandlerProvider(db *sql.DB, store *postgres2.Store, cfg *config.Con
 	return handler.ProvideRequestsHandler(db, store, cfg)
 }
 
-func playgroundHandlerProvider(
+func catalogSourceProvider(
+	db *sql.DB,
+	store *postgres.Store,
+	plaza *service.ModelPlazaService,
+	settings *service.SettingService,
+	keys *service.APIKeyService,
+	ops *service.OpsService,
+	book *service.PlatformPriceBook,
+) *legacy.Source {
+
+	identityReads := postgres2.New(db)
+	keyCatalog := &playground.Gateway{DB: db, Access: identityReads, Scopes: identityReads, Keys: keys}
+	return legacy.NewSourceWithPorts(store, plaza, settings, keys, ops, legacy.PriceBookPort{PlatformPriceBook: book}, keyCatalog)
+}
+
+func modelsHandlerProvider(
+	db *sql.DB,
+	reader catalog.CatalogReader,
+	access identity2.AccessEvaluator,
+	settings *service.SettingService,
+	book *service.PlatformPriceBook,
+	gateway *playground.Gateway,
+	cfg *config.Config,
+) *models.Handler {
+	h := models.New(reader, access, cfg)
+	h.SetPlazaSettings(settings)
+	authorized := models.SalePriceBindings{Catalog: reader, Selected: gateway}
+	versions := pricing.VersionStore{DB: db}
+	h.SetQuoteService(quotes.Service{Catalog: reader, Book: book, Bindings: authorized, Published: versions, Selected: gateway})
+	h.SetComparePricePort(models.ComparePrices{Service: compare.Service{Catalog: reader, Book: book, Bindings: authorized, Published: versions}})
+	return h
+}
+
+func playgroundGatewayProvider(
 	db *sql.DB,
 	access identity2.AccessEvaluator,
 	scopes identity2.GatewayScopes,
@@ -496,18 +536,21 @@ func playgroundHandlerProvider(
 	gateway *service.GatewayService,
 	handlers *handler.Handlers,
 	composite *service.CompositeRouteResolver,
-	cfg *config.Config,
-) *playground.Handler {
+) *playground.Gateway {
 	dispatch := service.NewGatewayActionDispatch(routes.GatewayActionHandlers(handlers))
 	common := []gin.HandlerFunc{middleware.GatewayProtocol(), handler.InboundEndpointMiddleware()}
 	if handlers.MCP != nil {
 		common = append(common, handlers.MCP.GatewayExtensionMiddleware())
 	}
 	native := playground.NativeRoutes(dispatch, composite, handlers.Gateway.ActionRequirement, common...)
-	return playground.New(&playground.Gateway{
+	return &playground.Gateway{
 		DB: db, Access: access, Scopes: scopes, Keys: keys, Subscriptions: subscriptions,
 		Catalog: catalogReader, Policies: policies2, Plans: gateway, Routes: native,
-	}, cfg.TrustForwardedIPForAPIKeyACL())
+	}
+}
+
+func playgroundHandlerProvider(gateway *playground.Gateway, cfg *config.Config) *playground.Handler {
+	return playground.New(gateway, cfg.TrustForwardedIPForAPIKeyACL(), []byte(cfg.JWT.Secret))
 }
 
 func observabilityStoreProvider(supervisor *runtime.Supervisor, cfg *config.Config) (*export.Store, error) {
@@ -637,8 +680,7 @@ func provideCleanup(
 	usageCleanup *service.UsageCleanupService,
 	idempotencyCleanup *service.IdempotencyCleanupService,
 	batchImageCleanup *service.BatchImageCleanupService,
-	batchImageWorker *service.BatchImageWorkerRuntime,
-	pricing *service.PricingService,
+	batchImageWorker *service.BatchImageWorkerRuntime, pricing2 *service.PricingService,
 	emailQueue *service.EmailQueueService,
 	billingCache *service.BillingCacheService,
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
@@ -829,7 +871,8 @@ func provideCleanup(
 				return nil
 			}},
 			{"PricingService", func() error {
-				pricing.Stop()
+				pricing2.
+					Stop()
 				return nil
 			}},
 			{"EmailQueueService", func() error {
