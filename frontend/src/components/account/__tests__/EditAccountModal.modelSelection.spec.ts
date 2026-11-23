@@ -217,7 +217,7 @@ beforeEach(() => {
   updateModelAllowlistMock.mockResolvedValue({ rules_revision: '9007199254740994' })
 })
 
-describe('FE-5 single hydration & reopen echo', () => {
+describe('Account model selection on open and reopen', () => {
   it.each([
     {
       label: 'WorkBuddy OAuth CN',
@@ -377,7 +377,7 @@ describe('FE-5 single hydration & reopen echo', () => {
   })
 })
 
-describe('FE-5 rename-only save & preserve_model_selection contract', () => {
+describe('Preserving model selection on rename', () => {
   it('sends preserve_model_selection=true and omits protected fields on WorkBuddy OAuth rename while echoing concurrent server updates', async () => {
     const initial = makeAccount({
       id: 301,
@@ -612,7 +612,7 @@ describe('FE-5 rename-only save & preserve_model_selection contract', () => {
   })
 })
 
-describe('FE-5 explicit clear & deny-all preservation', () => {
+describe('Clearing model selection and preserving deny-all', () => {
   it('persists explicit clear as deny-all on WorkBuddy OAuth and preserves deny-all across subsequent rename', async () => {
     const initial = makeAccount({
       id: 401,
@@ -687,7 +687,7 @@ describe('FE-5 explicit clear & deny-all preservation', () => {
   })
 })
 
-describe('FE-5 control platforms parity', () => {
+describe('Model selection across provider platforms', () => {
   it('handles OpenAI compact_model_mapping untouched omission, explicit edit, and explicit clear', async () => {
     const account = makeAccount({
       id: 501,

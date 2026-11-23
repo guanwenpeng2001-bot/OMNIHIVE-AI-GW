@@ -42,7 +42,7 @@ function mockFailure(error: unknown) {
   remove.mockRejectedValue(error)
 }
 
-describe('MCP API honest truthfulness contract (FE-FAKE-01)', () => {
+describe('MCP API honest truthfulness contract', () => {
   it('calls backend endpoints directly and unwraps authentic responses', async () => {
     const listed = { endpoint: '/mcp', role: 'user', grants: [] }
     get.mockResolvedValueOnce({ data: listed })

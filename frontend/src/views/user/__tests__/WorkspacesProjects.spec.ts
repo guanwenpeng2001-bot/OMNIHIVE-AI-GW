@@ -58,7 +58,7 @@ vi.mock('@/features/console/scope', async () => {
   }
 })
 
-describe('WorkspacesView BE-01 projects and scope switching', () => {
+describe('WorkspacesView workspace projects and scope switching', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.resetAllMocks()
@@ -71,7 +71,7 @@ describe('WorkspacesView BE-01 projects and scope switching', () => {
     })
   })
 
-  it('lists BE-01 projects, switches persisted console scope, creates/renames/archives projects, and surfaces 409 conflicts', async () => {
+  it('lists workspace projects, switches persisted console scope, creates/renames/archives projects, and surfaces 409 conflicts', async () => {
     mocks.createProject.mockResolvedValue({
       id: '19',
       workspace_id: '7',
@@ -102,7 +102,7 @@ describe('WorkspacesView BE-01 projects and scope switching', () => {
     expect(localStorage.getItem('omnihive.project_id.v1')).toBe('12')
     expect(wrapper.find('[data-testid="console-state-confirmed"]').exists()).toBe(true)
 
-    // Create new BE-01 project
+    // Create a project
     await wrapper.get('[data-testid="new-project-name-input"]').setValue('Eval Sandbox')
     await wrapper.get('[data-testid="create-project-btn"]').trigger('click')
     await flushPromises()

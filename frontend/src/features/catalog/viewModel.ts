@@ -253,7 +253,7 @@ function resolveAvailabilityAxis(
       ) {
         state = 'catalog_only'
       } else if (perspective === 'public') {
-        // Per BE-3 + P4 reconciliation: anonymous advertised routable offers carry
+        // Anonymous advertised routable offers carry
         // availability.state=requires_scope on wire; public plaza/pricing renders them as normal 可调用/Available.
         state = 'live'
       } else {

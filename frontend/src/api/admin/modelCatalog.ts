@@ -577,7 +577,7 @@ function normalizePublication(raw: unknown): AdminCatalogPublication {
 }
 
 /**
- * Deduplicate publications by (group_id, channel_id) as specified by BE-9.
+ * Deduplicate publications by (group_id, channel_id).
  */
 export function deduplicateAdminPublications(
   publications: AdminCatalogPublication[]
@@ -662,7 +662,7 @@ export function formatRatePairDisplay(
 }
 
 /**
- * Evaluate BE-9's 6 diagnostic quick_filters against a normalized model summary row.
+ * Evaluate the diagnostic quick_filters against a normalized model summary row.
  */
 export function matchesAdminCatalogQuickFilter(
   item: AdminCatalogModelSummary,

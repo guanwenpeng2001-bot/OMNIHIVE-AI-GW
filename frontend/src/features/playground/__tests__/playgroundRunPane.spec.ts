@@ -113,7 +113,7 @@ describe('PlaygroundRunPane async settlement confirmation state', () => {
   })
 })
 
-describe('PlaygroundRunPane collapsible Raw Request JSON & SSE Frames inspector (FE-F01-01)', () => {
+describe('PlaygroundRunPane collapsible Raw Request JSON & SSE Frames inspector', () => {
   it('expands diagnostics inspector to display formatted submittedPayload, sseFrames, and rawEvents', async () => {
     currentLocale = 'en'
     const wrapper = mount(PlaygroundRunPane, {

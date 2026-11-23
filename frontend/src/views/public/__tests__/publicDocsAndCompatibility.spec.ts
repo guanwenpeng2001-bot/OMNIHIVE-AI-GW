@@ -135,7 +135,7 @@ afterEach(() => {
   wrappers.splice(0).forEach((w) => w.unmount())
 })
 
-describe('Public documentation, compatibility page & /models redirect (FE-10-15, FE-RET-03)', () => {
+describe('Public documentation, compatibility page & /models redirect', () => {
   it('configures /docs, /help, and /compatibility as public routes in PublicShell and redirects /models -> /model-plaza', async () => {
     const appRouterModule = await import('@/router')
     const appRouter = appRouterModule.default

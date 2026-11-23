@@ -299,7 +299,7 @@ describe('WorkBuddy ConnectionWizardView & ReAuthAccountModal flows', () => {
     wrapper.unmount()
   })
 
-  it('cancels active WorkBuddy OAuth polling when switching mode from oauth to apikey (FE-08)', async () => {
+  it('cancels active WorkBuddy OAuth polling when switching mode from oauth to apikey', async () => {
     startOAuthMock.mockResolvedValue({
       session_id: 'wb-cancel-1',
       auth_url: 'https://copilot.tencent.com/oauth/cancel',

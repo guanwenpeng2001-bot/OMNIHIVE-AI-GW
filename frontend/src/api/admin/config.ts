@@ -144,7 +144,7 @@ export async function getEffectiveConfig(
     params.q = query.q.trim()
   }
   if (query.cursor !== undefined && query.cursor !== '') {
-    // Pass next_cursor verbatim per BE-6 contract
+    // Pass next_cursor verbatim
     params.cursor = query.cursor
   }
   if (query.source) {

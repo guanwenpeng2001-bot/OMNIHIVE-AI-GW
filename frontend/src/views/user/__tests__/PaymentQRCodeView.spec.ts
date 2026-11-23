@@ -50,7 +50,7 @@ function setValidAuthSession(userId = 7) {
   authStorage.user.set(JSON.stringify({ id: userId }))
 }
 
-describe('PaymentQRCodeView URL sanitization and order verification (FE4-P1-02)', () => {
+describe('PaymentQRCodeView URL sanitization and order verification', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()

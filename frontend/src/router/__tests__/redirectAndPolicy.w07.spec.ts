@@ -3,7 +3,7 @@ import { sanitizeInternalRedirect } from '../redirect'
 import { evaluateRoutePolicy, isModelPlazaPath } from '../routePolicy'
 import { resolveRouteDocumentTitle, setDynamicRouteTitle } from '../title'
 
-describe('W07 redirect sanitization & route policy fixes (P1-1, P1-2, FE-3 P2-06, P2-5)', () => {
+describe('Redirect sanitization and route access policy', () => {
   it('sanitizes untrusted redirect values and rejects protocol-relative, backslash, and control-char bypasses', () => {
     expect(sanitizeInternalRedirect('/dashboard')).toBe('/dashboard')
     expect(sanitizeInternalRedirect('/model-plaza/openai%2Fgpt-4o?tab=1#top')).toBe(
@@ -74,7 +74,7 @@ describe('W07 redirect sanitization & route policy fixes (P1-1, P1-2, FE-3 P2-06
     }
   })
 
-  it('blocks /purchase and /orders when payment_enabled is false (FE-3 P2-06)', () => {
+  it('blocks /purchase and /orders when payment_enabled is false', () => {
     for (const path of ['/purchase', '/orders']) {
       const userEval = evaluateRoutePolicy(
         { requiresAuth: true, requiresAdmin: false, requiresPayment: true },

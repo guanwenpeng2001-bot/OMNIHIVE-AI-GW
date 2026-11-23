@@ -71,7 +71,7 @@ afterEach(() => {
   wrappers.splice(0).forEach((w) => w.unmount())
 })
 
-describe('W07 Public Portal & Plaza Fixes (P2-1..5, P3-1..4, FE4-P1-02)', () => {
+describe('Public portal and model plaza', () => {
   it('decouples modality pills from input modality chips, keeps load-more on client-filtered empty state, and recovers from SNAPSHOT_EXPIRED (P2-1, P3-1, P3-2)', async () => {
     const page1 = [
       {
@@ -359,7 +359,7 @@ describe('W07 Public Portal & Plaza Fixes (P2-1..5, P3-1..4, FE4-P1-02)', () => 
     expect(wrapper.text()).not.toContain('x-provider: gpt-4o')
   })
 
-  it('sanitizes documentation_url, avoids duplicate reference_price, fixes training no-substring match, and uses dynamic siteName in PublicModelDetailView (P2-5, P3-4, FE4-P1-02)', async () => {
+  it('sanitizes documentation_url, avoids duplicate reference_price, fixes training no-substring match, and uses dynamic siteName in PublicModelDetailView', async () => {
     apiGetMock.mockResolvedValueOnce({
       data: {
         model: {
