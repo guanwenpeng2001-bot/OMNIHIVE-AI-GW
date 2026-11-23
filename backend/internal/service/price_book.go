@@ -33,13 +33,20 @@ func pricingInstant(ctx context.Context, at time.Time) time.Time {
 	if !at.IsZero() {
 		return at
 	}
+	if at = pinnedPricingInstant(ctx); !at.IsZero() {
+		return at
+	}
+	return timezone.Now()
+}
+
+func pinnedPricingInstant(ctx context.Context) time.Time {
 	if pinned, ok := gatewayTokenRequestPricingAtFromContext(ctx); ok {
 		return pinned
 	}
 	if plan := GatewayRequestPlanFromContext(ctx); plan != nil && !plan.Snapshot().PricingAt.IsZero() {
 		return plan.Snapshot().PricingAt
 	}
-	return timezone.Now()
+	return time.Time{}
 }
 
 // PlatformPriceBook adapts a caller-authorized sale binding to the legacy

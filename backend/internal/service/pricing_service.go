@@ -139,6 +139,8 @@ type LiteLLMModelPricing struct {
 	tariffOwner        string
 	tariffOwnerChecked bool
 	staticTariff       bool
+	tariffPatched      bool
+	tariffDeleted      bool
 	PriceVariants      []ModelPriceVariant `json:"price_variants,omitempty"`
 	// sourceQuotes retain missing versus explicit zero for comparisons and billing.
 	// Billing reads field presence only; capability approval never uses them.
@@ -640,7 +642,7 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 			delete(rawData, name)
 		}
 	}
-	rawData = s.applyPricingOverrides(rawData)
+	rawData, patched := s.applyPricingOverrides(rawData)
 
 	result := make(map[string]*LiteLLMModelPricing)
 	skipped := 0
@@ -668,13 +670,17 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 			entry.InputCostPerTokenPriority == nil && entry.OutputCostPerTokenPriority == nil &&
 			entry.CacheCreationInputTokenCostPriority == nil && entry.CacheReadInputTokenCostPriority == nil &&
 			entry.InputCostPerImageToken == nil && entry.OutputCostPerImageToken == nil && entry.CacheReadInputImageTokenCost == nil
-		if len(entry.PriceVariants) == 0 && tokenPricingAbsent && entry.OutputCostPerImage == nil {
+		patch, hasPatch := patched[modelName]
+		deleted := len(entry.PriceVariants) == 0 && tokenPricingAbsent && entry.OutputCostPerImage == nil
+		if deleted && !patch.previouslyPriced {
 			continue
 		}
 
 		pricing := &LiteLLMModelPricing{
 			tariffOwner:           rawTariffOwner(modelName, rawEntry),
 			tariffOwnerChecked:    true,
+			tariffPatched:         hasPatch,
+			tariffDeleted:         deleted,
 			sourceQuotes:          pricingEntryQuotes(modelName, rawEntry),
 			exactTokenRates:       readExactTokenRates(rawEntry),
 			PriceVariants:         cloneModelPriceVariants(entry.PriceVariants),
@@ -939,7 +945,7 @@ func warnOrphanCacheTierFields(entries []string) {
 // 文件的解析都经过 parsePricingData，因此 override 是最高优先级的数据源。这里只修补
 // 已存在的条目：目录/回退里都没有的模型由 mergeOverrideOnlyModels 在两层数据合并后
 // 统一并入——若在此处抢先建条目，纯 override 条目会挡住回退文件中同名完整条目的合并。
-func (s *PricingService) applyPricingOverrides(rawData map[string]json.RawMessage) map[string]json.RawMessage {
+func (s *PricingService) applyPricingOverrides(rawData map[string]json.RawMessage) (map[string]json.RawMessage, map[string]tariffPatch) {
 	return patchedPricingEntries(rawData, s.loadPricingOverrideEntries())
 }
 

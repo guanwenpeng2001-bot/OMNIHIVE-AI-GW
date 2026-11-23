@@ -587,6 +587,10 @@ func (s *ChannelService) getChannelModelPricing(ctx context.Context, groupID int
 		return nil
 	}
 	pricing := lookupPricingAcrossPlatforms(lk.cache, groupID, platform, modelLower)
+	if pricing == nil && platform != "" && lk.cache.groupPlatform[groupID] == "" {
+		// Older group-bound channel cards can have an empty platform.
+		pricing = lookupPricingAcrossPlatforms(lk.cache, groupID, "", modelLower)
+	}
 	if pricing == nil {
 		return nil
 	}

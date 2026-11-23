@@ -14,10 +14,12 @@ import (
 
 var tariffBindings = sync.OnceValue(func() struct {
 	Static map[string][]string
+	Bare   map[string]string
 	Hosted map[string]map[string]string
 } {
 	var bindings struct {
 		Static map[string][]string
+		Bare   map[string]string
 		Hosted map[string]map[string]string
 	}
 	if err := json.Unmarshal(modelpricing.ProviderTariffBindingsJSON(), &bindings); err != nil {
@@ -78,6 +80,9 @@ func rawTariffOwner(name string, body json.RawMessage) string {
 		return namespace
 	}
 	if owner == "" && metadata.Provider == "" {
+		if binding := tariffBindings().Bare[model]; binding != "" {
+			return binding
+		}
 		for provider, models := range tariffBindings().Static {
 			if slices.Contains(models, model) {
 				return provider
@@ -211,6 +216,13 @@ func (i *providerPriceIndex) lookup(provider, model string, exact bool) (*LiteLL
 	model = strings.ToLower(strings.TrimSpace(model))
 	namespace, native := qualifiedTariffName(model)
 	if namespace == provider {
+		card := i.exact[[2]string{provider, model}]
+		if card.conflict {
+			return nil, pricing.ErrAmbiguous
+		}
+		if card.card != nil {
+			return card.card, nil
+		}
 		model = native
 	}
 	names := providerTariffNames(provider, model)
@@ -218,8 +230,11 @@ func (i *providerPriceIndex) lookup(provider, model string, exact bool) (*LiteLL
 		names = names[:1]
 	}
 	for _, name := range names {
-		for _, key := range []string{provider + "/" + name, name} {
-			card := i.exact[[2]string{provider, key}]
+		bare, qualified := i.exact[[2]string{provider, name}], i.exact[[2]string{provider, provider + "/" + name}]
+		if qualified.card != nil && qualified.card.tariffPatched {
+			bare, qualified = qualified, bare
+		}
+		for _, card := range []scopedPriceCard{bare, qualified} {
 			if card.conflict {
 				return nil, pricing.ErrAmbiguous
 			}
@@ -296,7 +311,6 @@ func providerOverrideTargets(data map[string]json.RawMessage, name string) []str
 	}
 
 	owner := ""
-	var targets []string
 	for key, raw := range data {
 		_, native := qualifiedTariffName(strings.ToLower(strings.TrimSpace(key)))
 		if native != model {
@@ -304,31 +318,45 @@ func providerOverrideTargets(data map[string]json.RawMessage, name string) []str
 		}
 		current := rawTariffOwner(key, raw)
 		if current == "" {
-			// Retain the historical non-authoritative reader for unknown
-			// metadata, while excluding its result from the provider index.
-			if key == name && len(targets) == 0 {
-				targets = append(targets, key)
-			}
 			continue
 		}
 		if owner != "" && owner != current {
 			return nil
 		}
 		owner = current
-		targets = append(targets, key)
 	}
-	return targets
+	// Keep a bare patch bound to the original bare record. Prefix-specific
+	// imports may have different units, fields or effective price bands.
+	if _, exists := data[name]; exists {
+		return []string{name}
+	}
+	return nil
 }
 
-func patchedPricingEntries(data, overrides map[string]json.RawMessage) map[string]json.RawMessage {
+type tariffPatch struct {
+	previouslyPriced bool
+}
+
+func hasSourceTariff(model string, raw json.RawMessage) bool {
+	for _, quote := range pricingEntryQuotes(model, raw) {
+		if quote.Value != nil {
+			return true
+		}
+	}
+	var entry LiteLLMRawEntry
+	return unmarshalPricingEntry(raw, &entry) == nil && len(entry.PriceVariants) != 0
+}
+
+func patchedPricingEntries(data, overrides map[string]json.RawMessage) (map[string]json.RawMessage, map[string]tariffPatch) {
 	if len(overrides) == 0 {
-		return data
+		return data, nil
 	}
 	// Detect owners from the original fields. An override cannot reassign
 	// ownership, and the qualified patch wins over a shared bare patch.
 	keys := slices.Sorted(maps.Keys(overrides))
 	original := maps.Clone(data)
 	targets := make(map[string][]string, len(keys))
+	patched := make(map[string]tariffPatch, len(keys))
 	for _, name := range keys {
 		owner, _ := qualifiedTariffName(strings.ToLower(strings.TrimSpace(name)))
 		if owner != "" {
@@ -350,13 +378,18 @@ func patchedPricingEntries(data, overrides map[string]json.RawMessage) map[strin
 			for _, target := range targets[name] {
 				base := data[target]
 				if base == nil {
-					base = original[target]
+					_, native := qualifiedTariffName(target)
+					base = data[native]
+					if base == nil {
+						base = original[target]
+					}
 				}
 				if merged, ok := mergePricingOverrideEntry(base, overrides[name]); ok && rawTariffOwner(target, original[target]) == rawTariffOwner(target, merged) {
 					data[target] = merged
+					patched[target] = tariffPatch{previouslyPriced: hasSourceTariff(target, original[target])}
 				}
 			}
 		}
 	}
-	return data
+	return data, patched
 }

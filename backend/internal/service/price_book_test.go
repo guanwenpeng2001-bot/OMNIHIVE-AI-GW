@@ -236,6 +236,50 @@ func TestPriceBookSaleImporterRejectsReferenceDocument(t *testing.T) {
 	require.Contains(t, prices, "openai/paid-candidate")
 }
 
+func TestPriceBookGPT62NameDoesNotTransferTariffOwnership(t *testing.T) {
+	source := &PricingService{}
+	cards, err := source.parsePricingData([]byte(`{
+		"gpt-6.2-sol":{"litellm_provider":"openai","input_cost_per_token":0.000002},
+		"anthropic/gpt-6.2-sol":{"litellm_provider":"anthropic","input_cost_per_token":0.000007}
+	}`))
+	require.NoError(t, err)
+	source.replacePricingData(cards)
+	billing := NewBillingService(nil, source)
+	input := CostInput{Provider: "other-provider", Model: "gpt-6.2-sol", Tokens: UsageTokens{InputTokens: 1000}, RateMultiplier: 1, ServiceTier: "ultrafast"}
+	cost, err := billing.CalculateCostUnified(input)
+	require.ErrorIs(t, err, ErrModelPricingUnavailable)
+	require.Zero(t, cost.ActualCost)
+
+	input.Provider = PlatformAnthropic
+	cost, err = billing.CalculateCostUnified(input)
+	require.NoError(t, err)
+	require.InDelta(t, 0.014, cost.ActualCost, 1e-12)
+}
+
+func TestPriceBookBareAndPrefixedPriceCardsKeepTheirRates(t *testing.T) {
+	source := newPricingServiceWithOverride(t, `{
+		"gemini-2.5-pro":{"cache_creation_input_token_cost":0.000002},
+		"openai/deleted-card":{"input_cost_per_token":null}
+	}`)
+	data, _, err := source.buildPricingData([]byte(`{
+		"gemini-2.5-pro":{"litellm_provider":"gemini","input_cost_per_token":0.000001},
+		"gemini/gemini-2.5-pro":{"litellm_provider":"gemini","input_cost_per_token":0.000003},
+		"deleted-card":{"litellm_provider":"openai","input_cost_per_token":0.000004}
+	}`))
+	require.NoError(t, err)
+	source.replacePricingData(data)
+	billing := NewBillingService(nil, source)
+	at := time.Now()
+	bare, err := billing.getProviderModelPricingAt(PlatformGemini, "gemini-2.5-pro", at)
+	require.NoError(t, err)
+	require.InDelta(t, 0.000002, bare.CacheCreationPricePerToken, 1e-12)
+	prefixed, err := billing.getProviderModelPricingAt(PlatformGemini, "gemini/gemini-2.5-pro", at)
+	require.NoError(t, err)
+	require.False(t, prefixed.hasTokenPrice("cache_write", prefixed.CacheCreationPricePerToken))
+	_, err = billing.getProviderModelPricingAt(PlatformOpenAI, "deleted-card", at)
+	require.ErrorIs(t, err, ErrModelPricingUnavailable)
+}
+
 func TestPriceBookQuoteConflictDoesNotChooseOffer(t *testing.T) {
 	at := time.Date(2026, 11, 19, 13, 0, 0, 0, time.UTC)
 	id := catalog.StableID(PlatformOpenAI, "shared")

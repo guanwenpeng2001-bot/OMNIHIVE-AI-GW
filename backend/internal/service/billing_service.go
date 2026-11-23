@@ -1295,6 +1295,9 @@ func (s *BillingService) getProviderModelPricingAt(provider, model string, prici
 		if litellmPricing != nil && len(litellmPricing.PriceVariants) > 0 {
 			return nil, ErrModelPricingUnavailable
 		}
+		if provider != "" && litellmPricing != nil && litellmPricing.tariffDeleted {
+			return nil, ErrModelPricingUnavailable
+		}
 		// 仅有按张图片价、无任何 token 价的条目（如 LiteLLM 的 imagen 类模型）不能用于
 		// token 计费：直接返回会把 token 流量按 $0 计费。跳过后走 fallback，
 		// 无 fallback 则 fail-closed（ErrModelPricingUnavailable）。
@@ -1530,7 +1533,7 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (cost *CostBreakd
 		input.Provider = pricingPlatform(input.Ctx, PricingInput{Group: input.Group})
 	}
 	if input.PricingAt.IsZero() {
-		input.PricingAt = pricingInstant(input.Ctx, input.PricingAt)
+		input.PricingAt = pinnedPricingInstant(input.Ctx)
 	}
 	if err := validateCostInput(input); err != nil {
 		return nil, err
