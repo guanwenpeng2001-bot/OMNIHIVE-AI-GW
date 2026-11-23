@@ -86,6 +86,11 @@ func TestCatalogEndpointVerificationAndModelEvidence(t *testing.T) {
 	require.Len(t, facts, 1)
 	require.Equal(t, "stale", facts[0].State)
 	require.Equal(t, &disabled, facts[0].Tools)
+	projected := b.CatalogFieldFacts(discoveryExpiry(b, e), now)
+	origin := projected[0].FieldOrigins["supports_function_calling"]
+	require.Equal(t, catalog.AccountDiscovery, origin.SourceKind)
+	require.Equal(t, "stale", origin.State)
+	require.NotContains(t, origin.RecordKey, b.UpstreamModel)
 }
 
 func TestReviewedEndpointActions(t *testing.T) {

@@ -3,7 +3,6 @@ package service
 import (
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -345,7 +344,11 @@ func (b PlazaCatalogBinding) CatalogFieldFacts(expiry, now time.Time) []catalog.
 			if observation.State == "stale" || b.DiscoveryState == "invalidated" || b.DiscoveryState == "stale" && kind == catalog.AccountDiscovery {
 				state = "stale"
 			}
-			origin := catalog.Provenance{State: state, SourceKind: kind, RecordKey: strconv.FormatInt(b.AccountID, 10) + "/" + e.MatchedModelID,
+			recordKey := "obs_" + catalog.Digest(struct {
+				Account       int64
+				Model, Source string
+			}{b.AccountID, e.MatchedModelID, kind})[:32]
+			origin := catalog.Provenance{State: state, SourceKind: kind, RecordKey: recordKey,
 				ArtifactVersion: e.SourceVersion, Provider: b.Identity.Platform, Profile: e.ProviderProfile,
 				MatchRule: e.MatchRule, Trust: trust, Scope: "account", ObservedAt: observation.ObservedAt, ExpiresAt: observation.ExpiresAt}
 			if origin.ArtifactVersion == "" {
