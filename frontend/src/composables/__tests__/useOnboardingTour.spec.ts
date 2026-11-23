@@ -270,6 +270,22 @@ describe('onboarding cancellable lifecycle (real driver)', () => {
     await advance(8500)
     noOverlay()
   })
+  it('tier-gates storage keys by route path (/admin vs /dashboard) using _admin_v6 and _user_v6', () => {
+    auth.user.id = 7
+    auth.user.role = 'admin'
+    route.fullPath = '/dashboard'
+    host()
+    tour.markAsSeen()
+    expect(localStorage.getItem('onboarding_tour_7_user_v6')).toBe('true')
+    expect(localStorage.getItem('onboarding_tour_7_admin_v6')).toBeNull()
+    wrapper!.unmount()
+
+    route.fullPath = '/admin/dashboard'
+    host()
+    expect(tour.hasSeen()).toBe(false)
+    tour.markAsSeen()
+    expect(localStorage.getItem('onboarding_tour_7_admin_v6')).toBe('true')
+  })
   it.each(['route', 'sidebar'])('AppLayout cancels on %s changes and retains replay', async change => {
     wrapper = mount(AppLayout, { attachTo: document.body })
     await advance(1100)

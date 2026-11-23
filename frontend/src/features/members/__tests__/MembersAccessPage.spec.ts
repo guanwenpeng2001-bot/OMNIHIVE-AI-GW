@@ -38,7 +38,9 @@ const mocks = vi.hoisted(() => ({
   workspacesRemoveMember: vi.fn(),
   listScopes: vi.fn(),
   listProjects: vi.fn(),
+  getWorkspaceAccess: vi.fn(),
   getProjectAccess: vi.fn(),
+  setMemberGrants: vi.fn(),
 }))
 
 vi.mock('@/api/client', () => ({
@@ -60,11 +62,12 @@ vi.mock('../api', () => ({
   membersV2API: {
     listScopes: mocks.listScopes,
     listProjects: mocks.listProjects,
+    getWorkspaceAccess: mocks.getWorkspaceAccess,
     getProjectAccess: mocks.getProjectAccess,
     createProject: vi.fn(),
     updateProject: vi.fn(),
     deleteProject: vi.fn(),
-    setMemberGrants: vi.fn(),
+    setMemberGrants: mocks.setMemberGrants,
   },
 }))
 
@@ -315,6 +318,143 @@ describe('MembersAccessPage remote user search & i18n', () => {
     expect(modalText).not.toContain('members.grants.write')
     expect(modalText).not.toContain('ops.export.configure')
     expect(modalText).not.toContain('catalog.publish')
+  })
+
+  it('preserves asymmetric per-project grants, off-page project rows, locks shared Default, and highlights 412 conflict rows without losing draft', async () => {
+    mocks.workspacesList.mockResolvedValue([
+      { id: 1, name: 'Default', role: 'admin', is_default: true }
+    ])
+    mocks.listProjects.mockResolvedValue({
+      items: [
+        { id: '1', name: 'Default', version: '1', is_default: true },
+        { id: '11', name: 'Project Alpha', version: '2', is_default: false },
+        { id: '22', name: 'Project Beta', version: '1', is_default: false }
+      ],
+      next_cursor: null
+    })
+    mocks.getWorkspaceAccess.mockResolvedValue({
+      actor_id: '1',
+      workspace_id: '1',
+      project_id: null,
+      effective_admin: true,
+      membership_role: 'admin',
+      role_source: 'delegated',
+      actions: ['members.grants.write'],
+      grantable_actions: ['text.chat', 'keys.read', 'playground.run'],
+      scope_version: '5'
+    })
+
+    let serverGrantsCallCount = 0
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      if (url === '/admin/users') {
+        return { data: { items: [], total: 0 } }
+      }
+      if (url === '/workspaces/1/members') {
+        return {
+          data: {
+            items: [
+              {
+                id: '7',
+                user_id: '7',
+                username: 'alice',
+                email: 'alice@corp.io',
+                role: 'member',
+                status: 'active',
+                version: '3'
+              }
+            ]
+          }
+        }
+      }
+      if (url === '/workspaces/1/members/7/grants') {
+        serverGrantsCallCount += 1
+        if (serverGrantsCallCount === 1) {
+          return {
+            data: {
+              member_id: '7',
+              version: '3',
+              project_grants: [
+                { project_id: '11', actions: ['text.chat'] },
+                { project_id: '22', actions: ['keys.read'] },
+                { project_id: '99', actions: ['keys.read'] }
+              ]
+            }
+          }
+        }
+        return {
+          data: {
+            member_id: '7',
+            version: '4',
+            project_grants: [
+              { project_id: '11', actions: ['text.chat', 'keys.read'] },
+              { project_id: '22', actions: ['keys.read'] },
+              { project_id: '99', actions: ['keys.read'] }
+            ]
+          }
+        }
+      }
+      return { data: {} }
+    })
+
+    const wrapper = mount(MembersAccessPage, {
+      props: { initialWorkspaceId: '1' },
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, Teleport: true } }
+    })
+    await flushPromises()
+
+    const editGrantsBtn = wrapper
+      .findAll('button')
+      .find((btn) => btn.text().includes('Edit Grants'))
+    await editGrantsBtn!.trigger('click')
+    await flushPromises()
+
+    // Shared Default project row is locked
+    expect(wrapper.find('[data-testid="grant-row-locked-default"]').exists()).toBe(true)
+    // Off-page project #99 is preserved in the matrix
+    expect(wrapper.find('[data-testid="grant-matrix-row-99"]').exists()).toBe(true)
+
+    // Apply preset on Project Alpha (#11)
+    await wrapper.get('[data-testid="preset-caller-11"]').trigger('click')
+    await flushPromises()
+
+    // Diff preview shows exact change on project 11 while leaving 22 & 99 unchanged
+    expect(wrapper.get('[data-testid="grant-matrix-diff-preview"]').text()).toContain('playground.run')
+
+    // First save returns 412 conflict with current_version: '4'
+    mocks.setMemberGrants.mockRejectedValueOnce({
+      response: {
+        status: 412,
+        data: {
+          code: 412,
+          reason: 'VERSION_CONFLICT',
+          message: 'Concurrent modification',
+          metadata: { current_version: '4' }
+        }
+      }
+    })
+
+    await wrapper.get('[data-testid="member-grant-matrix-form"]').trigger('submit')
+    await flushPromises()
+
+    // 412 conflict banner appears, draft is kept, conflicting row 11 is highlighted
+    expect(wrapper.find('[data-testid="grant-conflict-412-banner"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="grant-row-conflict-11"]').exists()).toBe(true)
+
+    // Retry with draft against version 4 succeeds
+    mocks.setMemberGrants.mockResolvedValueOnce({
+      member_id: '7',
+      version: '5'
+    })
+    await wrapper.get('[data-testid="retry-draft-grants-btn"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.setMemberGrants).toHaveBeenLastCalledWith('1', '7', '4', {
+      project_grants: [
+        { project_id: '11', actions: ['playground.run', 'text.chat'] },
+        { project_id: '22', actions: ['keys.read'] },
+        { project_id: '99', actions: ['keys.read'] }
+      ]
+    })
   })
 
   it('provides accessible labels for all three select controls (E2-6)', async () => {

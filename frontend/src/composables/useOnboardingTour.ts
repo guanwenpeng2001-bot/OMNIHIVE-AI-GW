@@ -1,6 +1,7 @@
 import { onMounted, onUnmounted, nextTick } from 'vue'
 import { driver, type Driver, type DriveStep } from 'driver.js'
 import 'driver.js/dist/driver.css'
+import { useRoute } from 'vue-router'
 import { useAuthStore as useUserStore } from '@/stores/auth'
 import { useOnboardingStore } from '@/stores/onboarding'
 import { useI18n } from 'vue-i18n'
@@ -13,10 +14,23 @@ export interface OnboardingOptions {
 
 export function useOnboardingTour(options: OnboardingOptions) {
   const { t, locale } = useI18n()
+  let route: ReturnType<typeof useRoute> | undefined
+  try {
+    route = useRoute()
+  } catch {
+    route = undefined
+  }
   const userStore = useUserStore()
   const onboardingStore = useOnboardingStore()
-  const storageVersion = 'v5_compact'
+  const storageVersion = 'v6'
   const isZh = () => String(locale?.value || 'zh').toLowerCase().startsWith('zh')
+  const isAdminTier = () => {
+    const currentPath = String(route?.path || route?.fullPath || '')
+    const isUserAdmin = Boolean(
+      (userStore as { isAdmin?: boolean }).isAdmin ?? userStore.user?.role === 'admin'
+    )
+    return currentPath.startsWith('/admin') && isUserAdmin
+  }
 
   // Timing constants for better maintainability
   const TIMING = {
@@ -110,8 +124,8 @@ export function useOnboardingTour(options: OnboardingOptions) {
   const getStorageKey = () => {
     const baseKey = options.storageKey ?? 'onboarding_tour'
     const userId = userStore.user?.id ?? 'guest'
-    const role = userStore.user?.role ?? 'user'
-    return `${baseKey}_${userId}_${role}_${storageVersion}`
+    const tier = isAdminTier() ? 'admin' : 'user'
+    return `${baseKey}_${userId}_${tier}_${storageVersion}`
   }
 
   const hasSeen = () => {
@@ -156,8 +170,8 @@ export function useOnboardingTour(options: OnboardingOptions) {
     cancelTour()
     const session = generation
     const isCurrent = () => !disposed && generation === session
-    // 动态获取当前用户角色和步骤
-    const isAdmin = userStore.user?.role === 'admin'
+    // Tier-aware tour selection: only run admin steps when inside /admin routes
+    const isAdmin = isAdminTier()
     const isSimpleMode = userStore.isSimpleMode
     const steps = isAdmin ? getAdminSteps(t, isSimpleMode, isZh()) : getUserSteps(t, isZh())
 

@@ -1288,5 +1288,32 @@ export default {
       adjustment: 'Adjustment',
     },
   },
+  scope: {
+    personal: {
+      badge: 'Personal Space · Personal Account Billing',
+    },
+    workspace: {
+      overview: 'Workspace Overview (All Projects · Select a project to run)',
+    },
+    project: {
+      defaultShared: 'Shared Default Project · Browse Only (Use Personal Space)',
+    },
+  },
+  rbac: {
+    keys: {
+      deniedProject: 'Lacks {grant} in "{project}". Switch to Personal Space.',
+      emptyActions: 'Has keys.create but zero delegable model actions.',
+    },
+    playground: {
+      denied: 'Playground requires a team project with playground.run.',
+      noModels: 'Key allow-list, group, and action intersection is empty.',
+    },
+    probe: {
+      unavailable: 'Service unreachable (Unknown · req: {reqId}); mutations locked.',
+    },
+    cas: {
+      conflict412: 'Updated by another admin (412). Review highlighted diff.',
+    },
+  },
   // Admin
 }

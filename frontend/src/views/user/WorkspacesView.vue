@@ -27,6 +27,13 @@
                 {{ selected.role === 'admin' ? t('workspaces.admin') : t('workspaces.member') }}
               </span>
               <span
+                v-if="selected && workspaceRoleSourceLabel"
+                data-testid="workspace-role-source-badge"
+                class="rounded border border-[var(--oh-accent-border,rgba(245,158,11,0.4))] bg-[var(--surface-2)] px-2 py-0.5 font-mono text-[11px] font-medium text-[var(--foreground)]"
+              >
+                {{ workspaceRoleSourceLabel }}
+              </span>
+              <span
                 v-if="selected && String(selected.id) === activeScope.workspaceId"
                 data-testid="active-workspace-badge"
                 class="rounded border border-[var(--oh-accent-border,rgba(245,158,11,0.4))] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.12))] px-2 py-0.5 font-mono text-[11px] font-semibold text-[var(--oh-ink,var(--foreground))]"
@@ -42,6 +49,15 @@
             </p>
           </div>
           <div v-if="selected" class="flex flex-wrap items-center gap-2">
+            <button
+              v-if="hasAuthenticatedUser"
+              type="button"
+              data-testid="open-workspace-access-request-btn"
+              class="btn btn-secondary btn-sm font-mono text-xs"
+              @click="showAccessRequestModal = true"
+            >
+              {{ t('workspaces.requestAccessCta') }}
+            </button>
             <button
               type="button"
               data-testid="activate-workspace-scope-btn"
@@ -284,6 +300,13 @@
                   <div v-else class="flex items-center gap-2">
                     <span class="font-medium text-[var(--foreground)]">{{ proj.name }}</span>
                     <span
+                      v-if="isSharedDefaultProject(proj)"
+                      data-testid="shared-default-project-badge"
+                      class="rounded border border-[var(--border)] bg-[var(--surface-2)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--muted-foreground)]"
+                    >
+                      {{ t('workspaces.defaultSharedProjectBadge') }}
+                    </span>
+                    <span
                       v-if="
                         String(selected.id) === activeScope.workspaceId &&
                         proj.id === activeScope.projectId
@@ -316,7 +339,7 @@
                       {{ t('workspaces.activateScope') }}
                     </button>
                     <button
-                      v-if="canEditProject && (proj.state ?? 'active') === 'active'"
+                      v-if="canEditProjectRow(proj) && (proj.state ?? 'active') === 'active'"
                       type="button"
                       :data-testid="`start-rename-project-${proj.id}`"
                       class="btn btn-secondary btn-sm px-2 py-1 text-xs"
@@ -325,7 +348,7 @@
                       {{ t('workspaces.renameProject') }}
                     </button>
                     <button
-                      v-if="canDeleteProject && (proj.state ?? 'active') === 'active'"
+                      v-if="canDeleteProjectRow(proj) && (proj.state ?? 'active') === 'active'"
                       type="button"
                       :data-testid="`archive-project-${proj.id}`"
                       class="btn btn-secondary btn-sm px-2 py-1 text-xs text-[var(--oh-danger,#dc2626)]"
@@ -345,13 +368,33 @@
         </p>
       </section>
 
-      <section v-if="selected?.role === 'admin'" class="card space-y-4 p-5" :aria-busy="loadingMembers">
+      <!-- Pending Access Requests Inbox for Workspace Admins -->
+      <WorkspaceAccessRequestsInbox
+        v-if="selected && canManageWorkspaceGrants && hasAuthenticatedUser"
+        :workspace-id="String(selected.id)"
+        :workspace-is-default="Boolean(selected.is_default)"
+        :projects="projects"
+        :grant-action-options="grantActionOptions"
+        @decided="loadMembers"
+      />
+
+      <section v-if="canAdministerWorkspace" class="card space-y-4 p-5" :aria-busy="loadingMembers">
         <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-3">
           <div class="flex items-center gap-2">
             <span class="inline-block h-1.5 w-1.5 rounded-full bg-[var(--oh-accent,#f59e0b)]" aria-hidden="true" />
             <h2 class="text-lg font-semibold text-[var(--foreground)]">{{ t('workspaces.members') }}</h2>
           </div>
-          <span class="chip font-mono text-xs tabular-nums">{{ members.length }}</span>
+          <div class="flex flex-wrap items-center gap-2">
+            <input
+              v-if="members.length > 0"
+              v-model="memberSearchQuery"
+              type="search"
+              data-testid="workspace-member-filter-input"
+              :placeholder="t('workspaces.filterMembersPlaceholder')"
+              class="input h-8 px-2.5 text-xs"
+            />
+            <span class="chip font-mono text-xs tabular-nums">{{ filteredWorkspaceMembers.length }}</span>
+          </div>
         </div>
         <form class="flex flex-wrap items-end gap-3 rounded-[var(--oh-r-md,8px)] border border-[var(--border)] bg-[var(--surface-2)] p-4" @submit.prevent="saveMember">
           <label class="space-y-2 text-sm font-medium text-[var(--foreground)]"><span class="block">{{ t('workspaces.userID') }}</span><input v-model.number="userID" type="number" min="1" required class="input font-mono tabular-nums" /></label>
@@ -359,7 +402,7 @@
           <button class="btn btn-primary" :disabled="busy || !userID">{{ t('workspaces.save') }}</button>
         </form>
         <ul class="divide-y divide-[var(--border)]">
-          <li v-for="member in members" :key="member.user_id" class="flex flex-wrap items-center justify-between gap-3 py-3">
+          <li v-for="member in filteredWorkspaceMembers" :key="member.user_id" class="flex flex-wrap items-center justify-between gap-3 py-3">
             <div class="flex flex-wrap items-center gap-2">
               <span class="font-mono text-sm tabular-nums text-[var(--foreground)]">{{ t('workspaces.userID') }}: {{ member.user_id }}</span>
               <span
@@ -374,7 +417,18 @@
                 {{ member.role === 'admin' ? t('workspaces.admin') : t('workspaces.member') }}
               </span>
             </div>
-            <button type="button" class="btn btn-secondary" :disabled="busy" @click="removeMember(member.user_id)">{{ t('workspaces.remove') }}</button>
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                :data-testid="`open-member-grants-${member.user_id}`"
+                class="btn btn-secondary btn-sm text-xs"
+                :disabled="busy"
+                @click="openMemberGrantMatrix(member)"
+              >
+                {{ t('workspaces.memberGrants') }}
+              </button>
+              <button type="button" class="btn btn-secondary" :disabled="busy" @click="removeMember(member.user_id)">{{ t('workspaces.remove') }}</button>
+            </div>
           </li>
         </ul>
       </section>
@@ -448,6 +502,29 @@
           {{ isZh ? '暂无可用的路由策略配置。' : 'Routing policy configuration is currently unavailable.' }}
         </p>
       </section>
+
+      <!-- Shared Per-Project Grant Matrix Modal -->
+      <MemberGrantMatrixModal
+        v-if="selected"
+        :open="Boolean(grantMatrixMember)"
+        :workspace-id="String(selected.id)"
+        :workspace-is-default="Boolean(selected.is_default)"
+        :member="grantMatrixMember"
+        :projects="projects"
+        :grant-action-options="grantActionOptions"
+        @close="grantMatrixMember = null"
+      />
+
+      <!-- Project Access Request Modal for Requester -->
+      <ProjectAccessRequest
+        v-if="selected && showAccessRequestModal"
+        mode="modal"
+        :open="showAccessRequestModal"
+        :initial-workspace-id="String(selected.id)"
+        :workspaces-override="requesterWorkspacesSummary"
+        @close="showAccessRequestModal = false"
+        @switched-project="handleAccessRequestSwitchedProject"
+      />
     </div>
   </AppLayout>
 </template>
@@ -471,6 +548,14 @@ import {
   type ConsoleScopeSelection,
   type IdentityProject
 } from '@/features/console/scope'
+import { membersV2API } from '@/features/members/api'
+import { isProtectedSharedDefaultProject } from '@/features/members/cas'
+import MemberGrantMatrixModal, {
+  type GrantMatrixMemberTarget
+} from '@/features/members/MemberGrantMatrixModal.vue'
+import WorkspaceAccessRequestsInbox from '@/features/members/WorkspaceAccessRequestsInbox.vue'
+import type { IdentityAccess, IdentityWorkspace } from '@/features/members/types'
+import ProjectAccessRequest from '@/features/onboarding/ProjectAccessRequest.vue'
 
 const { t, locale } = useI18n()
 const isZh = computed(() => String(locale?.value || '').startsWith('zh'))
@@ -478,8 +563,16 @@ const auth = useAuthStore()
 const app = useAppStore()
 const workspaces = ref<Workspace[]>([])
 const members = ref<WorkspaceMember[]>([])
+const memberSearchQuery = ref('')
+const grantMatrixMember = ref<GrantMatrixMemberTarget | null>(null)
+const showAccessRequestModal = ref(false)
 const selectedID = ref<number | null>(null)
 const selected = computed(() => workspaces.value.find(workspace => workspace.id === selectedID.value))
+const hasAuthenticatedUser = computed(() => Boolean((auth as { user?: { id?: number } })?.user?.id))
+
+const workspaceAccess = ref<IdentityAccess | null>(null)
+const workspaceAccessLoaded = ref(false)
+const projectAccessById = ref<Record<string, string[]>>({})
 
 const activeScope = ref<ConsoleScopeSelection>(readPersistedConsoleScope())
 const isSelectedWorkspaceActive = computed(
@@ -508,8 +601,113 @@ function hasProjectAction(action: string): boolean {
   return projectActions.value.includes('*') || projectActions.value.includes(action)
 }
 
+function hasWorkspaceAction(action: string): boolean {
+  const actions = workspaceAccess.value?.actions ?? []
+  return (
+    Boolean(workspaceAccess.value?.effective_admin) ||
+    actions.includes('*') ||
+    actions.includes(action)
+  )
+}
+
+const canAdministerWorkspace = computed(
+  () =>
+    selected.value?.role === 'admin' ||
+    (workspaceAccessLoaded.value &&
+      (Boolean(workspaceAccess.value?.effective_admin) ||
+        hasWorkspaceAction('members.grants.write')))
+)
+
+const canManageWorkspaceGrants = computed(
+  () =>
+    selected.value?.role === 'admin' ||
+    (workspaceAccessLoaded.value && hasWorkspaceAction('members.grants.write')) ||
+    (projectAccessLoaded.value && hasProjectAction('members.grants.write'))
+)
+
+const workspaceRoleSourceLabel = computed<string>(() => {
+  const src = workspaceAccess.value?.role_source
+  if (src === 'inherited') return t('workspaces.adminInherited')
+  if (src === 'delegated') return t('workspaces.adminDelegated')
+  return ''
+})
+
+const filteredWorkspaceMembers = computed(() => {
+  const q = memberSearchQuery.value.trim().toLowerCase()
+  if (!q) return members.value
+  return members.value.filter((m) => {
+    const idMatch = String(m.user_id).toLowerCase().includes(q)
+    const roleMatch = String(m.role || '').toLowerCase().includes(q)
+    return idMatch || roleMatch
+  })
+})
+
+const DEFAULT_GRANTABLE_ACTIONS = [
+  { action: 'text.chat', labelKey: 'membersAccess.actions.textChat' },
+  { action: 'text.responses', labelKey: 'membersAccess.actions.textResponses' },
+  { action: 'text.embeddings', labelKey: 'membersAccess.actions.textEmbeddings' },
+  { action: 'image.generate', labelKey: 'membersAccess.actions.imageGenerate' },
+  { action: 'projects.read', labelKey: 'membersAccess.actions.projectsRead' },
+  { action: 'projects.edit', labelKey: 'membersAccess.actions.projectsEdit' },
+  { action: 'projects.delete', labelKey: 'membersAccess.actions.projectsDelete' },
+  { action: 'models.read', labelKey: 'membersAccess.actions.modelsRead' },
+  { action: 'keys.read', labelKey: 'membersAccess.actions.keysRead' },
+  { action: 'keys.create', labelKey: 'membersAccess.actions.keysCreate' },
+  { action: 'keys.revoke', labelKey: 'membersAccess.actions.keysRevoke' },
+  { action: 'credentials.byok.manage', labelKey: 'membersAccess.actions.credentialsByokManage' },
+  { action: 'playground.read', labelKey: 'membersAccess.actions.playgroundRead' },
+  { action: 'playground.run', labelKey: 'membersAccess.actions.playgroundRun' },
+  { action: 'requests.read', labelKey: 'membersAccess.actions.requestsRead' },
+  { action: 'usage.read', labelKey: 'membersAccess.actions.usageRead' },
+  { action: 'billing.read', labelKey: 'membersAccess.actions.billingRead' },
+  { action: 'tasks.read', labelKey: 'membersAccess.actions.tasksRead' },
+  { action: 'tasks.create', labelKey: 'membersAccess.actions.tasksCreate' },
+  { action: 'tasks.artifacts.read', labelKey: 'membersAccess.actions.tasksArtifactsRead' }
+] as const
+
+const grantActionOptions = computed(() => {
+  const explicit = workspaceAccess.value?.grantable_actions
+  if (Array.isArray(explicit) && explicit.length > 0) {
+    const knownMap = new Map<string, string>(
+      DEFAULT_GRANTABLE_ACTIONS.map((item) => [item.action, t(item.labelKey)])
+    )
+    return explicit.map((action) => ({
+      action,
+      label: knownMap.get(action) ?? action
+    }))
+  }
+  return DEFAULT_GRANTABLE_ACTIONS.map((item) => ({
+    action: item.action,
+    label: t(item.labelKey)
+  }))
+})
+
+const requesterWorkspacesSummary = computed<IdentityWorkspace[]>(() =>
+  workspaces.value.map((ws) => ({
+    workspace_id: String(ws.id),
+    name: ws.name,
+    is_default: ws.is_default,
+    projects:
+      selected.value?.id === ws.id
+        ? projects.value.map((p) => ({
+            id: p.id,
+            name: p.name,
+            is_default: (p as { is_default?: boolean }).is_default
+          }))
+        : [],
+    projects_next_cursor: null
+  }))
+)
+
+function isSharedDefaultProject(proj: IdentityProject): boolean {
+  return isProtectedSharedDefaultProject(selected.value, proj as { is_default?: boolean })
+}
+
 const canCreateProject = computed(
-  () => selected.value?.role === 'admin' || (projectAccessLoaded.value && hasProjectAction('projects.create'))
+  () =>
+    selected.value?.role === 'admin' ||
+    (workspaceAccessLoaded.value && hasWorkspaceAction('projects.create')) ||
+    (projectAccessLoaded.value && hasProjectAction('projects.create'))
 )
 const canEditProject = computed(
   () => selected.value?.role === 'admin' || (projectAccessLoaded.value && hasProjectAction('projects.edit'))
@@ -517,6 +715,36 @@ const canEditProject = computed(
 const canDeleteProject = computed(
   () => selected.value?.role === 'admin' || (projectAccessLoaded.value && hasProjectAction('projects.delete'))
 )
+
+function canEditProjectRow(proj: IdentityProject): boolean {
+  if (isSharedDefaultProject(proj)) return false
+  const rowActions = projectAccessById.value[proj.id]
+  if (Array.isArray(rowActions)) {
+    return selected.value?.role === 'admin' || rowActions.includes('*') || rowActions.includes('projects.edit')
+  }
+  return canEditProject.value
+}
+
+function canDeleteProjectRow(proj: IdentityProject): boolean {
+  if (isSharedDefaultProject(proj)) return false
+  const rowActions = projectAccessById.value[proj.id]
+  if (Array.isArray(rowActions)) {
+    return selected.value?.role === 'admin' || rowActions.includes('*') || rowActions.includes('projects.delete')
+  }
+  return canDeleteProject.value
+}
+
+function openMemberGrantMatrix(member: WorkspaceMember): void {
+  grantMatrixMember.value = {
+    user_id: member.user_id,
+    role: member.role
+  }
+}
+
+function handleAccessRequestSwitchedProject(payload: { workspaceId: string; projectId: string }): void {
+  showAccessRequestModal.value = false
+  activateScope(payload.workspaceId, payload.projectId)
+}
 const showQuickActionKeys = computed(() => !projectAccessLoaded.value || hasProjectAction('keys.read'))
 const showQuickActionPlayground = computed(() => !projectAccessLoaded.value || hasProjectAction('playground.run'))
 const showQuickActionUsage = computed(
@@ -620,7 +848,7 @@ const resources = [
 async function loadMembers() {
   const request = ++memberRequest
   members.value = []
-  if (selected.value?.role !== 'admin') return
+  if (!canAdministerWorkspace.value || !selected.value) return
   loadingMembers.value = true
   try {
     const result = await workspacesAPI.members(selected.value.id)
@@ -629,6 +857,24 @@ async function loadMembers() {
     if (request === memberRequest) app.showError(normalizeApiError(error).message)
   } finally {
     if (request === memberRequest) loadingMembers.value = false
+  }
+}
+
+async function loadWorkspaceLevelAccess(workspaceId: string) {
+  if (!workspaceId || !hasAuthenticatedUser.value || typeof membersV2API.getWorkspaceAccess !== 'function') {
+    workspaceAccess.value = null
+    workspaceAccessLoaded.value = false
+    return
+  }
+  try {
+    const acc = await membersV2API.getWorkspaceAccess(workspaceId)
+    if (acc && typeof acc === 'object') {
+      workspaceAccess.value = acc
+      workspaceAccessLoaded.value = true
+    }
+  } catch {
+    workspaceAccess.value = null
+    workspaceAccessLoaded.value = false
   }
 }
 
@@ -644,6 +890,10 @@ async function loadActiveProjectAccess(workspaceId: string, projectId: string | 
     if (seq !== accessRequestSeq) return
     if (Array.isArray(access?.actions)) {
       projectActions.value = access.actions
+      projectAccessById.value = {
+        ...projectAccessById.value,
+        [projectId]: access.actions
+      }
       projectAccessLoaded.value = true
     } else {
       projectAccessLoaded.value = false
@@ -670,6 +920,7 @@ async function loadProjects(workspaceID: number | null | undefined, explicit = f
     projects.value = []
     projectAccessLoaded.value = false
     projectActions.value = []
+    projectAccessById.value = {}
     return
   }
   if (!explicit && !(auth as { user?: { id?: number } }).user?.id) {
@@ -678,6 +929,7 @@ async function loadProjects(workspaceID: number | null | undefined, explicit = f
   const hadCached = projects.value.length > 0
   projectsLoading.value = true
   try {
+    void loadWorkspaceLevelAccess(String(workspaceID))
     const page = await identityApi.listProjects(String(workspaceID), { limit: 100 })
     if (seq === projectRequestSeq) {
       projects.value = page.items ?? []

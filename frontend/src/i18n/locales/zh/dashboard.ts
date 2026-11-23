@@ -1292,5 +1292,32 @@ export default {
       adjustment: '调账',
     },
   },
+  scope: {
+    personal: {
+      badge: '个人空间 · 个人账户结算（无需项目授权）',
+    },
+    workspace: {
+      overview: '工作空间总览（全部项目 · 仅汇总浏览，签发或调试请选项目）',
+    },
+    project: {
+      defaultShared: '默认共享项目 · 仅模型目录浏览（个人调用请切回个人空间）',
+    },
+  },
+  rbac: {
+    keys: {
+      deniedProject: '当前处于项目「{project}」，缺少密钥权限 ({grant})。个人调用请切至个人空间。',
+      emptyActions: '您拥有 keys.create，但尚未获得任何可签发的模型调用动作（如 text.chat）。',
+    },
+    playground: {
+      denied: '模型调试台为团队项目工具。当前处于个人空间或缺少项目的 playground.run 权限。',
+      noModels: '所选密钥允许列表、路由分组与调用动作交集为空（已禁止回退公共目录）。',
+    },
+    probe: {
+      unavailable: '权限或目录服务暂不可达（状态未知 · req: {reqId}），写操作已临时锁定。',
+    },
+    cas: {
+      conflict412: '权限或规则已被其他管理员更新（412 冲突）。已保留草稿，请核对高亮差异后重试。',
+    },
+  },
   // Admin
 }

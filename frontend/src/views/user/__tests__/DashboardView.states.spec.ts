@@ -59,6 +59,15 @@ describe('user dashboard states', () => {
     expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(false)
     wrapper.unmount()
   })
+  it('renders 0 duplicate in-page console-scope-bar nodes and keeps personal scope on mount (AC-1)', async () => {
+    localStorage.clear()
+    const wrapper = mountPage('zh')
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="console-scope-bar"]')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="first-run-checklist"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="personal-scope-attribution"]').text()).toContain('个人空间')
+    wrapper.unmount()
+  })
 })
 
 

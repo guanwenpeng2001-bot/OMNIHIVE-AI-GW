@@ -3,6 +3,10 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
+import {
+  ADMIN_MODELS_NAV_ITEM,
+  CORE_NAVIGATION_ITEMS
+} from '@/router/navigationRegistry'
 
 const componentPath = resolve(dirname(fileURLToPath(import.meta.url)), '../AppSidebar.vue')
 const componentSource = readFileSync(componentPath, 'utf8')
@@ -82,6 +86,10 @@ describe('AppSidebar subscription feature flag', () => {
 })
 
 describe('AppSidebar product surface integration', () => {
+  const activeRegistryPaths = new Set(
+    CORE_NAVIGATION_ITEMS.filter((item) => !item.hiddenInSidebar).map((item) => item.path)
+  )
+
   it.each([
     '/playground',
     '/requests',
@@ -94,7 +102,29 @@ describe('AppSidebar product surface integration', () => {
     '/admin/members',
     '/admin/plugins'
   ])('keeps %s reachable from the primary console navigation', (path) => {
-    expect(componentSource).toContain(`path: '${path}'`)
+    expect(componentSource).toContain('CORE_NAVIGATION_ITEMS')
+    expect(activeRegistryPaths.has(path)).toBe(true)
+  })
+
+  it('drives sidebar sections from navigationRegistry with /keys, /byok, /workspaces under access and /admin/models at order 27', () => {
+    expect(componentSource).toContain('USER_CONSOLE_SECTIONS')
+    expect(componentSource).toContain('ADMIN_CONSOLE_SECTIONS')
+    const overviewItems = CORE_NAVIGATION_ITEMS.filter(
+      (item) => item.tier === 'user' && item.section === 'overview'
+    )
+    expect(overviewItems.map((i) => i.path)).toEqual(['/dashboard'])
+
+    const accessItems = CORE_NAVIGATION_ITEMS.filter(
+      (item) => item.tier === 'user' && item.section === 'access'
+    )
+    expect(accessItems.map((i) => i.path)).toContain('/keys')
+    expect(accessItems.map((i) => i.path)).toContain('/byok')
+    expect(accessItems.map((i) => i.path)).toContain('/workspaces')
+
+    expect(ADMIN_MODELS_NAV_ITEM.path).toBe('/admin/models')
+    expect(ADMIN_MODELS_NAV_ITEM.section).toBe('connections')
+    expect(ADMIN_MODELS_NAV_ITEM.order).toBe(27)
+    expect(ADMIN_MODELS_NAV_ITEM.fallbackLabelZh).toBe('模型目录')
   })
 
   it('persists section collapse state, scrolls active item into view, and renders bottom overflow fade', () => {

@@ -184,4 +184,46 @@ describe('WorkspacesView BE-01 projects and scope switching', () => {
     expect(wrapper.find('[data-testid="quick-action-usage"]').exists()).toBe(true)
     wrapper.unmount()
   })
+
+  it('locks rename and archive on the protected shared Default project while allowing member filter and grant matrix in Workspaces', async () => {
+    mocks.list.mockResolvedValue([
+      { id: 1, name: 'Default', role: 'admin', is_default: true }
+    ])
+    mocks.members.mockResolvedValue([
+      { user_id: 9, role: 'admin' },
+      { user_id: 42, role: 'member' }
+    ])
+    mocks.listProjects.mockResolvedValue({
+      items: [
+        { id: '1', workspace_id: '1', name: 'Default', state: 'active', version: '1', is_default: true },
+        { id: '12', workspace_id: '1', name: 'Team Project', state: 'active', version: '2', is_default: false }
+      ],
+      next_cursor: null,
+      as_of: '2026-11-23T00:00:00Z'
+    })
+
+    const wrapper = mount(WorkspacesView, {
+      global: {
+        stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' }, Teleport: true }
+      }
+    })
+    await flushPromises()
+
+    // Shared Default project row shows browse-only badge and locks rename/archive
+    expect(wrapper.find('[data-testid="shared-default-project-badge"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="start-rename-project-1"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="archive-project-1"]').exists()).toBe(false)
+    // Team project (#12) remains editable
+    expect(wrapper.find('[data-testid="start-rename-project-12"]').exists()).toBe(true)
+
+    // Filter returned workspace members
+    const filterInput = wrapper.get('[data-testid="workspace-member-filter-input"]')
+    await filterInput.setValue('42')
+    await flushPromises()
+    expect(wrapper.findAll('li')).toHaveLength(1)
+    expect(wrapper.find('li').text()).toContain('42')
+    expect(wrapper.find('[data-testid="open-member-grants-42"]').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
 })
