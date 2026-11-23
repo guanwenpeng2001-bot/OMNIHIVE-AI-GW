@@ -564,6 +564,10 @@ func (s *ChannelService) lookupGroupChannel(ctx context.Context, groupID int64) 
 // GetChannelModelPricing 获取指定分组+模型的渠道定价（热路径 O(1)）。
 // 各平台严格独立，只在本平台内查找定价。
 func (s *ChannelService) GetChannelModelPricing(ctx context.Context, groupID int64, model string) *ChannelModelPricing {
+	return s.getChannelModelPricing(ctx, groupID, model, "")
+}
+
+func (s *ChannelService) getChannelModelPricing(ctx context.Context, groupID int64, model, platform string) *ChannelModelPricing {
 	lk, err := s.lookupGroupChannel(ctx, groupID)
 	if err != nil {
 		slog.Warn("failed to load channel cache", "group_id", groupID, "error", err)
@@ -573,8 +577,20 @@ func (s *ChannelService) GetChannelModelPricing(ctx context.Context, groupID int
 		return nil
 	}
 
+	if platform == "" {
+		platform = lk.platform
+	}
 	modelLower := strings.ToLower(model)
-	pricing := lookupPricingAcrossPlatforms(lk.cache, groupID, lk.platform, modelLower)
+	// A composite without its selected platform cannot use an arbitrary
+	// concrete platform's card.
+	if platform == PlatformComposite {
+		return nil
+	}
+	pricing := lookupPricingAcrossPlatforms(lk.cache, groupID, platform, modelLower)
+	if pricing == nil && platform != "" && lk.cache.groupPlatform[groupID] == "" {
+		// Older group-bound channel cards can have an empty platform.
+		pricing = lookupPricingAcrossPlatforms(lk.cache, groupID, "", modelLower)
+	}
 	if pricing == nil {
 		return nil
 	}

@@ -15,6 +15,9 @@ import (
 )
 
 func (s *GatewayService) getUserGroupRateMultiplier(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) float64 {
+	if rate, ok := frozenRequestGroupRate(ctx, userID, groupID); ok {
+		return rate
+	}
 	if s == nil {
 		return groupDefaultMultiplier
 	}
@@ -904,8 +907,13 @@ func (s *GatewayService) hasResolvableTokenPricing(ctx context.Context, model st
 	if s.billingService == nil {
 		return false
 	}
-	_, err := s.billingService.forGatewayRequest(ctx).GetModelPricing(model)
-	return err == nil
+	billing := s.billingService.forGatewayRequest(ctx)
+	provider := priceBookProviderForKey(ctx, apiKey)
+	if provider == "" {
+		_, err := billing.GetModelPricing(model)
+		return err == nil
+	}
+	return billing.hasProviderTokenPrice(ctx, provider, model)
 }
 
 // hasIdentifiedResponseModelPricing 判断上游自报的响应模型是否可以作为计费基准，
@@ -921,7 +929,7 @@ func (s *GatewayService) hasIdentifiedResponseModelPricing(ctx context.Context, 
 	if s.resolveChannelPricing(ctx, model, apiKey) != nil {
 		return true, true
 	}
-	return s.billingService.forGatewayRequest(ctx).HasIdentifiedTokenPricing(model), false
+	return s.billingService.forGatewayRequest(ctx).hasProviderTokenPrice(ctx, priceBookProviderForKey(ctx, apiKey), model), false
 }
 
 // resolveChannelPricing 检查指定模型是否存在渠道级别定价。
@@ -956,9 +964,8 @@ func (s *GatewayService) calculateImageCost(
 		}
 		return cost
 	}
-	groupConfig := imagePriceConfigFromAPIKey(apiKey)
 	if apiKeyHasConfiguredImagePrice(apiKey, sizeTier) {
-		return s.billingService.forGatewayRequest(ctx).CalculateImageCost(billingModel, sizeTier, result.ImageCount, groupConfig, multiplier)
+		return s.billingService.forGatewayRequest(ctx).calculateImageSale(ctx, apiKey, billingModel, sizeTier, result.ImageCount, multiplier)
 	}
 	if resolved != nil && resolved.Source == PricingSourceChannel {
 		tokens := UsageTokens{
@@ -987,7 +994,7 @@ func (s *GatewayService) calculateImageCost(
 		return cost
 	}
 
-	return s.billingService.forGatewayRequest(ctx).CalculateImageCost(billingModel, sizeTier, result.ImageCount, groupConfig, multiplier)
+	return s.billingService.forGatewayRequest(ctx).calculateImageSale(ctx, apiKey, billingModel, sizeTier, result.ImageCount, multiplier)
 }
 
 // calculateTokenCost 计算 Token 计费：路径选择（分组/渠道定价 → 内置定价）
@@ -1044,7 +1051,7 @@ func (s *GatewayService) calculateTokenCost(
 		}
 		if !exact {
 			// A normal-family wildcard is not an explicit Fast variant price.
-			resolved = s.resolver.Resolve(ctx, PricingInput{Model: billingModel})
+			resolved = s.resolver.Resolve(ctx, PricingInput{Model: billingModel, Provider: platform, At: pricingAt})
 		}
 	}
 

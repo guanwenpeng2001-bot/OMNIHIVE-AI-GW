@@ -16,20 +16,25 @@ import (
 )
 
 type Scenario struct {
-	Input        string `json:"input_tokens"`
-	Cached       string `json:"cached_input_tokens"`
-	Output       string `json:"output_tokens"`
-	Requests     string `json:"requests"`
-	CacheWrite   string `json:"cache_write_tokens,omitempty"`
-	CacheWrite1h string `json:"cache_write_1h_tokens,omitempty"`
-	Reasoning    string `json:"reasoning_tokens,omitempty"`
-	Images       string `json:"images,omitempty"`
-	ImageInput   string `json:"image_input_tokens,omitempty"`
-	ImageOutput  string `json:"image_output_tokens,omitempty"`
-	Search       string `json:"search_calls,omitempty"`
-	AudioSeconds string `json:"audio_seconds,omitempty"`
-	VideoSeconds string `json:"video_seconds,omitempty"`
-	SizeTier     string `json:"size_tier,omitempty"`
+	Input           string `json:"input_tokens"`
+	Cached          string `json:"cached_input_tokens"`
+	Output          string `json:"output_tokens"`
+	Requests        string `json:"requests"`
+	CacheWrite      string `json:"cache_write_tokens,omitempty"`
+	CacheWrite1h    string `json:"cache_write_1h_tokens,omitempty"`
+	Reasoning       string `json:"reasoning_tokens,omitempty"`
+	Images          string `json:"images,omitempty"`
+	ImageInput      string `json:"image_input_tokens,omitempty"`
+	ImageOutput     string `json:"image_output_tokens,omitempty"`
+	Search          string `json:"search_calls,omitempty"`
+	AudioSeconds    string `json:"audio_seconds,omitempty"`
+	VideoSeconds    string `json:"video_seconds,omitempty"`
+	SizeTier        string `json:"size_tier,omitempty"`
+	ServiceTier     string `json:"service_tier,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	ThinkingEnabled *bool  `json:"thinking_enabled,omitempty"`
+	ExplicitCache   bool   `json:"explicit_cache,omitempty"`
+	Batch           bool   `json:"batch,omitempty"`
 }
 
 var facet = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$`)
@@ -56,6 +61,12 @@ func (s Scenario) Usage() (pricing.Usage, error) {
 	}
 	if !ValidFacet(s.SizeTier) {
 		return pricing.Usage{}, fault.Invalid("/scenario/size_tier")
+	}
+	if !ValidFacet(s.ServiceTier) {
+		return pricing.Usage{}, fault.Invalid("/scenario/service_tier")
+	}
+	if !ValidFacet(s.ReasoningEffort) {
+		return pricing.Usage{}, fault.Invalid("/scenario/reasoning_effort")
 	}
 	fields := []struct {
 		name, value, kind string
@@ -122,6 +133,10 @@ func (s Scenario) Usage() (pricing.Usage, error) {
 	return usage, nil
 }
 
+func (s Scenario) PriceScenario(usage pricing.Usage) pricing.Scenario {
+	return pricing.Scenario{Usage: usage, ServiceTier: s.ServiceTier, ReasoningEffort: s.ReasoningEffort, ThinkingEnabled: s.ThinkingEnabled, ExplicitCache: s.ExplicitCache, Batch: s.Batch}
+}
+
 func integer(q money.Quantity) *big.Int {
 	n, _ := new(big.Int).SetString(q.Amount().String(), 10)
 	return n
@@ -131,45 +146,10 @@ func Matches(c catalog.Capability, action, protocol string) bool {
 	return c.State != "stale" && (action == "" || c.Action == action) && (protocol == "" || c.Protocol == protocol)
 }
 
-func Reference(d catalog.Detail, at time.Time) (pricing.Version, error) {
-	if d.PriceVersion == nil || (d.ContextBasis != "" && d.ContextBasis != "whole_request") || (d.Model.PriceState != "priced" && d.Model.PriceState != "free") {
-		return pricing.Version{}, nil
-	}
-	v := pricing.Version{ID: *d.PriceVersion, Source: d.PriceSource, Currency: "USD"}
-	if d.Model.Input != nil {
-		v.Rules = append(v.Rules, pricing.Rule{Kind: "input", Rate: *d.Model.Input})
-	}
-	if d.Model.Output != nil {
-		v.Rules = append(v.Rules, pricing.Rule{Kind: "output", Rate: *d.Model.Output})
-	}
-	for _, band := range d.AdditionalRates {
-		kind, _ := strings.CutPrefix(band.Kind, "tier_")
-		if kind == "request" && band.Rate.Unit() != "request" {
-			kind = string(band.Rate.Unit())
-		}
-		r := pricing.Rule{Kind: kind, Rate: band.Rate, Label: band.Label}
-		for _, limit := range []struct {
-			value  *int64
-			target **money.Quantity
-		}{{band.MinTokens, &r.MinContext}, {band.MaxTokens, &r.MaxContext}} {
-			if limit.value == nil {
-				continue
-			}
-			q, err := money.NewQuantity("token", strconv.FormatInt(*limit.value, 10))
-			if err != nil {
-				return pricing.Version{}, err
-			}
-			*limit.target = &q
-		}
-		v.Rules = append(v.Rules, r)
-	}
-	for _, window := range d.TimeBands {
-		v.Schedules = append(v.Schedules, pricing.Schedule{Timezone: window.Timezone, Start: window.Start, End: window.End,
-			WeekdaysOnly: window.WeekdaysOnly, Multiplier: window.Multiplier})
-	}
-	// Reference price cards supply evidence for the current snapshot only.
-	v.EffectiveFrom = at
-	return v, nil
+// Reference is retained for the legacy handler constructor during integration.
+// Catalog presentation data cannot be converted into an executable tariff.
+func Reference(_ catalog.Detail, _ time.Time) (pricing.Version, error) {
+	return pricing.Version{}, nil
 }
 
 type Input struct {
@@ -180,8 +160,8 @@ type Input struct {
 	Scenario *Scenario `json:"scenario"`
 }
 
-// KeyPrices must authorize the requested key in the supplied perspective and
-// resolve only the model/action allowed for that key.
+// KeyPrices remains for the legacy handler constructor during integration.
+// Current Key quotes use BindingReader.
 type KeyPrices interface {
 	ResolveKeyPrice(context.Context, catalog.Perspective, int64, catalog.Detail, string, string, pricing.Usage, time.Time) (pricing.Version, error)
 }
@@ -190,6 +170,8 @@ type Service struct {
 	Catalog   catalog.CatalogReader
 	Keys      KeyPrices
 	Published PublishedVersions
+	Book      pricing.PriceBook
+	Bindings  BindingReader
 }
 
 type Quote struct {
@@ -223,7 +205,7 @@ func (s Service) Quote(ctx context.Context, p catalog.Perspective, in Input) (Qu
 		if err != nil || key <= 0 || strconv.FormatInt(key, 10) != *in.APIKeyID {
 			return Quote{}, fault.Invalid("/api_key_id")
 		}
-		if s.Keys == nil {
+		if s.bindingReader() == nil {
 			return Quote{}, fault.NotFound
 		}
 	}
@@ -240,15 +222,7 @@ func (s Service) Quote(ctx context.Context, p catalog.Perspective, in Input) (Qu
 				continue
 			}
 			scope := &catalog.EffectiveScope{Workspace: p.Workspace, Project: p.Project, Version: p.AccessVersion}
-			if key == 0 {
-				cost, err := s.Estimate(ctx, p, d, usage, snap.AsOf, snap.AsOf)
-				return Quote{Result: cost, Scope: scope}, err
-			}
-			version, err := s.Keys.ResolveKeyPrice(ctx, p, key, d, in.Protocol, in.Action, usage, snap.AsOf)
-			if err != nil {
-				return Quote{}, err
-			}
-			cost, err := (pricing.Frozen{Version: version, Usage: usage, At: snap.AsOf}).Calculate()
+			cost, err := s.EstimateFor(ctx, p, d, key, in.Protocol, in.Action, in.Scenario.PriceScenario(usage), snap.AsOf, snap.AsOf)
 			return Quote{Result: cost, Scope: scope}, err
 		}
 	}

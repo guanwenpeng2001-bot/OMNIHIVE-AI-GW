@@ -185,7 +185,7 @@ func resolveQianwenThinkingPricing(resolved *ResolvedPricing, input CostInput) (
 	v := selected.ThinkingPricing
 	applyQianwenMode(&selected, v)
 	selected.ThinkingPricing = nil
-	r := input.Resolver.resolveConfiguredPricing(&selected, input.Model, resolved.Source)
+	r := input.Resolver.resolveConfiguredPricingFor(&selected, PricingInput{Model: input.Model, Provider: input.Provider, At: input.PricingAt}, resolved.Source)
 	r.longContextPricingEnabled = resolved.longContextPricingEnabled
 	return r, nil
 }

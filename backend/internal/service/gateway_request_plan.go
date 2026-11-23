@@ -103,6 +103,7 @@ type GatewayRequestPlan struct {
 	budgetEstimate     *RequestBudgetEstimate
 	budgetPlatform     string
 	budgetRate         func(context.Context, int64, int64, float64) float64
+	frozenRate         atomic.Pointer[requestGroupRate]
 	keyBudgetAmount    *money.Money
 	budgetHold         *KeyBudgetReservation
 	budgetAdmitted     bool
@@ -424,7 +425,11 @@ func (p *GatewayRequestPlan) ReserveBudget(ctx context.Context, estimate Request
 	if estimate.Group != nil {
 		platform = channelLookupPlatform(ctx, estimate.Group.Platform)
 	}
-	if p.store != nil && publicModelPricingPlatform(platform) && estimate.Meter == nil && !estimate.frozenJob {
+	composite := estimate.Group != nil && estimate.Group.Platform == PlatformComposite
+	if p.store != nil && (publicModelPricingPlatform(platform) || composite) && estimate.Meter == nil && !estimate.frozenJob && !estimate.InputOnly && playgroundPriceFromContext(ctx) == nil {
+		if estimate.InvalidBounds {
+			return ErrAPIKeyBudgetUnavailable
+		}
 		p.budgetPlatform = platform
 		p.budgetEstimate = &estimate
 		return nil
@@ -587,15 +592,10 @@ func captureGatewayRequestPlan(ctx context.Context, spec GatewayRequestSpec, set
 		settings := settings.getGatewayForwardingSettingsCached(ctx)
 		p.forwarding = &settings
 	}
-	p.billing = billing
-	if billing != nil && billing.pricingService != nil {
-		prices := billing.pricingService
-		prices.mu.RLock()
-		frozen := &PricingService{cfg: prices.cfg, pricingData: prices.pricingData, registrySnapshot: p.registrySnapshot, localHash: prices.localHash, customFilesHash: prices.customFilesHash, lastUpdated: prices.lastUpdated, pricingRevision: prices.pricingRevision}
-		frozen.baseNameIndex.Store(prices.baseNameIndex.Load())
+	p.billing = freezeBillingPricing(billing, p.registrySnapshot)
+	if p.spec.PriceVersion == "" && p.billing != nil && p.billing.pricingService != nil {
+		prices := p.billing.pricingService
 		p.spec.PriceVersion = prices.localHash + ":" + prices.customFilesHash
-		prices.mu.RUnlock()
-		p.billing = &BillingService{cfg: billing.cfg, pricingService: frozen, fallbackPrices: billing.fallbackPrices}
 	}
 	ctx = WithAffinityBindingState(ctx)
 	p.affinityState = AffinityBindingStateFromContext(ctx)
@@ -728,13 +728,17 @@ func (p *GatewayRequestPlan) journalDispatch(ctx context.Context, accountID int6
 	if err == nil && number == 1 && accountID > 0 && !p.HasTraceEmitted() {
 		id := strconv.FormatInt(accountID, 10)
 		rank := 1
+		priceVersion := p.execution.Versions.Price
+		if lane := p.selectedPrice.Load(); lane != nil && lane.version != "" {
+			priceVersion = lane.version
+		}
 		trace.Emit(ctx, trace.DecisionTrace{
 			SchemaVersion:    1,
 			Mode:             trace.Execution,
 			SnapshotID:       journal.NewID(),
 			AsOf:             time.Now().UTC(),
 			CatalogVersion:   p.execution.Versions.Model,
-			PriceVersion:     p.execution.Versions.Price,
+			PriceVersion:     priceVersion,
 			Candidates:       []trace.Candidate{{ID: id, State: "eligible", Rank: &rank}},
 			Selected:         &trace.Selection{CandidateID: id, ModelID: p.spec.Model},
 			ExecutionOutcome: "selected",

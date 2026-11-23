@@ -114,6 +114,9 @@ func (s *OpenAIGatewayService) RecordCyberPolicyUsageLog(ctx context.Context, in
 
 // ResolveUserGroupRateMultiplier resolves the same cached multiplier used by OpenAI usage billing.
 func (s *OpenAIGatewayService) ResolveUserGroupRateMultiplier(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) float64 {
+	if rate, ok := frozenRequestGroupRate(ctx, userID, groupID); ok {
+		return rate
+	}
 	if s == nil {
 		return groupDefaultMultiplier
 	}
@@ -539,7 +542,7 @@ func (s *OpenAIGatewayService) hasIdentifiedOpenAIResponsePricing(ctx context.Co
 	if s.resolveOpenAIChannelPricing(ctx, model, apiKey) != nil {
 		return true, true
 	}
-	return s.billingService.forGatewayRequest(ctx).HasIdentifiedTokenPricing(model), false
+	return s.billingService.forGatewayRequest(ctx).hasProviderTokenPrice(ctx, priceBookProviderForKey(ctx, apiKey), model), false
 }
 
 // openAILongContextBillingGate returns the per-account long-context opt-in.
@@ -770,12 +773,16 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 	if len(thinkingEnabled) > 0 {
 		thinking = thinkingEnabled[0]
 	}
-	if s.resolver != nil && apiKey.Group != nil {
+	if s.resolver != nil && apiKey.Group != nil || pricingPlatform(ctx, PricingInput{Group: apiKey.Group}) != "" || playgroundPriceFromContext(ctx) != nil {
 		gid := pricingGroupID(apiKey)
+		resolver := s.resolver
+		if resolver == nil {
+			resolver = NewModelPricingResolver(s.channelService, s.billingService)
+		}
 		return s.billingService.forGatewayRequest(ctx).CalculateCostUnified(CostInput{
 			Ctx: ctx, Provider: provider, Model: billingModel, GroupID: gid, Group: apiKey.Group,
 			Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier, PricingAt: pricingAt,
-			ServiceTier: serviceTier, ReasoningEffort: reasoningEffort, Resolver: s.resolver,
+			ServiceTier: serviceTier, ReasoningEffort: reasoningEffort, Resolver: resolver,
 			LongContextBillingEnabled: longContextBillingGate,
 			ThinkingEnabled:           thinking,
 		})
@@ -820,15 +827,13 @@ func (s *OpenAIGatewayService) calculateOpenAIImageCost(
 		}
 		return cost
 	}
-	groupConfig := imagePriceConfigFromAPIKey(apiKey)
 	if apiKeyHasConfiguredImagePrice(apiKey, sizeTier) {
-		return s.billingService.forGatewayRequest(ctx).CalculateImageCost(billingModel, sizeTier, result.ImageCount, groupConfig, multiplier)
+		return s.billingService.forGatewayRequest(ctx).calculateImageSale(ctx, apiKey, billingModel, sizeTier, result.ImageCount, multiplier)
 	}
 	if refreshed := s.apiKeyWithFreshGroupMediaPricing(ctx, apiKey); refreshed != apiKey {
 		apiKey = refreshed
-		groupConfig = imagePriceConfigFromAPIKey(apiKey)
 		if apiKeyHasConfiguredImagePrice(apiKey, sizeTier) {
-			return s.billingService.forGatewayRequest(ctx).CalculateImageCost(billingModel, sizeTier, result.ImageCount, groupConfig, multiplier)
+			return s.billingService.forGatewayRequest(ctx).calculateImageSale(ctx, apiKey, billingModel, sizeTier, result.ImageCount, multiplier)
 		}
 	}
 	if resolved != nil && resolved.Source == PricingSourceChannel &&
@@ -852,7 +857,7 @@ func (s *OpenAIGatewayService) calculateOpenAIImageCost(
 		return cost
 	}
 
-	return s.billingService.forGatewayRequest(ctx).CalculateImageCost(billingModel, sizeTier, result.ImageCount, groupConfig, multiplier)
+	return s.billingService.forGatewayRequest(ctx).calculateImageSale(ctx, apiKey, billingModel, sizeTier, result.ImageCount, multiplier)
 }
 
 func (s *OpenAIGatewayService) calculateOpenAIVideoCost(
@@ -885,15 +890,13 @@ func (s *OpenAIGatewayService) calculateOpenAIVideoCost(
 		}
 		return cost
 	}
-	groupConfig := videoPriceConfigFromAPIKey(apiKey)
 	if apiKeyHasConfiguredVideoPrice(apiKey, billingModel, resolution) {
-		return s.billingService.forGatewayRequest(ctx).CalculateVideoCost(billingModel, resolution, videoCount, durationSeconds, groupConfig, multiplier)
+		return s.billingService.forGatewayRequest(ctx).calculateVideoSale(ctx, apiKey, billingModel, resolution, videoCount, durationSeconds, multiplier)
 	}
 	if refreshed := s.apiKeyWithFreshGroupMediaPricing(ctx, apiKey); refreshed != apiKey {
 		apiKey = refreshed
-		groupConfig = videoPriceConfigFromAPIKey(apiKey)
 		if apiKeyHasConfiguredVideoPrice(apiKey, billingModel, resolution) {
-			return s.billingService.forGatewayRequest(ctx).CalculateVideoCost(billingModel, resolution, videoCount, durationSeconds, groupConfig, multiplier)
+			return s.billingService.forGatewayRequest(ctx).calculateVideoSale(ctx, apiKey, billingModel, resolution, videoCount, durationSeconds, multiplier)
 		}
 	}
 	if resolved != nil && resolved.Source == PricingSourceChannel &&
@@ -924,7 +927,7 @@ func (s *OpenAIGatewayService) calculateOpenAIVideoCost(
 		return pricingFailure(err)
 	}
 
-	return s.billingService.forGatewayRequest(ctx).CalculateVideoCost(billingModel, resolution, videoCount, durationSeconds, groupConfig, multiplier)
+	return s.billingService.forGatewayRequest(ctx).calculateVideoSale(ctx, apiKey, billingModel, resolution, videoCount, durationSeconds, multiplier)
 }
 
 func (s *OpenAIGatewayService) apiKeyWithFreshGroupMediaPricing(ctx context.Context, apiKey *APIKey) *APIKey {
@@ -1264,7 +1267,7 @@ func (s *OpenAIGatewayService) validateOpenAIImagePricing(ctx context.Context, k
 		return err
 	}
 	if apiKeyHasConfiguredImagePrice(key, NormalizeImageBillingTierOrDefault(size)) {
-		cost := s.billingService.forGatewayRequest(ctx).CalculateImageCost(model, size, 1, imagePriceConfigFromAPIKey(key), 1)
+		cost := s.billingService.forGatewayRequest(ctx).calculateImageSale(ctx, key, model, size, 1, 1)
 		if cost.PricingState == PricingStateError {
 			return ErrInvalidBillingAmount
 		}

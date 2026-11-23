@@ -55,11 +55,11 @@ func (s *OpenAIGatewayService) withEmbeddingsPricing(ctx context.Context, key *A
 		resolver = NewModelPricingResolver(s.channelService, billing)
 	}
 	ctx = WithResolvedTargetPlatform(ctx, account.Platform)
-	resolved := resolver.Resolve(ctx, PricingInput{Mode: BillingModeToken, Model: model, Group: key.Group, GroupID: pricingGroupID(key)})
+	resolved := resolver.Resolve(ctx, PricingInput{Mode: BillingModeToken, Model: model, Provider: account.Platform, Group: key.Group, GroupID: pricingGroupID(key)})
 	if resolved.pricingErr != nil || resolved.Mode != BillingModeToken {
 		return ctx, ErrModelPricingUnavailable
 	}
-	identified := billing.HasIdentifiedTokenPricing(model)
+	identified := billing.hasProviderTokenPrice(ctx, account.Platform, model)
 	if resolved.descriptor == nil && !identified {
 		if resolved.channelPricing == nil {
 			return ctx, ErrModelPricingUnavailable
