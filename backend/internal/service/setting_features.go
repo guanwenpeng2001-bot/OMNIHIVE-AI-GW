@@ -210,7 +210,11 @@ func (s *SettingService) PasskeyEnabled(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("read passkey setting: %w", err)
 	}
-	return value == "true", nil
+	parsed, err := strconv.ParseBool(strings.TrimSpace(value))
+	if err != nil {
+		return false, fmt.Errorf("invalid passkey setting: %w", err)
+	}
+	return parsed, nil
 }
 
 // PasskeyConfiguration returns non-secret relying-party configuration for the
@@ -310,26 +314,32 @@ func (s *SettingService) GetSiteName(ctx context.Context) string {
 
 // GetDefaultConcurrency 获取默认并发量
 func (s *SettingService) GetDefaultConcurrency(ctx context.Context) int {
+	if s == nil || s.settingRepo == nil {
+		return defaultRegistryConcurrency
+	}
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyDefaultConcurrency)
 	if err != nil {
-		return s.cfg.Default.UserConcurrency
+		return defaultRegistryConcurrency
 	}
-	if v, err := strconv.Atoi(value); err == nil && v > 0 {
+	if v, err := strconv.Atoi(value); err == nil && v >= 0 {
 		return v
 	}
-	return s.cfg.Default.UserConcurrency
+	return defaultRegistryConcurrency
 }
 
 // GetDefaultBalance 获取默认余额
 func (s *SettingService) GetDefaultBalance(ctx context.Context) float64 {
+	if s == nil || s.settingRepo == nil {
+		return defaultRegistryBalance
+	}
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyDefaultBalance)
 	if err != nil {
-		return s.cfg.Default.UserBalance
+		return defaultRegistryBalance
 	}
 	if v, err := strconv.ParseFloat(value, 64); err == nil && v >= 0 {
 		return v
 	}
-	return s.cfg.Default.UserBalance
+	return defaultRegistryBalance
 }
 
 // GetDefaultUserRPMLimit 获取新用户默认 RPM 限制（0 = 不限制）。未配置则返回 0。
