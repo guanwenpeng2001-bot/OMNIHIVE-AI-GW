@@ -23,12 +23,17 @@ func SaleBindings(p catalog.Perspective, bindings []catalog.ModelBinding) []pric
 }
 
 func saleBinding(p catalog.Perspective, b catalog.ModelBinding) pricing.Binding {
-	return pricing.Binding{
+	binding := pricing.Binding{
 		Provider: b.BillingIdentity.Provider, Model: b.BillingIdentity.Model,
 		GroupID: b.BillingGroupID, ChannelID: b.ChannelID, Funding: b.Funding,
 		Workspace: p.Workspace, Project: p.Project, RateMultiplier: b.RateMultiplier,
 		Action: b.Action, Protocol: b.Protocol,
 	}
+	switch b.BillingModelSource {
+	case service.BillingModelSourceRequested, service.BillingModelSourceChannelMapped:
+		binding.WireModel = b.WireModel
+	}
+	return binding
 }
 
 func (p PriceBookPort) Describe(ctx context.Context, in catalog.PriceInput) (catalog.Price, error) {

@@ -46,6 +46,7 @@ type quote struct {
 	Reason             string       `json:"reason,omitempty"`
 	PriceAt            time.Time    `json:"price_at"`
 	PriceVersion       *string      `json:"price_version"`
+	Source             *string      `json:"source,omitempty"`
 	Charge             *money.Money `json:"estimated_charge"`
 	Components         []component  `json:"components"`
 	RoundingAdjustment *string      `json:"rounding_adjustment"`
@@ -156,6 +157,7 @@ func (h *Handler) compare(ctx context.Context, p catalog.Perspective, c *gin.Con
 			if estimate.State != "" {
 				row.Quote.State, row.Quote.BillingState, row.Quote.Reason = estimate.State, state, reason
 				row.Quote.PriceVersion, row.Quote.Charge, row.Quote.RoundingAdjustment = estimate.PriceVersion, estimate.Charge, estimate.RoundingAdjustment
+				row.Quote.Source = estimate.Source
 				for _, line := range estimate.Components {
 					row.Quote.Components = append(row.Quote.Components, component{Kind: line.Kind, Quantity: line.Quantity, RawAmount: line.RawAmount})
 				}

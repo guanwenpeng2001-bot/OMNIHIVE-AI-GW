@@ -148,7 +148,19 @@ func (b *PlatformPriceBook) ResolveForGroup(ctx context.Context, binding pricing
 			return t, nil
 		}
 	}
-	resolved := r.Resolve(ctx, PricingInput{Provider: binding.Provider, Model: binding.Model, Mode: BillingMode(binding.Mode), At: binding.At, Group: group, GroupID: groupID})
+	input := PricingInput{Provider: binding.Provider, Model: binding.Model, Mode: BillingMode(binding.Mode), At: binding.At, Group: group, GroupID: groupID}
+	resolved := r.Resolve(ctx, input)
+	if wire := strings.TrimSpace(binding.WireModel); wire != "" && wire != input.Model && resolved.pricingErr == nil &&
+		(input.Mode == "" || input.Mode == BillingModeToken) {
+		configured := resolved.Source == PricingSourceGroup || resolved.Source == PricingSourceChannel
+		missing := resolved.BasePricing == nil && resolved.descriptor == nil
+		// A composite alias needs explicit operator pricing. Other token routes
+		// try the outbound model when their selected billing identity has no card.
+		if !configured && (missing || group != nil && group.Platform == PlatformComposite) {
+			input.Model, binding.Model = wire, wire
+			resolved = r.Resolve(ctx, input)
+		}
+	}
 	t.billing = r.billingService.forGatewayRequest(ctx)
 	if resolved.pricingErr == nil && resolved.Source != PricingSourceGroup && resolved.descriptor == nil {
 		t.media = t.billing.resolveSaleMediaRates(&APIKey{Group: group, GroupID: groupID}, binding, resolved)
@@ -163,7 +175,7 @@ func (b *PlatformPriceBook) ResolveForGroup(ctx context.Context, binding pricing
 	case BillingModeVideo:
 		multiplier = resolveVideoRateMultiplier(key, multiplier)
 	}
-	t.input = CostInput{Ctx: ctx, Model: binding.Model, Provider: binding.Provider, Mode: resolved.Mode, Group: group, GroupID: groupID,
+	t.input = CostInput{Ctx: ctx, Model: input.Model, Provider: binding.Provider, Mode: resolved.Mode, Group: group, GroupID: groupID,
 		PricingAt: binding.At, RateMultiplier: multiplier, Resolver: r, Resolved: resolved}
 	t.baseMultiplier = binding.RateMultiplier
 	t.description = describePlatformTariff(t.input)

@@ -125,6 +125,10 @@ func pricedBinding(binding catalog.ModelBinding, group service.PlazaGroup, userR
 
 func bindingFor(id catalog.ModelIdentity, groupID int64, offer service.PlazaCatalogOffer, b service.PlazaCatalogBinding) catalog.ModelBinding {
 	billingModel := id.Model
+	billingProvider := b.Identity.Platform
+	if billingProvider == "" {
+		billingProvider = id.Provider
+	}
 	switch offer.BillingModelSource {
 	case service.BillingModelSourceChannelMapped:
 		billingModel = offer.ChannelMappedModel
@@ -144,7 +148,7 @@ func bindingFor(id catalog.ModelIdentity, groupID int64, offer service.PlazaCata
 		IdentityRevision: b.IdentityRevision, SnapshotRevision: b.SnapshotRevision, RulesRevision: b.RulesRevision,
 		Profile: b.Metadata.ProviderProfile, WireModel: b.UpstreamModel, Action: action, Protocol: protocol, Mode: catalogBindingMode(b),
 		ChannelID: offer.ChannelID, OfferGroupID: groupID, BillingGroupID: groupID, BillingModelSource: offer.BillingModelSource,
-		BillingIdentity: catalog.NewModelIdentity(id.Provider, billingModel), Eligible: offer.Eligible, DiscoveryState: b.DiscoveryState, ObservedAt: observed}
+		BillingIdentity: catalog.NewModelIdentity(billingProvider, billingModel), Eligible: offer.Eligible, DiscoveryState: b.DiscoveryState, ObservedAt: observed}
 }
 
 func attachObservations(offer *catalog.Offer, p catalog.Perspective, id catalog.ModelIdentity, binding catalog.ModelBinding, b service.PlazaCatalogBinding, evidence postgres.EndpointEvidence, now time.Time) {
