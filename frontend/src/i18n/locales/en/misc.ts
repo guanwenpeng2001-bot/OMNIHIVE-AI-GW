@@ -19,6 +19,8 @@ export default {
 
   // Version Badge
   version: {
+    checkUnavailable: 'Update check unavailable',
+    rollbackCheckUnavailable: 'Rollback version lookup unavailable',
     currentVersion: 'Current Version',
     latestVersion: 'Latest Version',
     upToDate: "You're running the latest version.",

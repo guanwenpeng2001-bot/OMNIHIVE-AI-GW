@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useAppStore } from '@/stores/app'
+import { checkUpdates } from '@/api/admin/system'
 import { getPublicSettings } from '@/api/auth'
 import type { PublicSettings } from '@/types'
 
@@ -88,6 +89,33 @@ describe('useAppStore', () => {
   afterEach(() => {
     vi.useRealTimers()
     localStorage.clear()
+  })
+
+  it('clears stale updates on a 503 or unavailable release response and recovers on retry', async () => {
+    const app = useAppStore()
+    const version = { current_version: '0.3.4', latest_version: '0.3.5', has_update: true, cached: false, build_type: 'release' }
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      vi.mocked(checkUpdates).mockResolvedValueOnce(version)
+      await app.fetchVersion()
+      expect(app.hasUpdate).toBe(true)
+      vi.mocked(checkUpdates).mockRejectedValueOnce({ status: 503, reason: 'UPDATE_CHECK_UNAVAILABLE' })
+      await app.fetchVersion(true)
+      expect(app.updateCheckUnavailable).toBe(true)
+      expect(app.hasUpdate).toBe(false)
+      expect(app.currentVersion).toBe('0.3.4')
+      vi.mocked(checkUpdates).mockResolvedValueOnce({ ...version, remote_status: 'unavailable' })
+      await app.fetchVersion()
+      expect(app.updateCheckUnavailable).toBe(true)
+      expect(app.hasUpdate).toBe(false)
+      vi.mocked(checkUpdates).mockResolvedValueOnce(version)
+      await app.fetchVersion()
+      expect(app.updateCheckUnavailable).toBe(false)
+      expect(app.hasUpdate).toBe(true)
+      expect(log).not.toHaveBeenCalled()
+    } finally {
+      log.mockRestore()
+    }
   })
 
   // --- Toast 消息管理 ---

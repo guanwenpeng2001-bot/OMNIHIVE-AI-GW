@@ -19,6 +19,8 @@ export default {
 
   // Version Badge
   version: {
+    checkUnavailable: '暂时无法检查更新',
+    rollbackCheckUnavailable: '暂时无法查询可回滚版本',
     currentVersion: '当前版本',
     latestVersion: '最新版本',
     upToDate: '已是最新版本',
