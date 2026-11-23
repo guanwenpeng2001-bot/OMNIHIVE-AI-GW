@@ -13,6 +13,7 @@ CREATE TABLE project_access_requests (
     decision_actor_id bigint REFERENCES users(id),
     decided_at timestamptz,
     decision_fingerprint bytea,
+    decision_receipt jsonb,
     FOREIGN KEY (workspace_id,membership_id) REFERENCES workspace_members(workspace_id,id) ON DELETE CASCADE,
     FOREIGN KEY (workspace_id,requested_project_id) REFERENCES projects(workspace_id,id),
     FOREIGN KEY (workspace_id,approved_project_id) REFERENCES projects(workspace_id,id),

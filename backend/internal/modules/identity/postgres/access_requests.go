@@ -165,17 +165,23 @@ func (s *Store) DecideAccess(ctx context.Context, actor, w, id, expected int64, 
 	}
 	err = s.write(ctx, actor, w, 0, "members.grants.write", func(tx *sql.Tx, a identity.Access) error {
 		var version, user, decider int64
-		var prior []byte
-		err := tx.QueryRowContext(ctx, `SELECT r.version,m.user_id,r.decision_fingerprint,coalesce(r.decision_actor_id,0)
+		var prior, receipt []byte
+		err := tx.QueryRowContext(ctx, `SELECT r.version,m.user_id,r.decision_fingerprint,coalesce(r.decision_actor_id,0),r.decision_receipt
  FROM project_access_requests r JOIN workspace_members m ON m.workspace_id=r.workspace_id AND m.id=r.membership_id
- WHERE r.workspace_id=$1 AND r.id=$2 FOR UPDATE OF r,m`, w, id).Scan(&version, &user, &prior, &decider)
+ WHERE r.workspace_id=$1 AND r.id=$2 FOR UPDATE OF r,m`, w, id).Scan(&version, &user, &prior, &decider, &receipt)
 		if err != nil {
 			return found(err)
 		}
 		if prior != nil {
 			if bytes.Equal(hash, prior) && actor == decider && (expected == version || expected == version-1) {
-				out, err = scanRequest(tx.QueryRowContext(ctx, requestQuery()+" AND r.id=$3", actor, w, id))
-				return err
+				// s.write has rechecked the reviewer's current authority. Return
+				// the committed DTO, never a projection of today's mutable scope
+				// and never run the grant writer again. Older decisions without a
+				// receipt must fail closed rather than manufacture one on replay.
+				if len(receipt) == 0 {
+					return fault.Conflict
+				}
+				return json.Unmarshal(receipt, &out)
 			}
 			if expected != version {
 				return fault.Stale(version)
@@ -233,6 +239,14 @@ func (s *Store) DecideAccess(ctx context.Context, actor, w, id, expected int64, 
 			return err
 		}
 		out, err = scanRequest(tx.QueryRowContext(ctx, requestQuery()+" AND r.id=$3", actor, w, id))
+		if err != nil {
+			return err
+		}
+		receipt, err = json.Marshal(out)
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE project_access_requests SET decision_receipt=$3 WHERE workspace_id=$1 AND id=$2`, w, id, string(receipt))
 		return err
 	})
 	return out, err
