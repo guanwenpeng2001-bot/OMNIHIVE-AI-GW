@@ -62,7 +62,7 @@ type SettingHandler struct {
 	notificationEmailService *service.NotificationEmailService
 	totpService              *service.TotpService
 	userService              *service.UserService
-	configResetHooks        service.SettingResetHooks
+	configResetHooks         service.SettingResetHooks
 }
 
 // NewSettingHandler 创建系统设置处理器

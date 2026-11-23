@@ -17,7 +17,7 @@ import (
 
 func TestSettingsGetAndPutUseTheSameProjection(t *testing.T) {
 	h, _ := newStepUpSwitchTestHandler(t, map[string]string{
-		service.SettingKeySiteName: "Example Gateway",
+		service.SettingKeySiteName:       "Example Gateway",
 		service.SettingKeyOpenAITTFTMode: service.OpenAITTFTModeVisible,
 	})
 	getRecorder := httptest.NewRecorder()

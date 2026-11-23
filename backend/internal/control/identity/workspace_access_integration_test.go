@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -19,6 +20,7 @@ import (
 	identitydb "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -51,7 +53,13 @@ func TestWorkspaceAccessHTTP(t *testing.T) {
 	require.True(t, list[0].IsDefault)
 	actor := member
 	engine := gin.New()
-	control.Register(engine.Group("/api/v2"), control.New(identitydb.New(db), domain.Operations{}, &config.Config{}), func(c *gin.Context) { c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: actor}) })
+	audit := service.NewAuditLogService(repository.NewAuditLogRepository(db), nil)
+	audit.Start()
+	t.Cleanup(audit.Stop)
+	engine.Use(middleware.DefaultWorkspaceResolution(service.NewWorkspaceService(v1)))
+	control.Register(engine.Group("/api/v2"), control.New(identitydb.New(db), domain.Operations{}, &config.Config{}),
+		func(c *gin.Context) { c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: actor}) },
+		gin.HandlerFunc(middleware.NewAuditLogMiddleware(audit)))
 	call := func(method, path, body, header, value string, status int) (map[string]any, string) {
 		t.Helper()
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -79,6 +87,7 @@ func TestWorkspaceAccessHTTP(t *testing.T) {
 	require.Equal(t, true, row["projects"].([]any)[0].(map[string]any)["is_default"])
 	data, etag := call("POST", wp+"/access-requests", `{"note":"join the team"}`, "Idempotency-Key", "one", 201)
 	require.Equal(t, `"1"`, etag)
+	call("POST", wp+"/access-requests", `{"note":"malformed private content","unknown":true}`, "Idempotency-Key", "invalid", 400)
 	decision := wp + "/access-requests/" + data["id"].(string) + "/decision"
 	call("GET", wp+"/access-requests?view=review", "", "", "", 403)
 	actor = admin
@@ -87,6 +96,13 @@ func TestWorkspaceAccessHTTP(t *testing.T) {
 	data, etag = call("POST", decision, body, "If-Match", etag, 200)
 	require.Equal(t, "approved", data["state"])
 	require.Equal(t, `"2"`, etag)
+	call("POST", decision, `{"decision":"decline","note":"rejected private content"}`, "If-Match", etag, 400)
+	require.Eventually(t, func() bool {
+		return id(`SELECT count(*) FROM audit_logs WHERE actor_user_id IN ($1,$2) AND method='POST'
+		  AND path IN ('/api/v2/workspaces/:workspace_id/access-requests', '/api/v2/workspaces/:workspace_id/access-requests/:id/decision')`, admin, member) >= 4
+	}, 5*time.Second, 20*time.Millisecond)
+	require.Zero(t, id(`SELECT count(*) FROM audit_logs WHERE actor_user_id IN ($1,$2)
+	  AND (coalesce(request_body, '') || extra::text) ~ 'join the team|malformed private content|rejected private content'`, admin, member))
 	data, memberTag = call("GET", grants, "", "", "", 200)
 	matrix, err := json.Marshal(map[string]any{"project_grants": data["project_grants"]})
 	require.NoError(t, err)

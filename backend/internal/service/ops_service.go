@@ -158,7 +158,7 @@ func (s *OpsService) IsMonitoringEnabled(ctx context.Context) bool {
 		return false
 	}
 	if snapshot := s.runtimeSettings.Load(); snapshot != nil {
-	return snapshot.monitoringEnabled && snapshot.healthy
+		return snapshot.monitoringEnabled && snapshot.healthy
 	}
 	// Directly assembled test services and failed cold loads remain fail-open,
 	// without turning a request into a settings-table lookup.

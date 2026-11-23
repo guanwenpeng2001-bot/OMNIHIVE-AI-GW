@@ -309,8 +309,8 @@ func (g *Gateway) checkRunModel(ctx context.Context, a identity.Access, in pg.Su
 type catalogKeyContextKey struct{}
 
 type catalogKeySelection struct {
-	access identity.Access
-	key selectedKey
+	access   identity.Access
+	key      selectedKey
 	accounts map[int64]struct{}
 }
 

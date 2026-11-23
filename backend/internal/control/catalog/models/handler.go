@@ -21,7 +21,6 @@ import (
 	identityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
-	legacy "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog/postgres"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
@@ -86,7 +85,6 @@ func (h *Handler) publicGuard(session []gin.HandlerFunc) gin.HandlerFunc {
 
 var ProviderSet = wire.NewSet(
 	postgres.New, catalog.NewReader,
-	wire.Bind(new(catalog.Acquisition), new(*legacy.Source)),
 	wire.Bind(new(catalog.CatalogPublisher), new(*postgres.Store)),
 	wire.Bind(new(catalog.CatalogReader), new(*catalog.Reader)),
 )

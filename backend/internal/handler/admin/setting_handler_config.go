@@ -7,12 +7,12 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/dto"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/response"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
-	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
 )
 
 // SetConfigResetHooks connects optional runtime reloaders without changing the
@@ -115,7 +115,7 @@ func effectiveConfigItemToDTO(item service.EffectiveSetting) dto.EffectiveConfig
 		RestartRequired: item.RestartRequired, Resettable: item.Resettable, Sensitive: item.Sensitive,
 		State: string(item.State), Configured: item.Configured, BlockedBy: item.BlockedBy,
 		InstallSeedSource: item.InstallSeedSource,
-		ErrorCode: item.ErrorCode,
+		ErrorCode:         item.ErrorCode,
 	}
 	if item.HasBaseline {
 		result.Baseline = item.Baseline

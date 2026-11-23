@@ -16,7 +16,7 @@ import (
 
 // SalePriceBindings resolves metadata from authorized catalog offers.
 type SalePriceBindings struct {
-	Catalog catalog.CatalogReader
+	Catalog  catalog.CatalogReader
 	Selected quotes.SelectedModelAuthorizer
 }
 

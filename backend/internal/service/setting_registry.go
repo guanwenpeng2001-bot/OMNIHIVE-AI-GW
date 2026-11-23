@@ -71,7 +71,7 @@ var sensitiveSettingKeys = map[string]struct{}{
 	SettingKeyWeChatConnectMobileAppSecret: {}, SettingKeyOIDCConnectClientSecret: {},
 	SettingKeyGitHubOAuthClientSecret: {}, SettingKeyGoogleOAuthClientSecret: {},
 	SettingKeyWebSearchEmulationConfig: {},
-	settingKeyImageStorageConfig: {},
+	settingKeyImageStorageConfig:       {},
 }
 
 var installSeedSettingKeys = map[string]string{

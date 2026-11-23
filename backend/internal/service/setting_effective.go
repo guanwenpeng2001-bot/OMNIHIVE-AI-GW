@@ -20,9 +20,9 @@ import (
 type EffectiveSettingState string
 
 const (
-	EffectiveSettingStateEffective        EffectiveSettingState = "effective"
-	EffectiveSettingStateInvalid          EffectiveSettingState = "invalid"
-	EffectiveSettingStateUnavailable      EffectiveSettingState = "unavailable"
+	EffectiveSettingStateEffective         EffectiveSettingState = "effective"
+	EffectiveSettingStateInvalid           EffectiveSettingState = "invalid"
+	EffectiveSettingStateUnavailable       EffectiveSettingState = "unavailable"
 	EffectiveSettingStateBlockedByHardGate EffectiveSettingState = "blocked_by_hard_gate"
 )
 
@@ -100,7 +100,7 @@ func (s *SettingService) EffectiveSettings(ctx context.Context, filter Effective
 			item.ErrorCode = "CONFIG_UNAVAILABLE"
 		}
 		if strings.HasSuffix(registration.Key, "_install_seed_source") {
-		item.InstallSeedSource = fmt.Sprint(item.Value)
+			item.InstallSeedSource = fmt.Sprint(item.Value)
 			item.Value = nil
 		} else {
 			item.InstallSeedSource = installSeedSource(registration.Key)

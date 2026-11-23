@@ -55,7 +55,10 @@ func (s *systemHandlerUpdateServiceStub) Rollback() error {
 
 func (s *systemHandlerUpdateServiceStub) ListRollbackEligibility(context.Context) (service.RollbackEligibilityReport, error) {
 	s.rollbackVersionsCall++
-	return service.RollbackEligibilityReport{DatabaseFloor: "v0.3.0", Versions: s.rollbackVersions}, s.rollbackVersionsErr
+	return service.RollbackEligibilityReport{
+		DatabaseFloor: "0.3.0", Versions: s.rollbackVersions,
+		ExcludedVersions: []service.RollbackVersion{{Version: "0.2.9", EffectiveFloor: "0.3.0", ExclusionReason: "below_database_floor"}},
+	}, s.rollbackVersionsErr
 }
 
 func (s *systemHandlerUpdateServiceStub) RollbackToVersion(ctx context.Context, version string) error {
@@ -298,15 +301,16 @@ func TestSystemHandlerGetRollbackVersions(t *testing.T) {
 	require.Equal(t, 1, updateSvc.rollbackVersionsCall)
 
 	var body struct {
-		Code int `json:"code"`
-		Data struct {
-			Versions []service.RollbackVersion `json:"versions"`
-		} `json:"data"`
+		Code int                               `json:"code"`
+		Data service.RollbackEligibilityReport `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Equal(t, 0, body.Code)
 	require.Len(t, body.Data.Versions, 2)
 	require.Equal(t, "0.1.146", body.Data.Versions[0].Version)
+	require.Equal(t, "0.3.0", body.Data.DatabaseFloor)
+	require.Len(t, body.Data.ExcludedVersions, 1)
+	require.Equal(t, "below_database_floor", body.Data.ExcludedVersions[0].ExclusionReason)
 }
 
 func TestSystemHandlerGetRollbackVersionsError(t *testing.T) {
