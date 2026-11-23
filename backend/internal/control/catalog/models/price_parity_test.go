@@ -107,7 +107,10 @@ func TestCatalogQuoteCompareAndGatewayTariffParity(t *testing.T) {
 				`"],"protocol":"anthropic_messages","action":"text.chat","scenario":{"input_tokens":"100","output_tokens":"20"}}`))
 			compared, err := h.compare(ctx, p, c)
 			require.NoError(t, err)
-			estimate := compared.(comparison).Rows[0].Quote
+			result, ok := compared.(comparison)
+			require.True(t, ok)
+			require.Len(t, result.Rows, 1)
+			estimate := result.Rows[0].Quote
 			require.Equal(t, quote.Source, estimate.Source)
 			require.Equal(t, quote.PriceVersion, estimate.PriceVersion)
 			require.Equal(t, quote.Charge, estimate.Charge)
