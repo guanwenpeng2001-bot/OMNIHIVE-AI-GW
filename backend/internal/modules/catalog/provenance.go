@@ -50,8 +50,9 @@ func optionalField[T any](name string, access func(*Facts) **T) factField {
 		}
 		return nil
 	}, func(f *Facts, value any) {
-		v := value.(T)
-		*access(f) = &v
+		if v, ok := value.(T); ok {
+			*access(f) = &v
+		}
 	}}
 }
 
@@ -61,7 +62,11 @@ func setField(name string, access func(*Facts) *[]string) factField {
 			return stringsSorted(slices.Clone(values))
 		}
 		return nil
-	}, func(f *Facts, v any) { *access(f) = v.([]string) }}
+	}, func(f *Facts, value any) {
+		if v, ok := value.([]string); ok {
+			*access(f) = v
+		}
+	}}
 }
 
 var factFields = []factField{
@@ -74,7 +79,11 @@ var factFields = []factField{
 			basis = "unspecified"
 		}
 		return contextLimit{*f.Context, basis}
-	}, func(f *Facts, v any) { c := v.(contextLimit); f.Context, f.ContextKind = &c.Tokens, c.Basis }},
+	}, func(f *Facts, value any) {
+		if window, ok := value.(contextLimit); ok {
+			f.Context, f.ContextKind = &window.Tokens, window.Basis
+		}
+	}},
 	optionalField("max_output_tokens", func(f *Facts) **int64 { return &f.Output }),
 	optionalField("embedding_dimensions", func(f *Facts) **int64 { return &f.EmbeddingDimensions }),
 	optionalField("supports_function_calling", func(f *Facts) **bool { return &f.Tools }),
@@ -132,7 +141,7 @@ func observe(m ModelFacts, field factField) (Provenance, bool) {
 	case o.Value == nil:
 		return Provenance{}, false
 	}
-	if m.Evidence.State == "stale" && o.SourceKind != AccountDeclaration {
+	if m.State == "stale" && o.SourceKind != AccountDeclaration {
 		o.State = "stale"
 	}
 	return o, true

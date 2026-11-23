@@ -1,4 +1,4 @@
-//go:build unit
+//go:build unit && pricebook_shadow
 
 package service_test
 
@@ -20,11 +20,11 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
+// TestPriceBookShadowDB is a release rehearsal against a read-only database
+// copy. Run it with -tags=unit,pricebook_shadow and OH_PRICEBOOK_SHADOW_DSN.
 func TestPriceBookShadowDB(t *testing.T) {
 	dsn := os.Getenv("OH_PRICEBOOK_SHADOW_DSN")
-	if dsn == "" {
-		t.Skip("set OH_PRICEBOOK_SHADOW_DSN to a read-only database copy")
-	}
+	require.NotEmpty(t, dsn, "set OH_PRICEBOOK_SHADOW_DSN to a read-only database copy")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	db, err := sql.Open(dialect.Postgres, dsn)

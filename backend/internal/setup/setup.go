@@ -513,7 +513,7 @@ func createAdminUser(cfg *SetupConfig) (bool, string, error) {
 	if err := provisionAdminWorkspace(ctx, tx, adminID); err != nil {
 		return false, "", fmt.Errorf("failed to provision admin workspace: %w", err)
 	}
-	seedConfig, err := config.LoadForBootstrap()
+	seedConfig, err := config.LoadForInitialSetup()
 	if err != nil {
 		return false, "", fmt.Errorf("failed to load initial settings configuration: %w", err)
 	}

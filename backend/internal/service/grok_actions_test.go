@@ -105,7 +105,7 @@ func TestGrokActionsGroupPriceConfigsResolve(t *testing.T) {
 	require.Equal(t, &sttPrice, audio.STTPerHour)
 	require.Equal(t, &realtimePrice, audio.RealtimePerMin)
 
-	video := videoPriceConfigFromAPIKey(apiKey)
+	video := group.VideoPriceConfig()
 	require.NotNil(t, video)
 	require.Equal(t, &video480, video.Price480P)
 	require.Equal(t, &video720, video.Price720P)

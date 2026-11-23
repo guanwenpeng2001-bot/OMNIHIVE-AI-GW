@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -167,7 +168,7 @@ func TestTokenPricePresenceGroupAndIntervalUsage(t *testing.T) {
 		{Models: []string{"presence-model"}, InputPrice: &zero},
 		{Models: []string{"presence-model"}, Intervals: []PricingInterval{{MinTokens: 0, InputPrice: &zero}}},
 	} {
-		resolved := resolver.resolveConfiguredPricing(card, "presence-model", PricingSourceGroup)
+		resolved := resolver.resolveConfiguredPricingFor(card, PricingInput{Model: "presence-model", At: time.Now()}, PricingSourceGroup)
 		for _, tokens := range []UsageTokens{{InputTokens: 10}, {InputTokens: 10, OutputTokens: 1}, {CacheCreationTokens: 10}} {
 			cost, err := billing.CalculateCostUnified(CostInput{Model: "presence-model", Tokens: tokens, Resolver: resolver, Resolved: resolved, RateMultiplier: 1})
 			hold := tokens.OutputTokens > 0 || tokens.CacheCreationTokens > 0

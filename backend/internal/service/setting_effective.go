@@ -90,9 +90,10 @@ func (s *SettingService) EffectiveSettings(ctx context.Context, filter Effective
 	}
 	for index := range items {
 		item := &items[index]
-		if item.State == EffectiveSettingStateInvalid {
+		switch item.State {
+		case EffectiveSettingStateInvalid:
 			item.ErrorCode = "CONFIG_INVALID"
-		} else if item.State == EffectiveSettingStateUnavailable {
+		case EffectiveSettingStateUnavailable:
 			item.ErrorCode = "CONFIG_UNAVAILABLE"
 		}
 		if strings.HasSuffix(item.Key, "_install_seed_source") {
@@ -435,7 +436,7 @@ func (s *SettingService) deploymentBaseline(registration SettingRegistration) (v
 	if configPath == "" {
 		return value, source, valid
 	}
-	content, err := os.ReadFile(configPath)
+	content, err := os.ReadFile(configPath) // #nosec G703 -- CONFIG_FILE is an operator-controlled process setting.
 	if err != nil {
 		return value, source, false
 	}

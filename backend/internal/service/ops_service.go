@@ -201,15 +201,6 @@ func (s *OpsService) EffectiveMonitoringState(ctx context.Context) (bool, bool, 
 	return monitoringEnabled && healthy, healthy, true
 }
 
-func parseOpsMonitoringEnabled(value string) bool {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "false", "0", "off", "disabled":
-		return false
-	default:
-		return true
-	}
-}
-
 func (s *OpsService) initRuntimeSettings(ctx context.Context) {
 	if s == nil {
 		return

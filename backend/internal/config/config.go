@@ -4,6 +4,7 @@ package config
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -1870,14 +1871,20 @@ func NormalizeRunMode(value string) string {
 
 // Load 读取并校验完整配置（要求 jwt.secret 已显式提供）。
 func Load() (*Config, error) {
-	return load(false)
+	return load(false, false)
 }
 
 // LoadForBootstrap 读取启动阶段配置。
 //
 // 启动阶段允许 jwt.secret 先留空，后续由数据库初始化流程补齐并再次完整校验。
 func LoadForBootstrap() (*Config, error) {
-	return load(true)
+	return load(true, false)
+}
+
+// LoadForInitialSetup reads defaults and environment overrides before setup
+// writes the initial configuration file.
+func LoadForInitialSetup() (*Config, error) {
+	return load(true, true)
 }
 
 const (
@@ -1885,7 +1892,7 @@ const (
 	legacyDatabaseName  = "sub2api"
 )
 
-func load(allowMissingJWTSecret bool) (*Config, error) {
+func load(allowMissingJWTSecret, allowMissingConfigFile bool) (*Config, error) {
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
 	configureConfigSource(viper.SetConfigFile, viper.AddConfigPath)
@@ -1906,7 +1913,7 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 
 	configErr := viper.ReadInConfig()
 	if configErr != nil {
-		if _, ok := configErr.(viper.ConfigFileNotFoundError); !ok {
+		if _, ok := configErr.(viper.ConfigFileNotFoundError); !ok && !(allowMissingConfigFile && errors.Is(configErr, os.ErrNotExist)) {
 			return nil, fmt.Errorf("read config error: %w", configErr)
 		}
 	} else {

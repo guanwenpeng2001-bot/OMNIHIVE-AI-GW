@@ -588,35 +588,6 @@ func (r gatewayCatalogRoutes) ListByGroup(context.Context, int64, bool) ([]Compo
 	return r.routes, nil
 }
 
-// visibleModelsForGroups evaluates all panel groups under one registry and
-// authoritative catalog generation; a concurrent edit fails the whole view.
-func visibleModelsForGroups(ctx context.Context, resolver *VisibleModelResolver, groups []Group) (context.Context, map[int64]map[string]bool, error) {
-	frozen, err := resolver.freeze(ctx)
-	if err != nil {
-		return ctx, nil, err
-	}
-	visible := make(map[int64]map[string]bool)
-	if resolver == nil {
-		return frozen, visible, nil
-	}
-	frozen, err = resolver.preloadCatalogGroups(frozen, groups)
-	if err != nil {
-		return ctx, nil, err
-	}
-	for _, group := range groups {
-		view, err := resolver.Resolve(frozen, &group.ID, group.Platform)
-		if err != nil {
-			return ctx, nil, err
-		}
-		members := make(map[string]bool, len(view.Models))
-		for _, model := range view.Models {
-			members[model] = true
-		}
-		visible[group.ID] = members
-	}
-	return frozen, visible, nil
-}
-
 func panelModelVisible(ctx context.Context, group *Group, model string, visible map[int64]map[string]bool) bool {
 	if group == nil || !visibleModelPolicyAllows(ctx, model) || !group.ModelAllowlist.Allows(model) {
 		return false

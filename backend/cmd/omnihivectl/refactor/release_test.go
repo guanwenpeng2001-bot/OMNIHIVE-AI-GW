@@ -43,11 +43,12 @@ func TestReleaseCheck(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
 			defer db.Close()
-			if mode == "fresh" {
+			switch mode {
+			case "fresh":
 				args = append(args, "--fresh")
-			} else if mode == "missing-dsn" {
+			case "missing-dsn":
 				t.Setenv("OMNIHIVE_RELEASE_DSN", "")
-			} else {
+			default:
 				q := mock.ExpectQuery("SELECT minimum_rollback_version FROM release_schema_compatibility WHERE singleton")
 				floor := "0.2.23-omnihive.2"
 				if mode == "db-raised" {

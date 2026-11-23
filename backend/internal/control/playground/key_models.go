@@ -50,7 +50,7 @@ type keyModelsCursor struct {
 func newKeyModelCursorKey(secret [][]byte) []byte {
 	if len(secret) > 0 && len(secret[0]) > 0 {
 		mac := hmac.New(sha256.New, secret[0])
-		mac.Write([]byte("omnihive.playground.key-models.v1"))
+		_, _ = mac.Write([]byte("omnihive.playground.key-models.v1"))
 		return mac.Sum(nil)
 	}
 	key := make([]byte, sha256.Size)
@@ -62,7 +62,7 @@ func newKeyModelCursorKey(secret [][]byte) []byte {
 
 func (h *Handler) keyModelMAC(body []byte) []byte {
 	mac := hmac.New(sha256.New, h.keyModelCursorKey)
-	mac.Write(body)
+	_, _ = mac.Write(body)
 	return mac.Sum(nil)
 }
 

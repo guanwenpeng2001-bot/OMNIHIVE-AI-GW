@@ -185,10 +185,6 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 	return resolved
 }
 
-func (r *ModelPricingResolver) resolveConfiguredPricing(config *ChannelModelPricing, model, source string) *ResolvedPricing {
-	return r.resolveConfiguredPricingFor(config, PricingInput{Model: model, At: time.Now()}, source)
-}
-
 func (r *ModelPricingResolver) resolveConfiguredPricingFor(config *ChannelModelPricing, input PricingInput, source string) *ResolvedPricing {
 	mode := config.BillingMode
 	if mode == "" {
@@ -220,7 +216,7 @@ func matchGroupModelPricing(group *Group, model string, platforms ...string) *Ch
 	for i := range group.ModelPricing {
 		entry := &group.ModelPricing[i]
 		// An unresolved composite request must never borrow an arbitrary provider's card.
-		if entry.Platform != "" && entry.Platform != platform && !(platform == "" && group.Platform == "") {
+		if entry.Platform != "" && entry.Platform != platform && (platform != "" || group.Platform != "") {
 			continue
 		}
 		for _, pattern := range entry.Models {
@@ -265,7 +261,7 @@ func (r *ModelPricingResolver) resolveBasePricing(input PricingInput) (*ModelPri
 	return pricing, source, nil
 }
 
-// lookupChannelPricingNormalized 查找渠道定价：先用字面模型名做精确/通配匹配，
+// lookupChannelPricingNormalizedFor 查找渠道定价：先用字面模型名做精确/通配匹配，
 // 未命中时用与官方兜底价一致的归一化模型名再查一次。
 //
 // 官方兜底价对 OpenAI/Codex 族会把 gpt-5.6-luna-high 这类变体名归一化到基名
@@ -275,10 +271,6 @@ func (r *ModelPricingResolver) resolveBasePricing(input PricingInput) (*ModelPri
 //
 // 字面名优先，保证管理员对具体变体的显式配价不被基名覆盖；非 OpenAI 模型
 // normalizeKnownOpenAICodexModel 返回空串，此处天然 no-op。
-func (r *ModelPricingResolver) lookupChannelPricingNormalized(ctx context.Context, groupID int64, model string) *ChannelModelPricing {
-	return r.lookupChannelPricingNormalizedFor(ctx, groupID, model, "")
-}
-
 func (r *ModelPricingResolver) lookupChannelPricingNormalizedFor(ctx context.Context, groupID int64, model, platform string) *ChannelModelPricing {
 	if r.channelService == nil {
 		return nil

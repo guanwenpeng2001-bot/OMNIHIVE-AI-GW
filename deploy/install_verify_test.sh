@@ -7,7 +7,10 @@ trap 'rm -rf -- "$scratch"' EXIT
 
 # Load the production installer without executing its entry point.
 source <(sed '$d' "$script_dir/install.sh")
-: "${BE8_RELEASE_CHECKER:?build omnihivectl on the laptop and set BE8_RELEASE_CHECKER}"
+if [[ -z "${BE8_RELEASE_CHECKER:-}" ]]; then
+    BE8_RELEASE_CHECKER="$scratch/omnihivectl"
+    (cd "$script_dir/../backend" && go build -o "$BE8_RELEASE_CHECKER" ./cmd/omnihivectl)
+fi
 export BE8_RELEASE_CHECKER
 OS=linux
 ARCH=amd64

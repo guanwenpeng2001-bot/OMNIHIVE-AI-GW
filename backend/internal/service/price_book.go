@@ -439,9 +439,10 @@ func platformResult(cost *CostBreakdown, input CostInput, quantities map[string]
 		add("image_output", decimal.NewFromFloat(cost.ImageOutputCost).Mul(factor))
 	} else {
 		kind := "request"
-		if input.Mode == BillingModeImage {
+		switch input.Mode {
+		case BillingModeImage:
 			kind = "image"
-		} else if input.Mode == BillingModeVideo {
+		case BillingModeVideo:
 			kind = "video"
 		}
 		add(kind, total)

@@ -112,7 +112,7 @@ func (r *settingRepository) DeleteMultiple(ctx context.Context, keys []string) e
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	txCtx := ent.NewTxContext(ctx, tx)
 	if _, err := tx.Setting.Delete().Where(setting.KeyIn(keys...)).Exec(txCtx); err != nil {
 		return err
