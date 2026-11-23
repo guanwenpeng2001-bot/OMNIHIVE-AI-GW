@@ -75,6 +75,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/system/check-updates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["checkAdminSystemUpdates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/system/rollback-versions": {
         parameters: {
             query?: never;
@@ -2691,6 +2707,11 @@ export interface components {
                 migration_required: boolean;
                 key_id?: string;
             };
+            restore: {
+                /** @enum {string} */
+                status: "disabled" | "available" | "unavailable";
+                reason?: string;
+            };
         };
         AdminCatalogAccount: {
             account_id: string;
@@ -2798,8 +2819,14 @@ export interface components {
         AdminCatalogRevision: string;
         AdminRollbackEligibility: {
             database_floor: string;
+            current_version: string;
+            /** @enum {string} */
+            remote_status: "available" | "unavailable";
+            remote_reason?: string;
             versions: components["schemas"]["AdminRollbackVersion"][];
             excluded_versions: components["schemas"]["AdminRollbackVersion"][];
+            /** @description Verified local backup versions reported during a remote outage. Omit the version when requesting a local rollback. */
+            local_versions: components["schemas"]["AdminRollbackVersion"][];
         };
         AdminRollbackVersion: {
             version: string;
@@ -2807,6 +2834,29 @@ export interface components {
             exclusion_reason?: string;
             published_at: string;
             html_url: string;
+        };
+        AdminUpdateInfo: {
+            current_version: string;
+            latest_version: string;
+            has_update: boolean;
+            cached: boolean;
+            /** @enum {string} */
+            build_type: "source" | "release";
+            /** @enum {string} */
+            remote_status: "available" | "cached" | "unavailable";
+            warning?: string;
+            release_info?: {
+                name: string;
+                body: string;
+                published_at: string;
+                html_url: string;
+                assets?: {
+                    name: string;
+                    download_url: string;
+                    /** Format: int64 */
+                    size: number;
+                }[];
+            };
         };
         AdminVerifiedBackup: {
             id: string;
@@ -5796,6 +5846,33 @@ export interface operations {
             503: components["responses"]["ConfigurationError"];
         };
     };
+    checkAdminSystemUpdates: {
+        parameters: {
+            query?: {
+                force?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Release check, including an unavailable result if GitHub cannot be reached */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["AdminUpdateInfo"];
+                    };
+                };
+            };
+        };
+    };
     listAdminRollbackVersions: {
         parameters: {
             query?: never;
@@ -5805,7 +5882,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Rollback eligibility for recent releases */
+            /** @description Rollback eligibility, with local backup candidates when GitHub is unavailable */
             200: {
                 headers: {
                     [name: string]: unknown;
