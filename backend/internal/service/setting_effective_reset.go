@@ -37,6 +37,7 @@ func (s *SettingService) ResetConfigOverrides(ctx context.Context, keys []string
 	normalized := make([]string, 0, len(keys))
 	seen := make(map[string]struct{}, len(keys))
 	groups := make(map[string]struct{})
+	refreshOps := false
 	for _, key := range keys {
 		key = strings.TrimSpace(key)
 		if key == "" {
@@ -54,6 +55,7 @@ func (s *SettingService) ResetConfigOverrides(ctx context.Context, keys []string
 		}
 		seen[key] = struct{}{}
 		normalized = append(normalized, key)
+		refreshOps = refreshOps || registration.Group == "ops"
 		if registration.ResetGroup != "" {
 			groups[registration.ResetGroup] = struct{}{}
 		}
@@ -68,7 +70,7 @@ func (s *SettingService) ResetConfigOverrides(ctx context.Context, keys []string
 	if _, requested := groups["image_storage"]; requested && hooks.ImageReset == nil {
 		return nil, ErrSettingResetUnavailable
 	}
-	if _, requested := groups["ops"]; requested && hooks.Refresh == nil {
+	if refreshOps && hooks.Refresh == nil {
 		return nil, ErrSettingResetUnavailable
 	}
 	for _, registration := range s.SettingRegistry() {
@@ -97,7 +99,7 @@ func (s *SettingService) ResetConfigOverrides(ctx context.Context, keys []string
 			return nil, err
 		}
 	}
-	if _, ok := groups["ops"]; ok {
+	if refreshOps {
 		if err := hooks.Refresh(ctx); err != nil {
 			return nil, fmt.Errorf("reload configuration after reset: %w", err)
 		}
