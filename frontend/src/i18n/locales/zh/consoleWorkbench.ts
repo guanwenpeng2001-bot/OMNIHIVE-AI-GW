@@ -74,6 +74,9 @@ export default {
       denied: '模型调试台为团队项目工具。当前处于个人空间或缺少项目的 playground.run 权限。',
       noModels: '所选密钥允许列表、路由分组与调用动作交集为空（已禁止回退公共目录）。',
     },
+    cas: {
+      conflict412: '权限或规则已被其他管理员更新（412 冲突）。已保留草稿，请核对高亮差异后重试。',
+    },
     byok: {
       denied: '自带上游凭据管理需要当前作用域的 credentials.byok.manage 权限。',
       workspaceRequired: '请先选择团队工作空间，或切回个人空间使用自助密钥调用。',

@@ -34,6 +34,7 @@ import {
   listPublicModels,
   type PublicCompareResponse,
   type PublicCompareRow,
+  type PublicModelDetail,
   type PublicModelSummary
 } from '@/features/public/api'
 
@@ -220,6 +221,7 @@ const catalogCopy = computed(() => getCatalogCopy(zhFlag.value))
 const route = useRoute()
 const router = useRouter()
 const options = ref<PublicModelSummary[]>([])
+const detailsById = ref<Record<string, PublicModelDetail>>({})
 const optionsNextCursor = ref<string | null>(null)
 const loadingMoreOptions = ref(false)
 const filterQuery = ref('')
@@ -378,12 +380,12 @@ function supportText(val?: string | null): string {
 function findSummaryVM(modelId: string): CatalogModelVM | null {
   const summary = findSummary(modelId)
   if (!summary) return null
-  return toCatalogModelVM(summary, null, { isZh: zhFlag.value, perspective: 'public' })
+  return toCatalogModelVM(summary, detailsById.value[summary.id], { isZh: zhFlag.value, perspective: 'public' })
 }
 
 function buildClientScenarioBreakdown(row: PublicCompareRow) {
   const summary = findSummary(row.model_id)
-  const vm = summary ? toCatalogModelVM(summary, null, { isZh: zhFlag.value, perspective: 'public' }) : null
+  const vm = summary ? toCatalogModelVM(summary, detailsById.value[summary.id], { isZh: zhFlag.value, perspective: 'public' }) : null
   if (!vm || !vm.billing.isEstimatable) {
     return calculateExactScenarioBreakdown({
       inputRate: null,
@@ -411,20 +413,16 @@ function buildClientScenarioBreakdown(row: PublicCompareRow) {
 function formatQuoteCell(row: PublicCompareRow): string {
   const vm = findSummaryVM(row.model_id)
   if (row.quote) {
-    if (row.quote.state === 'error' || row.quote.billing_state === 'error') {
+    if (row.quote.billing_state === 'error') {
       return tr('pricingError')
     }
-    if (
-      row.quote.billing_state === 'varies' ||
-      row.quote.billing_state === 'conflict' ||
-      row.quote.state === 'conflict'
-    ) {
+    if (row.quote.billing_state === 'conflict') {
       return tr('pricingVaries')
     }
-    if (row.quote.state === 'partial' || row.quote.billing_state === 'partial') {
+    if (row.quote.billing_state === 'partial') {
       return tr('pricingPartial')
     }
-    if (row.quote.state === 'conditional' || row.quote.billing_state === 'conditional') {
+    if (row.quote.billing_state === 'conditional') {
       return tr('pricingConditional')
     }
     if (row.quote.state === 'unpriced') {
@@ -462,14 +460,10 @@ function formatQuoteCell(row: PublicCompareRow): string {
 function formatBreakdownDetailCell(row: PublicCompareRow): string {
   const vm = findSummaryVM(row.model_id)
   if (row.quote) {
-    if (row.quote.state === 'error' || row.quote.billing_state === 'error') {
+    if (row.quote.billing_state === 'error') {
       return tr('pricingError')
     }
-    if (
-      row.quote.billing_state === 'varies' ||
-      row.quote.billing_state === 'conflict' ||
-      row.quote.state === 'conflict'
-    ) {
+    if (row.quote.billing_state === 'conflict') {
       return tr('pricingVaries')
     }
     if (row.quote.state === 'unpriced') {
@@ -655,11 +649,8 @@ async function hydrateMissingSelectedOptions(): Promise<void> {
   const hydrated: PublicModelSummary[] = []
   for (const settled of results) {
     if (settled.status !== 'fulfilled' || !settled.value?.model) continue
-    const summary: PublicModelSummary = {
-      ...settled.value.model,
-      reference_price: settled.value.reference_price ?? settled.value.model.reference_price
-    }
-    hydrated.push(summary)
+    detailsById.value[settled.value.model.id] = settled.value
+    hydrated.push(settled.value.model)
   }
   if (hydrated.length) {
     mergeCatalogOptions(hydrated)
@@ -986,8 +977,7 @@ onMounted(() => {
                 <template
                   v-else-if="
                     metric.cellKind === 'quote' &&
-                    (result.rows[index].quote?.state === 'error' ||
-                      result.rows[index].quote?.billing_state === 'error')
+                    result.rows[index].quote?.billing_state === 'error'
                   "
                 >
                   <span class="inline-flex items-center justify-end gap-1.5">

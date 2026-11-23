@@ -827,6 +827,9 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+    </template>
+
+    <template v-if="!loading && !error">
       <ErrorState
         v-if="paginationError"
         compact

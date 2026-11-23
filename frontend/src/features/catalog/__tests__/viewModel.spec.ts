@@ -151,11 +151,7 @@ describe('toCatalogModelVM 3-axis projection', () => {
       baseSummary({
         billing: {
           state: 'conflict',
-          reason: 'offers_disagree',
-          sale_price: {
-            min_input_rate: { currency: 'USD', amount: '0.5', per: '1000000', unit: 'input_token' },
-            max_input_rate: { currency: 'USD', amount: '1.2', per: '1000000', unit: 'input_token' }
-          }
+          reason: 'offers_disagree'
         }
       }),
       null,
@@ -163,7 +159,7 @@ describe('toCatalogModelVM 3-axis projection', () => {
     )
     expect(variesVm.billing.isGroupVarying).toBe(true)
     expect(variesVm.billing.modeBadge?.label).toBe('按分组定价')
-    expect(variesVm.billing.rangeInputDisplay).toBe('$0.50–$1.20')
+    expect(variesVm.billing.inputDisplay).toBe('按分组定价')
     expect(variesVm.billing.isEstimatable).toBe(false)
 
     const errorVm = toCatalogModelVM(

@@ -688,11 +688,7 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
               display_name: 'GPT-4.1',
               availability: { state: 'requires_scope', publication: 'published', access: 'requires_scope' },
               billing: {
-                state: 'varies',
-                sale_price: {
-                  min_input_rate: { currency: 'USD', amount: '1', per: '1000000', unit: 'input_token' },
-                  max_input_rate: { currency: 'USD', amount: '2', per: '1000000', unit: 'input_token' }
-                }
+                state: 'conflict'
               }
             },
             {
@@ -753,7 +749,7 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
             provider: 'openai',
             model: 'gpt-4.1',
             availability: { state: 'live', publication: 'published', access: 'allowed' },
-            billing: { state: 'varies' }
+            billing: { state: 'conflict' }
           },
           {
             id: MODEL_B_ID,
@@ -774,12 +770,12 @@ describe('PublicCompareView, PublicModelsView & PublicModelDetailView (FE-10-16,
           {
             model_id: MODEL_A_ID,
             capabilities: { tools: 'supported', stream: 'supported' },
-            quote: { state: 'unpriced', billing_state: 'varies', estimated_charge: null, components: [] }
+            quote: { state: 'unpriced', billing_state: 'conflict', estimated_charge: null, components: [] }
           },
           {
             model_id: MODEL_B_ID,
             capabilities: { tools: 'supported', stream: 'supported' },
-            quote: { state: 'error', billing_state: 'error', estimated_charge: null, components: [] }
+            quote: { state: 'unpriced', billing_state: 'error', estimated_charge: null, components: [] }
           }
         ]
       }

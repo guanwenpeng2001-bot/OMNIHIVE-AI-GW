@@ -390,6 +390,13 @@ describe('user KeysView column settings', () => {
     isCurrentStep.mockReturnValue(false)
   })
 
+  it('opens the personal key form when requested by onboarding', async () => {
+    const wrapper = await mountView()
+    await wrapper.setProps({ createPersonal: true })
+    expect(wrapper.find('#key-form').exists()).toBe(true)
+    expect(createKey).not.toHaveBeenCalled()
+  })
+
   it('refreshes the complete available list and preselects the only group on every create', async () => {
     getAvailableGroups.mockResolvedValue([{ id: 42, name: 'Only group' }])
     const wrapper = await mountView()

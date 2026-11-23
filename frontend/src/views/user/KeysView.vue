@@ -1869,6 +1869,7 @@ import { classifyConsoleError, type ConsoleAsyncNotice } from '@/features/consol
 
 const { t, locale } = useI18n()
 const isZh = computed(() => String(locale?.value || '').startsWith('zh'))
+const props = defineProps<{ createPersonal?: boolean }>()
 const instance = getCurrentInstance()
 const consoleScopeStore = getConsoleScopeStore()
 const authStore = useAuthStore()
@@ -3739,6 +3740,14 @@ function formatResetTime(resetAt: string | null): string {
   if (hours > 0) return `${hours}h ${mins}m`
   return `${mins}m`
 }
+
+watch(
+  () => props.createPersonal,
+  requested => {
+    if (requested && isPersonalMode.value) openCreateModal()
+  },
+  { immediate: true }
+)
 
 onMounted(async () => {
   loadSavedColumns()

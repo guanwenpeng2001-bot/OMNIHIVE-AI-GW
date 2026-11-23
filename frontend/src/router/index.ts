@@ -35,6 +35,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/workspaces', name: 'Workspaces',
     component: () => import('@/views/user/WorkspacesView.vue'),
+    props: route => ({ requestAccess: route.query.requestAccess === '1' }),
     meta: { requiresAuth: true, requiresAdmin: false, titleKey: 'workspaces.title' },
   },
   {
@@ -358,6 +359,7 @@ const routes: RouteRecordRaw[] = [
     path: '/keys',
     name: 'Keys',
     component: () => import('@/views/user/KeysView.vue'),
+    props: route => ({ createPersonal: route.query.create === 'personal' }),
     meta: {
       requiresAuth: true,
       requiresAdmin: false,
@@ -794,7 +796,7 @@ const routes: RouteRecordRaw[] = [
       requiresAdmin: true,
       title: 'Model Catalog',
       titleKey: 'admin.models.title',
-      descriptionKey: 'admin.models.description'
+      descriptionKey: 'admin.models.subtitle'
     }
   },
   {

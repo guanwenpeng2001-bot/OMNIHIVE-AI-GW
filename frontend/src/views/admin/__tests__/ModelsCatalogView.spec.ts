@@ -565,7 +565,7 @@ describe('ModelsCatalogView (/admin/models) & BE-9 Inspector Contract', () => {
     await flushPromises()
     expect(wrapper.find('[data-testid="open-batch-preview-modal"]').exists()).toBe(false)
     await wrapper.get('[data-testid="export-unpriced-csv"]').trigger('click')
-    expect(wrapper.text()).toContain('gpt-4.1')
+    expect(wrapper.get('[data-testid="exported-csv-preview"]').text()).toContain('gpt-4.1')
     expect(mockPut).not.toHaveBeenCalled()
     expect(mockPost).not.toHaveBeenCalled()
   })

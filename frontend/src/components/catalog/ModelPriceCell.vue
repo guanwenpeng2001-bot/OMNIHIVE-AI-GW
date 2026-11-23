@@ -4,7 +4,6 @@ import { RouterLink } from 'vue-router'
 import Badge from '@/components/ui/Badge.vue'
 import Tooltip from '@/components/ui/Tooltip.vue'
 import { getCatalogCopy } from '@/features/catalog/copy'
-import { formatPublicTimestamp } from '@/features/catalog/statusPresentation'
 import type { CatalogModelVM } from '@/features/catalog/viewModel'
 
 const props = withDefaults(
@@ -38,7 +37,7 @@ const primarySaleRateText = computed(() => {
   if (props.kind === 'pair') {
     if (props.billing.isFree) return copy.value.billing.free
     if (props.billing.isError) return copy.value.billing.error
-    if (props.billing.state === 'varies') return copy.value.billing.varies
+    if (props.billing.state === 'conflict') return copy.value.billing.varies
     if (props.billing.state === 'unpriced' || props.billing.state === 'unknown') {
       return '—'
     }
@@ -62,34 +61,23 @@ const showSeeDetailLink = computed(() => {
 const referenceLineText = computed(() => {
   const ref = props.billing.reference
   if (!ref) return null
-  const observedPart = ref.observedAt
-    ? ` · ${copy.value.billing.observedAtPrefix} ${formatPublicTimestamp(ref.observedAt)}`
-    : ''
   if (props.kind === 'output') {
     if (!ref.outputDisplay) return null
-    return `${copy.value.billing.referencePrefix} ${ref.outputDisplay} · ${ref.sourceLabel}${observedPart} · ${ref.disclaimer}`
+    return `${copy.value.billing.referencePrefix} ${ref.outputDisplay} · ${ref.sourceLabel} · ${ref.disclaimer}`
   }
   if (props.kind === 'pair') {
     if (!ref.inputDisplay && !ref.outputDisplay) return null
     const ratePart = `${ref.inputDisplay ?? '—'} / ${ref.outputDisplay ?? '—'}`
-    return `${copy.value.billing.referencePrefix} ${ratePart} · ${ref.sourceLabel}${observedPart} · ${ref.disclaimer}`
+    return `${copy.value.billing.referencePrefix} ${ratePart} · ${ref.sourceLabel} · ${ref.disclaimer}`
   }
   if (!ref.inputDisplay) return null
-  return `${copy.value.billing.referencePrefix} ${ref.inputDisplay} · ${ref.sourceLabel}${observedPart} · ${ref.disclaimer}`
+  return `${copy.value.billing.referencePrefix} ${ref.inputDisplay} · ${ref.sourceLabel} · ${ref.disclaimer}`
 })
 
 const resolvedReferenceTestId = computed(
   () => props.referenceTestId || `reference-price-secondary-${props.kind}`
 )
 
-const groupRangeHint = computed(() => {
-  if (props.kind === 'output') return props.billing.rangeOutputDisplay
-  if (props.kind === 'pair') {
-    if (!props.billing.rangeInputDisplay && !props.billing.rangeOutputDisplay) return null
-    return `${props.billing.rangeInputDisplay ?? '—'} / ${props.billing.rangeOutputDisplay ?? '—'}`
-  }
-  return props.billing.rangeInputDisplay
-})
 </script>
 
 <template>
@@ -132,17 +120,11 @@ const groupRangeHint = computed(() => {
           <Badge tone="info" size="xs" variant="subtle">
             {{ billing.modeBadge?.label ?? copy.billing.varies }}
           </Badge>
-          <span v-if="groupRangeHint" class="font-mono text-xs tabular-nums text-oh-primary">
-            {{ groupRangeHint }}
-          </span>
         </RouterLink>
         <span v-else data-testid="price-cell-varies" class="inline-flex items-center gap-1">
           <Badge tone="info" size="xs" variant="subtle">
             {{ billing.modeBadge?.label ?? copy.billing.varies }}
           </Badge>
-          <span v-if="groupRangeHint" class="font-mono text-xs tabular-nums text-oh-primary">
-            {{ groupRangeHint }}
-          </span>
         </span>
       </Tooltip>
     </div>

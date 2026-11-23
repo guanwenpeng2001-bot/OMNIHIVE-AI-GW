@@ -1067,7 +1067,7 @@ onUnmounted(() => {
 })
 
 onMounted(() => {
-  void listPublicModels({ availability: 'live', limit: 1 })
+  void listPublicModels({ availability_state: 'live', limit: 1 })
     .then(page => { liveModelSampleSize.value = page.items.length })
     .catch(() => { liveModelSampleSize.value = null })
   void refreshBatchImageAccess()

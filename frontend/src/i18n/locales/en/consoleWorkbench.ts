@@ -74,6 +74,9 @@ export default {
       denied: 'Playground requires a team project with playground.run.',
       noModels: 'Key allow-list, group, and action intersection is empty.',
     },
+    cas: {
+      conflict412: 'Updated by another admin (412). Review highlighted diff.',
+    },
     byok: {
       denied: 'BYOK credential management requires credentials.byok.manage in the active scope.',
       workspaceRequired: 'Select a team workspace or switch to Personal Space for owner self-service.',

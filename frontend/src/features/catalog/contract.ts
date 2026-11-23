@@ -1,6 +1,5 @@
 import type { components, operations, paths } from '@/api/generated/openapi'
 
-
 export type CatalogRate = components['schemas']['CatalogRate']
 export type CatalogRateBand = components['schemas']['CatalogRateBand']
 export type CatalogTimeBand = components['schemas']['CatalogTimeBand']

@@ -1,7 +1,6 @@
 import type { UiTone } from '@/components/ui/types'
 import type {
   CatalogAccessAxisState,
-  CatalogBillingReason,
   CatalogBillingState,
   CatalogFieldProvenance,
   CatalogMetrics,
@@ -64,7 +63,6 @@ export interface ReferencePriceVM {
   outputDisplay: string | null
   sourceRaw: string | null
   sourceLabel: string
-  observedAt: string | null
   disclaimer: string
   disclaimerFull: string
 }
@@ -117,12 +115,6 @@ export interface CatalogModelVM {
     reasonLabel: string | null
     inputRate: CatalogRate | null
     outputRate: CatalogRate | null
-    minInputRate: CatalogRate | null
-    maxInputRate: CatalogRate | null
-    minOutputRate: CatalogRate | null
-    maxOutputRate: CatalogRate | null
-    rangeInputDisplay: string | null
-    rangeOutputDisplay: string | null
     inputDisplay: string
     outputDisplay: string
     modeBadge: BillingBadgeVM | null
@@ -164,7 +156,7 @@ function normalizeAccess(raw?: string | null): CatalogAccessAxisState {
 }
 
 function normalizeBillingReasonLabel(
-  reason: CatalogBillingReason | string | null | undefined,
+  reason: string | null | undefined,
   isZh: boolean
 ): string | null {
   if (!reason) return null
@@ -196,7 +188,7 @@ function resolveOriginAxis(
       if (mapped !== 'unknown') normalized.add(mapped)
     }
     for (const prov of detail.provenance ?? []) {
-      const mapped = normalizeCatalogOriginKind(prov.source_kind ?? prov.source)
+      const mapped = normalizeCatalogOriginKind(prov.source_kind)
       if (mapped !== 'unknown') normalized.add(mapped)
     }
   }
@@ -247,15 +239,14 @@ function resolveAvailabilityAxis(
     const rawState = String(summary.availability.state ?? '').trim().toLowerCase()
     publication = normalizePublication(summary.availability.publication)
     access = normalizeAccess(summary.availability.access)
-    reason = summary.availability.reason ?? summary.catalog_only_reason ?? null
+    reason = summary.availability.reason ?? null
 
     if (rawState === 'live') {
       state = 'live'
     } else if (rawState === 'requires_scope') {
       if (
         publication === 'unpublished' ||
-        isCatalogOnlyReason(reason) ||
-        Boolean(summary.catalog_only_reason)
+        isCatalogOnlyReason(reason)
       ) {
         state = 'catalog_only'
       } else if (perspective === 'public') {
@@ -273,7 +264,6 @@ function resolveAvailabilityAxis(
         state = 'listed_unrouted'
       } else if (
         isCatalogOnlyReason(reason) ||
-        Boolean(summary.catalog_only_reason) ||
         (publication === 'unpublished' && origin.candidate === true && origin.discovered !== true)
       ) {
         state = 'catalog_only'
@@ -288,7 +278,6 @@ function resolveAvailabilityAxis(
   } else if (summary.availability_state) {
     // Legacy v0.3.3 fallback: honor ONLY explicit availability_state; NEVER guess from price_state/route_state.
     const explicit = String(summary.availability_state).trim().toLowerCase()
-    reason = summary.catalog_only_reason ?? null
     if (explicit === 'live') {
       state = 'live'
       publication = 'published'
@@ -376,18 +365,14 @@ function resolveReferencePriceVM(
   if (!rawRef) return null
   const inputRate = rawRef.input_rate ?? null
   const outputRate = rawRef.output_rate ?? null
-  if (!inputRate && !outputRate && !rawRef.source && !rawRef.source_label) {
+  if (!inputRate && !outputRate && !rawRef.source) {
     return null
   }
   const copy = getCatalogCopy(isZh)
   const inputFormatted = inputRate ? publicTokenPrice(inputRate, 'adaptive', isZh) : null
   const outputFormatted = outputRate ? publicTokenPrice(outputRate, 'adaptive', isZh) : null
   const sourceRaw = rawRef.source?.trim() || null
-  const rawExplicitLabel = rawRef.source_label?.trim() || null
-  const sourceLabel =
-    rawExplicitLabel && !rawExplicitLabel.toLowerCase().includes('pi-ai')
-      ? rawExplicitLabel
-      : formatCatalogOriginLabel(rawExplicitLabel ?? sourceRaw ?? 'pi_supplement', isZh)
+  const sourceLabel = formatCatalogOriginLabel(sourceRaw, isZh)
   return {
     inputRate,
     outputRate,
@@ -395,24 +380,9 @@ function resolveReferencePriceVM(
     outputDisplay: outputFormatted && outputFormatted !== '—' ? outputFormatted : null,
     sourceRaw,
     sourceLabel,
-    observedAt: rawRef.observed_at ?? null,
     disclaimer: copy.billing.nonSettlementShort,
     disclaimerFull: copy.billing.nonSettlementFull
   }
-}
-
-function formatRateRange(
-  minRate: CatalogRate | null | undefined,
-  maxRate: CatalogRate | null | undefined,
-  isZh: boolean
-): string | null {
-  if (!minRate && !maxRate) return null
-  const minText = minRate ? publicTokenPrice(minRate, 'adaptive', isZh) : null
-  const maxText = maxRate ? publicTokenPrice(maxRate, 'adaptive', isZh) : null
-  if (minText && minText !== '—' && maxText && maxText !== '—') {
-    return minText === maxText ? minText : `${minText}–${maxText}`
-  }
-  return (minText && minText !== '—' ? minText : null) ?? (maxText && maxText !== '—' ? maxText : null)
 }
 
 function resolveBillingAxis(
@@ -424,50 +394,18 @@ function resolveBillingAxis(
   const salePrice = summary.billing?.sale_price ?? null
   const inputRate = salePrice?.input_rate ?? summary.input_rate ?? null
   const outputRate = salePrice?.output_rate ?? summary.output_rate ?? null
-  const minInputRate = salePrice?.min_input_rate ?? null
-  const maxInputRate = salePrice?.max_input_rate ?? null
-  const minOutputRate = salePrice?.min_output_rate ?? null
-  const maxOutputRate = salePrice?.max_output_rate ?? null
-  const rangeInputDisplay = formatRateRange(minInputRate, maxInputRate, isZh)
-  const rangeOutputDisplay = formatRateRange(minOutputRate, maxOutputRate, isZh)
   const additionalRates = salePrice?.additional_rates ?? detail?.additional_rates ?? []
   const timeBands = salePrice?.time_bands ?? detail?.time_bands ?? []
-  const rawRef = summary.billing?.reference_price ?? detail?.reference_price ?? summary.reference_price ?? null
+  const rawRef = summary.billing?.reference_price ?? detail?.reference_price ?? null
   const reference = resolveReferencePriceVM(rawRef, isZh)
-  const priceSource = salePrice?.price_source ?? salePrice?.source ?? detail?.price_source ?? null
+  const priceSource = salePrice?.source ?? detail?.price_source ?? null
   const priceVersion = salePrice?.price_version ?? detail?.price_version ?? null
   const reason = summary.billing?.reason ?? null
   const reasonLabel = normalizeBillingReasonLabel(reason, isZh)
 
-  let state: CatalogBillingState = 'unknown'
-  if (summary.billing?.state) {
-    const normalized = String(summary.billing.state).trim().toLowerCase()
-    if (
-      normalized === 'priced' ||
-      normalized === 'free' ||
-      normalized === 'conditional' ||
-      normalized === 'partial' ||
-      normalized === 'conflict' ||
-      normalized === 'varies' ||
-      normalized === 'unpriced' ||
-      normalized === 'error' ||
-      normalized === 'unknown'
-    ) {
-      state = normalized
-    }
-  } else if (summary.price_state) {
-    const legacy = String(summary.price_state).trim().toLowerCase()
-    if (legacy === 'priced' || legacy === 'free' || legacy === 'varies' || legacy === 'unpriced' || legacy === 'error') {
-      state = legacy
-    }
-  }
-
-  const hasPerRequestUnit =
-    inputRate?.unit === 'request' ||
-    outputRate?.unit === 'request' ||
-    summary.pricing_mode === 'per_request'
-  const hasTieredSignals =
-    additionalRates.length > 0 || timeBands.length > 0 || summary.pricing_mode === 'tiered'
+  const state = summary.billing?.state ?? summary.price_state ?? 'unknown'
+  const hasPerRequestUnit = inputRate?.unit === 'request' || outputRate?.unit === 'request'
+  const hasTieredSignals = additionalRates.length > 0 || timeBands.length > 0
 
   let pricingMode: ViewModelPricingMode = 'unknown'
   let modeBadge: BillingBadgeVM | null = null
@@ -482,19 +420,11 @@ function resolveBillingAxis(
       inputDisplay = copy.billing.free
       outputDisplay = copy.billing.free
       break
-    case 'varies':
-      pricingMode = 'varies'
-      modeBadge = { label: copy.billing.varies, tone: 'info' }
-      inputDisplay = rangeInputDisplay ?? copy.billing.varies
-      outputDisplay = rangeOutputDisplay ?? copy.billing.varies
-      break
     case 'conflict':
       pricingMode = 'varies'
       modeBadge = { label: copy.billing.varies, tone: 'info' }
-      inputDisplay =
-        rangeInputDisplay ?? (inputRate ? publicTokenPrice(inputRate, 'adaptive', isZh) : copy.billing.varies)
-      outputDisplay =
-        rangeOutputDisplay ?? (outputRate ? publicTokenPrice(outputRate, 'adaptive', isZh) : copy.billing.varies)
+      inputDisplay = copy.billing.varies
+      outputDisplay = copy.billing.varies
       break
     case 'conditional':
       pricingMode = 'conditional'
@@ -542,7 +472,7 @@ function resolveBillingAxis(
       break
   }
 
-  const isGroupVarying = state === 'varies' || state === 'conflict'
+  const isGroupVarying = state === 'conflict'
   const isFree = state === 'free'
   const isError = state === 'error'
   const isEstimatable =
@@ -556,12 +486,6 @@ function resolveBillingAxis(
     reasonLabel,
     inputRate,
     outputRate,
-    minInputRate,
-    maxInputRate,
-    minOutputRate,
-    maxOutputRate,
-    rangeInputDisplay,
-    rangeOutputDisplay,
     inputDisplay,
     outputDisplay,
     modeBadge,
@@ -617,7 +541,7 @@ export function toCatalogModelVM(
     regions: summary.regions ?? [],
     maturity: summary.maturity ?? 'unknown',
     evidenceState: summary.evidence_state ?? 'unknown',
-    metrics: detail?.metrics ?? summary.metrics ?? null,
+    metrics: detail?.metrics ?? null,
     origin,
     availability,
     billing,
@@ -639,7 +563,7 @@ export function resolveDetailProvenanceMap(
   const map: Record<string, CatalogProvenanceItemVM> = {}
   for (const item of (detail?.provenance ?? []) as CatalogFieldProvenance[]) {
     if (!item?.field) continue
-    const rawSource = item.source_kind ?? item.source ?? null
+    const rawSource = item.source_kind ?? null
     map[item.field] = {
       field: item.field,
       state: item.state || 'unknown',

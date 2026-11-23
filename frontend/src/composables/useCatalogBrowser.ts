@@ -413,7 +413,6 @@ export function useCatalogBrowser(options: UseCatalogBrowserOptions) {
               : billingFilter.value === 'varies'
                 ? 'conflict'
                 : billingFilter.value,
-
           sort: sort.value,
           cursor: reset ? undefined : nextCursor.value ?? undefined,
           limit: pageLimit

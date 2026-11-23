@@ -69,15 +69,11 @@ describe('ModelPriceCell', () => {
       id: 'm_varies',
       model: 'deepseek-v4',
       billing: {
-        state: 'varies',
-        sale_price: {
-          min_input_rate: { currency: 'USD', amount: '0.5', per: '1000000', unit: 'input_token' },
-          max_input_rate: { currency: 'USD', amount: '1.2', per: '1000000', unit: 'input_token' }
-        }
+        state: 'conflict'
       }
     })
     expect(variesWrapper.get('[data-testid="price-cell-varies"]').text()).toContain('按分组定价')
-    expect(variesWrapper.get('[data-testid="price-cell-varies"]').text()).toContain('$0.50–$1.20')
+    expect(variesWrapper.get('[data-testid="price-cell-varies"]').text()).not.toContain('$')
 
     const errorWrapper = await mountCell({
       id: 'm_err',

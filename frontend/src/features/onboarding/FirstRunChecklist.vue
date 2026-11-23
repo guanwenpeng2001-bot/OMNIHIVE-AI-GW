@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useConsoleScopeStore } from '@/stores/consoleScope'
-import { persistConsoleScope, readPersistedConsoleScope } from '@/features/console/scope'
+import { getConsoleScopeStore } from '@/stores/consoleScope'
 import { isProtectedSharedDefaultProject } from '@/features/members/cas'
 import type { IdentityProject, IdentityWorkspace } from '@/features/members/types'
 import ScopeGateEmptyState from '@/features/console/components/ScopeGateEmptyState.vue'
@@ -78,12 +77,7 @@ function tr(key: string, zhFallback: string, enFallback: string, params?: Record
   )
 }
 
-let consoleScopeStore: ReturnType<typeof useConsoleScopeStore> | null = null
-try {
-  consoleScopeStore = useConsoleScopeStore()
-} catch {
-  consoleScopeStore = null
-}
+const consoleScopeStore = getConsoleScopeStore()
 
 const activeBranch = ref<'personal' | 'project'>('personal')
 const showScopeChooser = ref(false)
@@ -91,12 +85,7 @@ const draftScopeMode = ref<'personal' | 'workspace'>('personal')
 const draftWorkspaceId = ref<string>('')
 const draftProjectId = ref<string>('')
 
-const activeScope = computed(() => {
-  if (consoleScopeStore?.activeScope) {
-    return consoleScopeStore.activeScope
-  }
-  return readPersistedConsoleScope()
-})
+const activeScope = computed(() => consoleScopeStore.activeScope)
 
 const isPersonalScope = computed(
   () => activeScope.value.mode === 'personal' || !activeScope.value.workspaceId
@@ -213,15 +202,13 @@ const canRunProjectPlayground = computed(
 )
 
 function handleSelectPersonalAndGoToKeys(): void {
-  consoleScopeStore?.selectPersonalScope?.()
-  persistConsoleScope({ mode: 'personal', workspaceId: null, projectId: null })
+  consoleScopeStore.selectPersonalScope()
   emit('scope-changed')
   emit('navigate', '/keys?create=personal')
 }
 
 function handleSwitchToPersonalScope(): void {
-  consoleScopeStore?.selectPersonalScope?.()
-  persistConsoleScope({ mode: 'personal', workspaceId: null, projectId: null })
+  consoleScopeStore.selectPersonalScope()
   emit('scope-changed')
 }
 
@@ -245,24 +232,14 @@ function applyScopeChooser(): void {
     handleSwitchToPersonalScope()
   } else {
     const projId = draftProjectId.value || null
-    consoleScopeStore?.selectWorkspaceScope?.(draftWorkspaceId.value, projId)
-    persistConsoleScope({
-      mode: 'workspace',
-      workspaceId: draftWorkspaceId.value,
-      projectId: projId
-    })
+    consoleScopeStore.selectWorkspaceScope(draftWorkspaceId.value, projId)
     emit('scope-changed')
   }
   showScopeChooser.value = false
 }
 
 function handleSwitchedFromAccessRequest(payload: { workspaceId: string; projectId: string }): void {
-  consoleScopeStore?.selectWorkspaceScope?.(payload.workspaceId, payload.projectId)
-  persistConsoleScope({
-    mode: 'workspace',
-    workspaceId: payload.workspaceId,
-    projectId: payload.projectId
-  })
+  consoleScopeStore.selectWorkspaceScope(payload.workspaceId, payload.projectId)
   emit('scope-changed')
 }
 
