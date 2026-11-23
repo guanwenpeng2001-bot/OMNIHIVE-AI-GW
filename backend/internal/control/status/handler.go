@@ -25,6 +25,7 @@ import (
 )
 
 type Handler struct {
+	db        *sql.DB
 	store     *status.Store
 	access    identity.AccessEvaluator
 	cursorKey [32]byte
@@ -34,7 +35,7 @@ type Handler struct {
 
 func New(db *sql.DB, access identity.AccessEvaluator, secret string, enabled func(context.Context) bool) *Handler {
 	return &Handler{
-		store: status.NewStore(db), access: access,
+		db: db, store: status.NewStore(db), access: access,
 		cursorKey: sha256.Sum256([]byte("omnihive/public-incident-cursor/v1\x00" + secret)),
 		enabled:   enabled, now: time.Now,
 	}
@@ -114,7 +115,12 @@ func (h *Handler) publish(code int, command incidentCommand) gin.HandlerFunc {
 			writeFault(c, fault.Unauthenticated)
 			return
 		}
-		access, err := h.access.Evaluate(c.Request.Context(), who.UserID, domain.DefaultWorkspaceID, 0, status.PublishGrant)
+		workspace, err := domain.ResolveDefaultWorkspaceID(c.Request.Context(), h.db)
+		if err != nil {
+			writeFault(c, err)
+			return
+		}
+		access, err := h.access.Evaluate(c.Request.Context(), who.UserID, workspace, 0, status.PublishGrant)
 		if err == nil {
 			err = access.Require(status.PublishGrant)
 		}
@@ -122,7 +128,7 @@ func (h *Handler) publish(code int, command incidentCommand) gin.HandlerFunc {
 			writeFault(c, err)
 			return
 		}
-		if access.ActorID != who.UserID || access.WorkspaceID != domain.DefaultWorkspaceID || access.ProjectID != 0 {
+		if access.ActorID != who.UserID || access.WorkspaceID != workspace || access.ProjectID != 0 {
 			writeFault(c, fault.Forbidden)
 			return
 		}

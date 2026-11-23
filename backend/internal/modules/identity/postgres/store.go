@@ -47,7 +47,7 @@ func evaluate(ctx context.Context, q queryer, actor, w, p int64, action string) 
  ARRAY(SELECT action FROM identity_actions a WHERE
  (a.category='member' OR u.role='admin' OR (`+administrator+` AND a.category<>'platform') OR
  EXISTS(SELECT 1 FROM project_grants g JOIN projects granted ON granted.workspace_id=g.workspace_id AND granted.id=g.project_id AND granted.archived_at IS NULL
- WHERE g.workspace_id=w.id AND g.user_id=u.id AND g.action=a.action AND
+ WHERE a.category IN `+grantCategories+` AND g.workspace_id=w.id AND g.user_id=u.id AND g.action=a.action AND
  (g.project_id=p.id OR ($3=0 AND a.category='project' AND
  (a.action LIKE 'connections.%' OR a.action LIKE 'pools.%' OR a.action LIKE 'credentials.%')))))
  ORDER BY action)`+membership+` LEFT JOIN projects p ON p.workspace_id=w.id AND p.id=$3 AND p.archived_at IS NULL
@@ -176,7 +176,7 @@ func (s *Store) ProjectCredential(ctx context.Context, digest string) (*identity
 }
 
 func (s *Store) Workspaces(ctx context.Context, actor int64, page identity.Page) ([]identity.Workspace, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT w.id,w.name`+membership+`WHERE `+memberFilter+` AND w.id>$2 AND w.created_at<=$3 ORDER BY w.id LIMIT $4`, actor, page.After, page.AsOf, page.Limit+1)
+	rows, err := s.db.QueryContext(ctx, `SELECT w.id,w.name,w.is_default`+membership+`WHERE `+memberFilter+` AND w.id>$2 AND w.created_at<=$3 ORDER BY w.id LIMIT $4`, actor, page.After, page.AsOf, page.Limit+1)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +184,7 @@ func (s *Store) Workspaces(ctx context.Context, actor int64, page identity.Page)
 	out := []identity.Workspace{}
 	for rows.Next() {
 		var v identity.Workspace
-		if err := rows.Scan(&v.ID, &v.Name); err != nil {
+		if err := rows.Scan(&v.ID, &v.Name, &v.IsDefault); err != nil {
 			return nil, err
 		}
 		out = append(out, v)
@@ -196,7 +196,7 @@ func (s *Store) Projects(ctx context.Context, actor, w int64, page identity.Page
 	if _, err := s.Evaluate(ctx, actor, w, 0, "projects.read"); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT p.id,w.id,p.name,p.version`+membership+`JOIN projects p ON p.workspace_id=w.id
+	rows, err := s.db.QueryContext(ctx, `SELECT p.id,w.id,p.name,p.version,p.is_default`+membership+`JOIN projects p ON p.workspace_id=w.id
  WHERE w.id=$2 AND `+memberFilter+` AND `+visibleProject+` AND p.archived_at IS NULL AND p.id>$3 AND p.created_at<=$4 ORDER BY p.id LIMIT $5`, actor, w, page.After, page.AsOf, page.Limit+1)
 	if err != nil {
 		return nil, err
@@ -205,7 +205,7 @@ func (s *Store) Projects(ctx context.Context, actor, w int64, page identity.Page
 	out := []identity.Project{}
 	for rows.Next() {
 		var p identity.Project
-		if err := rows.Scan(&p.ID, &p.WorkspaceID, &p.Name, &p.Version); err != nil {
+		if err := rows.Scan(&p.ID, &p.WorkspaceID, &p.Name, &p.Version, &p.IsDefault); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -215,8 +215,8 @@ func (s *Store) Projects(ctx context.Context, actor, w int64, page identity.Page
 
 func (s *Store) Project(ctx context.Context, actor, w, p int64) (identity.Project, error) {
 	var row identity.Project
-	err := s.db.QueryRowContext(ctx, `SELECT p.id,w.id,p.name,p.version`+membership+`JOIN projects p ON p.workspace_id=w.id
- WHERE w.id=$2 AND `+memberFilter+` AND `+visibleProject+` AND p.id=$3 AND p.archived_at IS NULL`, actor, w, p).Scan(&row.ID, &row.WorkspaceID, &row.Name, &row.Version)
+	err := s.db.QueryRowContext(ctx, `SELECT p.id,w.id,p.name,p.version,p.is_default`+membership+`JOIN projects p ON p.workspace_id=w.id
+ WHERE w.id=$2 AND `+memberFilter+` AND `+visibleProject+` AND p.id=$3 AND p.archived_at IS NULL`, actor, w, p).Scan(&row.ID, &row.WorkspaceID, &row.Name, &row.Version, &row.IsDefault)
 	return row, found(err)
 }
 

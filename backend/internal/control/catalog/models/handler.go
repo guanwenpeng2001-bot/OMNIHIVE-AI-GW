@@ -237,7 +237,11 @@ func (h *Handler) serve(fn endpoint) gin.HandlerFunc {
 func (h *Handler) perspective(ctx context.Context, c *gin.Context) (catalog.Perspective, error) {
 	workspace := c.Param("workspace_id")
 	if workspace == "" {
-		return catalog.Perspective{Workspace: domain.DefaultWorkspaceID}, nil
+		id := domain.ResolvedDefaultWorkspaceID(ctx)
+		if id <= 0 {
+			return catalog.Perspective{}, errors.New("default workspace unavailable")
+		}
+		return catalog.Perspective{Workspace: id}, nil
 	}
 	subject, ok := middleware.GetAuthSubjectFromContext(c)
 	if !ok || subject.UserID <= 0 {

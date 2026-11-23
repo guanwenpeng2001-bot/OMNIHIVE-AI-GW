@@ -1,0 +1,39 @@
+{
+  "workspace_access": {
+    "code": 0,
+    "message": "success",
+    "data": {
+      "actor_id": "7",
+      "workspace_id": "17",
+      "project_id": null,
+      "membership_role": "member",
+      "role_source": "inherited",
+      "effective_admin": false,
+      "actions": ["models.read", "projects.read"],
+      "scope_version": "9",
+      "expires_at": "2026-11-23T00:01:00Z"
+    }
+  },
+  "replace_exact_grants": {
+    "if_match": "\"3\"",
+    "body": {
+      "project_grants": [
+        {"project_id": "11", "actions": ["text.chat"]},
+        {"project_id": "22", "actions": ["keys.read"]}
+      ]
+    }
+  },
+  "submit_request": {
+    "idempotency_key": "request-1",
+    "body": {"note": "I need to run the team's chat project."}
+  },
+  "approve_request": {
+    "if_match": "\"1\"",
+    "body": {
+      "decision": "approve",
+      "project_id": "11",
+      "add_actions": ["playground.run"],
+      "member_version": "4"
+    }
+  }
+}

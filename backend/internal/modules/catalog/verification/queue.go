@@ -25,7 +25,7 @@ const (
 )
 
 func (s *Store) Enqueue(ctx context.Context, actor int64, key string, m Matrix) (identity.Operation, error) {
-	if err := authorize(ctx, s.access, actor, VerifyGrant); err != nil {
+	if err := s.authorize(ctx, actor, VerifyGrant); err != nil {
 		return identity.Operation{}, err
 	}
 	if err := validateKey(key); err != nil {
@@ -286,7 +286,7 @@ func (w *Worker) runOne(ctx context.Context) (bool, error) {
 }
 
 func (w *Worker) runProbe(ctx context.Context, j *job) probeResult {
-	if err := authorize(ctx, w.store.access, j.actor, VerifyGrant); err != nil {
+	if err := w.store.authorize(ctx, j.actor, VerifyGrant); err != nil {
 		if denied(err) {
 			return inconclusive("VERIFICATION_ACCESS_REVOKED")
 		}
@@ -296,7 +296,7 @@ func (w *Worker) runProbe(ctx context.Context, j *job) probeResult {
 	if err != nil {
 		return inconclusive("DEPENDENCY_UNAVAILABLE")
 	}
-	if err := authorize(ctx, w.store.access, j.actor, VerifyGrant); err != nil {
+	if err := w.store.authorize(ctx, j.actor, VerifyGrant); err != nil {
 		if denied(err) {
 			return inconclusive("VERIFICATION_ACCESS_REVOKED")
 		}

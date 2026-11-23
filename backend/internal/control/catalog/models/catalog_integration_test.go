@@ -111,6 +111,7 @@ func TestCatalogStorageAndHTTP(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(fixtureDefault)
 	Register(r.Group("/api/v2"), New(&fixtureCatalog{}, identitypg.New(db), &config.Config{}), nil, []gin.HandlerFunc{
 		func(c *gin.Context) {
 			if c.Request.Header.Get("Authorization") == "fixture" {

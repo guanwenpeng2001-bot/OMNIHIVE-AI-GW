@@ -66,6 +66,7 @@ func newAdminKeyCreateRouter(users *adminKeyCreateUsers, keys *adminKeyCreateKey
 	h := NewAdminAPIKeyHandler(adminSvc, svc)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(domain.WithDefaultWorkspaceID(c.Request.Context(), 1))
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1})
 		c.Set(string(middleware.ContextKeyUserRole), service.RoleAdmin)
 	})

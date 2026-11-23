@@ -10,12 +10,17 @@ import (
 
 var ErrWorkspaceNotFound = infraerrors.NotFound("WORKSPACE_NOT_FOUND", "workspace not found")
 
+var ErrDefaultWorkspaceUnavailable = infraerrors.ServiceUnavailable("DEFAULT_WORKSPACE_UNAVAILABLE", "default workspace unavailable")
+
 type Workspace struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	IsDefault bool      `json:"is_default"`
-	Role      string    `json:"role"`
-	CreatedAt time.Time `json:"created_at"`
+	EffectiveAdmin bool      `json:"effective_admin"`
+	MembershipRole *string   `json:"membership_role,omitempty"`
+	RoleSource     *string   `json:"role_source,omitempty"`
+	ID             int64     `json:"id"`
+	Name           string    `json:"name"`
+	IsDefault      bool      `json:"is_default"`
+	Role           string    `json:"role"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 type WorkspaceMember struct {
@@ -24,6 +29,7 @@ type WorkspaceMember struct {
 }
 
 type WorkspaceRepository interface {
+	DefaultWorkspaceID(context.Context) (int64, error)
 	List(context.Context, int64, bool) ([]Workspace, error)
 	Create(context.Context, string) (*Workspace, error)
 	Role(context.Context, int64, int64, bool) (string, error)
@@ -37,6 +43,14 @@ type WorkspaceService struct{ repository WorkspaceRepository }
 
 func NewWorkspaceService(repository WorkspaceRepository) *WorkspaceService {
 	return &WorkspaceService{repository: repository}
+}
+
+func (s *WorkspaceService) DefaultWorkspaceID(ctx context.Context) (int64, error) {
+	id, err := s.repository.DefaultWorkspaceID(ctx)
+	if err != nil || id <= 0 {
+		return 0, ErrDefaultWorkspaceUnavailable
+	}
+	return id, nil
 }
 
 func (s *WorkspaceService) List(ctx context.Context, userID int64, globalAdmin bool) ([]Workspace, error) {

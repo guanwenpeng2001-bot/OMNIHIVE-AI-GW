@@ -14,11 +14,11 @@ import (
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
-
 	"github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -741,8 +741,12 @@ func AutoSetupFromEnv() error {
 
 // Keep installer membership in the same transaction as the initial user.
 func provisionAdminWorkspace(ctx context.Context, tx *sql.Tx, adminID int64) error {
-	_, err := tx.ExecContext(ctx, `INSERT INTO workspace_members(workspace_id,user_id,role,inherits_global_role)
- VALUES((SELECT id FROM workspaces WHERE is_default ORDER BY CASE WHEN id=1 THEN 0 ELSE 1 END,id LIMIT 1),$1,'admin',true)
- ON CONFLICT(workspace_id,user_id) DO NOTHING`, adminID)
+	workspaceID, err := domain.ResolveDefaultWorkspaceID(ctx, tx)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO workspace_members(workspace_id,user_id,role,inherits_global_role)
+ VALUES($2,$1,'admin',true)
+ ON CONFLICT(workspace_id,user_id) DO NOTHING`, adminID, workspaceID)
 	return err
 }

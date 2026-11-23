@@ -60,14 +60,6 @@ func (_c *AccountCreate) SetWorkspaceID(v int64) *AccountCreate {
 	return _c
 }
 
-// SetNillableWorkspaceID sets the "workspace_id" field if the given value is not nil.
-func (_c *AccountCreate) SetNillableWorkspaceID(v *int64) *AccountCreate {
-	if v != nil {
-		_c.SetWorkspaceID(*v)
-	}
-	return _c
-}
-
 // SetDeletedAt sets the "deleted_at" field.
 func (_c *AccountCreate) SetDeletedAt(v time.Time) *AccountCreate {
 	_c.mutation.SetDeletedAt(v)
@@ -586,10 +578,6 @@ func (_c *AccountCreate) defaults() error {
 		}
 		v := account.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
-	}
-	if _, ok := _c.mutation.WorkspaceID(); !ok {
-		v := account.DefaultWorkspaceID
-		_c.mutation.SetWorkspaceID(v)
 	}
 	if _, ok := _c.mutation.TpmLimit(); !ok {
 		v := account.DefaultTpmLimit

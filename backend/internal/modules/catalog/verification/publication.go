@@ -14,7 +14,7 @@ import (
 )
 
 func (s *Store) Publish(ctx context.Context, actor int64, rawID, key string, expected int64, in Publish) (Publication, error) {
-	if err := authorize(ctx, s.access, actor, PublishGrant); err != nil {
+	if err := s.authorize(ctx, actor, PublishGrant); err != nil {
 		return Publication{}, err
 	}
 	if err := validateKey(key); err != nil {

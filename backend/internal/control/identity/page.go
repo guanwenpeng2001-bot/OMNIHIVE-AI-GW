@@ -36,6 +36,9 @@ func (h *Handler) page(r request, kind string) (domain.Page, error) {
 	p := domain.Page{AsOf: time.Now().UTC(), Limit: 25}
 	q := r.Request.URL.Query()
 	for k, vs := range q {
+		if k == "view" && (kind == "requests:mine" || kind == "requests:review") && len(vs) == 1 {
+			continue
+		}
 		if (k != "limit" && k != "cursor") || len(vs) != 1 {
 			return p, fault.Invalid("/" + k)
 		}
@@ -138,9 +141,9 @@ func (h *Handler) workspaces(r request) (any, error) {
 		part := pageResult(h, projectRequest, "projects", inner, projects, func(x domain.Project) int64 { return x.ID })
 		summaries := []gin.H{}
 		for _, x := range part.Items {
-			summaries = append(summaries, gin.H{"id": strconv.FormatInt(x.ID, 10), "name": x.Name})
+			summaries = append(summaries, gin.H{"id": strconv.FormatInt(x.ID, 10), "name": x.Name, "is_default": x.IsDefault})
 		}
-		items = append(items, gin.H{"workspace_id": strconv.FormatInt(w.ID, 10), "name": w.Name, "projects": summaries, "projects_next_cursor": part.Next})
+		items = append(items, gin.H{"workspace_id": strconv.FormatInt(w.ID, 10), "name": w.Name, "is_default": w.IsDefault, "projects": summaries, "projects_next_cursor": part.Next})
 	}
 	return list[gin.H]{Items: items, Next: page.Next, AsOf: page.AsOf}, nil
 }

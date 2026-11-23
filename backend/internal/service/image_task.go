@@ -164,6 +164,9 @@ func (s *ImageTaskService) Create(ctx context.Context, owner ImageTaskOwner, pub
 	now := time.Now().UTC()
 	if owner.WorkspaceID <= 0 {
 		owner.WorkspaceID = domain.ResourceWorkspaceID(ctx)
+		if owner.WorkspaceID <= 0 {
+			return nil, ErrImageTaskUnavailable
+		}
 	}
 	task := &ImageTaskRecord{
 		WorkspaceID:       owner.WorkspaceID,
@@ -201,10 +204,16 @@ func (s *ImageTaskService) Get(ctx context.Context, owner ImageTaskOwner, id str
 	}
 	if owner.WorkspaceID <= 0 {
 		owner.WorkspaceID = domain.ResourceWorkspaceID(ctx)
+		if owner.WorkspaceID <= 0 {
+			return nil, ErrImageTaskUnavailable
+		}
 	}
 	taskWorkspace := task.WorkspaceID
 	if taskWorkspace <= 0 {
-		taskWorkspace = domain.DefaultWorkspaceID
+		taskWorkspace = domain.ResolvedDefaultWorkspaceID(ctx)
+		if taskWorkspace <= 0 {
+			return nil, ErrImageTaskUnavailable
+		}
 	}
 	if task.UserID != owner.UserID || task.APIKeyID != owner.APIKeyID || taskWorkspace != owner.WorkspaceID {
 		// Do not reveal whether a random task ID exists for another caller.

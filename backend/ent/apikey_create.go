@@ -60,14 +60,6 @@ func (_c *APIKeyCreate) SetWorkspaceID(v int64) *APIKeyCreate {
 	return _c
 }
 
-// SetNillableWorkspaceID sets the "workspace_id" field if the given value is not nil.
-func (_c *APIKeyCreate) SetNillableWorkspaceID(v *int64) *APIKeyCreate {
-	if v != nil {
-		_c.SetWorkspaceID(*v)
-	}
-	return _c
-}
-
 // SetDeletedAt sets the "deleted_at" field.
 func (_c *APIKeyCreate) SetDeletedAt(v time.Time) *APIKeyCreate {
 	_c.mutation.SetDeletedAt(v)
@@ -434,10 +426,6 @@ func (_c *APIKeyCreate) defaults() error {
 		}
 		v := apikey.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
-	}
-	if _, ok := _c.mutation.WorkspaceID(); !ok {
-		v := apikey.DefaultWorkspaceID
-		_c.mutation.SetWorkspaceID(v)
 	}
 	if _, ok := _c.mutation.TpmLimit(); !ok {
 		v := apikey.DefaultTpmLimit

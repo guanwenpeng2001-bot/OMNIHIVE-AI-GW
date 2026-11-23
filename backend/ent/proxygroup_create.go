@@ -59,14 +59,6 @@ func (_c *ProxyGroupCreate) SetWorkspaceID(v int64) *ProxyGroupCreate {
 	return _c
 }
 
-// SetNillableWorkspaceID sets the "workspace_id" field if the given value is not nil.
-func (_c *ProxyGroupCreate) SetNillableWorkspaceID(v *int64) *ProxyGroupCreate {
-	if v != nil {
-		_c.SetWorkspaceID(*v)
-	}
-	return _c
-}
-
 // SetDeletedAt sets the "deleted_at" field.
 func (_c *ProxyGroupCreate) SetDeletedAt(v time.Time) *ProxyGroupCreate {
 	_c.mutation.SetDeletedAt(v)
@@ -262,10 +254,6 @@ func (_c *ProxyGroupCreate) defaults() error {
 		}
 		v := proxygroup.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
-	}
-	if _, ok := _c.mutation.WorkspaceID(); !ok {
-		v := proxygroup.DefaultWorkspaceID
-		_c.mutation.SetWorkspaceID(v)
 	}
 	if _, ok := _c.mutation.Description(); !ok {
 		v := proxygroup.DefaultDescription

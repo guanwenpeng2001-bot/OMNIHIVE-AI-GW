@@ -10,11 +10,26 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
+// DefaultWorkspaceResolution attaches a lazy request-local resolver without applying a resource filter.
+func DefaultWorkspaceResolution(workspaces *service.WorkspaceService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Request = c.Request.WithContext(domain.WithDefaultWorkspaceResolver(c.Request.Context(), workspaces.DefaultWorkspaceID))
+		c.Next()
+	}
+}
+
 // DefaultWorkspaceScope keeps legacy resource URLs in the original domain.
 func DefaultWorkspaceScope() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		subject, _ := GetAuthSubjectFromContext(ctx)
-		installWorkspace(ctx, domain.DefaultWorkspaceID, subject.UserID)
+		id := domain.ResolvedDefaultWorkspaceID(ctx.Request.Context())
+		if id <= 0 {
+			response.ErrorFrom(ctx, service.ErrDefaultWorkspaceUnavailable)
+			ctx.Abort()
+			return
+		}
+		ctx.Request = ctx.Request.WithContext(domain.WithDefaultWorkspaceID(ctx.Request.Context(), id))
+		installWorkspace(ctx, id, subject.UserID)
 		ctx.Next()
 	}
 }
