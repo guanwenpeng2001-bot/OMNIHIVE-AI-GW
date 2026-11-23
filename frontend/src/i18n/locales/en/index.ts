@@ -12,6 +12,7 @@ import modelAccess from './modelAccess'
 import routing from './routing'
 import costLedger from './costLedger'
 import membersAccess from './membersAccess'
+import settingsDiagnostics from './settingsDiagnostics'
 import consoleWorkbench from './consoleWorkbench'
 import publicPortal from './publicPortal'
 
@@ -21,6 +22,7 @@ export default {
   routing,
   costLedger,
   membersAccess,
+  settingsDiagnostics,
   ...consoleWorkbench,
   ...capabilities,
   helpGuide,
