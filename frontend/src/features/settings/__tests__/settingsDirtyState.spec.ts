@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  SETTINGS_SECTIONS,
   buildSectionPatch,
   getDirtySections,
   isSectionDirty,
@@ -84,5 +85,12 @@ describe('settings dirty-state & validation', () => {
     expect(validateSettingsSection('email', { smtp_host: 'smtp.example.com', smtp_port: 70000 })).toHaveProperty(
       'smtp_port'
     )
+  })
+
+  it('registers diagnostics as a read-only section without affecting dirty tracking', () => {
+    expect(SETTINGS_SECTIONS.some((section) => section.id === 'diagnostics')).toBe(true)
+    expect(isSectionDirty('diagnostics', BASELINE, { ...BASELINE, site_name: 'Changed' })).toBe(false)
+    expect(buildSectionPatch('diagnostics', BASELINE, { ...BASELINE, site_name: 'Changed' })).toEqual({})
+    expect(validateSettingsSection('diagnostics', BASELINE)).toEqual({})
   })
 })
