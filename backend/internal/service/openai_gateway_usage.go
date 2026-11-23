@@ -114,6 +114,9 @@ func (s *OpenAIGatewayService) RecordCyberPolicyUsageLog(ctx context.Context, in
 
 // ResolveUserGroupRateMultiplier resolves the same cached multiplier used by OpenAI usage billing.
 func (s *OpenAIGatewayService) ResolveUserGroupRateMultiplier(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) float64 {
+	if rate, ok := frozenRequestGroupRate(ctx, userID, groupID); ok {
+		return rate
+	}
 	if s == nil {
 		return groupDefaultMultiplier
 	}

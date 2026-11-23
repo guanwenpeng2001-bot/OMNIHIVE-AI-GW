@@ -15,6 +15,9 @@ import (
 )
 
 func (s *GatewayService) getUserGroupRateMultiplier(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) float64 {
+	if rate, ok := frozenRequestGroupRate(ctx, userID, groupID); ok {
+		return rate
+	}
 	if s == nil {
 		return groupDefaultMultiplier
 	}

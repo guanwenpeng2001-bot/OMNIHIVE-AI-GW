@@ -343,3 +343,16 @@ func TestPriceBookCompositeDispatchKeepsSuccessfulTariffAndCeiling(t *testing.T)
 	require.Equal(t, PricingSourceGroup, cost.PriceSource)
 	require.Equal(t, lane.version, cost.PriceCardVersion)
 }
+
+func TestPriceBookBudgetFreezesActorRateForBothUsageAdapters(t *testing.T) {
+	plan := NewGatewayRequestPlan(GatewayRequestSpec{UserID: 4, BillingGroupID: 10})
+	plan.billing = NewBillingService(nil, nil)
+	plan.budgetRate = func(context.Context, int64, int64, float64) float64 { return 1.75 }
+	ctx := WithGatewayRequestPlan(t.Context(), plan)
+	group := &Group{ID: 10, RateMultiplier: 1}
+	require.Equal(t, 1.75, plan.budgetBaseMultiplier(ctx, group, 1))
+	group.RateMultiplier = 3
+	require.Equal(t, 1.75, (&GatewayService{}).ResolveUserGroupRateMultiplier(ctx, 4, 10, group.RateMultiplier))
+	require.Equal(t, 1.75, (&OpenAIGatewayService{}).ResolveUserGroupRateMultiplier(ctx, 4, 10, group.RateMultiplier))
+	require.Equal(t, 3.0, (&GatewayService{}).ResolveUserGroupRateMultiplier(ctx, 5, 10, group.RateMultiplier))
+}

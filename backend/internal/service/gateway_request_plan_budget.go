@@ -81,12 +81,32 @@ func (p *GatewayRequestPlan) estimateBudgetHold(ctx context.Context, e RequestBu
 	return p.estimateBudgetHoldForLane(ctx, e, nil)
 }
 
+type requestGroupRate struct {
+	user, group int64
+	multiplier  float64
+}
+
+func frozenRequestGroupRate(ctx context.Context, user, group int64) (float64, bool) {
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+		if rate := plan.frozenRate.Load(); rate != nil && rate.user == user && rate.group == group {
+			return rate.multiplier, true
+		}
+	}
+	return 0, false
+}
+
 func (p *GatewayRequestPlan) budgetBaseMultiplier(ctx context.Context, group *Group, base float64) float64 {
 	if group == nil && p.billing.cfg != nil {
 		return math.Max(base, p.billing.cfg.Default.RateMultiplier)
 	}
 	if group != nil && p.budgetRate != nil {
-		return p.budgetRate(ctx, p.spec.UserID, group.ID, group.RateMultiplier)
+		if rate, ok := frozenRequestGroupRate(ctx, p.spec.UserID, group.ID); ok {
+			return rate
+		}
+		base = p.budgetRate(ctx, p.spec.UserID, group.ID, group.RateMultiplier)
+		if p.spec.UserID > 0 && group.ID > 0 {
+			p.frozenRate.CompareAndSwap(nil, &requestGroupRate{user: p.spec.UserID, group: group.ID, multiplier: base})
+		}
 	}
 	return base
 }

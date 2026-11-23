@@ -103,6 +103,7 @@ type GatewayRequestPlan struct {
 	budgetEstimate     *RequestBudgetEstimate
 	budgetPlatform     string
 	budgetRate         func(context.Context, int64, int64, float64) float64
+	frozenRate         atomic.Pointer[requestGroupRate]
 	keyBudgetAmount    *money.Money
 	budgetHold         *KeyBudgetReservation
 	budgetAdmitted     bool
