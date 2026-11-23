@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import enAdminAccounts from '../locales/en/admin/accounts'
 import enAdminChannels from '../locales/en/admin/channels'
+import enAdminModels from '../locales/en/admin/models'
 import enAdminOps from '../locales/en/admin/ops'
 import enAdminOverview from '../locales/en/admin/overview'
 import enAdminResources from '../locales/en/admin/resources'
@@ -12,6 +13,7 @@ import enLanding from '../locales/en/landing'
 import enMisc from '../locales/en/misc'
 import zhAdminAccounts from '../locales/zh/admin/accounts'
 import zhAdminChannels from '../locales/zh/admin/channels'
+import zhAdminModels from '../locales/zh/admin/models'
 import zhAdminOps from '../locales/zh/admin/ops'
 import zhAdminOverview from '../locales/zh/admin/overview'
 import zhAdminResources from '../locales/zh/admin/resources'
@@ -51,6 +53,7 @@ const admins: Record<string, Modules> = {
     overview: zhAdminOverview,
     channels: zhAdminChannels,
     accounts: zhAdminAccounts,
+    models: zhAdminModels,
     resources: zhAdminResources,
     ops: zhAdminOps,
     settings: zhAdminSettings
@@ -59,6 +62,7 @@ const admins: Record<string, Modules> = {
     overview: enAdminOverview,
     channels: enAdminChannels,
     accounts: enAdminAccounts,
+    models: enAdminModels,
     resources: enAdminResources,
     ops: enAdminOps,
     settings: enAdminSettings

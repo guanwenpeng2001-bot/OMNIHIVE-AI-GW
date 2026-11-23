@@ -61,8 +61,8 @@ export default {
         baseline: 'Baseline / denominator', compared: 'Compared price', savedCharge: 'Saved configuration sample charge', added: 'Added', removed: 'Removed',
         fields: { context_window: 'Context / input limit', max_context_window: 'Total context limit', max_output_tokens: 'Output limit', input_modalities: 'Input modalities', output_modalities: 'Output modalities', supports_function_calling: 'Tools', reasoning: 'Reasoning', reasoning_control: 'Reasoning control / levels / budget', supported_reasoning_levels: 'Reasoning levels', embedding_dimensions: 'Embedding dimensions', task_limits: 'Task-specific limits' }
       },
-      title: 'Channel Management',
-      description: 'Manage channels and custom model pricing',
+      title: 'Channels & Pricing',
+      description: 'Manage channel model mappings, Sale Rates (distinct from Reference Price, Internal Cost, and Settlement Amount), and routing group bindings',
       searchChannels: 'Search channels...',
       createChannel: 'Create Channel',
       editChannel: 'Edit Channel',

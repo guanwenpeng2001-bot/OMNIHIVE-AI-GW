@@ -3,10 +3,11 @@
     <p role="status">{{ t(`admin.accounts.modelCatalog.${status}`) }}</p>
     <p v-if="result">{{ t('admin.accounts.modelSync.previewOnly') }}</p>
     <p v-if="result && !result.discovery_complete">{{ t('admin.accounts.modelSync.incomplete') }}</p>
-    <dl class="grid grid-cols-1 gap-3 text-secondary sm:grid-cols-3 [&_dd]:mt-1 [&_dd]:text-base [&_dd]:font-semibold [&_dd]:text-gray-900 dark:[&_dd]:text-gray-100" data-testid="catalog-counts">
+    <dl class="grid grid-cols-1 gap-3 text-secondary sm:grid-cols-4 [&_dd]:mt-1 [&_dd]:text-base [&_dd]:font-semibold [&_dd]:text-gray-900 dark:[&_dd]:text-gray-100" data-testid="catalog-counts">
       <div><dt>{{ t('admin.accounts.modelSync.platformCandidates') }}</dt><dd>{{ candidateCount ?? '—' }}</dd></div>
       <div><dt>{{ t('admin.accounts.modelSync.nativeDiscovered') }}</dt><dd>{{ result?.discovered_models?.length ?? summary?.discovered_count ?? '—' }}</dd></div>
       <div><dt>{{ t('admin.accounts.modelSync.accountEffective') }}</dt><dd>{{ stale ? '—' : summary?.eligible_count ?? result?.eligible_models?.length ?? '—' }}</dd></div>
+      <div><dt>{{ t('admin.accounts.modelSync.groupPublic') }}</dt><dd>—</dd></div>
     </dl>
     <p>{{ t('admin.accounts.modelSync.candidatesHint') }}</p>
     <details v-if="capabilities.length" data-testid="capability-details">

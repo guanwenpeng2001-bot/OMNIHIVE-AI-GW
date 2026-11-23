@@ -8,7 +8,6 @@ import { useAuthStore } from '@/stores/auth'
 import { useScopedRead } from '@/features/requests/useScopedRead'
 import { classifyAsyncError, type AsyncViewState } from '@/features/shared/asyncState'
 import OperationState from './OperationState.vue'
-import CatalogVerificationWorkbench from './components/CatalogVerificationWorkbench.vue'
 import WorkspaceTelemetryPanel from './components/WorkspaceTelemetryPanel.vue'
 import {
   generateCommandKey,
@@ -228,7 +227,27 @@ async function submitIncident() {
 
     <WorkspaceTelemetryPanel :is-zh="isZh" />
 
-    <CatalogVerificationWorkbench :is-zh="isZh" />
+    <Card data-testid="ops-relocated-catalog-workbench-card" class="flex flex-wrap items-center justify-between gap-3 text-sm">
+      <div class="space-y-1">
+        <h3 class="font-semibold">
+          {{ isZh ? '目录核验与兼容性发布工作台' : 'Catalog Verification & Compatibility Workbench' }}
+        </h3>
+        <p class="text-xs text-[var(--oh-fg-muted)]">
+          {{
+            isZh
+              ? '目录核验与发布工作台已迁入「连接与路由 → 模型目录 (/admin/models)」抽屉，即使在实时运维监控关闭时也可直接核验模型。'
+              : 'Catalog Verification & Publication Workbench has moved to Connections & Routing -> Model Catalog (/admin/models) drawer and works even when Ops monitoring is disabled.'
+          }}
+        </p>
+      </div>
+      <a
+        href="/admin/models"
+        data-testid="ops-relocated-catalog-workbench-link"
+        class="inline-flex items-center rounded-md border border-[var(--oh-border-default)] px-3 py-1.5 text-xs font-semibold text-[var(--oh-fg-default)] hover:bg-[var(--oh-bg-elevated)]"
+      >
+        {{ isZh ? '前往模型目录 (/admin/models) →' : 'Open Model Catalog (/admin/models) →' }}
+      </a>
+    </Card>
 
     <Modal
       v-model:open="incidentModalOpen"
