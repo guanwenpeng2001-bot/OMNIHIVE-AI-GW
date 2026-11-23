@@ -3,22 +3,29 @@ paths:
     get:
       operationId: listAdminCatalogModels
       summary: Inspect the model catalog for a workspace.
+      description: Requires platform-admin access and administrator compliance acknowledgement. All filters are combined.
       parameters:
       - $ref: '#/components/parameters/AdminCatalogWorkspace'
       - $ref: '#/components/parameters/AdminCatalogProject'
       - $ref: '#/components/parameters/CatalogAvailability'
       - $ref: '#/components/parameters/CatalogBilling'
-      - $ref: '#/components/parameters/IdentityCursor'
+      - name: cursor
+        in: query
+        description: Opaque continuation bound to the current scope, filters and catalog version. Expires after 15 minutes.
+        schema:
+          type: string
       - name: provider
         in: query
         schema:
           type: string
       - name: model
         in: query
+        description: Exact, case-sensitive public model name.
         schema:
           type: string
       - name: q
         in: query
+        description: Case-insensitive substring search across public names, aliases, display names and opaque IDs.
         schema:
           type: string
       - name: source
@@ -30,6 +37,18 @@ paths:
         schema:
           type: string
           enum: [published, unpublished, unknown]
+      - name: quick_filter
+        in: query
+        description: |
+          routable_but_unpriced selects live models with common billing state unpriced.
+          discovered_not_enabled selects a current discovery on an account with no eligible binding for the model.
+          listed_unrouted selects published models with unavailable routes.
+          group_price_conflict selects models with conflicting eligible offers.
+          pi_only selects models whose only source is pi.
+          stale selects models with stale discovery or field evidence.
+        schema:
+          type: string
+          enum: [routable_but_unpriced, discovered_not_enabled, listed_unrouted, group_price_conflict, pi_only, stale]
       - name: limit
         in: query
         schema:
@@ -51,13 +70,28 @@ paths:
                   message:
                     const: success
                   data:
-                    $ref: '#/components/schemas/CatalogModelPage'
+                    $ref: '#/components/schemas/AdminCatalogPage'
+        '401':
+          $ref: '#/components/responses/AdminCatalogError'
+        '403':
+          $ref: '#/components/responses/AdminCatalogError'
+        '404':
+          $ref: '#/components/responses/AdminCatalogError'
+        '410':
+          $ref: '#/components/responses/AdminCatalogError'
+        '422':
+          $ref: '#/components/responses/AdminCatalogError'
+        '423':
+          $ref: '#/components/responses/AdminCatalogError'
+        '503':
+          $ref: '#/components/responses/AdminCatalogError'
         default:
           $ref: '#/components/responses/AdminCatalogError'
   /api/v2/admin/catalog/models/{id}:
     get:
       operationId: getAdminCatalogModel
       summary: Inspect model evidence and offers within a workspace.
+      description: Requires platform-admin access and administrator compliance acknowledgement. Each nested cursor continues its own collection. Omission starts that collection on its first page.
       parameters:
       - $ref: '#/components/parameters/AdminCatalogWorkspace'
       - $ref: '#/components/parameters/AdminCatalogProject'
@@ -69,15 +103,18 @@ paths:
           pattern: ^m_[0-9a-f]{32}$
       - name: catalog_version
         in: query
+        description: Optional catalog version from the list or a previous detail page. A mismatch returns 410.
         schema:
           type: string
           pattern: ^cat_[0-9a-f]{64}$
       - name: accounts_cursor
         in: query
+        description: Opaque account continuation bound to the scope, model and catalog version. Expires after 15 minutes.
         schema:
           type: string
       - name: offers_cursor
         in: query
+        description: Opaque offer continuation bound to the scope, model and catalog version. Expires after 15 minutes.
         schema:
           type: string
       responses:
@@ -95,6 +132,20 @@ paths:
                     const: success
                   data:
                     $ref: '#/components/schemas/AdminCatalogDetail'
+        '401':
+          $ref: '#/components/responses/AdminCatalogError'
+        '403':
+          $ref: '#/components/responses/AdminCatalogError'
+        '404':
+          $ref: '#/components/responses/AdminCatalogError'
+        '410':
+          $ref: '#/components/responses/AdminCatalogError'
+        '422':
+          $ref: '#/components/responses/AdminCatalogError'
+        '423':
+          $ref: '#/components/responses/AdminCatalogError'
+        '503':
+          $ref: '#/components/responses/AdminCatalogError'
         default:
           $ref: '#/components/responses/AdminCatalogError'
 components:
@@ -103,33 +154,111 @@ components:
       name: workspace_id
       in: query
       required: true
+      description: Explicit workspace ID.
       schema:
         type: string
         pattern: ^[1-9][0-9]*$
     AdminCatalogProject:
       name: project_id
       in: query
+      description: Optional project within the workspace. Omission reads the entire workspace.
       schema:
         type: string
         pattern: ^[1-9][0-9]*$
   responses:
     AdminCatalogError:
-      description: Authorization, validation or catalog version error.
+      description: Authentication, authorization, scope, compliance, validation, snapshot expiry or dependency error.
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/IdentityError'
+            $ref: '#/components/schemas/AdminCatalogErrorBody'
   schemas:
+    AdminCatalogErrorBody:
+      type: object
+      required: [code, message, reason, metadata]
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+        reason:
+          type: string
+        metadata:
+          type: object
+        data:
+          type: 'null'
+    AdminCatalogPage:
+      type: object
+      required: [items, next_cursor, catalog_version, as_of, scope_version]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminCatalogModel'
+        next_cursor:
+          type: [string, 'null']
+        catalog_version:
+          type: string
+        as_of:
+          type: string
+          format: date-time
+        scope_version:
+          $ref: '#/components/schemas/AdminCatalogRevision'
+    AdminCatalogModel:
+      type: object
+      required: [id, canonical_id, model, display_name, provider, source, availability, billing, aliases_count, accounts_count, discovered_accounts_count, groups_count, channels_count]
+      properties:
+        id:
+          type: string
+        canonical_id:
+          type: string
+        model:
+          type: string
+        display_name:
+          type: string
+        provider:
+          type: string
+        source:
+          $ref: '#/components/schemas/CatalogSourceAxis'
+        availability:
+          $ref: '#/components/schemas/CatalogAvailability'
+        billing:
+          $ref: '#/components/schemas/CatalogBilling'
+        aliases_count:
+          type: integer
+          minimum: 0
+        accounts_count:
+          type: integer
+          minimum: 0
+          description: Distinct accounts with a discovery observation or binding.
+        discovered_accounts_count:
+          type: integer
+          minimum: 0
+          description: Distinct accounts with current, stale or invalidated discovery.
+        groups_count:
+          type: integer
+          minimum: 0
+        channels_count:
+          type: integer
+          minimum: 0
     AdminCatalogDetail:
       type: object
-      required: [model, provenance, accounts, offers, publications, next_accounts_cursor, next_offers_cursor, catalog_version, as_of]
+      required: [model, aliases, common_facts, provenance, accounts, offers, publications, next_accounts_cursor, next_offers_cursor, catalog_version, as_of, scope_version]
       properties:
         model:
-          $ref: '#/components/schemas/ModelSummary'
+          $ref: '#/components/schemas/AdminCatalogModel'
+        aliases:
+          type: array
+          items:
+            type: string
+        common_facts:
+          anyOf:
+          - $ref: '#/components/schemas/CatalogCommonFacts'
+          - type: 'null'
         provenance:
           type: array
           items:
-            $ref: '#/components/schemas/CatalogFieldProvenance'
+            $ref: '#/components/schemas/AdminCatalogFieldProvenance'
         accounts:
           type: array
           items:
@@ -140,6 +269,7 @@ components:
             $ref: '#/components/schemas/AdminCatalogOffer'
         publications:
           type: array
+          description: One result per group and channel represented in this offer page. A pair spanning pages can repeat.
           items:
             $ref: '#/components/schemas/AdminCatalogPublication'
         next_accounts_cursor:
@@ -151,9 +281,52 @@ components:
         as_of:
           type: string
           format: date-time
+        scope_version:
+          $ref: '#/components/schemas/AdminCatalogRevision'
+    AdminCatalogFieldProvenance:
+      type: object
+      required: [field, state]
+      properties:
+        field:
+          type: string
+        state:
+          type: string
+          enum: [known, unknown, stale, conflict, suppressed]
+        source_kind:
+          $ref: '#/components/schemas/CatalogSourceKind'
+        artifact_version:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+        observed_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        value:
+          description: One of a decimal-string count, a boolean, a string array or a context window.
+          oneOf:
+          - type: string
+            pattern: ^[0-9]+$
+          - type: boolean
+          - type: array
+            items:
+              type: string
+          - type: object
+            required: [tokens, basis]
+            properties:
+              tokens:
+                type: string
+                pattern: ^[1-9][0-9]*$
+              basis:
+                type: string
+                enum: [input, total, unspecified]
+    AdminCatalogRevision:
+      type: string
+      pattern: ^(0|[1-9][0-9]*)$
     AdminCatalogAccount:
       type: object
-      required: [account_id, label, account_type, discovery_state, observed_at, identity_revision, snapshot_revision, rules_revision]
+      required: [account_id, label, account_type, discovery_state, membership_state, observed_at, identity_revision, snapshot_revision, rules_revision]
       properties:
         account_id:
           type: string
@@ -164,23 +337,29 @@ components:
         discovery_state:
           type: string
           enum: [current, stale, invalidated]
+        membership_state:
+          type: string
+          enum: [eligible, no_eligible_binding]
         observed_at:
           type: [string, 'null']
           format: date-time
         identity_revision:
-          type: string
+          $ref: '#/components/schemas/AdminCatalogRevision'
         snapshot_revision:
-          type: string
+          $ref: '#/components/schemas/AdminCatalogRevision'
         rules_revision:
-          type: string
+          $ref: '#/components/schemas/AdminCatalogRevision'
     AdminCatalogOffer:
       type: object
-      required: [group_id, channel_id, eligible, billing, price_context]
+      required: [group_id, channel_id, account_id, eligible, billing, price_context]
       properties:
         group_id:
           type: string
         channel_id:
           type: string
+          description: Zero identifies group-only observations.
+        account_id:
+          type: [string, 'null']
         action:
           type: string
         protocol:
@@ -189,13 +368,14 @@ components:
           type: boolean
         reason:
           type: string
+          enum: [access_denied, eligibility_incomplete, no_eligible_binding]
         price_context:
           const: group_default
         billing:
           $ref: '#/components/schemas/CatalogBilling'
     AdminCatalogPublication:
       type: object
-      required: [group_id, channel_id, state, basis]
+      required: [group_id, channel_id, state, basis, reason]
       properties:
         group_id:
           type: string
@@ -205,5 +385,8 @@ components:
           type: string
           enum: [published, unpublished, unknown]
         basis:
+          type: [string, 'null']
+          enum: [explicit, legacy_default, null]
+        reason:
           type: string
-          enum: [explicit, legacy_default]
+          enum: [published, published_without_eligible_binding, not_published, publication_not_observed]
