@@ -1,44 +1,9 @@
 import type { components } from '@/api/generated/openapi'
 import type { ConsoleAsyncNotice } from '@/features/console/asyncState'
-import type { CatalogModelItem, CatalogModelRate } from '@/features/console/catalogApi'
+import type { CatalogModelRate } from '@/features/console/catalogApi'
 
-export interface PlaygroundKeyModelActionProtocol {
-  action: string
-  protocol: PlaygroundProtocol | string
-}
-
-export interface PlaygroundKeyModelItem {
-  id: string
-  slug?: string
-  display_name?: string
-  displayName?: string
-  provider?: string
-  action_protocols?: PlaygroundKeyModelActionProtocol[]
-  protocols?: Array<PlaygroundProtocol | string>
-  modalities?: string[]
-  availability_state?: string
-  availabilityState?: string
-  max_output_tokens?: number | null
-  context_tokens?: number | null
-  tools_supported?: boolean
-  reasoning_supported?: boolean
-  input_rate?: CatalogModelRate | null
-  output_rate?: CatalogModelRate | null
-}
-
-export interface PlaygroundKeyModelsResponse {
-  key_id: string
-  workspace_id: string
-  project_id: string
-  scope_version: string
-  as_of: string
-  next_cursor: string | null
-  items: PlaygroundKeyModelItem[]
-}
-
-export type EligiblePlaygroundModel = CatalogModelItem & {
-  actionProtocols: PlaygroundKeyModelActionProtocol[]
-}
+export type PlaygroundKeyModelItem = components['schemas']['PlaygroundKeyModel']
+export type PlaygroundKeyModelsResponse = components['schemas']['PlaygroundKeyModelPage']
 
 export type ExactPriceScenario = components['schemas']['ExactPriceScenario']
 export type ExactQuoteLine = components['schemas']['ExactQuoteLine']

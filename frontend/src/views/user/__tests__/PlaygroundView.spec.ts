@@ -68,34 +68,18 @@ function futureISO(offsetMs = 3600_000): string {
 
 const gptModel: PlaygroundKeyModelItem = {
   id: 'm_11111111111111111111111111111111',
-  slug: 'gpt-5.4-mini',
+  model: 'gpt-5.4-mini',
   display_name: 'GPT-5.4 Mini',
   provider: 'openai',
-  action_protocols: [{ action: 'text.chat', protocol: 'openai_chat' }],
-  protocols: ['openai_chat'],
-  modalities: ['text'],
-  max_output_tokens: 8192,
-  context_tokens: 128000,
-  tools_supported: true,
-  reasoning_supported: true,
-  input_rate: { currency: 'USD', amount: '1.00', unit: 'input_token', per: '1000000' },
-  output_rate: { currency: 'USD', amount: '4.00', unit: 'output_token', per: '1000000' }
+  pairs: [{ action: 'text.chat', protocol: 'openai_chat' }]
 }
 
 const claudeModel: PlaygroundKeyModelItem = {
   id: 'm_22222222222222222222222222222222',
-  slug: 'claude-4-sonnet',
+  model: 'claude-4-sonnet',
   display_name: 'Claude 4 Sonnet',
   provider: 'anthropic',
-  action_protocols: [{ action: 'text.chat', protocol: 'anthropic_messages' }],
-  protocols: ['anthropic_messages'],
-  modalities: ['text'],
-  max_output_tokens: 8192,
-  context_tokens: 200000,
-  tools_supported: true,
-  reasoning_supported: true,
-  input_rate: { currency: 'USD', amount: '3.00', unit: 'input_token', per: '1000000' },
-  output_rate: { currency: 'USD', amount: '15.00', unit: 'output_token', per: '1000000' }
+  pairs: [{ action: 'text.chat', protocol: 'anthropic_messages' }]
 }
 
 describe('PlaygroundView 3-pane workbench', () => {

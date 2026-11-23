@@ -42,7 +42,6 @@ import {
 } from '@/features/playground/costEstimate'
 import { createPlaygroundRunController } from '@/features/playground/runMachine'
 import type {
-  EligiblePlaygroundModel,
   PlaygroundCostEstimate,
   PlaygroundKeyModelItem,
   PlaygroundMessageDraft,
@@ -101,10 +100,10 @@ const canManageByok = ref(false)
 const hasPlaygroundRun = ref(false)
 const hasKeysRead = ref(false)
 
-const sideAModels = ref<EligiblePlaygroundModel[]>([])
+const sideAModels = ref<CatalogModelItem[]>([])
 const sideAModelsLoading = ref(false)
 const sideAModelsError = ref<ConsoleAsyncNotice | null>(null)
-const sideBModels = ref<EligiblePlaygroundModel[]>([])
+const sideBModels = ref<CatalogModelItem[]>([])
 const sideBModelsLoading = ref(false)
 const sideBModelsError = ref<ConsoleAsyncNotice | null>(null)
 let sideAModelsController: AbortController | null = null
@@ -207,9 +206,9 @@ watch(
 )
 
 function filterModelList(
-  list: EligiblePlaygroundModel[],
+  list: CatalogModelItem[],
   rawQuery: string
-): EligiblePlaygroundModel[] {
+): CatalogModelItem[] {
   const q = rawQuery.trim().toLowerCase()
   if (!q) return list
   return list.filter(
@@ -231,51 +230,38 @@ const VALID_PLAYGROUND_PROTOCOLS = new Set<PlaygroundProtocol>([
   'gemini_generate'
 ])
 
-function normalizeKeyModelItem(raw: PlaygroundKeyModelItem): EligiblePlaygroundModel {
-  const actionProtocols =
-    Array.isArray(raw.action_protocols) && raw.action_protocols.length > 0
-      ? raw.action_protocols.map((pair) => ({
-          action: String(pair.action || 'text.chat'),
-          protocol: String(pair.protocol || '')
-        }))
-      : (raw.protocols ?? []).map((protocol) => ({
-          action: 'text.chat',
-          protocol: String(protocol)
-        }))
-  const supportedProtocols = [
-    ...new Set(
-      actionProtocols
-        .filter((pair) => pair.action === 'text.chat' && VALID_PLAYGROUND_PROTOCOLS.has(pair.protocol as PlaygroundProtocol))
-        .map((pair) => pair.protocol as PlaygroundProtocol)
-    )
-  ]
+function normalizeKeyModelItem(raw: PlaygroundKeyModelItem): CatalogModelItem | null {
+  const protocols = [...new Set((raw.pairs ?? [])
+    .filter(pair => pair.action === 'text.chat' && VALID_PLAYGROUND_PROTOCOLS.has(pair.protocol))
+    .map(pair => pair.protocol))]
+  if (!raw.id || !raw.model || protocols.length === 0) return null
+
   return {
-    id: String(raw.id),
-    slug: String(raw.slug || raw.id),
-    displayName: String(raw.displayName || raw.display_name || raw.slug || raw.id),
-    provider: String(raw.provider || 'unknown'),
-    actions: [...new Set(actionProtocols.map((pair) => pair.action).filter(Boolean))],
-    protocols: supportedProtocols,
-    modalities: Array.isArray(raw.modalities) ? raw.modalities : ['text'],
-    maxOutputTokens: raw.max_output_tokens ?? null,
-    contextTokens: raw.context_tokens ?? null,
-    toolsSupported: Boolean(raw.tools_supported),
-    reasoningSupported: Boolean(raw.reasoning_supported),
-    inputRate: raw.input_rate ?? null,
-    outputRate: raw.output_rate ?? null,
-    availabilityState: (raw.availabilityState || raw.availability_state || 'live') as CatalogModelItem['availabilityState'],
-    actionProtocols
+    id: raw.id,
+    slug: raw.model,
+    displayName: raw.display_name || raw.model,
+    provider: raw.provider,
+    actions: ['text.chat'],
+    protocols,
+    modalities: ['text'],
+    maxOutputTokens: null,
+    contextTokens: null,
+    toolsSupported: false,
+    reasoningSupported: false,
+    inputRate: null,
+    outputRate: null,
+    availabilityState: 'live'
   }
 }
 
-function findSideModel(side: 'A' | 'B', modelId: string): EligiblePlaygroundModel | null {
+function findSideModel(side: 'A' | 'B', modelId: string): CatalogModelItem | null {
   const target = modelId.trim()
   if (!target) return null
   const list = side === 'A' ? sideAModels.value : sideBModels.value
   return list.find((m) => m.slug === target || m.id === target) ?? null
 }
 
-function getModelSupportedProtocols(model: EligiblePlaygroundModel | null): PlaygroundProtocol[] {
+function getModelSupportedProtocols(model: CatalogModelItem | null): PlaygroundProtocol[] {
   if (!model) return []
   return model.protocols.filter((p): p is PlaygroundProtocol =>
     VALID_PLAYGROUND_PROTOCOLS.has(p as PlaygroundProtocol)
@@ -530,7 +516,7 @@ async function loadSideKeyModels(side: 'A' | 'B', keyId: string): Promise<void> 
     if (typeof playgroundApi.listKeyModels !== 'function') {
       throw Object.assign(new Error('Key model discovery unavailable'), { status: 503 })
     }
-    const collected: EligiblePlaygroundModel[] = []
+    const collected: CatalogModelItem[] = []
     const seenIds = new Set<string>()
     const seenCursors = new Set<string>()
     let cursor: string | undefined
@@ -546,7 +532,7 @@ async function loadSideKeyModels(side: 'A' | 'B', keyId: string): Promise<void> 
       if (isStale()) return
       for (const item of page?.items ?? []) {
         const normalized = normalizeKeyModelItem(item)
-        if (!seenIds.has(normalized.id)) {
+        if (normalized && !seenIds.has(normalized.id)) {
           seenIds.add(normalized.id)
           collected.push(normalized)
         }
