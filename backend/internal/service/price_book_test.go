@@ -261,6 +261,12 @@ func TestPriceBookQuoteConflictDoesNotChooseOffer(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, pricing.Conflict, result.Reason)
 	require.Nil(t, result.Charge)
+
+	reader.bindings[0].Provider, reader.bindings[1].Provider = PlatformKilo, PlatformOpenRouter
+	result, err = service.EstimateFor(t.Context(), catalog.Perspective{Workspace: 1}, d, 0, "", "", scenario.PriceScenario(usage), at, at)
+	require.NoError(t, err)
+	require.Equal(t, pricing.Missing, result.Reason)
+	require.Nil(t, result.Charge)
 }
 
 func TestPriceBookCompositeDispatchKeepsSuccessfulTariffAndCeiling(t *testing.T) {

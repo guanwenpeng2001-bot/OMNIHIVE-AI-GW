@@ -72,6 +72,7 @@ func (s Service) EstimateFor(ctx context.Context, p catalog.Perspective, d catal
 	}
 	var chosen pricing.Tariff
 	var chosenVersion, chosenTerms string
+	missing := false
 	for _, binding := range authorized {
 		binding.At = at
 		tariff, err := s.Book.Resolve(ctx, binding)
@@ -81,6 +82,10 @@ func (s Service) EstimateFor(ctx context.Context, p catalog.Perspective, d catal
 		description := tariff.Describe()
 		if description.Outcome == pricing.Conflict {
 			return pricing.Unavailable(pricing.Conflict), nil
+		}
+		if description.Outcome == pricing.Missing {
+			missing = true
+			continue
 		}
 		if len(authorized) > 1 && description.VersionID == "" {
 			return pricing.Unavailable(pricing.Conflict), nil
@@ -98,6 +103,9 @@ func (s Service) EstimateFor(ctx context.Context, p catalog.Perspective, d catal
 	}
 	if chosen == nil {
 		return pricing.Unavailable(pricing.Missing), nil
+	}
+	if missing {
+		return pricing.Unavailable(pricing.Conflict), nil
 	}
 	return chosen.Evaluate(scenario)
 }
