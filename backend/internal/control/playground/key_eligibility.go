@@ -348,7 +348,7 @@ func (g *Gateway) CatalogKeyAllows(ctx context.Context, binding catalog.ModelBin
 	id := binding.Identity.ID()
 	matches := func(entry string) bool { return entry == id || names[entry] == id }
 	excludes := func(entry string) bool { return entry == id || entry == binding.Identity.Model || names[entry] == id }
-	return selection.key.models.AllowsKeyModel(id.Model, matches, excludes) &&
+	return selection.key.models.AllowsKeyModel(binding.Identity.Model, matches, excludes) &&
 		selection.key.models.AllowsCatalogAccountModel(binding.AccountID, matches, excludes)
 }
 
