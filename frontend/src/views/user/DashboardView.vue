@@ -400,7 +400,7 @@ const clientConfigs = computed(() => {
   const root = gatewayBase.value
   const base = buildClientBaseUrl(root, 'v1')
   const hint = isZh.value
-    ? '将 YOUR_API_KEY 替换为密钥，将 YOUR_MODEL_ID 替换为可用渠道中的模型 ID。'
+    ? '将 YOUR_API_KEY 替换为密钥，将 YOUR_MODEL_ID 替换为「我的可用模型」中的模型 ID。'
     : 'Replace YOUR_API_KEY with your API key and YOUR_MODEL_ID with an available model ID.'
   const models = { YOUR_MODEL_ID: { name: 'YOUR_MODEL_ID' } }
   const opencode = opencodeVersion.value === '2'
@@ -442,7 +442,7 @@ const onboardingSteps = computed(() => [
   {
     id: 'keys',
     title: isZh.value ? '2. 创建 API 密钥' : '2. Create an API Key',
-    description: isZh.value ? '创建专属 API 密钥并绑定渠道分组，将密钥填入客户端配置。' : 'Create a dedicated API key bound to a routing group and paste it into your client.',
+    description: isZh.value ? '创建专属 API 密钥并绑定路由分组，将密钥填入客户端配置。' : 'Create a dedicated API key bound to a routing group and paste it into your client.',
     route: '/keys'
   },
   {

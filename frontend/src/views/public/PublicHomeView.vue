@@ -81,10 +81,10 @@ const res = await client.chat.completions.create({
 
 const features = computed(() => [
   {
-    title: isZh.value ? '精确十进制计费与自带密钥 (BYOK)' : 'Exact billing & scoped BYOK',
+    title: isZh.value ? '精确十进制计费与自带上游凭据 (BYOK)' : 'Exact billing & BYOK credentials',
     body: isZh.value
       ? '高精度十进制费率快照、逐次请求费用回执与对账总账，支持工作空间与项目级自带凭据隔离调度。'
-      : 'Decimal pricing, per-attempt receipts, scoped BYOK credentials, and a ledger you can reconcile.'
+      : 'Decimal pricing, per-attempt receipts, BYOK credentials credentials, and a ledger you can reconcile.'
   },
   {
     title: isZh.value ? '可解释路由与诚实遥测' : 'Explainable routing & honest telemetry',
@@ -202,7 +202,7 @@ const ctaTarget = () => (authStore.isAuthenticated ? '/dashboard' : '/login')
             {{
               isZh
                 ? '通过单一标准端点统一调度多家模型供应商。透明 Token 费率、可解释路由决策、工作空间 BYOK 托管与逐请求账单核销，告别黑盒转发。'
-                : 'Route to multiple providers through a single compatible endpoint. Exact pricing, explainable routing, scoped BYOK, and per-request receipts — no surprises.'
+                : 'Route to multiple providers through a single compatible endpoint. Exact pricing, explainable routing, BYOK credentials, and per-request receipts — no surprises.'
             }}
           </p>
           <div class="mt-8 flex flex-wrap items-center gap-3">

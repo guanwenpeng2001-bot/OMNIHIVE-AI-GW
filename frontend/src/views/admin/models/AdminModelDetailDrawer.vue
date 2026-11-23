@@ -370,7 +370,7 @@ const isRoutableUnpriced = computed(() => {
                     </li>
                   </ul>
                   <p v-else class="text-[var(--muted-foreground)]">
-                    {{ isZh ? '暂无上游账号原生发现记录' : 'No native discovery observations' }}
+                    {{ isZh ? '暂无账号原生发现记录' : 'No native discovery observations' }}
                   </p>
                   <button
                     v-if="detail.next_accounts_cursor"

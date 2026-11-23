@@ -374,7 +374,7 @@ async function handleCreateSubmit(payload: ByokCreatePayload): Promise<void> {
     formModalOpen.value = false
     pushUiToast({
       tone: 'success',
-      title: isZh.value ? '自带密钥登记成功' : 'BYOK Credential Enrolled',
+      title: isZh.value ? '自带上游凭据登记成功' : 'BYOK Credential Enrolled',
       description: `${created.provider} · ${created.fingerprint}`
     })
   } catch (err) {
@@ -553,7 +553,7 @@ onMounted(async () => {
   <AppLayout>
     <div data-testid="byok-view" class="min-w-0 space-y-5">
       <PageHeader
-        :eyebrow="isZh ? '自带密钥托管 · SCOPED BYOK' : 'SCOPED BYOK CREDENTIALS'"
+        :eyebrow="isZh ? '自带上游凭据托管 · SCOPED BYOK' : 'SCOPED BYOK CREDENTIALS'"
         :title="isZh ? '自带上游密钥 (BYOK)' : 'Bring Your Own Key (BYOK)'"
         :description="
           isZh
@@ -596,7 +596,7 @@ onMounted(async () => {
           <Tabs
             :model-value="activeTab"
             :items="tabItems"
-            :aria-label="isZh ? '自带密钥作用域切换' : 'BYOK scope level tabs'"
+            :aria-label="isZh ? '自带上游凭据作用域切换' : 'BYOK scope level tabs'"
             @update:model-value="activeTab = $event as ByokScopeTab"
           />
         </template>
@@ -643,7 +643,7 @@ onMounted(async () => {
       <Skeleton
         v-if="scopeLoading || loadingList || accessLoading"
         :lines="6"
-        :label="isZh ? '正在读取自带密钥配置' : 'Loading BYOK credentials'"
+        :label="isZh ? '正在读取自带上游凭据配置' : 'Loading BYOK credentials'"
       />
 
       <ScopeGateEmptyState
@@ -676,8 +676,8 @@ onMounted(async () => {
           v-if="credentials.length === 0 && !pageNotice"
           :title="
             activeTab === 'project'
-              ? (isZh ? '当前项目暂未绑定专属自带密钥' : 'No Project BYOK Credentials Bound')
-              : (isZh ? '当前工作空间暂未登记自带密钥' : 'No Workspace BYOK Credentials Enrolled')
+              ? (isZh ? '当前项目暂未绑定专属自带上游凭据' : 'No Project BYOK Credentials Bound')
+              : (isZh ? '当前工作空间暂未登记自带上游凭据' : 'No Workspace BYOK Credentials Enrolled')
           "
           :description="
             activeTab === 'project'

@@ -2528,7 +2528,7 @@ function formatEventType(type: string): string {
                     <p class="mt-1 text-[11px] text-oh-muted">
                       {{
                         isZh
-                          ? '将该上游账号加入目标调度分组，并授权给 API Key 或订阅套餐。'
+                          ? '将该上游连接加入目标调度分组，并授权给 API Key 或订阅套餐。'
                           : 'Add this upstream account into a routing group accessible to keys or plans.'
                       }}
                     </p>

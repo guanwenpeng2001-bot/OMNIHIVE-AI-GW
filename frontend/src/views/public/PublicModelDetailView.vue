@@ -408,7 +408,7 @@ function boolFactRow(key: string, label: string, val?: boolean | null, source?: 
     badge: isZh.value ? '未声明' : 'Undeclared',
     badgeTone: 'unknown',
     undeclared: true,
-    sourceNote: isZh.value ? '模型注册表与上游观测尚未声明此能力' : 'Not declared by model registry or upstream verification'
+    sourceNote: isZh.value ? '模型目录与上游观测尚未声明此能力' : 'Not declared by the model catalog or upstream verification'
   }
 }
 
@@ -907,7 +907,7 @@ onBeforeUnmount(() => {
                   <span class="font-medium text-oh-secondary">{{ item.label }}:</span>
                   {{
                     item.sourceNote ||
-                    (isZh ? '模型注册表与上游探测尚未提供该字段的核验声明。' : 'Not yet declared by registry or upstream verification.')
+                    (isZh ? '模型目录与上游探测尚未提供该字段的核验声明。' : 'Not yet declared by the model catalog or upstream verification.')
                   }}
                 </div>
               </div>

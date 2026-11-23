@@ -34,7 +34,7 @@
               class="btn btn-secondary btn-sm px-2.5 py-1 text-xs"
               @click.prevent="navigateConsole('/byok')"
             >
-              {{ isZh ? '自带密钥 (BYOK)' : 'Bring Your Own Key (BYOK)' }}
+              {{ isZh ? '自带上游凭据 (BYOK)' : 'BYOK Credentials' }}
             </a>
             <a
               :href="scopedBillingHref"
@@ -66,11 +66,11 @@
           {{
             activeConsoleScope.workspaceId && activeConsoleScope.projectId
               ? isZh
-                ? `当前密钥请求与计量回执将自动归集至「工作空间 #${activeConsoleScope.workspaceId} / 项目 #${activeConsoleScope.projectId}」，可在「费用与账单」查看项目预算消耗，在「请求记录」追踪每次调用；如需托管上游厂商凭证请前往「自带密钥 (BYOK)」。`
+                ? `当前密钥请求与计量回执将自动归集至「工作空间 #${activeConsoleScope.workspaceId} / 项目 #${activeConsoleScope.projectId}」，可在「费用与账单」查看项目预算消耗，在「请求记录」追踪每次调用；如需托管上游厂商凭证请前往「自带上游凭据 (BYOK)」。`
                 : `Calls made with scoped credentials attribute usage and receipts to Workspace #${activeConsoleScope.workspaceId} / Project #${activeConsoleScope.projectId} across Billing & Costs and Request Logs. Enroll upstream provider keys in BYOK.`
               : isZh
-                ? '每个下游 API 密钥均绑定至对应工作空间与项目以归集「请求记录」与「费用与账单」明细；如需托管自有上游厂商密钥请前往「自带密钥 (BYOK)」。'
-                : 'Downstream API keys attribute usage to your active Workspace & Project in Request Logs and Billing & Costs. Manage upstream provider credentials in BYOK.'
+                ? '个人 API 密钥的用量与费用归属个人账户。项目 API 密钥的用量与费用归属签发密钥的项目。'
+                : 'Personal API key usage is billed to your personal account. Project API key usage is attributed to the issuing project.'
           }}
         </p>
       </section>
