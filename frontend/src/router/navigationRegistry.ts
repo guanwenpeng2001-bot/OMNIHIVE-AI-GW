@@ -452,6 +452,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     order: 28,
     keywords: ['catalog', 'models', 'mapping', 'pricing', '渠道与定价']
   },
+  ADMIN_MODELS_NAV_ITEM,
   {
     id: 'admin-accounts',
     path: '/admin/accounts',
@@ -930,7 +931,6 @@ export function resolveNavigationBreadcrumb(rawPath: string | null | undefined):
 
   const allEntries = flattenRegistryEntries([
     ...CORE_NAVIGATION_ITEMS,
-    ADMIN_MODELS_NAV_ITEM,
     ...registeredExtensionItems.value
   ]).filter((entry) => entry.tier === targetTier)
 

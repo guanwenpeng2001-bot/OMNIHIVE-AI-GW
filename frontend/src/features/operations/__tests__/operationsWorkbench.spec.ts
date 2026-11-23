@@ -3,6 +3,7 @@ import { reactive, ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ScopedAuditView from '../ScopedAuditView.vue'
 import OperationalSignals from '../OperationalSignals.vue'
+import CatalogVerificationWorkbench from '../components/CatalogVerificationWorkbench.vue'
 import { computeCatalogEntryId } from '../components/operationsHelpers'
 
 const {
@@ -628,7 +629,15 @@ describe('ScopedAuditView & OperationalSignals Workbench', () => {
         }
       })
 
-      const wrapper = mount(OperationalSignals)
+      const opsWrapper = mount(OperationalSignals)
+      await flushPromises()
+      expect(
+        opsWrapper.get('[data-testid="ops-relocated-catalog-workbench-link"]').attributes('href')
+      ).toBe('/admin/models')
+
+      const wrapper = mount(CatalogVerificationWorkbench, {
+        props: { isZh: true }
+      })
       await flushPromises()
 
       // 1. Register verification target
@@ -749,7 +758,9 @@ describe('ScopedAuditView & OperationalSignals Workbench', () => {
         }
       }))
 
-      const wrapper = mount(OperationalSignals)
+      const wrapper = mount(CatalogVerificationWorkbench, {
+        props: { isZh: true }
+      })
       await flushPromises()
 
       await wrapper.get('#catalog-target-lookup-id').setValue(targetId)

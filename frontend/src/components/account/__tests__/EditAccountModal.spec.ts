@@ -234,7 +234,11 @@ it('preserves saved retired mappings during preset reload and edit submission', 
   expect((wrapper.vm as unknown as { presetMappings: { from: string }[] }).presetMappings.map(preset => preset.from)).toEqual(['current-model'])
   await wrapper.get('form#edit-account-form').trigger('submit.prevent')
   await flushPromises()
-  expect(updateAccountMock.mock.calls.at(-1)?.[1].credentials.model_mapping).toEqual(savedMapping)
+  const submittedPayload = updateAccountMock.mock.calls.at(-1)?.[1]
+  expect(submittedPayload?.preserve_model_selection).toBe(true)
+  expect(submittedPayload?.credentials).not.toHaveProperty('model_mapping')
+  expect(selector.props('modelValue')).toEqual(['retired-model'])
+  expect(selector.props('modelMappings')).toEqual([{ from: 'saved-alias', to: 'retired-model' }])
   expect(account.credentials.model_mapping).toEqual(savedMapping)
   wrapper.unmount()
   vi.mocked(getPlatformModelPresets).mockResolvedValue([])
@@ -439,6 +443,9 @@ describe('IP group account configuration', () => {
 describe('model selection saves preserve unrelated account drafts', () => {
   it('retains the Antigravity legacy whitelist fallback in shared state', async () => {
     const account = { ...buildAntigravityAccount(), credentials: { model_whitelist: [' LegacyExact '] } }
+    catalogRead.mockResolvedValue({ synced: true, warnings: [], state: { rules_revision: '7' } })
+    allowlistWrite.mockReset().mockResolvedValue({ rules_revision: '8' })
+    vi.mocked(accountsAPI.getById).mockResolvedValue({ ...account, credentials: { model_mapping: { LegacyExact: 'LegacyExact' } } })
     updateAccountMock.mockReset().mockResolvedValue(account)
     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
     const wrapper = mountModal(account, false, true)
@@ -447,8 +454,11 @@ describe('model selection saves preserve unrelated account drafts', () => {
     expect(wrapper.getComponent(ModelWhitelistSelector).props('modelMappings')).toEqual([])
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
-    expect(updateAccountMock.mock.calls[0][1].credentials.model_mapping).toEqual({ LegacyExact: 'LegacyExact' })
-    expect(updateAccountMock.mock.calls[0][1].credentials).not.toHaveProperty('model_whitelist')
+    expect(updateAccountMock.mock.calls[0][1].preserve_model_selection).toBe(true)
+    expect(updateAccountMock.mock.calls[0][1].credentials).toBeUndefined()
+    await wrapper.get('[data-testid="save-model-selection"]').trigger('click')
+    await flushPromises()
+    expect(allowlistWrite).toHaveBeenCalledWith(account.id, expect.objectContaining({ model_mapping: { LegacyExact: 'LegacyExact' } }))
     wrapper.unmount()
   })
 
@@ -480,9 +490,10 @@ describe('model selection saves preserve unrelated account drafts', () => {
     await flushPromises()
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     expect(updateAccountMock.mock.calls[0][1].auto_pause_on_expired).toBe(true)
-    expect(updateAccountMock.mock.calls[0][1].credentials.model_mapping).toEqual(mapping)
+    expect(updateAccountMock.mock.calls[0][1].preserve_model_selection).toBe(true)
+    expect(updateAccountMock.mock.calls[0][1].credentials ?? {}).not.toHaveProperty('model_mapping')
     wrapper.unmount()
-    const reopened = mountModal({ ...account, credentials: updateAccountMock.mock.calls[0][1].credentials }, false, true)
+    const reopened = mountModal({ ...account, credentials: { ...account.credentials, ...(updateAccountMock.mock.calls[0][1].credentials ?? {}) } }, false, true)
     await flushPromises()
     expect(reopened.getComponent(ModelWhitelistSelector).props('modelValue')).toEqual(['Exact'])
     expect(reopened.getComponent(ModelWhitelistSelector).props('modelMappings')).toEqual([{ from: 'Alias', to: 'PrivateTarget' }, { from: 'family-*', to: 'FamilyTarget' }])
@@ -563,11 +574,12 @@ describe('model selection saves preserve unrelated account drafts', () => {
     await flushPromises()
     expect(updateAccountMock).toHaveBeenCalledWith(account.id, expect.objectContaining({
       auto_pause_on_expired: true,
+      preserve_model_selection: true,
       credentials: expect.objectContaining({
-        compact_model_mapping: { 'compact-source': 'compact-draft-target' },
-        model_mapping: { 'public-alias': 'upstream-selected' }
+        compact_model_mapping: { 'compact-source': 'compact-draft-target' }
       })
     }))
+    expect(updateAccountMock.mock.calls.at(-1)?.[1]?.credentials).not.toHaveProperty('model_mapping')
     wrapper.unmount()
   })
 
@@ -593,8 +605,9 @@ describe('model selection saves preserve unrelated account drafts', () => {
     expect(selector.find('[data-testid="deny-all"]').exists()).toBe(true)
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
-    expect(updateAccountMock.mock.calls[0][1].credentials.model_mapping ?? {}).toEqual({})
-    expect(updateAccountMock.mock.calls[0][1].extra.upstream_model_allowlist).toEqual({ enabled: true, models: [] })
+    expect(updateAccountMock.mock.calls[0][1].preserve_model_selection).toBe(true)
+    expect(updateAccountMock.mock.calls[0][1].credentials ?? {}).not.toHaveProperty('model_mapping')
+    expect(updateAccountMock.mock.calls[0][1].extra ?? {}).not.toHaveProperty('upstream_model_allowlist')
 
     await selector.get('input[aria-label="admin.accounts.customModelName"]').setValue('manual-model')
     await selector.findAll('button').find(button => button.text() === 'admin.accounts.addModel')!.trigger('click')
@@ -606,8 +619,9 @@ describe('model selection saves preserve unrelated account drafts', () => {
     updateAccountMock.mockResolvedValue(reselected)
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
-    expect(updateAccountMock.mock.calls.at(-1)![1].credentials.model_mapping).toEqual({ 'manual-model': 'manual-model' })
-    expect(updateAccountMock.mock.calls.at(-1)![1].extra.upstream_model_allowlist).toEqual({ enabled: false, models: [] })
+    expect(updateAccountMock.mock.calls.at(-1)![1].preserve_model_selection).toBe(true)
+    expect(updateAccountMock.mock.calls.at(-1)![1].credentials ?? {}).not.toHaveProperty('model_mapping')
+    expect(updateAccountMock.mock.calls.at(-1)![1].extra ?? {}).not.toHaveProperty('upstream_model_allowlist')
     await wrapper.get('[data-account-field="editBaseUrl"]').setValue('https://changed.example')
     expect(selector.props('configurationDirty')).toBe(true)
     expect(selector.get('[data-testid="save-model-selection"]').attributes('disabled')).toBeDefined()
@@ -759,7 +773,9 @@ describe('EditAccountModal', () => {
     expect(payload.credentials).not.toHaveProperty('refresh_token')
     expect(payload.credentials).not.toHaveProperty('api_key')
     expect(payload.concurrency).toBe(1)
-    expect(payload.credentials.model_mapping).toEqual({ default: 'default', 'gpt-5.5': 'gpt-5.5' })
+    expect(payload.preserve_model_selection).toBe(true)
+    expect(payload.credentials).not.toHaveProperty('model_mapping')
+    expect(wrapper.get('[data-testid="model-whitelist-value"]').text()).toBe('default,gpt-5.5')
     wrapper.unmount()
   })
 
@@ -959,9 +975,8 @@ describe('EditAccountModal', () => {
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
-    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.model_mapping).toEqual({
-      'gpt-5.2': 'gpt-5.2'
-    })
+    expect(updateAccountMock.mock.calls[0]?.[1]?.preserve_model_selection).toBe(true)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).not.toHaveProperty('model_mapping')
   })
 
   it.each(['qianwen', 'commandcode'] as const)('round-trips %s custom endpoints, headers and rules', async (platform) => {
@@ -1159,10 +1174,11 @@ describe('EditAccountModal', () => {
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
     const credentials = updateAccountMock.mock.calls[0][1].credentials
+    expect(updateAccountMock.mock.calls[0][1].preserve_model_selection).toBe(true)
     expect(credentials.api_key_ref).toBe('vault:global')
     expect(credentials.base_url).toBe('https://api.moonshot.ai/anthropic')
     expect(credentials.api_base_urls).toEqual(account.credentials.api_base_urls)
-    expect(credentials.model_mapping).toEqual({ Exact: 'Exact' })
+    expect(credentials).not.toHaveProperty('model_mapping')
   })
 
   it('uses the legacy base_url when adaptive endpoints are missing', async () => {
@@ -1416,23 +1432,50 @@ describe('EditAccountModal', () => {
       'gpt-5.2': 'gpt-5.2',
       'gpt-latest': 'gpt-5.2'
     }
+    catalogRead.mockResolvedValue({ synced: true, warnings: [], state: { rules_revision: '7' } })
+    allowlistWrite.mockReset().mockResolvedValue({ rules_revision: '8' })
+    vi.mocked(accountsAPI.getById).mockResolvedValue({
+      ...account,
+      credentials: {
+        ...account.credentials,
+        model_mapping: {
+          'gpt-5.2-2025-12-11': 'gpt-5.2-2025-12-11',
+          'gpt-latest': 'gpt-5.2'
+        }
+      }
+    })
     updateAccountMock.mockReset()
     checkMixedChannelRiskMock.mockReset()
     checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
     updateAccountMock.mockResolvedValue(account)
 
-    const wrapper = mountModal(account)
+    const wrapper = mountModal(account, false, true)
+    await flushPromises()
 
-    expect(wrapper.get('[data-testid="model-whitelist-value"]').text()).toBe('gpt-5.2')
+    const selector = wrapper.getComponent(ModelWhitelistSelector)
+    expect(selector.props('modelValue')).toEqual(['gpt-5.2'])
+    expect(selector.props('modelMappings')).toEqual([{ from: 'gpt-latest', to: 'gpt-5.2' }])
 
-    await wrapper.get('[data-testid="rewrite-to-snapshot"]').trigger('click')
+    selector.vm.$emit('update:modelValue', ['gpt-5.2-2025-12-11'])
+    await flushPromises()
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
 
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
-    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.model_mapping).toEqual({
-      'gpt-5.2-2025-12-11': 'gpt-5.2-2025-12-11',
-      'gpt-latest': 'gpt-5.2'
-    })
+    expect(updateAccountMock.mock.calls[0]?.[1]?.preserve_model_selection).toBe(true)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).not.toHaveProperty('model_mapping')
+    expect(selector.props('modelValue')).toEqual(['gpt-5.2-2025-12-11'])
+    expect(selector.props('modelMappings')).toEqual([{ from: 'gpt-latest', to: 'gpt-5.2' }])
+
+    await selector.get('[data-testid="save-model-selection"]').trigger('click')
+    await flushPromises()
+    expect(allowlistWrite).toHaveBeenCalledWith(account.id, expect.objectContaining({
+      model_mapping: {
+        'gpt-5.2-2025-12-11': 'gpt-5.2-2025-12-11',
+        'gpt-latest': 'gpt-5.2'
+      }
+    }))
+    wrapper.unmount()
   })
 
   it('submits OpenAI compact mode and compact-only model mapping', async () => {
@@ -1454,11 +1497,23 @@ describe('EditAccountModal', () => {
     const wrapper = mountModal(account)
 
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
 
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.preserve_model_selection).toBe(true)
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_compact_mode).toBe('force_on')
-    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.compact_model_mapping).toEqual({
-      'gpt-5.4': 'gpt-5.4-openai-compact'
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).not.toHaveProperty('compact_model_mapping')
+
+    const compactInput = wrapper
+      .findAll('input')
+      .find((input) => (input.element as HTMLInputElement).value === 'gpt-5.4-openai-compact')!
+    await compactInput.setValue('gpt-5.4-openai-compact-v2')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(2)
+    expect(updateAccountMock.mock.calls[1]?.[1]?.credentials?.compact_model_mapping).toEqual({
+      'gpt-5.4': 'gpt-5.4-openai-compact-v2'
     })
   })
 
@@ -1700,12 +1755,18 @@ describe('EditAccountModal', () => {
     ] as Awaited<ReturnType<typeof getPlatformModelPresets>>)
 
     const account = buildGrokOAuthAccount()
+    catalogRead.mockResolvedValue({ synced: true, warnings: [], state: { rules_revision: '7' } })
+    allowlistWrite.mockReset().mockResolvedValue({ rules_revision: '8' })
+    vi.mocked(accountsAPI.getById).mockResolvedValue({
+      ...account,
+      credentials: { ...account.credentials, model_mapping: { grok: 'grok-build-0.1' } }
+    })
     updateAccountMock.mockReset()
     checkMixedChannelRiskMock.mockReset()
     checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
     updateAccountMock.mockResolvedValue(account)
 
-    const wrapper = mountModal(account)
+    const wrapper = mountModal(account, false, true)
     await flushPromises()
     expect(wrapper.text()).toContain('Imagine Image')
     expect(wrapper.text()).toContain('Imagine Video')
@@ -1722,11 +1783,19 @@ describe('EditAccountModal', () => {
     await inputWithValue('grok-latest').setValue('grok')
     await inputWithValue('grok-4.3').setValue('grok-build-0.1')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
 
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
-    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.model_mapping).toEqual({
-      grok: 'grok-build-0.1'
-    })
+    expect(updateAccountMock.mock.calls[0]?.[1]?.preserve_model_selection).toBe(true)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).not.toHaveProperty('model_mapping')
+    await wrapper.get('[data-testid="save-model-selection"]').trigger('click')
+    await flushPromises()
+    expect(allowlistWrite).toHaveBeenCalledWith(account.id, expect.objectContaining({
+      model_mapping: {
+        grok: 'grok-build-0.1'
+      }
+    }))
+    wrapper.unmount()
   })
 
   it('uses the official xAI base URL when a Grok API-key account omits base_url', async () => {
@@ -1763,14 +1832,8 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     const payload = updateAccountMock.mock.calls[0]?.[1]
     expect(payload?.group_ids).toEqual([7])
-    expect(payload?.credentials).toEqual({
-      model_mapping: {
-        'gpt-5.3-codex-spark': 'gpt-5.3-codex-spark'
-      },
-      compact_model_mapping: {
-        'gpt-5.3-codex-spark': 'gpt-5.3-codex-spark-compact'
-      }
-    })
+    expect(payload?.preserve_model_selection).toBe(true)
+    expect(payload?.credentials).toBeUndefined()
   })
 
   it('submits OpenAI APIKey Responses support override mode', async () => {
@@ -2442,8 +2505,9 @@ describe('Cursor lossless modal submissions', () => {
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
-    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials
-    expect(credentials).toMatchObject({ model_mapping: { ExactModel: 'ExactModel', 'alias-*': 'TargetModel' } })
+    expect(updateAccountMock.mock.calls[0]?.[1]?.preserve_model_selection).toBe(true)
+    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials ?? {}
+    expect(credentials).not.toHaveProperty('model_mapping')
     for (const relayField of ['api_protocol', 'base_url', 'api_base_urls']) {
       expect(credentials).not.toHaveProperty(relayField)
     }
@@ -2458,8 +2522,9 @@ describe('Cursor lossless modal submissions', () => {
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
-    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials
-    expect(credentials).toMatchObject({ model_mapping: { ExactModel: 'ExactModel' } })
+    expect(updateAccountMock.mock.calls[0]?.[1]?.preserve_model_selection).toBe(true)
+    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials ?? {}
+    expect(credentials).not.toHaveProperty('model_mapping')
     for (const relayField of ['api_protocol', 'base_url', 'api_base_urls', 'api_key', 'access_token']) {
       expect(credentials).not.toHaveProperty(relayField)
     }
@@ -2484,10 +2549,10 @@ describe('Cursor lossless modal submissions', () => {
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.preserve_model_selection).toBe(true)
     expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toEqual({
       base_url: 'https://relay.example/v1',
-      api_protocol: 'chat_completions',
-      model_mapping: storedMapping
+      api_protocol: 'chat_completions'
     })
     wrapper.unmount()
 
@@ -2501,7 +2566,8 @@ describe('Cursor lossless modal submissions', () => {
     await reopened.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
     expect(updateAccountMock).toHaveBeenCalledTimes(2)
-    expect(updateAccountMock.mock.calls[1]?.[1]?.credentials).toEqual({ base_url: 'https://relay.example/v1', api_protocol: 'adaptive', model_mapping: storedMapping })
+    expect(updateAccountMock.mock.calls[1]?.[1]?.preserve_model_selection).toBe(true)
+    expect(updateAccountMock.mock.calls[1]?.[1]?.credentials).toEqual({ base_url: 'https://relay.example/v1', api_protocol: 'adaptive' })
     reopened.unmount()
 
     // replace：显式输入新 Key 后提交新值（keep 语义只针对留空）。
@@ -2513,7 +2579,8 @@ describe('Cursor lossless modal submissions', () => {
     await replaced.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
     expect(updateAccountMock).toHaveBeenCalledTimes(3)
-    expect(updateAccountMock.mock.calls[2]?.[1]?.credentials).toEqual({ api_key: 'crsr_replaced', base_url: 'https://relay.example/v1', api_protocol: 'adaptive', model_mapping: storedMapping })
+    expect(updateAccountMock.mock.calls[2]?.[1]?.preserve_model_selection).toBe(true)
+    expect(updateAccountMock.mock.calls[2]?.[1]?.credentials).toEqual({ api_key: 'crsr_replaced', base_url: 'https://relay.example/v1', api_protocol: 'adaptive' })
     replaced.unmount()
   })
   it('requires an explicit supported protocol for a legacy relay', async () => {
@@ -2548,7 +2615,8 @@ describe('Cursor lossless modal submissions', () => {
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
-    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toEqual({ base_url: 'https://relay.example/v1', api_protocol: 'chat_completions', model_mapping: { ExactModel: 'ExactModel' } })
+    expect(updateAccountMock.mock.calls[0]?.[1]?.preserve_model_selection).toBe(true)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toEqual({ base_url: 'https://relay.example/v1', api_protocol: 'chat_completions' })
     wrapper.unmount()
   })
   it('does not carry protocol or credential intents across edited accounts', async () => {
@@ -2604,12 +2672,12 @@ describe('Cursor lossless modal submissions', () => {
 it('does not save a late Antigravity catalog into a different account', async () => {
   let resolve!: (result: { models: string[] }) => void
   syncUpstreamModelsMock.mockImplementationOnce(() => new Promise(r => { resolve = r }))
-  updateAccountMock.mockReset().mockResolvedValue({})
   checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
   const wrapper = mountModal(buildAntigravityAccount(), false, true)
   await flushPromises()
   await wrapper.findAll('button').find(b => b.text() === 'admin.accounts.syncUpstreamModels')!.trigger('click')
   const second = { ...buildAntigravityAccount(), id: 987, credentials: { ...buildAntigravityAccount().credentials, model_mapping: { ExistingExact: 'ExistingExact' } } }
+  updateAccountMock.mockReset().mockResolvedValue(second)
   await wrapper.setProps({ show: false })
   await wrapper.setProps({ account: second, show: true })
   resolve({ candidate_models: ['late-model'], models: ['late-model'] })
@@ -2619,7 +2687,9 @@ it('does not save a late Antigravity catalog into a different account', async ()
   await flushPromises()
   expect(updateAccountMock).toHaveBeenCalledTimes(1)
   expect(updateAccountMock.mock.calls[0]?.[0]).toBe(987)
-  expect(updateAccountMock.mock.calls[0]?.[1]?.credentials.model_mapping).toEqual({ ExistingExact: 'ExistingExact' })
+  expect(updateAccountMock.mock.calls[0]?.[1]?.preserve_model_selection).toBe(true)
+  expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).not.toHaveProperty('model_mapping')
+  expect(wrapper.getComponent(ModelWhitelistSelector).props('modelValue')).toEqual(['ExistingExact'])
   wrapper.unmount()
 })
 
@@ -2919,8 +2989,9 @@ it('ordinary account save preserves protected deny-all and existing capability d
   await flushPromises()
   expect(updateAccountMock).toHaveBeenCalled()
   const payload = updateAccountMock.mock.calls.at(-1)![1]
+  expect(payload.preserve_model_selection).toBe(true)
   if (payload.extra) {
-    expect(payload.extra.upstream_model_allowlist).toEqual({ enabled: true, models: [] })
+    expect(payload.extra).not.toHaveProperty('upstream_model_allowlist')
     expect(payload.extra.model_capability_defaults).toEqual(account.extra.model_capability_defaults)
   }
   expect(allowlistWrite).not.toHaveBeenCalled()
@@ -2981,7 +3052,10 @@ it.each([false, true])('edits a compatible account preserving other overrides an
   expect(showErrorMock.mock.calls).toEqual([])
   expect(updateAccountMock).toHaveBeenCalledOnce()
   const payload = updateAccountMock.mock.calls[0][1]
-  expect(payload.credentials).toMatchObject({ ...credentials, api_base_urls: { ...credentials.api_base_urls, anthropic: clearProtocol ? '' : credentials.api_base_urls.anthropic } })
+  const { model_mapping: _omittedMapping, ...expectedCredentials } = credentials
+  expect(payload.preserve_model_selection).toBe(true)
+  expect(payload.credentials).toMatchObject({ ...expectedCredentials, api_base_urls: { ...credentials.api_base_urls, anthropic: clearProtocol ? '' : credentials.api_base_urls.anthropic } })
+  expect(payload.credentials).not.toHaveProperty('model_mapping')
   expect(payload.credentials.api_key).toBeUndefined()
   expect(payload.proxy_id).toBeUndefined()
   expect(payload.upstream_billing_probe_enabled).toBe(false)
@@ -3032,7 +3106,10 @@ it.each([['aicodemirror', 'pro'], ['ccsub', 'subscription']])('restores and expl
   expect(showErrorMock.mock.calls).toEqual([])
   expect(updateAccountMock).toHaveBeenCalledOnce()
   const payload = updateAccountMock.mock.calls[0][1]
-  expect(payload.credentials).toMatchObject({ ...credentials, billing_plan: null })
+  const { model_mapping: _omittedMapping, ...expectedCredentials } = credentials
+  expect(payload.preserve_model_selection).toBe(true)
+  expect(payload.credentials).toMatchObject({ ...expectedCredentials, billing_plan: null })
+  expect(payload.credentials).not.toHaveProperty('model_mapping')
   expect(JSON.parse(JSON.stringify(payload)).credentials).toHaveProperty('billing_plan', null)
   expect(payload.credentials.api_key).toBeUndefined()
   expect(payload.proxy_id).toBeUndefined()
@@ -3059,8 +3136,11 @@ it('reconstructs and locks Step Plan while preserving masked references and over
   await flushPromises()
   expect(updateAccountMock).toHaveBeenCalledOnce()
   const payload = updateAccountMock.mock.calls[0][1]
+  const { model_mapping: _omittedMapping, ...expectedCredentials } = credentials
   expect(payload.platform).toBeUndefined()
-  expect(payload.credentials).toMatchObject(credentials)
+  expect(payload.preserve_model_selection).toBe(true)
+  expect(payload.credentials).toMatchObject(expectedCredentials)
+  expect(payload.credentials).not.toHaveProperty('model_mapping')
   expect(payload.credentials.api_key).toBeUndefined()
   expect(payload.proxy_id).toBeUndefined()
   expect(payload.group_ids).toEqual([12])
@@ -3081,8 +3161,11 @@ it('allows kat_coder same-ID coding mode edits without rebinding its masked secr
   await flushPromises()
   expect(updateAccountMock).toHaveBeenCalledOnce()
   const payload = updateAccountMock.mock.calls[0][1]
+  const { model_mapping: _omittedMapping, ...expectedCredentials } = credentials
   expect(payload.platform).toBeUndefined()
-  expect(payload.credentials).toMatchObject({ ...credentials, account_mode: 'coding' })
+  expect(payload.preserve_model_selection).toBe(true)
+  expect(payload.credentials).toMatchObject({ ...expectedCredentials, account_mode: 'coding' })
+  expect(payload.credentials).not.toHaveProperty('model_mapping')
   expect(payload.credentials.api_key).toBeUndefined()
   expect(account.platform).toBe('kat_coder')
   wrapper.unmount()
@@ -3209,21 +3292,29 @@ describe('integrated query credentials and model readback', () => {
   it('reopens Antigravity mappings from full account readback without turning aliases into direct IDs', async () => {
     const mapping = Object.fromEntries(Array.from({ length: 41 }, (_, index) => [`public-alias-${index}`, `upstream-model-${index}`]))
     const account = { ...buildAntigravityAccount(), credentials: { antigravity_project_id: 'configured-project', model_mapping: mapping } }
-    updateAccountMock.mockReset().mockImplementation(async (_id, payload) => ({ ...account, ...payload }))
+    updateAccountMock.mockReset().mockImplementation(async (_id, payload) => ({
+      ...account,
+      ...payload,
+      credentials: { ...account.credentials, ...(payload.credentials ?? {}) }
+    }))
     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
     const wrapper = mountModal(account); await flushPromises()
     expect(wrapper.get('[data-testid="model-whitelist-value"]').text()).toBe('')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
     const saved = updateAccountMock.mock.calls[0][1]
-    expect(saved.credentials.model_mapping).toEqual(mapping)
+    expect(saved.preserve_model_selection).toBe(true)
+    expect(saved.credentials).not.toHaveProperty('model_mapping')
     wrapper.unmount()
-    const readback = { ...account, ...saved }
+    const readback = { ...account, ...saved, credentials: { ...account.credentials, ...(saved.credentials ?? {}) } }
     credentialAccountRead.mockResolvedValue(readback)
-    const reopened = mountModal(readback); await flushPromises()
-    expect(reopened.get('[data-testid="model-whitelist-value"]').text()).toBe('')
+    const reopened = mountModal(readback, false, true); await flushPromises()
+    expect(reopened.getComponent(ModelWhitelistSelector).props('modelValue')).toEqual([])
+    expect(reopened.getComponent(ModelWhitelistSelector).props('modelMappings')).toHaveLength(41)
     await reopened.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
-    expect(updateAccountMock.mock.calls[1][1].credentials.model_mapping).toEqual(mapping)
-    expect(Object.entries(updateAccountMock.mock.calls[1][1].credentials.model_mapping).filter(([source, target]) => source === target)).toHaveLength(0)
+    expect(updateAccountMock.mock.calls[1][1].preserve_model_selection).toBe(true)
+    expect(updateAccountMock.mock.calls[1][1].credentials).not.toHaveProperty('model_mapping')
+    expect(reopened.getComponent(ModelWhitelistSelector).props('modelValue')).toEqual([])
+    expect(reopened.getComponent(ModelWhitelistSelector).props('modelMappings')).toHaveLength(41)
     reopened.unmount()
   })
 })

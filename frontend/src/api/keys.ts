@@ -8,6 +8,14 @@ import { apiClient } from './client'
 import type { ApiKey, ApiKeyPeriodBudgetRequest, CreateApiKeyRequest, UpdateApiKeyRequest } from '@/types/user'
 import type { PaginatedResponse } from '@/types/common'
 
+function scopedKeyPath(path: string, workspaceId?: string | null): string {
+  const cleanWs = typeof workspaceId === 'string' ? workspaceId.trim() : ''
+  if (cleanWs && /^[1-9]\d*$/.test(cleanWs)) {
+    return `/workspaces/${encodeURIComponent(cleanWs)}${path}`
+  }
+  return path
+}
+
 /**
  * List all API keys for current user
  * @param page - Page number (default: 1)
@@ -28,9 +36,10 @@ export async function list(
   },
   options?: {
     signal?: AbortSignal
+    workspaceId?: string | null
   }
 ): Promise<PaginatedResponse<ApiKey>> {
-  const { data } = await apiClient.get<PaginatedResponse<ApiKey>>('/keys', {
+  const { data } = await apiClient.get<PaginatedResponse<ApiKey>>(scopedKeyPath('/keys', options?.workspaceId), {
     params: { page, page_size: pageSize, ...filters },
     signal: options?.signal
   })
@@ -42,8 +51,8 @@ export async function list(
  * @param id - API key ID
  * @returns API key details
  */
-export async function getById(id: number): Promise<ApiKey> {
-  const { data } = await apiClient.get<ApiKey>(`/keys/${id}`)
+export async function getById(id: number, options?: { workspaceId?: string | null }): Promise<ApiKey> {
+  const { data } = await apiClient.get<ApiKey>(scopedKeyPath(`/keys/${id}`, options?.workspaceId))
   return data
 }
 
@@ -139,6 +148,7 @@ export interface ApiKeyCredentialIssue {
 export interface RotateApiKeyOptions {
   grace_ttl_hours?: number
   revoke_previous?: boolean
+  workspaceId?: string | null
 }
 
 /**
@@ -155,7 +165,10 @@ export async function rotate(id: number, options?: RotateApiKeyOptions): Promise
   if (options?.revoke_previous !== undefined) {
     payload.revoke_previous = options.revoke_previous
   }
-  const { data } = await apiClient.post<ApiKeyCredentialIssue>(`/keys/${id}/credentials/rotate`, payload)
+  const { data } = await apiClient.post<ApiKeyCredentialIssue>(
+    scopedKeyPath(`/keys/${id}/credentials/rotate`, options?.workspaceId),
+    payload
+  )
   return data
 }
 
@@ -164,8 +177,14 @@ export async function rotate(id: number, options?: RotateApiKeyOptions): Promise
  * @param id - API key ID
  * @returns Count of revoked credentials
  */
-export async function revokeCredentials(id: number): Promise<{ revoked_credentials: number }> {
-  const { data } = await apiClient.post<{ revoked_credentials: number }>(`/keys/${id}/credentials/revoke`, {})
+export async function revokeCredentials(
+  id: number,
+  options?: { workspaceId?: string | null }
+): Promise<{ revoked_credentials: number }> {
+  const { data } = await apiClient.post<{ revoked_credentials: number }>(
+    scopedKeyPath(`/keys/${id}/credentials/revoke`, options?.workspaceId),
+    {}
+  )
   return data
 }
 
@@ -175,8 +194,15 @@ export async function revokeCredentials(id: number): Promise<{ revoked_credentia
  * @param updates - Fields to update
  * @returns Updated API key
  */
-export async function update(id: number, updates: UpdateApiKeyRequest): Promise<ApiKey> {
-  const { data } = await apiClient.put<ApiKey>(`/keys/${id}`, updates)
+export async function update(
+  id: number,
+  updates: UpdateApiKeyRequest,
+  options?: { workspaceId?: string | null }
+): Promise<ApiKey> {
+  const { data } = await apiClient.put<ApiKey>(
+    scopedKeyPath(`/keys/${id}`, options?.workspaceId),
+    updates
+  )
   return data
 }
 
@@ -188,13 +214,14 @@ export interface BulkUpdateApiKeysResult {
 /** Reuse per-key validation and permissions, with at most five requests in flight. */
 export async function bulkUpdate(
   ids: number[],
-  updates: UpdateApiKeyRequest
+  updates: UpdateApiKeyRequest,
+  options?: { workspaceId?: string | null }
 ): Promise<BulkUpdateApiKeysResult> {
   const uniqueIds = [...new Set(ids)]
   const result: BulkUpdateApiKeysResult = { succeededIds: [], failures: [] }
   for (let offset = 0; offset < uniqueIds.length; offset += 5) {
     const batch = uniqueIds.slice(offset, offset + 5)
-    const responses = await Promise.allSettled(batch.map((id) => update(id, updates)))
+    const responses = await Promise.allSettled(batch.map((id) => update(id, updates, options)))
     responses.forEach((response, index) => {
       if (response.status === 'fulfilled') {
         result.succeededIds.push(batch[index])
@@ -211,8 +238,8 @@ export async function bulkUpdate(
  * @param id - API key ID
  * @returns Success confirmation
  */
-export async function deleteKey(id: number): Promise<{ message: string }> {
-  const { data } = await apiClient.delete<{ message: string }>(`/keys/${id}`)
+export async function deleteKey(id: number, options?: { workspaceId?: string | null }): Promise<{ message: string }> {
+  const { data } = await apiClient.delete<{ message: string }>(scopedKeyPath(`/keys/${id}`, options?.workspaceId))
   return data
 }
 
@@ -222,8 +249,12 @@ export async function deleteKey(id: number): Promise<{ message: string }> {
  * @param status - New status
  * @returns Updated API key
  */
-export async function toggleStatus(id: number, status: 'active' | 'inactive'): Promise<ApiKey> {
-  return update(id, { status })
+export async function toggleStatus(
+  id: number,
+  status: 'active' | 'inactive',
+  options?: { workspaceId?: string | null }
+): Promise<ApiKey> {
+  return update(id, { status }, options)
 }
 
 export const keysAPI = {

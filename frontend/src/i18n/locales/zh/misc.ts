@@ -155,14 +155,14 @@ export default {
       welcome: {
         title: '欢迎使用 OmniHive 智能算力中转工作台',
         description:
-          '<div style="line-height: 1.75;"><p style="margin-bottom: 14px;">OmniHive 是面向团队与开发者的统一 AI 算力调度与网关平台，一把密钥连接全生态模型。</p><p style="margin-bottom: 10px;"><b>核心能力：</b></p><ul style="margin-left: 18px; margin-bottom: 14px;"><li><b>分组路由</b> — 按协议与服务等级编排调度池</li><li><b>上游账号池</b> — 多平台凭证聚合、水位监控与自动容灾</li><li><b>密钥分发</b> — 细粒度配额、模型范围与并发控制</li><li><b>计费与结算</b> — 灵活倍率、套餐订阅与用量账本</li></ul><p style="color: var(--brand-text, #92610a); font-weight: 600;">3 分钟快速完成首次网关配置 →</p></div>',
+          '<div style="line-height: 1.75;"><p style="margin-bottom: 14px;">OmniHive 是面向团队与开发者的统一 AI 算力调度与网关平台，一把密钥连接全生态模型。</p><p style="margin-bottom: 10px;"><b>核心能力：</b></p><ul style="margin-left: 18px; margin-bottom: 14px;"><li><b>分组路由</b> — 按协议与服务等级编排调度池</li><li><b>上游资源池</b> — 多平台凭证聚合、水位监控与自动容灾</li><li><b>密钥分发</b> — 细粒度配额、模型范围与并发控制</li><li><b>计费与结算</b> — 灵活倍率、套餐订阅与用量账本</li></ul><p style="color: var(--brand-text, #92610a); font-weight: 600;">3 分钟快速完成首次网关配置 →</p></div>',
         nextBtn: '开始配置 →',
         prevBtn: '跳过'
       },
       groupManage: {
-        title: '01 · 分组管理',
+        title: '01 · 路由分组',
         description:
-          '<div style="line-height: 1.7;"><p style="margin-bottom: 10px;"><b>什么是分组？</b></p><p style="margin-bottom: 10px;">分组是 OmniHive 的核心路由单元，相当于独立的算力服务池：</p><ul style="margin-left: 18px; margin-bottom: 12px; font-size: 13px;"><li>每个分组可挂载多个上游账号协同调度</li><li>支持独立计费倍率与模型准入规则</li><li>支持公开分组或授权专属分组</li></ul><p style="margin-top: 12px; padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 6px; font-size: 12.5px;"><b>建议：</b>可按「主力生产组」与「高吞吐经济组」划分调度策略</p><p style="margin-top: 14px; color: var(--brand-text, #92610a); font-weight: 600;">点击左侧「分组管理」继续 →</p></div>'
+          '<div style="line-height: 1.7;"><p style="margin-bottom: 10px;"><b>什么是分组？</b></p><p style="margin-bottom: 10px;">分组是 OmniHive 的核心路由单元，相当于独立的算力服务池：</p><ul style="margin-left: 18px; margin-bottom: 12px; font-size: 13px;"><li>每个分组可挂载多个上游连接协同调度</li><li>支持独立计费倍率与模型准入规则</li><li>支持公开分组或授权专属分组</li></ul><p style="margin-top: 12px; padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 6px; font-size: 12.5px;"><b>建议：</b>可按「主力生产组」与「高吞吐经济组」划分调度策略</p><p style="margin-top: 14px; color: var(--brand-text, #92610a); font-weight: 600;">点击左侧「路由分组」继续 →</p></div>'
       },
       createGroup: {
         title: '➕ 创建新分组',
@@ -196,7 +196,7 @@ export default {
       groupSubmit: {
         title: '✅ 保存分组',
         description:
-          '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">确认信息无误后，点击创建按钮保存分组。</p><p style="padding: 8px 12px; background: color-mix(in srgb, var(--brand, #f59e0b) 12%, var(--surface-2, #f4f4f5)); border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>⚠️ 注意：</b>分组创建后，平台类型不可修改，其他信息可以随时编辑</p><p style="padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 4px; font-size: 13px;"><b>📌 下一步：</b>创建成功后，我们将添加上游账号到这个分组</p><p style="margin-top: 12px; color: var(--brand-text, #92610a); font-weight: 600;">👉 点击"创建"按钮</p></div>'
+          '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">确认信息无误后，点击创建按钮保存分组。</p><p style="padding: 8px 12px; background: color-mix(in srgb, var(--brand, #f59e0b) 12%, var(--surface-2, #f4f4f5)); border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>⚠️ 注意：</b>分组创建后，平台类型不可修改，其他信息可以随时编辑</p><p style="padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 4px; font-size: 13px;"><b>📌 下一步：</b>创建成功后，我们将添加上游连接到这个分组</p><p style="margin-top: 12px; color: var(--brand-text, #92610a); font-weight: 600;">👉 点击"创建"按钮</p></div>'
       },
       accountManage: {
         title: '🔗 第二步：添加账号',
@@ -206,7 +206,7 @@ export default {
       createAccount: {
         title: '➕ 添加新账号',
         description:
-          '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">点击按钮开始添加您的第一个上游账号。</p><p style="padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 4px; font-size: 13px;"><b>💡 提示：</b>建议使用 OAuth 方式，更安全且无需手动提取密钥</p><p style="margin-top: 12px; color: var(--brand-text, #92610a); font-weight: 600;">👉 点击"添加账号"按钮</p></div>'
+          '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">点击按钮开始添加您的第一个上游连接。</p><p style="padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 4px; font-size: 13px;"><b>💡 提示：</b>建议使用 OAuth 方式，更安全且无需手动提取密钥</p><p style="margin-top: 12px; color: var(--brand-text, #92610a); font-weight: 600;">👉 点击"添加账号"按钮</p></div>'
       },
       accountName: {
         title: '✏️ 1. 账号名称',

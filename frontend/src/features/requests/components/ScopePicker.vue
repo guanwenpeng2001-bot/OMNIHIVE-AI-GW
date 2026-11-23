@@ -65,7 +65,7 @@ async function moreProjects() {
     if (request.signal.aborted) return
     workspaces.value = workspaces.value.map(current => current.workspace_id === workspace.workspace_id ? {
       ...current,
-      projects: [...current.projects, ...page.items.map(({ id, name }) => ({ id, name }))],
+      projects: [...current.projects, ...page.items.map(({ id, name, is_default }) => ({ id, name, is_default }))],
       projects_next_cursor: page.next_cursor,
     } : current)
   } catch {

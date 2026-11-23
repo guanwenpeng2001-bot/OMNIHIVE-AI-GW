@@ -13,10 +13,19 @@ import Switch from '@/components/ui/Switch.vue'
 import Tabs from '@/components/ui/Tabs.vue'
 import { pushUiToast } from '@/components/ui/useToast'
 import { useAuthStore } from '@/stores/auth'
+import { getConsoleScopeStore } from '@/stores/consoleScope'
+import { identityApi, type IdentityKey } from '@/api/identity'
+import {
+  ensureProjectAccess,
+  ensureWorkspaceAccess,
+  getAccessActionState,
+  recheckProjectActionBeforeMutation,
+  recheckWorkspaceActionBeforeMutation,
+  type AccessProbeEntry
+} from '@/features/console/scopeAccess'
 import ConsoleAsyncBanner from '@/features/console/components/ConsoleAsyncBanner.vue'
-import ConsoleScopeBar from '@/features/console/components/ConsoleScopeBar.vue'
+import ScopeGateEmptyState from '@/features/console/components/ScopeGateEmptyState.vue'
 import { classifyConsoleError, type ConsoleAsyncNotice } from '@/features/console/asyncState'
-import { identityApi, useConsoleScope, type IdentityKey } from '@/features/console/scope'
 import {
   byokApi,
   type ByokClass,
@@ -37,25 +46,30 @@ import ByokServiceAccountsPanel from '@/features/byok/components/ByokServiceAcco
 
 type ByokScopeTab = 'workspace' | 'project'
 
-const { locale } = useI18n()
+const { t, locale } = useI18n()
 const isZh = computed(() => String(locale?.value ?? '').startsWith('zh'))
 const router = useRouter()
+const consoleScopeStore = getConsoleScopeStore()
 const authStore = useAuthStore()
 
-const {
-  scopes,
-  loading: scopeLoading,
-  refreshing: scopeRefreshing,
-  lastSyncedAt,
-  scopeError,
-  activeWorkspace,
-  activeWorkspaceId,
-  availableProjects,
-  activeProject,
-  activeProjectId,
-  refreshScopes,
-  selectWorkspaceProject
-} = useConsoleScope()
+const activeScope = computed(() => consoleScopeStore.activeScope)
+const activeWorkspace = computed(() => consoleScopeStore.activeWorkspace)
+const activeWorkspaceId = computed(() =>
+  activeScope.value.mode === 'workspace' ? activeScope.value.workspaceId : null
+)
+const availableProjects = computed(() => consoleScopeStore.availableProjects)
+const activeProject = computed(() => consoleScopeStore.activeProject)
+const activeProjectId = computed(() =>
+  activeScope.value.mode === 'workspace' ? activeScope.value.projectId : null
+)
+const scopeLoading = computed(() => consoleScopeStore.scopesLoading)
+const lastSyncedAt = computed(() => consoleScopeStore.scopesAsOf)
+const scopeError = computed(() => consoleScopeStore.scopesError)
+const isScopeUnavailable = computed(
+  () =>
+    activeScope.value.mode === 'workspace' &&
+    consoleScopeStore.scopeValidationStatus === 'unavailable'
+)
 
 const activeTab = ref<ByokScopeTab>('workspace')
 const credentials = ref<ByokCredential[]>([])
@@ -65,10 +79,13 @@ const projectKeys = ref<IdentityKey[]>([])
 
 const loadingList = ref(false)
 const loadingMore = ref(false)
+const accessLoading = ref(false)
 const pageNotice = ref<ConsoleAsyncNotice | null>(null)
 const rowBusyId = ref<string | null>(null)
-const canManageByok = ref(true)
-const canReadKeys = ref(true)
+const workspaceAccessEntry = ref<AccessProbeEntry | null>(null)
+const projectAccessEntry = ref<AccessProbeEntry | null>(null)
+const canManageByok = ref(false)
+const canReadKeys = ref(false)
 let loadGeneration = 0
 
 // Modal state (create & policy)
@@ -107,6 +124,23 @@ const enabledProviderClasses = computed(() =>
 const hasByokManagePermission = computed(
   () => canManageByok.value && pageNotice.value?.kind !== 'permission'
 )
+const activeAccessEntry = computed(() =>
+  activeTab.value === 'project' ? projectAccessEntry.value : workspaceAccessEntry.value
+)
+const scopeGateState = computed<'empty' | 'denied' | 'unavailable' | null>(() => {
+  if (isScopeUnavailable.value) return 'unavailable'
+  if (activeScope.value.mode === 'personal' || !activeWorkspaceId.value) {
+    return 'empty'
+  }
+  if (activeTab.value === 'project' && !activeProjectId.value) {
+    return 'empty'
+  }
+  const entry = activeAccessEntry.value
+  if (!entry || entry.status === 'idle' || entry.status === 'loading') return null
+  if (entry.status === 'unavailable') return 'unavailable'
+  if (entry.status === 'denied' || !canManageByok.value) return 'denied'
+  return null
+})
 
 const scopeErrorNotice = computed<ConsoleAsyncNotice | null>(() => {
   if (!scopeError.value) return null
@@ -129,58 +163,94 @@ async function loadProjectKeysSilently(wsId: string, projId: string): Promise<vo
   }
 }
 
-async function refreshByokAccess(wsId: string, projId: string): Promise<boolean> {
-  if (!wsId || !projId || typeof identityApi.getProjectAccess !== 'function') {
-    canManageByok.value = true
-    canReadKeys.value = true
-    return true
+async function refreshByokAccess(
+  wsId: string,
+  projId: string | null,
+  force = false
+): Promise<boolean> {
+  if (!wsId || (activeTab.value === 'project' && !projId)) {
+    canManageByok.value = false
+    canReadKeys.value = false
+    return false
   }
+  accessLoading.value = true
   try {
-    const access = await identityApi.getProjectAccess(wsId, projId)
-    const actions = Array.isArray(access?.actions) ? access.actions : []
-    const allowAll = actions.includes('*')
-    canManageByok.value = allowAll || actions.includes('credentials.byok.manage')
-    canReadKeys.value = allowAll || actions.includes('keys.read')
-    return canManageByok.value
-  } catch (err) {
-    const status = (err as { status?: number; response?: { status?: number } })?.status ??
-      (err as { response?: { status?: number } })?.response?.status
-    if (status === 403) {
+    const entry =
+      activeTab.value === 'project' && projId
+        ? await ensureProjectAccess(wsId, projId, { force })
+        : await ensureWorkspaceAccess(wsId, { force })
+    if (activeTab.value === 'project') {
+      projectAccessEntry.value = entry
+    } else {
+      workspaceAccessEntry.value = entry
+    }
+    if (entry.status !== 'ready') {
       canManageByok.value = false
       canReadKeys.value = false
       return false
     }
-    canManageByok.value = true
-    canReadKeys.value = true
-    return true
+    canManageByok.value = getAccessActionState(entry, 'credentials.byok.manage') === 'allowed'
+    canReadKeys.value = getAccessActionState(entry, 'keys.read') === 'allowed'
+    return canManageByok.value
+  } finally {
+    accessLoading.value = false
   }
 }
 
+async function recheckByokMutation(wsId: string, projId: string | null): Promise<boolean> {
+  const recheck =
+    activeTab.value === 'project' && projId
+      ? await recheckProjectActionBeforeMutation(wsId, projId, 'credentials.byok.manage')
+      : await recheckWorkspaceActionBeforeMutation(wsId, 'credentials.byok.manage')
+  if (activeTab.value === 'project') {
+    projectAccessEntry.value = recheck.entry
+  } else {
+    workspaceAccessEntry.value = recheck.entry
+  }
+  if (recheck.state !== 'allowed') {
+    canManageByok.value = false
+    return false
+  }
+  canManageByok.value = true
+  return true
+}
+
 async function loadSurface(reset = true): Promise<void> {
+  if (consoleScopeStore.untrustedPending && consoleScopeStore.scopeValidationStatus === 'validating') {
+    await consoleScopeStore.fetchScopes({ force: false })
+  }
   const wsId = activeWorkspaceId.value
   const projId = activeProjectId.value
-  if (!wsId) return
-  if (reset && projId) {
-    await refreshByokAccess(wsId, projId)
-  }
-  if (activeTab.value === 'project' && !projId) {
+  if (!wsId || isScopeUnavailable.value || (activeTab.value === 'project' && !projId)) {
+    canManageByok.value = false
+    canReadKeys.value = false
     credentials.value = []
     nextCursor.value = null
     providerClasses.value = []
+    projectKeys.value = []
     pageNotice.value = null
     return
   }
-  if (activeTab.value === 'project' && !canManageByok.value) {
+  if (reset) {
+    const allowed = await refreshByokAccess(wsId, projId, false)
+    if (!allowed) {
+      credentials.value = []
+      nextCursor.value = null
+      providerClasses.value = []
+      projectKeys.value = []
+      loadingList.value = false
+      loadingMore.value = false
+      pageNotice.value = null
+      return
+    }
+  }
+  if (!canManageByok.value) {
     credentials.value = []
     nextCursor.value = null
     providerClasses.value = []
     projectKeys.value = []
     loadingList.value = false
     loadingMore.value = false
-    pageNotice.value = classifyConsoleError(
-      { status: 403, reason: 'INSUFFICIENT_GRANT' },
-      { isZh: isZh.value, requiredGrantFallback: 'credentials.byok.manage' }
-    )
     return
   }
   if (!reset && (!nextCursor.value || loadingMore.value)) return
@@ -194,7 +264,7 @@ async function loadSurface(reset = true): Promise<void> {
   }
 
   try {
-    if (activeTab.value === 'project') {
+    if (activeTab.value === 'project' && projId) {
       const [credPage, clsResp] = await Promise.all([
         byokApi.listProjectCredentials(wsId, projId, {
           cursor: reset ? undefined : (nextCursor.value ?? undefined),
@@ -224,14 +294,14 @@ async function loadSurface(reset = true): Promise<void> {
       if (reset) providerClasses.value = clsResp.items ?? []
     }
 
-    if (reset && projId) {
+    if (reset && projId && canReadKeys.value) {
       void loadProjectKeysSilently(wsId, projId)
     }
   } catch (err) {
     if (currentGen !== loadGeneration) return
     pageNotice.value = classifyConsoleError(err, {
       hasCachedData: credentials.value.length > 0,
-      lastSyncedAt: lastSyncedAt.value,
+      lastSyncedAt: lastSyncedAt.value ?? undefined,
       isZh: isZh.value,
       requiredGrantFallback: 'credentials.byok.manage'
     })
@@ -286,6 +356,13 @@ async function handleCreateSubmit(payload: ByokCreatePayload): Promise<void> {
   const wsId = activeWorkspaceId.value
   const projId = activeProjectId.value
   if (!wsId || formSaving.value) return
+  if (!(await recheckByokMutation(wsId, projId))) {
+    formErrorNotice.value = classifyConsoleError(
+      { status: activeAccessEntry.value?.error?.status || 403, message: activeAccessEntry.value?.error?.message || 'Permission denied' },
+      { isZh: isZh.value, requiredGrantFallback: 'credentials.byok.manage' }
+    )
+    return
+  }
   formSaving.value = true
   formErrorNotice.value = null
   try {
@@ -297,7 +374,7 @@ async function handleCreateSubmit(payload: ByokCreatePayload): Promise<void> {
     formModalOpen.value = false
     pushUiToast({
       tone: 'success',
-      title: isZh.value ? '自带密钥登记成功' : 'BYOK Credential Enrolled',
+      title: isZh.value ? '自带上游凭据登记成功' : 'BYOK Credential Enrolled',
       description: `${created.provider} · ${created.fingerprint}`
     })
   } catch (err) {
@@ -318,6 +395,13 @@ async function handlePolicySubmit(payload: {
   const wsId = activeWorkspaceId.value
   const projId = activeProjectId.value
   if (!wsId || formSaving.value) return
+  if (!(await recheckByokMutation(wsId, projId))) {
+    formErrorNotice.value = classifyConsoleError(
+      { status: activeAccessEntry.value?.error?.status || 403, message: activeAccessEntry.value?.error?.message || 'Permission denied' },
+      { isZh: isZh.value, requiredGrantFallback: 'credentials.byok.manage' }
+    )
+    return
+  }
   formSaving.value = true
   formErrorNotice.value = null
   try {
@@ -365,6 +449,9 @@ async function handleVerifyProbe(cred: ByokCredential): Promise<void> {
   const wsId = activeWorkspaceId.value
   const projId = activeProjectId.value
   if (!wsId || rowBusyId.value) return
+  if (!(await recheckByokMutation(wsId, projId))) {
+    return
+  }
   rowBusyId.value = cred.id
   pageNotice.value = null
   try {
@@ -402,6 +489,9 @@ async function handleQuickPatch(cred: ByokCredential, patch: ByokPatchPayload): 
   const wsId = activeWorkspaceId.value
   const projId = activeProjectId.value
   if (!wsId || rowBusyId.value) return
+  if (!(await recheckByokMutation(wsId, projId))) {
+    return
+  }
   rowBusyId.value = cred.id
   pageNotice.value = null
   try {
@@ -424,23 +514,35 @@ async function handleQuickPatch(cred: ByokCredential, patch: ByokPatchPayload): 
   }
 }
 
-function handleScopeChange(payload: { workspaceId: string; projectId: string | null }): void {
-  selectWorkspaceProject(payload.workspaceId, payload.projectId)
+function handleSwitchPersonal(): void {
+  consoleScopeStore.selectPersonalScope()
+}
+
+function handleSelectProject(payload: { workspaceId: string; projectId: string }): void {
+  consoleScopeStore.selectWorkspaceScope(payload.workspaceId, payload.projectId)
 }
 
 async function handleFullRefresh(): Promise<void> {
-  await refreshScopes(true)
+  await consoleScopeStore.fetchScopes({ force: true })
+  if (activeWorkspaceId.value) {
+    await refreshByokAccess(activeWorkspaceId.value, activeProjectId.value, true)
+  }
   await loadSurface(true)
 }
 
-watch([activeWorkspaceId, activeProjectId, activeTab], () => {
-  if (activeWorkspaceId.value) {
-    void loadSurface(true)
-  }
+watch([activeWorkspaceId, activeProjectId, activeTab, () => consoleScopeStore.scopeValidationStatus], () => {
+  credentials.value = []
+  nextCursor.value = null
+  providerClasses.value = []
+  projectKeys.value = []
+  pageNotice.value = null
+  void loadSurface(true)
 })
 
 onMounted(async () => {
-  await refreshScopes()
+  if (!consoleScopeStore.scopesLoaded) {
+    await consoleScopeStore.fetchScopes({ force: false })
+  }
   if (activeWorkspaceId.value) {
     await loadSurface(true)
   }
@@ -450,21 +552,8 @@ onMounted(async () => {
 <template>
   <AppLayout>
     <div data-testid="byok-view" class="min-w-0 space-y-5">
-      <ConsoleScopeBar
-        :workspaces="scopes"
-        :projects="availableProjects"
-        :workspace-id="activeWorkspaceId"
-        :project-id="activeProjectId"
-        :loading="scopeLoading"
-        :refreshing="scopeRefreshing"
-        :last-synced-at="lastSyncedAt"
-        @select-scope="handleScopeChange"
-        @refresh="handleFullRefresh"
-        @navigate="(path) => router.push(path)"
-      />
-
       <PageHeader
-        :eyebrow="isZh ? '自带密钥托管 · SCOPED BYOK' : 'SCOPED BYOK CREDENTIALS'"
+        :eyebrow="isZh ? '自带上游凭据托管 · SCOPED BYOK' : 'SCOPED BYOK CREDENTIALS'"
         :title="isZh ? '自带上游密钥 (BYOK)' : 'Bring Your Own Key (BYOK)'"
         :description="
           isZh
@@ -475,6 +564,9 @@ onMounted(async () => {
         <template #badges>
           <Badge v-if="activeWorkspace" tone="neutral" variant="subtle" mono>
             {{ activeWorkspace.name }}
+          </Badge>
+          <Badge v-else tone="neutral" variant="subtle" mono>
+            {{ t('scope.personal.label') }}
           </Badge>
           <Badge v-if="activeTab === 'project' && activeProject" tone="accent" variant="subtle" mono>
             {{ activeProject.name }}
@@ -504,7 +596,7 @@ onMounted(async () => {
           <Tabs
             :model-value="activeTab"
             :items="tabItems"
-            :aria-label="isZh ? '自带密钥作用域切换' : 'BYOK scope level tabs'"
+            :aria-label="isZh ? '自带上游凭据作用域切换' : 'BYOK scope level tabs'"
             @update:model-value="activeTab = $event as ByokScopeTab"
           />
         </template>
@@ -549,33 +641,34 @@ onMounted(async () => {
       </div>
 
       <Skeleton
-        v-if="scopeLoading || loadingList"
+        v-if="scopeLoading || loadingList || accessLoading"
         :lines="6"
-        :label="isZh ? '正在读取自带密钥配置' : 'Loading BYOK credentials'"
+        :label="isZh ? '正在读取自带上游凭据配置' : 'Loading BYOK credentials'"
       />
 
-      <EmptyState
-        v-else-if="!activeWorkspaceId"
-        :title="isZh ? '尚未选择可用工作空间' : 'No Active Workspace Selected'"
-        :description="
-          isZh
-            ? '请先前往工作空间页面创建或激活一个工作空间，随后即可托管自有上游密钥。'
-            : 'Create or activate a workspace first to manage scoped BYOK credentials.'
+      <ScopeGateEmptyState
+        v-else-if="scopeGateState !== null"
+        :state="scopeGateState"
+        surface="byok"
+        :title="
+          scopeGateState === 'empty'
+            ? (!activeWorkspaceId ? t('rbac.byok.workspaceRequired') : t('rbac.byok.projectRequired'))
+            : undefined
         "
-        :action-label="isZh ? '前往工作空间管理' : 'Manage Workspaces'"
-        @action="router.push('/workspaces')"
-      />
-
-      <EmptyState
-        v-else-if="activeTab === 'project' && !activeProjectId"
-        :title="isZh ? '当前工作空间尚未选择项目' : 'No Project Selected'"
-        :description="
-          isZh
-            ? '请在顶部作用域栏选择一个目标项目，或前往工作空间页面新建项目后再配置项目级 BYOK 授权。'
-            : 'Select a project from the scope bar above or create a project in Workspaces to manage project-bound BYOK.'
-        "
-        :action-label="isZh ? '前往工作空间新建项目' : 'Go to Workspaces'"
-        @action="router.push('/workspaces')"
+        :workspace-id="activeWorkspaceId"
+        :workspace-name="activeWorkspace?.name ?? null"
+        :project-id="activeProjectId"
+        :project-name="activeProject?.name ?? null"
+        required-grant="credentials.byok.manage"
+        :description="activeAccessEntry?.error?.message ?? undefined"
+        :http-status="activeAccessEntry?.error?.status ?? null"
+        :request-id="activeAccessEntry?.error?.requestId ?? null"
+        :project-options="consoleScopeStore.availableProjectOptions"
+        :show-retry="scopeGateState === 'unavailable'"
+        @switch-personal="handleSwitchPersonal"
+        @select-project="handleSelectProject"
+        @request-access="router.push('/workspaces?requestAccess=1')"
+        @retry="handleFullRefresh"
       />
 
       <template v-else>
@@ -583,8 +676,8 @@ onMounted(async () => {
           v-if="credentials.length === 0 && !pageNotice"
           :title="
             activeTab === 'project'
-              ? (isZh ? '当前项目暂未绑定专属自带密钥' : 'No Project BYOK Credentials Bound')
-              : (isZh ? '当前工作空间暂未登记自带密钥' : 'No Workspace BYOK Credentials Enrolled')
+              ? (isZh ? '当前项目暂未绑定专属自带上游凭据' : 'No Project BYOK Credentials Bound')
+              : (isZh ? '当前工作空间暂未登记自带上游凭据' : 'No Workspace BYOK Credentials Enrolled')
           "
           :description="
             activeTab === 'project'
@@ -752,7 +845,7 @@ onMounted(async () => {
 
         <ByokServiceAccountsPanel
           v-if="activeTab === 'project' && activeProjectId && hasByokManagePermission"
-          :workspace-id="activeWorkspaceId"
+          :workspace-id="activeWorkspaceId ?? ''"
           :project-id="activeProjectId"
           :project-keys="projectKeys"
         />
@@ -762,8 +855,8 @@ onMounted(async () => {
         :open="formModalOpen"
         :mode="formMode"
         :scope-level="activeTab"
-        :workspace-id="activeWorkspaceId"
-        :project-id="activeProjectId"
+        :workspace-id="activeWorkspaceId ?? ''"
+        :project-id="activeProjectId ?? ''"
         :actor-user-id="actorUserId"
         :provider-classes="providerClasses"
         :available-projects="availableProjects"
@@ -780,8 +873,8 @@ onMounted(async () => {
       <ByokInspectorDrawer
         :open="inspectorOpen"
         :scope-level="activeTab"
-        :workspace-id="activeWorkspaceId"
-        :project-id="activeProjectId"
+        :workspace-id="activeWorkspaceId ?? ''"
+        :project-id="activeProjectId ?? ''"
         :actor-user-id="actorUserId"
         :credential="inspectedCredential"
         @update:open="inspectorOpen = $event"

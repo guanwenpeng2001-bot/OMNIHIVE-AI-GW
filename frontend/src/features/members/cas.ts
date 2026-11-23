@@ -7,7 +7,6 @@ import type {
   IdentityAccess,
   IdentityGrantInput,
   IdentityMemberGrants,
-  LegacyGrantInput,
   ProjectGrantPair,
   ProjectGrantRowDiff,
   WorkspaceRoleProjection
@@ -62,15 +61,14 @@ export function normalizeExactGrantInput(input: ExactGrantInput): ExactGrantInpu
 }
 
 export function normalizeGrantInput(input: IdentityGrantInput): IdentityGrantInput {
-  if ('project_grants' in input && Array.isArray(input.project_grants)) {
+  if ('project_grants' in input) {
     return normalizeExactGrantInput(input)
   }
-  const legacy = input as LegacyGrantInput
   const actions = Array.from(
-    new Set(legacy.actions.map((item: string) => item.trim()).filter(Boolean))
+    new Set(input.actions.map((item: string) => item.trim()).filter(Boolean))
   ).sort()
   const project_ids = Array.from(
-    new Set(legacy.project_ids.map((item: string) => item.trim()).filter(Boolean))
+    new Set(input.project_ids.map((item: string) => item.trim()).filter(Boolean))
   ).sort()
   return { actions, project_ids }
 }

@@ -21,17 +21,9 @@ export type IdentityAccess = components['schemas']['IdentityAccess'] & {
   issuable_key_actions?: string[]
 }
 
-export interface ProjectGrantPair {
-  project_id: string
-  actions: string[]
-}
-
-export interface ExactGrantInput {
-  project_grants: ProjectGrantPair[]
-}
-
-export type LegacyGrantInput = components['schemas']['IdentityGrantInput']
-export type IdentityGrantInput = LegacyGrantInput | ExactGrantInput
+export type ProjectGrantPair = components['schemas']['IdentityProjectGrant']
+export type IdentityGrantInput = components['schemas']['IdentityGrantInput']
+export type ExactGrantInput = Extract<IdentityGrantInput, { project_grants: ProjectGrantPair[] }>
 export type IdentityGrantVersion = components['schemas']['IdentityGrantVersion']
 
 export type GrantPresetId = 'observer' | 'caller' | 'issuer' | 'maintainer'

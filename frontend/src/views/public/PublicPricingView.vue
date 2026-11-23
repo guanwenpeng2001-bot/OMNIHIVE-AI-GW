@@ -1,28 +1,20 @@
 <script setup lang="ts">
-import { extractApiErrorMessage } from '@/utils/apiError'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import PublicShell from '@/components/layout/PublicShell.vue'
+import CatalogFilterBar from '@/components/catalog/CatalogFilterBar.vue'
+import ModelOriginBadge from '@/components/catalog/ModelOriginBadge.vue'
+import ModelPriceCell from '@/components/catalog/ModelPriceCell.vue'
+import ModelStatusBadge from '@/components/catalog/ModelStatusBadge.vue'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
-import CopyButton from '@/components/ui/CopyButton.vue'
-import Skeleton from '@/components/ui/Skeleton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import ErrorState from '@/components/ui/ErrorState.vue'
-import Input from '@/components/ui/Input.vue'
-import SegmentedControl from '@/components/ui/SegmentedControl.vue'
-import Tooltip from '@/components/ui/Tooltip.vue'
+import Skeleton from '@/components/ui/Skeleton.vue'
 import { useAuthStore } from '@/stores/auth'
-import {
-  availabilityStateLabel,
-  availabilityStateTone,
-  formatContextTokens,
-  formatPublicTimestamp,
-  publicTokenPrice,
-  publicValue,
-  resolveAvailabilityState
-} from '@/features/public/format'
+import { useCatalogBrowser } from '@/composables/useCatalogBrowser'
+import { getCatalogCopy } from '@/features/catalog/copy'
 import {
   addRationals,
   currencyPrefixFor,
@@ -32,40 +24,63 @@ import {
   scaleRateToPerMillion,
   type ExactRational
 } from '@/features/shared/pricePresentation'
-import {
-  isSnapshotExpiredError,
-  listPublicModels,
-  type ListParams,
-  type PublicModelSummary
-} from '@/features/public/api'
-
-type ViewMode = 'table' | 'cards'
+import { extractApiErrorMessage } from '@/utils/apiError'
 
 const { locale } = useI18n()
 const isZh = computed(() => String(locale?.value ?? '').startsWith('zh'))
+const copy = computed(() => getCatalogCopy(isZh.value))
 const router = useRouter()
 const authStore = useAuthStore()
+const filterBarRef = ref<InstanceType<typeof CatalogFilterBar> | null>(null)
 
-const models = ref<PublicModelSummary[]>([])
-const nextCursor = ref<string | null>(null)
-const asOf = ref<string | null>(null)
-const loading = ref(true)
-const loadingMore = ref(false)
-const error = ref<unknown>(null)
-const paginationError = ref<unknown>(null)
-const paginationSnapshotExpired = ref(false)
-const snapshotResetAttempts = ref(0)
-const MAX_SNAPSHOT_RESET_ATTEMPTS = 3
-const query = ref('')
-const sort = ref<NonNullable<ListParams['sort']>>('price_input')
-const availabilityState = ref<'all' | 'live' | 'catalog_only'>('all')
-const viewMode = ref<ViewMode>('table')
-const selectedProviders = ref<string[]>([])
-const selectedModalities = ref<string[]>([])
-const providerOptions = ref<string[]>([])
-const searchContainerRef = ref<HTMLElement | null>(null)
-let requestSeq = 0
-let appliedQuery = ''
+const {
+  MAX_SNAPSHOT_RESET_ATTEMPTS,
+  viewModels,
+  displayedViewModels,
+  nextCursor,
+  asOf,
+  loading,
+  loadingMore,
+  error,
+  paginationError,
+  paginationSnapshotExpired,
+  snapshotResetAttempts,
+  query,
+  sort,
+  availabilityState,
+  billingFilter,
+  originFilter,
+  activeModalityPill,
+  viewMode,
+  selectedModalities,
+  selectedProtocols,
+  providers,
+  providerOptions,
+  compareIds,
+  compareSet,
+  activeFilters,
+  loadPersistedBrowserState,
+  load,
+  retryPagination,
+  toggleFilterByKey,
+  selectAvailabilityState,
+  selectBillingFilter,
+  selectOriginFilter,
+  selectModalityPill,
+  setSort,
+  setViewMode,
+  submitSearch,
+  resetFilters,
+  clearAllFiltersIncludingAvailability,
+  toggleCompare,
+  clearCompare,
+  compareLabel
+} = useCatalogBrowser({
+  isZh,
+  defaultSort: 'price_input',
+  defaultAvailability: 'live',
+  pageLimit: 100
+})
 
 const estimatorModelId = ref('')
 const estimatorInputMillions = ref(10)
@@ -123,9 +138,9 @@ const billingModeCards = computed(() => [
   },
   {
     id: 'byok',
-    badge: isZh.value ? '自有凭据' : 'BYOK',
+    badge: isZh.value ? '自带凭据' : 'BYOK',
     tone: 'success' as const,
-    title: isZh.value ? '租户自有凭据 (BYOK)' : 'Bring Your Own Key (BYOK)',
+    title: isZh.value ? '自带上游凭据 (BYOK)' : 'BYOK Credential',
     summary: isZh.value
       ? '在工作空间直接托管自有上游 API Key 或企业账户，零加价复用网关统一协议转换、智能路由、审计与故障切换。'
       : 'Connect your own upstream provider keys or enterprise seats while inheriting unified routing, fallback, rate limits, and audit telemetry.',
@@ -136,11 +151,12 @@ const billingModeCards = computed(() => [
 ])
 
 const estimatableModels = computed(() =>
-  models.value.filter(
-    (entry) =>
-      entry.price_state === 'free' ||
-      scaleRateToPerMillion(entry.input_rate) !== null ||
-      scaleRateToPerMillion(entry.output_rate) !== null
+  viewModels.value.filter(
+    (vm) =>
+      vm.billing.isEstimatable &&
+      (vm.billing.isFree ||
+        scaleRateToPerMillion(vm.billing.inputRate) !== null ||
+        scaleRateToPerMillion(vm.billing.outputRate) !== null)
   )
 )
 
@@ -148,16 +164,16 @@ watch(
   estimatableModels,
   (list) => {
     if (!list.length) return
-    if (!list.some((entry) => entry.id === estimatorModelId.value)) {
-      const firstPriced = list.find((entry) => entry.price_state !== 'free') ?? list[0]
+    if (!list.some((vm) => vm.id === estimatorModelId.value)) {
+      const firstPriced = list.find((vm) => !vm.billing.isFree) ?? list[0]
       estimatorModelId.value = firstPriced.id
     }
   },
   { immediate: true }
 )
 
-const selectedEstimatorModel = computed(() =>
-  estimatableModels.value.find((entry) => entry.id === estimatorModelId.value) ?? null
+const selectedEstimatorModel = computed(
+  () => estimatableModels.value.find((vm) => vm.id === estimatorModelId.value) ?? null
 )
 
 const sanitizedInputMillions = computed(() => {
@@ -190,9 +206,10 @@ const estimatorBreakdown = computed(() => {
       monthlyTotal: zeroRational
     }
   }
-  const currency = target.input_rate?.currency || target.output_rate?.currency || 'USD'
+  const currency =
+    target.billing.inputRate?.currency || target.billing.outputRate?.currency || 'USD'
   const currencyPrefix = currencyPrefixFor(currency)
-  if (target.price_state === 'free') {
+  if (target.billing.isFree) {
     return {
       state: 'free' as const,
       currency,
@@ -204,7 +221,7 @@ const estimatorBreakdown = computed(() => {
       monthlyTotal: zeroRational
     }
   }
-  if (target.price_state === 'unpriced' || target.price_state === 'error') {
+  if (!target.billing.isEstimatable || target.billing.isError || target.billing.isGroupVarying) {
     return {
       state: 'unpriced' as const,
       currency,
@@ -216,12 +233,10 @@ const estimatorBreakdown = computed(() => {
       monthlyTotal: zeroRational
     }
   }
-  const inputMillions =
-    parseNonNegativeDecimal(sanitizedInputMillions.value) ?? zeroRational
-  const outputMillions =
-    parseNonNegativeDecimal(sanitizedOutputMillions.value) ?? zeroRational
-  const inputScaledRaw = scaleRateToPerMillion(target.input_rate)
-  const outputScaledRaw = scaleRateToPerMillion(target.output_rate)
+  const inputMillions = parseNonNegativeDecimal(sanitizedInputMillions.value) ?? zeroRational
+  const outputMillions = parseNonNegativeDecimal(sanitizedOutputMillions.value) ?? zeroRational
+  const inputScaledRaw = scaleRateToPerMillion(target.billing.inputRate)
+  const outputScaledRaw = scaleRateToPerMillion(target.billing.outputRate)
   const activeCurrencies = new Set<string>()
   if (inputMillions.num > 0n && inputScaledRaw?.currency) {
     activeCurrencies.add(inputScaledRaw.currency.trim().toUpperCase())
@@ -273,7 +288,7 @@ const estimatorBreakdown = computed(() => {
   }
 })
 
-function formatMoneyAmount(value: ExactRational, _prefix = '$'): string {
+function formatMoneyAmount(value: ExactRational): string {
   return formatExactRationalCurrency(value, estimatorBreakdown.value.currency, {
     minDecimals: 2,
     maxDecimals: 4,
@@ -288,163 +303,35 @@ function applyEstimatorPreset(preset: { inputM: number; outputM: number; runs: n
   estimatorRunsPerMonth.value = preset.runs
 }
 
-const modalityChips = computed(() => [
-  { value: 'text', label: isZh.value ? '文本 Text' : 'Text' },
-  { value: 'image', label: isZh.value ? '视觉 Image' : 'Image' },
-  { value: 'audio', label: isZh.value ? '音频 Audio' : 'Audio' },
-  { value: 'video', label: isZh.value ? '视频 Video' : 'Video' },
-  { value: 'embedding', label: isZh.value ? '向量 Embedding' : 'Embeddings' },
-  { value: 'realtime', label: isZh.value ? '实时 Realtime' : 'Realtime' }
-])
-
-const activeFilters = computed(
-  () =>
-    availabilityState.value !== 'all' ||
-    selectedProviders.value.length > 0 ||
-    selectedModalities.value.length > 0 ||
-    query.value.trim().length > 0
-)
-
-const availabilityFilterOptions = computed(() => [
-  { key: 'all' as const, label: isZh.value ? '全部模型' : 'All' },
-  { key: 'live' as const, label: isZh.value ? '已接入可调用' : 'Live & Routable' },
-  { key: 'catalog_only' as const, label: isZh.value ? '平台目录' : 'Platform Catalog' }
-])
-
-async function load(reset = true): Promise<void> {
-  if (!reset && (loading.value || loadingMore.value || !nextCursor.value)) return
-  const current = ++requestSeq
-  paginationError.value = null
-  paginationSnapshotExpired.value = false
-  if (reset) {
-    appliedQuery = query.value.trim()
-    loading.value = true
-    loadingMore.value = false
-    error.value = null
-  } else {
-    loadingMore.value = true
-  }
-  try {
-    const page = await listPublicModels({
-      q: appliedQuery || undefined,
-      provider: selectedProviders.value.length ? selectedProviders.value : undefined,
-      modality: selectedModalities.value.length ? selectedModalities.value : undefined,
-      availability_state: availabilityState.value === 'all' ? undefined : availabilityState.value,
-      sort: sort.value,
-      cursor: reset ? undefined : nextCursor.value,
-      limit: 100
-    })
-    if (current !== requestSeq) return
-    if (
-      !appliedQuery &&
-      availabilityState.value === 'all' &&
-      !selectedProviders.value.length &&
-      !selectedModalities.value.length
-    ) {
-      const seen = new Set(providerOptions.value)
-      for (const item of page.items ?? []) {
-        const prov = item.provider?.trim()
-        if (prov && prov !== 'unknown') seen.add(prov)
-      }
-      providerOptions.value = [...seen].sort()
-    }
-    models.value = reset ? page.items ?? [] : [...models.value, ...(page.items ?? [])]
-    nextCursor.value = page.next_cursor ?? null
-    asOf.value = page.as_of ?? null
-    if (reset) {
-      snapshotResetAttempts.value = 0
-    }
-  } catch (err) {
-    if (current === requestSeq) {
-      if (reset) {
-        error.value = err
-      } else {
-        paginationError.value = err
-        if (isSnapshotExpiredError(err)) {
-          paginationSnapshotExpired.value = true
-          nextCursor.value = null
-        }
-      }
-    }
-  } finally {
-    if (current === requestSeq) {
-      loading.value = false
-      loadingMore.value = false
-    }
-  }
+function handleToggleFilter(
+  kind: 'modality' | 'protocol' | 'provider' | 'region' | 'retention',
+  value: string
+): void {
+  toggleFilterByKey(kind, value)
 }
 
-function retryPagination(): void {
-  if (paginationSnapshotExpired.value) {
-    if (snapshotResetAttempts.value >= MAX_SNAPSHOT_RESET_ATTEMPTS) return
-    snapshotResetAttempts.value += 1
-    void load(true)
+function handleEmptyClearFilters(): void {
+  if (
+    query.value.trim() ||
+    billingFilter.value !== 'all' ||
+    originFilter.value !== 'all' ||
+    activeModalityPill.value !== 'all' ||
+    providers.value.length > 0 ||
+    selectedModalities.value.length > 0 ||
+    selectedProtocols.value.length > 0
+  ) {
+    resetFilters()
     return
   }
-  void load(false)
+  clearAllFiltersIncludingAvailability()
 }
 
-function togglePricingFilter(kind: 'modality' | 'provider', item: string): void {
-  snapshotResetAttempts.value = 0
-  const target = kind === 'modality' ? selectedModalities : selectedProviders
-  target.value = target.value.includes(item)
-    ? target.value.filter((entry) => entry !== item)
-    : [...target.value, item]
-  void load()
-}
-
-function resetFilters(): void {
-  snapshotResetAttempts.value = 0
-  query.value = ''
-  availabilityState.value = 'all'
-  selectedProviders.value = []
-  selectedModalities.value = []
-  sort.value = 'price_input'
-  void load()
-}
-
-function selectAvailabilityState(next: 'all' | 'live' | 'catalog_only'): void {
-  snapshotResetAttempts.value = 0
-  availabilityState.value = next
-  void load()
-}
-
-function rateText(model: PublicModelSummary, kind: 'input' | 'output'): string {
-  if (model.price_state === 'free') return isZh.value ? '免费' : 'Free'
-  const rate = kind === 'input' ? model.input_rate : model.output_rate
-  return publicTokenPrice(rate, 'adaptive', isZh.value)
-}
-
-function referenceRateHint(model: PublicModelSummary, kind: 'input' | 'output'): string | null {
-  const refRate =
-    kind === 'input' ? model.reference_price?.input_rate : model.reference_price?.output_rate
-  if (!refRate) return null
-  const formatted = publicTokenPrice(refRate, 'adaptive', isZh.value)
-  if (!formatted || formatted === '—') return null
-  return isZh.value ? `参考 ${formatted}` : `Ref ${formatted}`
-}
-
-function availabilityBadge(model: PublicModelSummary) {
-  const state = resolveAvailabilityState(model)
-  if (state === 'unknown') return null
-  return {
-    state,
-    label: availabilityStateLabel(state, isZh.value),
-    tone: availabilityStateTone(state)
-  }
-}
-
-function priceStateBadge(model: PublicModelSummary): { label: string; tone: 'success' | 'info' | 'unknown' | 'warning' } {
-  if (model.price_state === 'free') {
-    return { label: isZh.value ? '免费额度' : 'Free', tone: 'success' }
-  }
-  if (model.price_state === 'priced' || model.input_rate || model.output_rate) {
-    return { label: isZh.value ? '精确按量' : 'Per-Token', tone: 'info' }
-  }
-  return { label: isZh.value ? '未声明单价' : 'Unpriced', tone: 'unknown' }
+function openConsoleEmptyAction(): void {
+  void router.push(authStore.isAuthenticated ? '/dashboard' : '/login')
 }
 
 function handleShortcut(event: KeyboardEvent): void {
+  if (event.defaultPrevented) return
   if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key === '/') {
     const activeEl = document.activeElement as HTMLElement | null
     const tag = activeEl?.tagName
@@ -452,17 +339,22 @@ function handleShortcut(event: KeyboardEvent): void {
       return
     }
     event.preventDefault()
-    searchContainerRef.value?.querySelector('input')?.focus()
+    filterBarRef.value?.focusSearch()
   }
 }
 
 onMounted(() => {
-  window.addEventListener('keydown', handleShortcut)
-  void load()
+  loadPersistedBrowserState()
+  if (typeof window !== 'undefined') {
+    window.addEventListener('keydown', handleShortcut)
+  }
+  void load(true)
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', handleShortcut)
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('keydown', handleShortcut)
+  }
 })
 </script>
 
@@ -471,45 +363,63 @@ onBeforeUnmount(() => {
     <header class="flex flex-wrap items-end justify-between gap-4 border-b border-oh-default pb-6">
       <div>
         <p class="font-mono text-xs uppercase tracking-[0.18em] text-oh-muted">
-          {{ isZh ? '透明计费 · PRICING' : 'PRICING' }}
+          {{ isZh ? '透明计费 · PRICING' : 'TRANSPARENT PRICING' }}
         </p>
         <h1 class="mt-3 text-3xl font-semibold tracking-tight text-oh-primary sm:text-4xl">
-          {{ isZh ? '透明、精确的百万 Token 定价' : 'Transparent, per-token pricing' }}
+          {{ isZh ? '计费方案与模型费率' : 'Pricing & Rate Directory' }}
         </h1>
         <p class="mt-2 max-w-[68ch] text-sm text-oh-secondary">
           {{
             isZh
-              ? '参考费率统一按每百万 (1M) Token 展示，十进制高精度结算；每次请求账单均严格遵循调用时冻结的费率版本。'
-              : 'Reference rates per one million tokens with exact decimal settlement. Your gateway invoice always follows the frozen price version of each request.'
+              ? '所有费率直接映射自服务端当前生效的销售价格目录。未定价或参考价模型不会进入估算总额，参考价始终标明「非网关结算价」。'
+              : 'Published sale rates mirror active gateway tariffs. Unpriced or reference-only models are excluded from calculator totals, and Community Catalog (pi) rates stay clearly labeled non-settlement.'
           }}
         </p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <RouterLink
-          to="/model-plaza"
+          :to="
+            compareIds.length
+              ? { path: '/model-plaza/compare', query: { ids: compareIds.join(',') } }
+              : '/model-plaza/compare'
+          "
           class="oh-focus-ring inline-flex h-9 items-center rounded-oh-md border border-oh-default bg-oh-surface px-3.5 text-xs font-medium text-oh-primary hover:border-oh-strong hover:bg-oh-hover"
         >
-          {{ isZh ? '浏览模型详情' : 'Explore models' }}
+          {{
+            compareIds.length
+              ? (isZh ? `横向对比 (${compareIds.length})` : `Compare (${compareIds.length})`)
+              : (isZh ? '多模型对比' : 'Compare models')
+          }}
+        </RouterLink>
+        <RouterLink
+          to="/model-plaza"
+          class="oh-focus-ring inline-flex h-9 items-center rounded-oh-md border border-oh-default bg-oh-surface px-3.5 text-xs font-medium text-oh-secondary hover:border-oh-strong hover:text-oh-primary"
+        >
+          {{ isZh ? '返回模型广场' : 'Browse Model Plaza' }}
+        </RouterLink>
+        <RouterLink
+          :to="authStore.isAuthenticated ? '/purchase' : '/register'"
+          class="oh-focus-ring inline-flex h-9 items-center rounded-oh-md bg-[var(--oh-accent,#f59e0b)] px-4 text-xs font-semibold text-slate-950 hover:opacity-90"
+        >
+          {{ authStore.isAuthenticated ? (isZh ? '控制台充值 / 购买套餐' : 'Purchase & Top Up') : (isZh ? '注册开始使用' : 'Get Started') }}
         </RouterLink>
       </div>
     </header>
 
-    <section class="mt-6 grid gap-3 md:grid-cols-3" :aria-label="isZh ? '计费模式说明' : 'Billing models overview'">
+    <section class="grid gap-4 py-6 lg:grid-cols-3" :aria-label="isZh ? '计费模式对比' : 'Billing modes'">
       <article
-        v-for="mode in billingModeCards"
-        :key="mode.id"
-        class="flex min-w-0 flex-col justify-between rounded-oh-md border border-oh-default bg-oh-surface p-4"
+        v-for="card in billingModeCards"
+        :key="card.id"
+        class="flex flex-col justify-between rounded-oh-md border border-oh-default bg-oh-surface p-5"
       >
         <div>
-          <div class="flex items-center justify-between gap-2">
-            <h2 class="text-sm font-semibold text-oh-primary">{{ mode.title }}</h2>
-            <Badge :tone="mode.tone" size="xs" variant="subtle">{{ mode.badge }}</Badge>
-          </div>
-          <p class="mt-2 text-xs leading-relaxed text-oh-secondary">{{ mode.summary }}</p>
+          <Badge :tone="card.tone" size="xs" variant="subtle">{{ card.badge }}</Badge>
+          <h2 class="mt-3 text-base font-semibold text-oh-primary">{{ card.title }}</h2>
+          <p class="mt-2 text-xs leading-relaxed text-oh-secondary">{{ card.summary }}</p>
         </div>
-        <ul class="mt-3 space-y-1.5 border-t border-oh-subtle pt-3 text-xs text-oh-secondary">
-          <li v-for="point in mode.highlights" :key="point" class="flex items-start gap-1.5">
-            <span class="mt-0.5 font-mono text-[10px] text-oh-accent-text" aria-hidden="true">✓</span>
+        <ul class="mt-4 space-y-1.5 border-t border-oh-subtle pt-3 text-xs text-oh-secondary">
+          <li v-for="point in card.highlights" :key="point" class="flex items-start gap-2">
+            <span class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--oh-accent,#f59e0b)]" />
             <span>{{ point }}</span>
           </li>
         </ul>
@@ -517,28 +427,23 @@ onBeforeUnmount(() => {
     </section>
 
     <section
+      class="rounded-oh-md border border-oh-default bg-oh-surface p-5"
       data-testid="pricing-estimator"
-      class="mt-6 rounded-oh-md border border-oh-default bg-oh-surface p-4 sm:p-5"
-      :aria-label="isZh ? '交互式 Token 费用估算器' : 'Interactive token cost estimator'"
+      :aria-label="isZh ? '月度 Token 成本估算器' : 'Monthly Token Cost Estimator'"
     >
-      <div class="flex flex-wrap items-start justify-between gap-3 border-b border-oh-subtle pb-4">
-        <div class="min-w-0">
-          <p class="font-mono text-[11px] uppercase tracking-[0.16em] text-oh-muted">
-            {{ isZh ? '实时预算模拟 · COST CALCULATOR' : 'COST CALCULATOR' }}
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-oh-subtle pb-4">
+        <div>
+          <p class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+            {{ isZh ? '成本规划 · COST CALCULATOR' : 'COST CALCULATOR' }}
           </p>
           <h2 class="mt-1 text-base font-semibold text-oh-primary">
-            {{ isZh ? '交互式 Token 费用估算器' : 'Interactive Token Cost Estimator' }}
+            {{ isZh ? '实时用量与月度成本估算器' : 'Interactive Monthly Cost Estimator' }}
           </h2>
-          <p class="mt-1 text-xs text-oh-secondary">
-            {{
-              isZh
-                ? '选择目录内任意已定价模型，拖动或输入百万 Input / Output Tokens 数量，实时预览单次批次与月度预估费用。'
-                : 'Pick any published model and adjust million Input / Output tokens to estimate per-batch and monthly gateway spend.'
-            }}
-          </p>
         </div>
         <div class="flex flex-wrap items-center gap-1.5">
-          <span class="font-mono text-[11px] text-oh-muted">{{ isZh ? '快速预设：' : 'Presets:' }}</span>
+          <span class="mr-1 font-mono text-[11px] text-oh-muted">
+            {{ isZh ? '预设场景：' : 'Presets:' }}
+          </span>
           <button
             v-for="preset in estimatorPresets"
             :key="preset.id"
@@ -551,106 +456,68 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div v-if="estimatableModels.length > 0" class="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
-        <div class="min-w-0 space-y-4">
-          <label class="block space-y-1.5">
-            <span class="block font-mono text-[11px] uppercase tracking-wider text-oh-muted">
-              {{ isZh ? '选择估算模型' : 'Target Model' }}
+      <div v-if="estimatableModels.length > 0" class="mt-4 grid gap-6 lg:grid-cols-12">
+        <div class="grid gap-4 sm:grid-cols-2 lg:col-span-7">
+          <label class="flex flex-col gap-1.5 sm:col-span-2">
+            <span class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+              {{ isZh ? '选择估算模型（仅含已定价或免费销售模型）' : 'Target Model (Priced or Free Sale Rate)' }}
             </span>
             <select
               v-model="estimatorModelId"
-              class="oh-focus-ring h-9 w-full rounded-oh-md border border-oh-default bg-oh-subtle px-3 font-mono text-xs text-oh-primary hover:border-oh-strong"
+              class="oh-focus-ring h-9 rounded-oh-md border border-oh-default bg-oh-canvas px-3 text-sm text-oh-primary hover:border-oh-strong"
             >
-              <option v-for="entry in estimatableModels" :key="entry.id" :value="entry.id">
-                {{ entry.display_name || entry.model }} ({{ publicValue(entry.provider, 'N/A') }} · In {{ rateText(entry, 'input') }} / Out {{ rateText(entry, 'output') }})
+              <option v-for="item in estimatableModels" :key="item.id" :value="item.id">
+                {{ item.displayName }} ({{ item.provider }})
               </option>
             </select>
           </label>
 
-          <div class="grid gap-4 sm:grid-cols-2">
-            <div class="space-y-2 rounded-oh-sm border border-oh-subtle bg-oh-subtle/40 p-3">
-              <div class="flex items-center justify-between gap-2">
-                <label for="calc-input-m" class="text-xs font-medium text-oh-secondary">
-                  {{ isZh ? 'Input Tokens (百万 / 1M)' : 'Input Tokens (Millions)' }}
-                </label>
-                <input
-                  id="calc-input-m"
-                  v-model.number="estimatorInputMillions"
-                  type="number"
-                  min="0"
-                  max="10000"
-                  step="0.5"
-                  class="oh-focus-ring h-7 w-24 rounded-oh-xs border border-oh-default bg-oh-surface px-2 text-right font-mono text-xs tabular-nums text-oh-primary"
-                />
-              </div>
-              <input
-                v-model.number="estimatorInputMillions"
-                type="range"
-                min="0"
-                max="200"
-                step="0.5"
-                :aria-label="isZh ? '拖动调整 Input 百万 Tokens' : 'Slide input million tokens'"
-                class="w-full accent-[var(--oh-accent,#f59e0b)]"
-              />
-              <div class="flex justify-between font-mono text-[10px] text-oh-muted">
-                <span>0M</span>
-                <span>{{ isZh ? '单价' : 'Rate' }}: {{ selectedEstimatorModel ? rateText(selectedEstimatorModel, 'input') : '—' }}/1M</span>
-                <span>200M</span>
-              </div>
-            </div>
+          <label class="flex flex-col gap-1.5">
+            <span class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+              {{ isZh ? '单次 / 单日输入 (百万 Tokens)' : 'Input Volume (Million Tokens)' }}
+            </span>
+            <input
+              v-model.number="estimatorInputMillions"
+              type="number"
+              min="0"
+              step="0.5"
+              class="oh-focus-ring h-9 rounded-oh-md border border-oh-default bg-oh-canvas px-3 font-mono text-sm tabular-nums text-oh-primary"
+            />
+          </label>
 
-            <div class="space-y-2 rounded-oh-sm border border-oh-subtle bg-oh-subtle/40 p-3">
-              <div class="flex items-center justify-between gap-2">
-                <label for="calc-output-m" class="text-xs font-medium text-oh-secondary">
-                  {{ isZh ? 'Output Tokens (百万 / 1M)' : 'Output Tokens (Millions)' }}
-                </label>
-                <input
-                  id="calc-output-m"
-                  v-model.number="estimatorOutputMillions"
-                  type="number"
-                  min="0"
-                  max="10000"
-                  step="0.5"
-                  class="oh-focus-ring h-7 w-24 rounded-oh-xs border border-oh-default bg-oh-surface px-2 text-right font-mono text-xs tabular-nums text-oh-primary"
-                />
-              </div>
-              <input
-                v-model.number="estimatorOutputMillions"
-                type="range"
-                min="0"
-                max="100"
-                step="0.5"
-                :aria-label="isZh ? '拖动调整 Output 百万 Tokens' : 'Slide output million tokens'"
-                class="w-full accent-[var(--oh-accent,#f59e0b)]"
-              />
-              <div class="flex justify-between font-mono text-[10px] text-oh-muted">
-                <span>0M</span>
-                <span>{{ isZh ? '单价' : 'Rate' }}: {{ selectedEstimatorModel ? rateText(selectedEstimatorModel, 'output') : '—' }}/1M</span>
-                <span>100M</span>
-              </div>
-            </div>
-          </div>
+          <label class="flex flex-col gap-1.5">
+            <span class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+              {{ isZh ? '单次 / 单日输出 (百万 Tokens)' : 'Output Volume (Million Tokens)' }}
+            </span>
+            <input
+              v-model.number="estimatorOutputMillions"
+              type="number"
+              min="0"
+              step="0.5"
+              class="oh-focus-ring h-9 rounded-oh-md border border-oh-default bg-oh-canvas px-3 font-mono text-sm tabular-nums text-oh-primary"
+            />
+          </label>
 
-          <div class="flex flex-wrap items-center justify-between gap-2 rounded-oh-sm border border-oh-subtle bg-oh-subtle/40 px-3 py-2 text-xs">
-            <label for="calc-runs-month" class="text-oh-secondary">
-              {{ isZh ? '月度折算周期（按上述用量每月重复次数 / 天数）' : 'Monthly multiplier (cycles / active days per month)' }}
-            </label>
-            <div class="flex items-center gap-2">
-              <input
-                id="calc-runs-month"
-                v-model.number="estimatorRunsPerMonth"
-                type="number"
-                min="1"
-                max="365"
-                step="1"
-                class="oh-focus-ring h-7 w-20 rounded-oh-xs border border-oh-default bg-oh-surface px-2 text-right font-mono text-xs tabular-nums text-oh-primary"
-              />
-              <span class="font-mono text-[11px] text-oh-muted">{{ isZh ? '次/月' : '× / mo' }}</span>
+          <label class="flex flex-col gap-1.5 sm:col-span-2">
+            <div class="flex items-center justify-between">
+              <span class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+                {{ isZh ? '每月计费周期 / 天数倍率' : 'Cycles / Days per Month' }}
+              </span>
+              <span class="font-mono text-xs font-semibold tabular-nums text-oh-primary">
+                ×{{ sanitizedRunsPerMonth }}
+              </span>
             </div>
-          </div>
+            <input
+              v-model.number="estimatorRunsPerMonth"
+              type="range"
+              min="1"
+              max="31"
+              class="accent-[var(--oh-accent,#f59e0b)]"
+            />
+          </label>
         </div>
 
-        <div class="flex min-w-0 flex-col justify-between rounded-oh-md border border-oh-default bg-oh-subtle/50 p-4">
+        <div class="flex flex-col justify-between rounded-oh-md border border-oh-default bg-oh-subtle p-4 lg:col-span-5">
           <div class="space-y-3">
             <div class="flex items-center justify-between gap-2">
               <span class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
@@ -673,7 +540,7 @@ onBeforeUnmount(() => {
                   {{ isZh ? '单次 / 单日预估成本' : 'Single-Cycle Estimate' }}
                 </p>
                 <p class="mt-1 font-mono text-xl font-semibold tabular-nums text-oh-primary">
-                  {{ estimatorBreakdown.state === 'unpriced' ? '—' : formatMoneyAmount(estimatorBreakdown.singleTotal, estimatorBreakdown.currencyPrefix) }}
+                  {{ estimatorBreakdown.state === 'unpriced' ? '—' : formatMoneyAmount(estimatorBreakdown.singleTotal) }}
                 </p>
               </div>
               <div class="rounded-oh-sm border border-oh-accent/40 bg-oh-accent-subtle/40 p-3">
@@ -681,7 +548,7 @@ onBeforeUnmount(() => {
                   {{ isZh ? `月度预估 (×${sanitizedRunsPerMonth})` : `Monthly Est. (×${sanitizedRunsPerMonth})` }}
                 </p>
                 <p class="mt-1 font-mono text-xl font-semibold tabular-nums text-oh-primary">
-                  {{ estimatorBreakdown.state === 'unpriced' ? '—' : formatMoneyAmount(estimatorBreakdown.monthlyTotal, estimatorBreakdown.currencyPrefix) }}
+                  {{ estimatorBreakdown.state === 'unpriced' ? '—' : formatMoneyAmount(estimatorBreakdown.monthlyTotal) }}
                 </p>
               </div>
             </div>
@@ -689,11 +556,11 @@ onBeforeUnmount(() => {
             <dl class="space-y-1.5 border-t border-oh-subtle pt-3 font-mono text-xs tabular-nums">
               <div class="flex items-center justify-between gap-2">
                 <dt class="text-oh-secondary">{{ isZh ? '输入 Token 费用' : 'Input token subtotal' }}</dt>
-                <dd class="text-oh-primary">{{ estimatorBreakdown.state === 'unpriced' ? '—' : formatMoneyAmount(estimatorBreakdown.inputCost, estimatorBreakdown.currencyPrefix) }}</dd>
+                <dd class="text-oh-primary">{{ estimatorBreakdown.state === 'unpriced' ? '—' : formatMoneyAmount(estimatorBreakdown.inputCost) }}</dd>
               </div>
               <div class="flex items-center justify-between gap-2">
                 <dt class="text-oh-secondary">{{ isZh ? '输出 Token 费用' : 'Output token subtotal' }}</dt>
-                <dd class="text-oh-primary">{{ estimatorBreakdown.state === 'unpriced' ? '—' : formatMoneyAmount(estimatorBreakdown.outputCost, estimatorBreakdown.currencyPrefix) }}</dd>
+                <dd class="text-oh-primary">{{ estimatorBreakdown.state === 'unpriced' ? '—' : formatMoneyAmount(estimatorBreakdown.outputCost) }}</dd>
               </div>
             </dl>
           </div>
@@ -701,8 +568,8 @@ onBeforeUnmount(() => {
           <p class="mt-3 border-t border-oh-subtle pt-2.5 text-[11px] leading-relaxed text-oh-muted">
             {{
               isZh
-                ? '估算基于当前公开基准单价；若命中提示词缓存、分时折扣或阶梯费率，实际账单可能进一步降低。'
-                : 'Based on published base per-token rates; prompt caching, time-of-day multipliers, or subscription discounts may further reduce actual spend.'
+                ? '估算基于当前公开基准销售单价（不包含参考价）；若命中提示词缓存、分时折扣或阶梯费率，实际账单可能进一步降低。'
+                : 'Based on published sale rates only (reference prices excluded); prompt caching, time-of-day multipliers, or subscription discounts may further reduce actual spend.'
             }}
           </p>
         </div>
@@ -712,127 +579,44 @@ onBeforeUnmount(() => {
         {{
           loading
             ? (isZh ? '正在加载模型费率目录以初始化估算器…' : 'Loading published model rates to initialize calculator…')
-            : (isZh ? '当前筛选结果中暂无按百万 Token 标价的模型，请清空下方筛选或待管理员发布模型费率。' : 'No per-token priced models in the current view; clear filters or wait for catalog rates.')
+            : (isZh ? '当前筛选结果中暂无完整标价的模型，请清空下方筛选或查看「仅目录收录」模型。' : 'No estimatable sale-priced models in the current view; clear filters or switch availability.')
         }}
       </p>
     </section>
 
-    <section class="flex flex-col gap-3.5 py-6">
-      <div class="flex flex-wrap items-center gap-3">
-        <div ref="searchContainerRef" class="w-full sm:w-80">
-          <Input
-            v-model="query"
-            type="search"
-            clearable
-            :placeholder="isZh ? '筛选模型或供应商费率… (/)' : 'Filter model or provider rates... (/)'"
-            @keydown.enter="load()"
-            @clear="load()"
-          />
-        </div>
-        <Button variant="secondary" @click="load()">{{ isZh ? '筛选' : 'Filter' }}</Button>
-
-        <div class="ml-auto flex flex-wrap items-center gap-2">
-          <label class="sr-only" for="pricing-sort">{{ isZh ? '排序方式' : 'Sort pricing' }}</label>
-          <select
-            id="pricing-sort"
-            v-model="sort"
-            class="oh-focus-ring h-9 rounded-oh-md border border-oh-default bg-oh-surface px-3 font-mono text-xs text-oh-primary hover:border-oh-strong"
-            @change="load()"
-          >
-            <option value="price_input">{{ isZh ? '输入单价从低到高' : 'Lowest Input Rate' }}</option>
-            <option value="availability">{{ isZh ? '优先已接入可用' : 'Availability' }}</option>
-            <option value="name">{{ isZh ? '按模型名称' : 'Model Name' }}</option>
-            <option value="context">{{ isZh ? '按上下文容量' : 'Context Window' }}</option>
-          </select>
-
-          <SegmentedControl
-            :model-value="viewMode"
-            :options="[
-              { value: 'table', label: isZh ? '费率表' : 'Table' },
-              { value: 'cards', label: isZh ? '卡片' : 'Cards' }
-            ]"
-            @update:model-value="viewMode = $event as ViewMode"
-          />
-        </div>
-      </div>
-
-      <div class="flex flex-wrap items-center gap-1.5" data-testid="pricing-availability-filter">
-        <span class="mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
-          {{ isZh ? '接入状态' : 'Availability' }}
-        </span>
-        <button
-          v-for="opt in availabilityFilterOptions"
-          :key="opt.key"
-          type="button"
-          :data-testid="`pricing-availability-pill-${opt.key}`"
-          class="oh-focus-ring rounded-full border px-3 py-1 text-xs transition-colors"
-          :class="
-            availabilityState === opt.key
-              ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
-              : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
-          "
-          :aria-pressed="availabilityState === opt.key"
-          @click="selectAvailabilityState(opt.key)"
-        >
-          {{ opt.label }}
-        </button>
-      </div>
-
-      <div class="flex flex-wrap items-center gap-1.5">
-        <span class="mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
-          {{ isZh ? '模态' : 'Modality' }}
-        </span>
-        <button
-          v-for="chip in modalityChips"
-          :key="chip.value"
-          type="button"
-          class="oh-focus-ring rounded-full border px-2.5 py-1 font-mono text-xs transition-colors"
-          :class="
-            selectedModalities.includes(chip.value)
-              ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
-              : 'border-oh-default text-oh-secondary hover:border-oh-strong'
-          "
-          :aria-pressed="selectedModalities.includes(chip.value)"
-          @click="togglePricingFilter('modality', chip.value)"
-        >
-          {{ chip.label }}
-        </button>
-
-        <template v-if="providerOptions.length > 0">
-          <span class="ml-2 mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
-            {{ isZh ? '供应商' : 'Provider' }}
-          </span>
-          <button
-            v-for="provider in providerOptions"
-            :key="provider"
-            type="button"
-            class="oh-focus-ring rounded-full border px-2.5 py-1 font-mono text-xs transition-colors"
-            :class="
-              selectedProviders.includes(provider)
-                ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
-                : 'border-oh-default text-oh-secondary hover:border-oh-strong'
-            "
-            :aria-pressed="selectedProviders.includes(provider)"
-            @click="togglePricingFilter('provider', provider)"
-          >
-            {{ provider }}
-          </button>
-        </template>
-
-        <button
-          v-if="activeFilters"
-          type="button"
-          class="oh-focus-ring ml-1 rounded-oh-sm text-xs font-medium text-oh-accent-text underline-offset-2 hover:underline"
-          @click="resetFilters"
-        >
-          {{ isZh ? '重置筛选' : 'Clear filters' }}
-        </button>
-
-        <span v-if="asOf" class="ml-auto font-mono text-[11px] text-oh-muted">
-          {{ isZh ? `更新于 ${formatPublicTimestamp(asOf)}` : `Updated ${formatPublicTimestamp(asOf)}` }}
-        </span>
-      </div>
-    </section>
+    <CatalogFilterBar
+      ref="filterBarRef"
+      :is-zh="isZh"
+      :query="query"
+      :availability-state="availabilityState"
+      :billing-filter="billingFilter"
+      :origin-filter="originFilter"
+      :show-origin-filter="authStore.isAuthenticated"
+      :active-modality-pill="activeModalityPill"
+      :selected-modalities="selectedModalities"
+      :selected-protocols="selectedProtocols"
+      :selected-providers="providers"
+      :provider-options="providerOptions"
+      :sort="sort"
+      :view-mode="viewMode"
+      :show-favorites-toggle="false"
+      :show-extended-filters="true"
+      :show-governance-filters="false"
+      availability-row-test-id="pricing-availability-filter"
+      availability-test-id-prefix="pricing-availability-pill"
+      :as-of="asOf"
+      :active-filters="activeFilters"
+      @update:query="query = $event"
+      @update:sort="setSort"
+      @update:view-mode="setViewMode"
+      @select-availability="selectAvailabilityState"
+      @select-billing="selectBillingFilter"
+      @select-origin="selectOriginFilter"
+      @select-modality-pill="selectModalityPill"
+      @toggle-filter="handleToggleFilter"
+      @search="submitSearch"
+      @reset="resetFilters"
+    />
 
     <Skeleton v-if="loading" class="py-4" :lines="10" :label="isZh ? '正在加载模型费率' : 'Loading pricing catalog'" />
     <ErrorState
@@ -840,32 +624,58 @@ onBeforeUnmount(() => {
       :title="isZh ? '费率目录暂时无法加载' : 'Pricing unavailable'"
       :message="extractApiErrorMessage(error, '')"
       :retry-label="isZh ? '重新加载' : 'Retry'"
-      @retry="load()"
+      @retry="load(true)"
     />
-    <EmptyState
-      v-else-if="!models.length"
-      :variant="activeFilters ? 'filtered' : 'empty'"
-      :title="
-        activeFilters
-          ? (isZh ? '未找到匹配该筛选条件的模型费率' : 'No model rates match these filters')
-          : (isZh ? '暂未发布公开模型费率' : 'No public pricing published yet')
-      "
-      :description="
-        activeFilters
-          ? (isZh ? '请清空筛选条件或搜索其他模型名称。' : 'Clear active filters or try another search term.')
-          : (isZh
-              ? '公开价格表直接映射自已发布的网关模型目录。管理员在控制台完成渠道分组定价与模型广场上架后，实时费率将自动生效。'
-              : 'Public pricing projects directly from published catalog rates. Once an administrator configures channel pricing and publishes models, rates appear here automatically.')
-      "
-      :action-label="
-        activeFilters
-          ? undefined
-          : (authStore.isAuthenticated ? (isZh ? '前往控制台配置定价' : 'Open Console') : (isZh ? '登录控制台' : 'Sign in to Console'))
-      "
-      :clear-filter-label="isZh ? '清空筛选' : 'Reset filters'"
-      @action="router.push(authStore.isAuthenticated ? '/dashboard' : '/login')"
-      @clear-filters="resetFilters"
-    />
+    <template v-else-if="!displayedViewModels.length">
+      <EmptyState
+        :variant="activeFilters || availabilityState === 'live' ? 'filtered' : 'empty'"
+        :title="
+          availabilityState === 'live'
+            ? copy.empty.liveNoMatchesTitle
+            : activeFilters
+              ? (isZh ? '未找到匹配该筛选条件的模型费率' : 'No model rates match these filters')
+              : (isZh ? '暂未发布公开模型费率' : 'No public pricing published yet')
+        "
+        :description="
+          availabilityState === 'live'
+            ? copy.empty.liveNoMatchesDesc
+            : activeFilters
+              ? (isZh ? '请清空筛选条件或搜索其他模型名称。' : 'Clear active filters or try another search term.')
+              : (isZh
+                  ? '公开价格表直接映射自已发布的网关模型目录。管理员在控制台完成渠道定价与模型发布后，实时费率将自动生效。'
+                  : 'Public pricing projects directly from published catalog rates. Once an administrator configures channel pricing and publishes models, rates appear here automatically.')
+        "
+        :action-label="
+          activeFilters || availabilityState === 'live'
+            ? undefined
+            : (authStore.isAuthenticated ? (isZh ? '前往配置渠道定价' : 'Configure Pricing') : (isZh ? '管理员登录配置' : 'Sign in'))
+        "
+        :clear-filter-label="isZh ? '清除筛选' : 'Clear filters'"
+        @action="openConsoleEmptyAction"
+        @clear-filters="handleEmptyClearFilters"
+      >
+        <template v-if="availabilityState === 'live'" #actions>
+          <div class="flex flex-wrap items-center justify-center gap-2 pt-1">
+            <Button variant="secondary" @click="handleEmptyClearFilters">
+              {{ copy.filters.resetFilters }}
+            </Button>
+            <Button
+              data-testid="pricing-empty-view-catalog-only"
+              variant="primary"
+              @click="selectAvailabilityState('catalog_only')"
+            >
+              {{ copy.empty.viewCatalogOnly }}
+            </Button>
+            <RouterLink
+              to="/docs#support"
+              class="oh-focus-ring inline-flex h-9 items-center rounded-oh-md border border-oh-default bg-oh-surface px-3 text-xs font-medium text-oh-secondary hover:border-oh-strong hover:text-oh-primary"
+            >
+              {{ copy.empty.contactSupport }}
+            </RouterLink>
+          </div>
+        </template>
+      </EmptyState>
+    </template>
 
     <template v-else>
       <div
@@ -873,97 +683,86 @@ onBeforeUnmount(() => {
         class="oh-focus-ring overflow-x-auto rounded-oh-md border border-oh-default bg-oh-surface"
         tabindex="0"
         role="region"
-        :aria-label="isZh ? '模型定价一览表' : 'Model pricing table'"
+        :aria-label="isZh ? '公开模型费率表' : 'Public pricing rate table'"
       >
-        <table class="w-full min-w-[720px] border-collapse text-sm">
+        <table class="w-full min-w-[760px] border-collapse text-sm">
           <thead>
             <tr class="border-b border-oh-default bg-oh-subtle text-left font-mono text-[11px] uppercase tracking-wider text-oh-muted">
               <th class="px-4 py-2.5">{{ isZh ? '模型' : 'Model' }}</th>
-              <th class="px-4 py-2.5">{{ isZh ? '计费状态' : 'Billing Mode' }}</th>
-              <th class="px-4 py-2.5 text-right">{{ isZh ? '上下文' : 'Context' }}</th>
-              <th class="px-4 py-2.5 text-right">{{ isZh ? '输入 / 1M Tokens' : 'Input / 1M' }}</th>
-              <th class="px-4 py-2.5 text-right">{{ isZh ? '输出 / 1M Tokens' : 'Output / 1M' }}</th>
+              <th class="px-4 py-2.5">{{ isZh ? '计费状态' : 'Pricing Mode' }}</th>
+              <th class="px-4 py-2.5">{{ isZh ? '供应商 · 上下文' : 'Provider · Context' }}</th>
+              <th class="px-4 py-2.5 text-right">{{ isZh ? '输入 / 1M' : 'Input / 1M' }}</th>
+              <th class="px-4 py-2.5 text-right">{{ isZh ? '输出 / 1M' : 'Output / 1M' }}</th>
+              <th class="px-4 py-2.5 text-right">{{ isZh ? '对比' : 'Compare' }}</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="model in models" :key="model.id" class="border-b border-oh-subtle last:border-0 hover:bg-oh-hover">
-              <td class="max-w-[20rem] break-all px-4 py-3">
-                <RouterLink
-                  :to="`/model-plaza/${encodeURIComponent(model.id)}`"
-                  class="oh-focus-ring rounded-oh-xs font-medium text-oh-primary hover:text-oh-accent-text"
-                >
-                  {{ model.display_name || model.model }}
-                </RouterLink>
-                <div class="mt-0.5 flex items-center gap-1.5 font-mono text-[11px] text-oh-muted">
-                  <span>{{ publicValue(model.provider, isZh ? '未声明' : 'Undeclared') }} · {{ model.model }}</span>
-                  <CopyButton :value="model.model" size="xs" :aria-label="isZh ? '复制模型 ID' : 'Copy model ID'" />
+            <tr v-for="vm in displayedViewModels" :key="vm.id" class="border-b border-oh-subtle last:border-0 hover:bg-oh-hover">
+              <td class="max-w-[18rem] break-all px-4 py-3 xl:max-w-[24rem]">
+                <div class="flex flex-wrap items-center gap-2">
+                  <RouterLink
+                    :to="`/model-plaza/${encodeURIComponent(vm.id)}`"
+                    class="oh-focus-ring rounded-oh-xs font-medium text-oh-primary hover:text-oh-accent-text"
+                  >
+                    {{ vm.displayName }}
+                  </RouterLink>
+                  <ModelStatusBadge
+                    :badge="vm.availability.badge"
+                    test-id-prefix="pricing-availability-badge"
+                  />
+                  <ModelOriginBadge v-if="authStore.isAuthenticated" :badge="vm.origin.primaryBadge" />
                 </div>
+                <p class="mt-0.5 truncate font-mono text-[11px] text-oh-muted">{{ vm.model }}</p>
               </td>
               <td class="px-4 py-3">
-                <div class="flex flex-wrap items-center gap-1.5">
-                  <Badge :tone="priceStateBadge(model).tone" size="xs" variant="subtle">
-                    {{ priceStateBadge(model).label }}
-                  </Badge>
-                  <Badge
-                    v-if="availabilityBadge(model)"
-                    :data-testid="`pricing-availability-badge-${availabilityBadge(model)!.state}`"
-                    :tone="availabilityBadge(model)!.tone"
-                    size="xs"
-                    variant="subtle"
-                    dot
-                  >
-                    {{ availabilityBadge(model)!.label }}
-                  </Badge>
-                </div>
+                <Badge
+                  :tone="vm.billing.modeBadge?.tone ?? 'unknown'"
+                  size="xs"
+                  variant="subtle"
+                >
+                  {{ vm.billing.modeBadge?.label ?? copy.billing.unpriced }}
+                </Badge>
               </td>
-              <td class="px-4 py-3 text-right font-mono tabular-nums text-oh-secondary">
-                {{ formatContextTokens(model.context_tokens) }}
+              <td class="px-4 py-3 font-mono text-xs text-oh-secondary">
+                {{ vm.provider }} · {{ vm.contextDisplay }}
               </td>
-              <td class="px-4 py-3 text-right font-mono tabular-nums text-oh-primary">
-                <span v-if="rateText(model, 'input') !== '—'">{{ rateText(model, 'input') }}</span>
-                <span
-                  v-else-if="referenceRateHint(model, 'input')"
-                  data-testid="pricing-reference-rate-input"
-                  class="text-xs text-oh-secondary"
-                >
-                  {{ referenceRateHint(model, 'input') }}
-                </span>
-                <Tooltip
-                  v-else
-                  :content="isZh ? '该模型未按输入 Token 单列费率，点击查看详情中的分段或按次费率' : 'No per-token input rate declared; open model details for band or request pricing'"
-                  placement="left"
-                >
-                  <RouterLink
-                    :to="`/model-plaza/${encodeURIComponent(model.id)}`"
-                    data-testid="pricing-see-detail-input"
-                    class="oh-focus-ring inline-flex rounded-oh-xs"
-                  >
-                    <Badge tone="unknown" size="xs" variant="subtle">{{ isZh ? '详见模型页' : 'See detail' }}</Badge>
-                  </RouterLink>
-                </Tooltip>
+              <td class="px-4 py-3 text-right">
+                <ModelPriceCell
+                  :billing="vm.billing"
+                  kind="input"
+                  :is-zh="isZh"
+                  :detail-to="`/model-plaza/${encodeURIComponent(vm.id)}`"
+                  see-detail-test-id="pricing-see-detail-input"
+                  reference-test-id="pricing-reference-rate-input"
+                  @retry="load(true)"
+                />
               </td>
-              <td class="px-4 py-3 text-right font-mono tabular-nums text-oh-primary">
-                <span v-if="rateText(model, 'output') !== '—'">{{ rateText(model, 'output') }}</span>
-                <span
-                  v-else-if="referenceRateHint(model, 'output')"
-                  data-testid="pricing-reference-rate-output"
-                  class="text-xs text-oh-secondary"
+              <td class="px-4 py-3 text-right">
+                <ModelPriceCell
+                  :billing="vm.billing"
+                  kind="output"
+                  :is-zh="isZh"
+                  :detail-to="`/model-plaza/${encodeURIComponent(vm.id)}`"
+                  see-detail-test-id="pricing-see-detail-output"
+                  reference-test-id="pricing-reference-rate-output"
+                  @retry="load(true)"
+                />
+              </td>
+              <td class="px-4 py-3 text-right">
+                <button
+                  type="button"
+                  class="oh-focus-ring rounded-oh-sm border px-2.5 py-1 text-xs transition-colors disabled:opacity-40"
+                  :class="
+                    compareSet.has(vm.id)
+                      ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
+                      : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
+                  "
+                  :disabled="!compareSet.has(vm.id) && compareIds.length >= 3"
+                  :aria-pressed="compareSet.has(vm.id)"
+                  @click="toggleCompare(vm.id)"
                 >
-                  {{ referenceRateHint(model, 'output') }}
-                </span>
-                <Tooltip
-                  v-else
-                  :content="isZh ? '该模型未按输出 Token 单列费率，点击查看详情中的分段或按次费率' : 'No per-token output rate declared; open model details for band or request pricing'"
-                  placement="left"
-                >
-                  <RouterLink
-                    :to="`/model-plaza/${encodeURIComponent(model.id)}`"
-                    data-testid="pricing-see-detail-output"
-                    class="oh-focus-ring inline-flex rounded-oh-xs"
-                  >
-                    <Badge tone="unknown" size="xs" variant="subtle">{{ isZh ? '详见模型页' : 'See detail' }}</Badge>
-                  </RouterLink>
-                </Tooltip>
+                  {{ compareSet.has(vm.id) ? (isZh ? '已加入对比' : 'In compare') : (isZh ? '+ 加入对比' : '+ Compare') }}
+                </button>
               </td>
             </tr>
           </tbody>
@@ -971,53 +770,66 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <RouterLink
-          v-for="model in models"
-          :key="model.id"
-          :to="`/model-plaza/${encodeURIComponent(model.id)}`"
-          class="oh-focus-ring group flex flex-col justify-between rounded-oh-md border border-oh-default bg-oh-surface p-4 transition-colors hover:border-oh-strong"
+        <div
+          v-for="vm in displayedViewModels"
+          :key="vm.id"
+          class="flex flex-col justify-between rounded-oh-md border border-oh-default bg-oh-surface p-4 transition-colors hover:border-oh-strong"
         >
           <div class="flex flex-col gap-2">
             <div class="min-w-0">
-              <p class="truncate font-medium text-oh-primary group-hover:text-oh-accent-text">
-                {{ model.display_name || model.model }}
-              </p>
+              <RouterLink
+                :to="`/model-plaza/${encodeURIComponent(vm.id)}`"
+                class="oh-focus-ring block truncate font-medium text-oh-primary hover:text-oh-accent-text"
+              >
+                {{ vm.displayName }}
+              </RouterLink>
               <p class="mt-0.5 truncate font-mono text-[11px] text-oh-muted">
-                {{ publicValue(model.provider, isZh ? '未声明' : 'Undeclared') }} · {{ formatContextTokens(model.context_tokens) }}
+                {{ vm.provider }} · {{ vm.contextDisplay }}
               </p>
             </div>
             <div class="flex flex-wrap items-center gap-1.5">
-              <Badge :tone="priceStateBadge(model).tone" size="xs" variant="subtle">
-                {{ priceStateBadge(model).label }}
+              <Badge :tone="vm.billing.modeBadge?.tone ?? 'unknown'" size="xs" variant="subtle">
+                {{ vm.billing.modeBadge?.label ?? copy.billing.unpriced }}
               </Badge>
-              <Badge
-                v-if="availabilityBadge(model)"
-                :tone="availabilityBadge(model)!.tone"
-                size="xs"
-                variant="subtle"
-                dot
-              >
-                {{ availabilityBadge(model)!.label }}
-              </Badge>
+              <ModelStatusBadge
+                :badge="vm.availability.badge"
+                test-id-prefix="pricing-card-availability-badge"
+              />
+              <ModelOriginBadge v-if="authStore.isAuthenticated" :badge="vm.origin.primaryBadge" />
             </div>
           </div>
-          <dl class="mt-4 grid grid-cols-2 gap-3 border-t border-oh-subtle pt-3 font-mono text-xs tabular-nums">
+          <div class="mt-4 grid grid-cols-2 gap-3 border-t border-oh-subtle pt-3">
             <div>
-              <dt class="text-[10px] uppercase text-oh-muted">{{ isZh ? '输入 / 1M' : 'Input / 1M' }}</dt>
-              <dd class="mt-1 text-sm font-semibold text-oh-primary">
-                {{ rateText(model, 'input') !== '—' ? rateText(model, 'input') : (referenceRateHint(model, 'input') ?? '—') }}
-              </dd>
+              <p class="font-mono text-[10px] uppercase text-oh-muted">{{ isZh ? '输入 / 1M' : 'Input / 1M' }}</p>
+              <div class="mt-1 flex justify-start">
+                <ModelPriceCell
+                  :billing="vm.billing"
+                  kind="input"
+                  :is-zh="isZh"
+                  compact
+                  @retry="load(true)"
+                />
+              </div>
             </div>
             <div>
-              <dt class="text-[10px] uppercase text-oh-muted">{{ isZh ? '输出 / 1M' : 'Output / 1M' }}</dt>
-              <dd class="mt-1 text-sm font-semibold text-oh-primary">
-                {{ rateText(model, 'output') !== '—' ? rateText(model, 'output') : (referenceRateHint(model, 'output') ?? '—') }}
-              </dd>
+              <p class="font-mono text-[10px] uppercase text-oh-muted">{{ isZh ? '输出 / 1M' : 'Output / 1M' }}</p>
+              <div class="mt-1 flex justify-start">
+                <ModelPriceCell
+                  :billing="vm.billing"
+                  kind="output"
+                  :is-zh="isZh"
+                  compact
+                  @retry="load(true)"
+                />
+              </div>
             </div>
-          </dl>
-        </RouterLink>
+          </div>
+        </div>
       </div>
 
+    </template>
+
+    <template v-if="!loading && !error">
       <ErrorState
         v-if="paginationError"
         compact
@@ -1048,5 +860,53 @@ onBeforeUnmount(() => {
         </Button>
       </div>
     </template>
+
+    <section
+      v-if="compareIds.length > 0"
+      data-testid="models-compare-tray"
+      class="sticky bottom-4 z-20 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-oh-md border border-oh-accent/50 bg-oh-surface/95 px-4 py-2.5 shadow-lg backdrop-blur"
+      role="region"
+      :aria-label="isZh ? '快捷模型对比栏' : 'Quick model comparison bar'"
+    >
+      <div class="flex min-w-0 flex-wrap items-center gap-2 text-xs">
+        <span class="font-mono font-semibold text-oh-accent-text">
+          {{ isZh ? `已选对比 (${compareIds.length}/3)` : `Compare tray (${compareIds.length}/3)` }}
+        </span>
+        <span
+          v-for="selectedId in compareIds"
+          :key="selectedId"
+          class="inline-flex max-w-full items-center gap-1.5 rounded-full border border-oh-default bg-oh-surface px-2.5 py-0.5 text-xs text-oh-primary"
+        >
+          <span class="max-w-[12rem] truncate">{{ compareLabel(selectedId) }}</span>
+          <button
+            type="button"
+            class="oh-focus-ring rounded-full px-0.5 font-mono text-oh-muted hover:text-oh-primary"
+            :aria-label="isZh ? `从对比移除 ${compareLabel(selectedId)}` : `Remove ${compareLabel(selectedId)} from comparison`"
+            @click="toggleCompare(selectedId)"
+          >
+            ×
+          </button>
+        </span>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          class="oh-focus-ring rounded-oh-xs text-xs text-oh-secondary hover:text-oh-primary hover:underline"
+          @click="clearCompare"
+        >
+          {{ isZh ? '清空' : 'Clear' }}
+        </button>
+        <RouterLink
+          :to="{ path: '/model-plaza/compare', query: { ids: compareIds.join(',') } }"
+          class="oh-focus-ring inline-flex h-8 items-center rounded-oh-md bg-[var(--oh-accent,#f59e0b)] px-3 text-xs font-semibold text-slate-950 transition-opacity hover:opacity-90"
+        >
+          {{
+            compareIds.length >= 2
+              ? (isZh ? `横向对比 (${compareIds.length}) →` : `Compare (${compareIds.length}) →`)
+              : (isZh ? '进入对比页添加更多 →' : 'Open Compare →')
+          }}
+        </RouterLink>
+      </div>
+    </section>
   </PublicShell>
 </template>

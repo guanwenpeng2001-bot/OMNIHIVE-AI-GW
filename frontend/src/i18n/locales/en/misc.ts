@@ -157,13 +157,13 @@ export default {
     admin: {
       welcome: {
         title: 'Welcome to OmniHive Workbench',
-        description: '<div style="line-height: 1.75;"><p style="margin-bottom: 14px;">OmniHive is a unified AI compute & model routing gateway that lets you orchestrate upstream accounts and distribute API access from one console.</p><p style="margin-bottom: 10px;"><b>Core Capabilities:</b></p><ul style="margin-left: 18px; margin-bottom: 14px;"><li><b>Routing Groups</b> — Organize pools by protocol & SLA</li><li><b>Account Pool</b> — Connect upstream accounts with automatic failover</li><li><b>API Keys</b> — Issue scoped credentials with quota guardrails</li><li><b>Billing & Ledger</b> — Multipliers, subscriptions, and live telemetry</li></ul><p style="color: var(--brand-text, #92610a); font-weight: 600;">Complete your initial gateway setup in 3 minutes →</p></div>',
+        description: '<div style="line-height: 1.75;"><p style="margin-bottom: 14px;">OmniHive is a unified AI compute & model routing gateway that lets you orchestrate upstream connections and distribute API access from one console.</p><p style="margin-bottom: 10px;"><b>Core Capabilities:</b></p><ul style="margin-left: 18px; margin-bottom: 14px;"><li><b>Routing Groups</b> — Organize pools by protocol & SLA</li><li><b>Account Pool</b> — Connect upstream connections with automatic failover</li><li><b>API Keys</b> — Issue scoped credentials with quota guardrails</li><li><b>Billing & Ledger</b> — Multipliers, subscriptions, and live telemetry</li></ul><p style="color: var(--brand-text, #92610a); font-weight: 600;">Complete your initial gateway setup in 3 minutes →</p></div>',
         nextBtn: 'Start Setup →',
         prevBtn: 'Skip'
       },
       groupManage: {
-        title: '01 · Group Management',
-        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 10px;"><b>What is a Group?</b></p><p style="margin-bottom: 10px;">Groups are the core routing pools in OmniHive:</p><ul style="margin-left: 18px; margin-bottom: 12px; font-size: 13px;"><li>Each group aggregates multiple upstream accounts</li><li>Independent billing multiplier & model access rules</li><li>Public or exclusive access visibility</li></ul><p style="margin-top: 12px; padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 6px; font-size: 12.5px;"><b>Tip:</b> Create separate pools for production SLA and high-throughput workloads</p><p style="margin-top: 14px; color: var(--brand-text, #92610a); font-weight: 600;">Click "Group Management" on the left sidebar →</p></div>'
+        title: '01 · Routing Groups',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 10px;"><b>What is a Group?</b></p><p style="margin-bottom: 10px;">Groups are the core routing pools in OmniHive:</p><ul style="margin-left: 18px; margin-bottom: 12px; font-size: 13px;"><li>Each group aggregates multiple upstream connections</li><li>Independent billing multiplier & model access rules</li><li>Public or exclusive access visibility</li></ul><p style="margin-top: 12px; padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 6px; font-size: 12.5px;"><b>Tip:</b> Create separate pools for production SLA and high-throughput workloads</p><p style="margin-top: 14px; color: var(--brand-text, #92610a); font-weight: 600;">Click "Routing Groups" on the left sidebar →</p></div>'
       },
       createGroup: {
         title: '➕ Create New Group',
@@ -191,7 +191,7 @@ export default {
       },
       groupSubmit: {
         title: '✅ Save Group',
-        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Confirm the information and click create to save the group.</p><p style="padding: 8px 12px; background: color-mix(in srgb, var(--brand, #f59e0b) 12%, var(--surface-2, #f4f4f5)); border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>⚠️ Note:</b> Platform type cannot be changed after creation, but other settings can be edited anytime</p><p style="padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 4px; font-size: 13px;"><b>📌 Next Step:</b> After creation, we\'ll add upstream accounts to this group</p><p style="margin-top: 12px; color: var(--brand-text, #92610a); font-weight: 600;">👉 Click "Create" button</p></div>'
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Confirm the information and click create to save the group.</p><p style="padding: 8px 12px; background: color-mix(in srgb, var(--brand, #f59e0b) 12%, var(--surface-2, #f4f4f5)); border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>⚠️ Note:</b> Platform type cannot be changed after creation, but other settings can be edited anytime</p><p style="padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 4px; font-size: 13px;"><b>📌 Next Step:</b> After creation, we\'ll add upstream connections to this group</p><p style="margin-top: 12px; color: var(--brand-text, #92610a); font-weight: 600;">👉 Click "Create" button</p></div>'
       },
       accountManage: {
         title: '🔗 Step 2: Add Account',
@@ -199,7 +199,7 @@ export default {
       },
       createAccount: {
         title: '➕ Add New Account',
-        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Click the button to start adding your first upstream account.</p><p style="padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 4px; font-size: 13px;"><b>💡 Tip:</b> Recommend using OAuth method - more secure and no manual key extraction needed</p><p style="margin-top: 12px; color: var(--brand-text, #92610a); font-weight: 600;">👉 Click "Add Account" button</p></div>'
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Click the button to start adding your first upstream connection.</p><p style="padding: 8px 12px; background: var(--surface-2, #f4f4f5); border-left: 3px solid var(--brand, #f59e0b); border-radius: 4px; font-size: 13px;"><b>💡 Tip:</b> Recommend using OAuth method - more secure and no manual key extraction needed</p><p style="margin-top: 12px; color: var(--brand-text, #92610a); font-weight: 600;">👉 Click "Add Account" button</p></div>'
       },
       accountName: {
         title: '✏️ 1. Account Name',

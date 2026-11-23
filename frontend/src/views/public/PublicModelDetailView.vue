@@ -13,14 +13,23 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import ErrorState from '@/components/ui/ErrorState.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
 import Tooltip from '@/components/ui/Tooltip.vue'
+import ModelOriginBadge from '@/components/catalog/ModelOriginBadge.vue'
+import ModelPriceCell from '@/components/catalog/ModelPriceCell.vue'
+import ModelStatusBadge from '@/components/catalog/ModelStatusBadge.vue'
 import type { UiTone } from '@/components/ui/types'
 import { useAppStore } from '@/stores'
+import { getCatalogCopy } from '@/features/catalog/copy'
 import {
-  availabilityStateLabel,
-  availabilityStateTone,
+  resolveDetailProvenanceMap,
+  toCatalogModelVM
+} from '@/features/catalog/viewModel'
+import {
   evidenceStateLabel,
   extractDisplayModalities,
+  formatCatalogOriginLabel,
   formatContextTokens,
+  formatMetricsSource,
+  formatMetricsWindow,
   formatPriceSourceLabel,
   formatPublicTimestamp,
   formatRateBandKind,
@@ -31,11 +40,7 @@ import {
   metricsStateReason,
   modalityLabel,
   modalityTone,
-  publicTokenPrice,
-  publicValue,
-  resolveAvailabilityState,
-  routeStateLabel,
-  routeStateTone
+  publicValue
 } from '@/features/public/format'
 import { getPublicModel, type PublicModelDetail } from '@/features/public/api'
 
@@ -51,6 +56,7 @@ interface FactRow {
 
 const { locale } = useI18n()
 const isZh = computed(() => String(locale?.value ?? '').startsWith('zh'))
+const copy = computed(() => getCatalogCopy(isZh.value))
 const route = useRoute()
 let appStore: ReturnType<typeof useAppStore> | null = null
 try {
@@ -60,11 +66,21 @@ try {
 }
 const detail = ref<PublicModelDetail | null>(null)
 const model = computed(() => detail.value?.model)
+const modelVm = computed(() =>
+  model.value
+    ? toCatalogModelVM(model.value, detail.value, {
+        isZh: isZh.value,
+        perspective: 'public'
+      })
+    : null
+)
+const provenanceMap = computed(() => resolveDetailProvenanceMap(detail.value, isZh.value))
 let request = 0
 let activeAbortController: AbortController | null = null
 const loading = ref(true)
 const error = ref<unknown>(null)
 const snippetTab = ref<'curl' | 'ts' | 'python'>('curl')
+const quickstartExpanded = ref(true)
 const showUndeclaredDetails = ref(false)
 
 const siteName = computed(() => {
@@ -95,6 +111,12 @@ const compareRouteTarget = computed(() => ({
 const primaryFact = computed(() => {
   const list = detail.value?.model_facts ?? []
   return list.find((entry) => entry.state === 'fresh') ?? list[0] ?? null
+})
+
+const commonFact = computed(() => {
+  const raw = detail.value?.common_facts
+  if (!raw) return null
+  return Array.isArray(raw) ? (raw[0] ?? null) : raw
 })
 
 const gatewayOrigin = computed(() => {
@@ -386,7 +408,7 @@ function boolFactRow(key: string, label: string, val?: boolean | null, source?: 
     badge: isZh.value ? '未声明' : 'Undeclared',
     badgeTone: 'unknown',
     undeclared: true,
-    sourceNote: isZh.value ? '模型注册表与上游观测尚未声明此能力' : 'Not declared by model registry or upstream verification'
+    sourceNote: isZh.value ? '模型目录与上游观测尚未声明此能力' : 'Not declared by the model catalog or upstream verification'
   }
 }
 
@@ -429,6 +451,9 @@ const trainingGovernance = computed<FactRow>(() => {
   const declared = endpoints.find((ep) => ep.training && ep.training !== 'unknown')
   if (declared) {
     const noTrain = isNoTrainingDeclaration(declared.training)
+    const privacySourceLabel = declared.privacy_evidence?.source
+      ? formatCatalogOriginLabel(declared.privacy_evidence.source, isZh.value)
+      : null
     return {
       key: 'training',
       label: isZh.value ? '请求数据用于训练' : 'Training on data',
@@ -436,8 +461,8 @@ const trainingGovernance = computed<FactRow>(() => {
         ? (isZh.value ? `不用于训练 (${declared.training})` : `Not trained (${declared.training})`)
         : declared.training,
       badgeTone: noTrain ? 'success' : 'warning',
-      sourceNote: declared.privacy_evidence?.source
-        ? (isZh.value ? `证据来源：${declared.privacy_evidence.source}` : `Source: ${declared.privacy_evidence.source}`)
+      sourceNote: privacySourceLabel
+        ? (isZh.value ? `证据来源：${privacySourceLabel}` : `Source: ${privacySourceLabel}`)
         : (isZh.value ? `来自上游端点 (${declared.provider})` : `Declared on endpoint (${declared.provider})`)
     }
   }
@@ -455,13 +480,14 @@ const trainingGovernance = computed<FactRow>(() => {
 
 const stabilityGovernance = computed<FactRow>(() => {
   const rawMaturity =
-    (model.value?.maturity && model.value.maturity !== 'unknown' ? model.value.maturity : null) ||
-    (primaryFact.value?.maturity && primaryFact.value.maturity !== 'unknown' ? primaryFact.value.maturity : null) ||
-    detail.value?.compatibility?.find((c) => c.maturity && c.maturity !== 'unknown')?.maturity ||
+    (model.value?.maturity && String(model.value.maturity) !== 'unknown' ? model.value.maturity : null) ||
+    (primaryFact.value?.maturity && String(primaryFact.value.maturity) !== 'unknown' ? primaryFact.value.maturity : null) ||
+    detail.value?.compatibility?.find((c) => c.maturity && String(c.maturity) !== 'unknown')?.maturity ||
     null
 
   if (rawMaturity) {
-    const src = primaryFact.value?.source || detail.value?.compatibility?.[0]?.adapter_version
+    const rawSrc = primaryFact.value?.source || detail.value?.compatibility?.[0]?.adapter_version
+    const src = rawSrc ? formatCatalogOriginLabel(rawSrc, isZh.value) : null
     return {
       key: 'stability',
       label: isZh.value ? '稳定性与生命周期' : 'Stability & Maturity',
@@ -486,11 +512,46 @@ const stabilityGovernance = computed<FactRow>(() => {
 
 const facts = computed<FactRow[]>(() => {
   const fact = primaryFact.value
-  const ctxTokens = fact?.context_tokens || model.value?.context_tokens
-  const modalities = fact?.modalities?.length ? fact.modalities : (model.value?.modalities ?? [])
-  const sourceHint = fact?.source
-    ? (isZh.value ? `来源：${fact.source} (${evidenceStateLabel(fact.state, true)})` : `Source: ${fact.source} (${evidenceStateLabel(fact.state, false)})`)
+  const consensus = commonFact.value
+  const ctxTokens = consensus?.context_tokens ?? fact?.context_tokens ?? model.value?.context_tokens
+  const maxOutputTokens = consensus?.max_output_tokens ?? fact?.max_output_tokens
+  const modalities = consensus?.modalities?.length
+    ? consensus.modalities
+    : fact?.modalities?.length
+      ? fact.modalities
+      : (model.value?.modalities ?? [])
+  const contextKind = consensus?.context_kind || fact?.context_kind
+  const toolsSupport = consensus?.tools ?? fact?.tools
+  const reasoningSupport = consensus?.reasoning ?? fact?.reasoning
+  const visionSupport = consensus?.vision ?? fact?.vision
+  const cachingSupport = consensus?.prompt_caching ?? fact?.prompt_caching
+  const formattedFactSource = fact?.source
+    ? formatCatalogOriginLabel(fact.source, isZh.value)
+    : null
+  const factObserved = fact?.observed_at ? formatPublicTimestamp(fact.observed_at) : null
+  const sourceHint = formattedFactSource
+    ? isZh.value
+      ? `来源：${formattedFactSource} (${evidenceStateLabel(fact?.state, true)})${factObserved && factObserved !== '—' ? ` · 观测于 ${factObserved}` : ''}`
+      : `Source: ${formattedFactSource} (${evidenceStateLabel(fact?.state, false)})${factObserved && factObserved !== '—' ? ` · Observed ${factObserved}` : ''}`
     : undefined
+
+  function provHint(field: string, fallbackNote?: string): string | undefined {
+    const prov = provenanceMap.value[field]
+    if (prov) {
+      const datePart = prov.observedAt ? formatPublicTimestamp(prov.observedAt) : null
+      const stateSuffix =
+        prov.state === 'stale'
+          ? (isZh.value ? ' · 资料较旧' : ' · Stale')
+          : prov.state === 'conflict'
+            ? (isZh.value ? ' · 多源差异' : ' · Conflict')
+            : ''
+      const base = isZh.value
+        ? `来源：${prov.sourceLabel}${datePart && datePart !== '—' ? ` · 观测于 ${datePart}` : ''}${stateSuffix}`
+        : `Source: ${prov.sourceLabel}${datePart && datePart !== '—' ? ` · Observed ${datePart}` : ''}${stateSuffix}`
+      return fallbackNote ? `${base} · ${fallbackNote}` : base
+    }
+    return fallbackNote ?? sourceHint
+  }
 
   return [
     {
@@ -500,15 +561,19 @@ const facts = computed<FactRow[]>(() => {
       badge: ctxTokens ? undefined : (isZh.value ? '未声明' : 'Undeclared'),
       badgeTone: 'unknown',
       undeclared: !ctxTokens,
-      sourceNote: detail.value?.context_basis || (fact?.context_kind ? `basis: ${fact.context_kind}` : undefined)
+      sourceNote: provHint(
+        'context_tokens',
+        detail.value?.context_basis || (contextKind ? `basis: ${contextKind}` : undefined)
+      )
     },
     {
       key: 'max_output',
       label: isZh.value ? '最大输出长度' : 'Max output tokens',
-      value: fact?.max_output_tokens ? `${Number(fact.max_output_tokens).toLocaleString()} tokens` : undefined,
-      badge: fact?.max_output_tokens ? undefined : (isZh.value ? '未声明' : 'Undeclared'),
+      value: maxOutputTokens ? `${Number(maxOutputTokens).toLocaleString()} tokens` : undefined,
+      badge: maxOutputTokens ? undefined : (isZh.value ? '未声明' : 'Undeclared'),
       badgeTone: 'unknown',
-      undeclared: !fact?.max_output_tokens
+      undeclared: !maxOutputTokens,
+      sourceNote: provHint('max_output_tokens')
     },
     {
       key: 'modalities',
@@ -516,12 +581,13 @@ const facts = computed<FactRow[]>(() => {
       value: modalities.length ? modalities.join(', ') : undefined,
       badge: modalities.length ? undefined : (isZh.value ? '未声明' : 'Undeclared'),
       badgeTone: 'unknown',
-      undeclared: modalities.length === 0
+      undeclared: modalities.length === 0,
+      sourceNote: provHint('modalities')
     },
-    boolFactRow('tools', isZh.value ? '工具 / 函数调用 (Tools)' : 'Tool / Function Calling', fact?.tools, sourceHint),
-    boolFactRow('reasoning', isZh.value ? '深度推理 (Reasoning)' : 'Reasoning / Thinking', fact?.reasoning, sourceHint),
-    boolFactRow('vision', isZh.value ? '视觉输入 (Vision)' : 'Vision Input', fact?.vision, sourceHint),
-    boolFactRow('caching', isZh.value ? '提示词缓存 (Prompt Caching)' : 'Prompt Caching', fact?.prompt_caching, sourceHint),
+    boolFactRow('tools', isZh.value ? '工具 / 函数调用 (Tools)' : 'Tool / Function Calling', toolsSupport, provHint('tools')),
+    boolFactRow('reasoning', isZh.value ? '深度推理 (Reasoning)' : 'Reasoning / Thinking', reasoningSupport, provHint('reasoning')),
+    boolFactRow('vision', isZh.value ? '视觉输入 (Vision)' : 'Vision Input', visionSupport, provHint('vision')),
+    boolFactRow('caching', isZh.value ? '提示词缓存 (Prompt Caching)' : 'Prompt Caching', cachingSupport, provHint('prompt_caching')),
     trainingGovernance.value,
     stabilityGovernance.value
   ]
@@ -533,67 +599,13 @@ const shouldCompactUndeclared = computed(() => undeclaredFacts.value.length >= 2
 const visibleFacts = computed(() => (shouldCompactUndeclared.value ? declaredFacts.value : facts.value))
 
 const detailModalities = computed(() => {
+  const consensusMods = commonFact.value?.modalities?.length ? commonFact.value.modalities : null
   const factMods = primaryFact.value?.modalities?.length ? primaryFact.value.modalities : null
   return extractDisplayModalities({
-    modalities: factMods ?? model.value?.modalities,
-    actions: model.value?.actions
+    modalities: consensusMods ?? factMods ?? model.value?.modalities ?? [],
+    actions: model.value?.actions ?? []
   })
 })
-
-const detailAvailability = computed(() => {
-  const state = resolveAvailabilityState(model.value)
-  if (state === 'unknown') return null
-  return {
-    state,
-    label: availabilityStateLabel(state, isZh.value),
-    tone: availabilityStateTone(state)
-  }
-})
-
-const activeReferencePrice = computed(() => detail.value?.reference_price ?? model.value?.reference_price ?? null)
-
-function hasLiveRate(kind: 'input' | 'output'): boolean {
-  if (model.value?.price_state === 'free') return true
-  return Boolean(kind === 'input' ? model.value?.input_rate : model.value?.output_rate)
-}
-
-function referencePriceSubtitle(kind: 'input' | 'output'): string | null {
-  const refRate =
-    kind === 'input' ? activeReferencePrice.value?.input_rate : activeReferencePrice.value?.output_rate
-  if (!refRate) return null
-  const source = activeReferencePrice.value?.source?.trim()
-  if (hasLiveRate(kind)) {
-    const formatted = publicTokenPrice(refRate, 'adaptive', isZh.value)
-    if (!formatted || formatted === '—') return null
-    if (source) {
-      return isZh.value
-        ? `参考定价 · ${formatted}（${source}）`
-        : `Reference price · ${formatted} (${source})`
-    }
-    return isZh.value ? `参考定价 · ${formatted}` : `Reference price · ${formatted}`
-  }
-  if (source) {
-    return isZh.value
-      ? `参考来源：${source}（非最终结算价）`
-      : `Reference source: ${source} (indicative only)`
-  }
-  return isZh.value ? '公开参考价，非最终结算价' : 'Indicative reference price, not final billing rate'
-}
-
-function displayPrice(kind: 'input' | 'output'): string {
-  if (model.value?.price_state === 'free') return isZh.value ? '免费' : 'Free'
-  const rate = kind === 'input' ? model.value?.input_rate : model.value?.output_rate
-  if (rate) return publicTokenPrice(rate, 'adaptive', isZh.value)
-  const refRate = kind === 'input' ? activeReferencePrice.value?.input_rate : activeReferencePrice.value?.output_rate
-  if (refRate) {
-    const formatted = publicTokenPrice(refRate, 'adaptive', isZh.value)
-    return isZh.value ? `参考 ${formatted}` : `Ref ${formatted}`
-  }
-  if (detailAvailability.value?.state === 'catalog_only') {
-    return isZh.value ? '按需接入' : 'On demand'
-  }
-  return publicTokenPrice(rate, 'adaptive', isZh.value)
-}
 
 function syncDetailSeo(): void {
   const loaded = detail.value?.model
@@ -625,6 +637,11 @@ async function load(): Promise<void> {
     const response = await getPublicModel(modelId.value, undefined, { signal: controller.signal })
     if (currentRequest === request) {
       detail.value = response
+      const vm = toCatalogModelVM(response.model, response, {
+        isZh: isZh.value,
+        perspective: 'public'
+      })
+      quickstartExpanded.value = vm.availability.isCallable
       syncDetailSeo()
     }
   } catch (err) {
@@ -669,32 +686,24 @@ onBeforeUnmount(() => {
       @retry="load()"
     />
 
-    <template v-else-if="model">
+    <template v-else-if="model && modelVm">
+      <!-- 1. Header + Plain-Language Availability Summary -->
       <header class="flex flex-wrap items-start justify-between gap-4 border-b border-oh-default pb-6">
         <div class="min-w-0 space-y-2">
           <div class="flex flex-wrap items-center gap-2">
             <span class="font-mono text-xs uppercase tracking-[0.18em] text-oh-muted">
               {{ publicValue(model.provider, isZh ? '未声明供应商' : 'Undeclared Provider') }}
             </span>
-            <Badge
-              v-if="detailAvailability"
-              :data-testid="`detail-availability-badge-${detailAvailability.state}`"
-              :tone="detailAvailability.tone"
+            <ModelStatusBadge
+              :badge="modelVm.availability.badge"
               size="xs"
-              variant="subtle"
-              dot
-            >
-              {{ detailAvailability.label }}
-            </Badge>
-            <Badge
-              v-else
-              :tone="routeStateTone(model.route_state)"
+              test-id-prefix="detail-availability-badge"
+            />
+            <ModelOriginBadge
+              :badges="modelVm.origin.badges"
+              show-all
               size="xs"
-              variant="subtle"
-              dot
-            >
-              {{ routeStateLabel(model.route_state, isZh) }}
-            </Badge>
+            />
             <Badge :tone="maturityTone(model.maturity)" size="xs" variant="outline">
               {{ maturityLabel(model.maturity, isZh) }}
             </Badge>
@@ -710,8 +719,11 @@ onBeforeUnmount(() => {
             </Badge>
           </div>
           <h1 class="break-words text-3xl font-semibold tracking-tight text-oh-primary">
-            {{ model.display_name || model.model }}
+            {{ modelVm.displayName }}
           </h1>
+          <p data-testid="detail-availability-summary" class="max-w-[68ch] text-sm text-oh-secondary">
+            {{ modelVm.availability.summarySentence }}
+          </p>
           <div class="flex flex-wrap items-center gap-2">
             <code
               v-if="model.display_name && model.display_name !== model.model"
@@ -727,16 +739,6 @@ onBeforeUnmount(() => {
               variant="secondary"
               :aria-label="isZh ? '复制调用模型名' : 'Copy model identifier'"
             />
-          </div>
-          <div v-if="detail?.aliases?.length" class="flex flex-wrap items-center gap-1.5 pt-1">
-            <span class="font-mono text-[11px] text-oh-muted">{{ isZh ? '支持别名：' : 'Aliases:' }}</span>
-            <span
-              v-for="alias in detail.aliases"
-              :key="alias"
-              class="rounded-oh-xs border border-oh-subtle px-1.5 py-0.5 font-mono text-[11px] text-oh-secondary"
-            >
-              {{ alias }}
-            </span>
           </div>
         </div>
         <div class="flex flex-wrap items-center gap-2">
@@ -758,146 +760,92 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <section class="grid gap-4 py-6 sm:grid-cols-2 lg:grid-cols-4">
-        <div class="rounded-oh-md border border-oh-default bg-oh-surface p-4">
-          <p class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
-            {{ isZh ? '输入单价 / 1M Tokens' : 'Input / 1M' }}
-          </p>
-          <p class="mt-2 font-mono text-lg font-semibold tabular-nums text-oh-primary">
-            {{ displayPrice('input') }}
-          </p>
-          <p v-if="referencePriceSubtitle('input')" class="mt-1 text-xs text-oh-muted">
-            {{ referencePriceSubtitle('input') }}
-          </p>
-          <p v-if="detail?.price_source" class="mt-1 font-mono text-[11px] text-oh-muted">
-            {{ isZh ? `定价源：${formatPriceSourceLabel(detail.price_source, true)}` : `Source: ${formatPriceSourceLabel(detail.price_source, false)}` }}
-          </p>
-        </div>
-
-        <div class="rounded-oh-md border border-oh-default bg-oh-surface p-4">
-          <p class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
-            {{ isZh ? '输出单价 / 1M Tokens' : 'Output / 1M' }}
-          </p>
-          <p class="mt-2 font-mono text-lg font-semibold tabular-nums text-oh-primary">
-            {{ displayPrice('output') }}
-          </p>
-          <p v-if="referencePriceSubtitle('output')" class="mt-1 text-xs text-oh-muted">
-            {{ referencePriceSubtitle('output') }}
-          </p>
-          <p v-if="detail?.price_version" class="mt-1 truncate font-mono text-[11px] text-oh-muted" :title="detail.price_version">
-            {{ isZh ? `费率快照 ${formatShortVersion(detail.price_version)}` : `Snapshot ${formatShortVersion(detail.price_version)}` }}
-          </p>
-        </div>
-
-        <div class="rounded-oh-md border border-oh-default bg-oh-surface p-4">
-          <p class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
-            {{ isZh ? '实测中位首字延迟 (P50 TTFT)' : 'Observed TTFT (P50)' }}
-          </p>
-          <div class="mt-2 flex items-center gap-2">
-            <span
-              v-if="detail?.metrics?.ttft_p50_ms != null"
-              class="font-mono text-lg font-semibold tabular-nums text-oh-primary"
-            >
-              {{ detail.metrics.ttft_p50_ms }} ms
+      <!-- 2. Pricing Section (Sale Rate primary vs Reference Price secondary) -->
+      <section data-testid="detail-section-pricing" class="space-y-4 py-6">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h2 class="text-sm font-semibold text-oh-primary">
+            {{ isZh ? '销售定价与参考费率' : 'Pricing & Reference Rates' }}
+          </h2>
+          <div class="flex flex-wrap items-center gap-3 font-mono text-[11px] text-oh-muted">
+            <span v-if="detail?.price_source">
+              {{ isZh ? `定价源：${formatPriceSourceLabel(detail.price_source, true)}` : `Source: ${formatPriceSourceLabel(detail.price_source, false)}` }}
             </span>
-            <Tooltip v-else :content="metricsStateReason(detail?.metrics?.state, isZh)">
-              <Badge tone="unknown" variant="subtle">
-                {{ isZh ? '未观测' : 'Unobserved' }}
-              </Badge>
-            </Tooltip>
-          </div>
-          <p class="mt-1 font-mono text-[11px] text-oh-muted">
-            {{
-              detail?.metrics?.ttft_samples
-                ? (isZh ? `${detail.metrics.ttft_samples} 次有效采样` : `${detail.metrics.ttft_samples} samples`)
-                : metricsStateReason(detail?.metrics?.state, isZh)
-            }}
-          </p>
-        </div>
-
-        <div class="rounded-oh-md border border-oh-default bg-oh-surface p-4">
-          <p class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
-            {{ isZh ? '输出吞吐与成功率' : 'Throughput & Success' }}
-          </p>
-          <div class="mt-2 flex flex-wrap items-baseline gap-2 font-mono tabular-nums">
-            <span
-              v-if="detail?.metrics?.output_tokens_per_second != null"
-              class="text-lg font-semibold text-oh-primary"
-            >
-              {{ detail.metrics.output_tokens_per_second.toFixed(1) }} t/s
-            </span>
-            <Badge v-else tone="unknown" variant="subtle">
-              {{ isZh ? '吞吐未观测' : 'Unobserved' }}
-            </Badge>
-            <span v-if="detail?.metrics?.success_rate != null" class="text-xs text-oh-secondary">
-              · {{ (detail.metrics.success_rate * 100).toFixed(2) }}%
+            <span v-if="detail?.price_version" :title="detail.price_version">
+              {{ isZh ? `费率快照 ${formatShortVersion(detail.price_version)}` : `Snapshot ${formatShortVersion(detail.price_version)}` }}
             </span>
           </div>
-          <p class="mt-1 font-mono text-[11px] text-oh-muted">
-            {{
-              detail?.metrics?.requests
-                ? (isZh ? `统计窗口请求数：${detail.metrics.requests}` : `Window requests: ${detail.metrics.requests}`)
-                : (isZh ? '基于网关真实流量被动观测' : 'Passive gateway traffic observation')
-            }}
-          </p>
         </div>
-      </section>
-
-      <section class="mb-6 min-w-0 max-w-full overflow-x-auto rounded-oh-md border border-oh-default bg-oh-surface">
-        <div
-          v-if="detailAvailability?.state === 'catalog_only'"
-          role="note"
-          class="border-b border-oh-default bg-oh-subtle/60 px-4 py-2.5 text-xs text-oh-secondary"
-        >
-          {{
-            isZh
-              ? '该模型当前为平台目录按需接入状态（Catalog Only），暂未绑定实时上游渠道。以下示例供接入参考，请在控制台联系管理员启用后再发起生产调用。'
-              : 'This model is currently listed as catalog-only (on demand) without an active upstream route. Use the snippet below for reference once an administrator enables routing.'
-          }}
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div class="flex items-start justify-between gap-4 rounded-oh-md border border-oh-default bg-oh-surface p-4">
+            <div>
+              <p class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+                {{ isZh ? '输入单价 / 1M Tokens' : 'Input / 1M' }}
+              </p>
+              <p v-if="modelVm.billing.reasonLabel" class="mt-1.5 text-xs text-oh-muted">
+                {{ modelVm.billing.reasonLabel }}
+              </p>
+            </div>
+            <ModelPriceCell
+              :billing="modelVm.billing"
+              kind="input"
+              :is-zh="isZh"
+              @retry="load()"
+            />
+          </div>
+          <div class="flex items-start justify-between gap-4 rounded-oh-md border border-oh-default bg-oh-surface p-4">
+            <div>
+              <p class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+                {{ isZh ? '输出单价 / 1M Tokens' : 'Output / 1M' }}
+              </p>
+              <p v-if="modelVm.billing.state === 'unpriced' && !modelVm.billing.reasonLabel" class="mt-1.5 text-xs text-oh-muted">
+                {{ copy.billing.unpricedHint }}
+              </p>
+            </div>
+            <ModelPriceCell
+              :billing="modelVm.billing"
+              kind="output"
+              :is-zh="isZh"
+              @retry="load()"
+            />
+          </div>
         </div>
-        <div class="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-oh-default px-4 py-2.5">
-          <div class="flex min-w-0 flex-wrap items-center gap-2">
-            <h2 class="text-xs font-semibold uppercase tracking-wider text-oh-secondary">
-              {{ isZh ? '快速调用示例' : 'Quickstart Integration' }}
-            </h2>
-            <div class="flex min-w-0 flex-wrap items-center gap-1" role="tablist" :aria-label="isZh ? 'SDK 语言切换' : 'SDK language tabs'">
-              <button
-                v-for="tab in [
-                  { id: 'curl', label: 'cURL' },
-                  { id: 'ts', label: 'OpenAI SDK (TS)' },
-                  { id: 'python', label: 'OpenAI SDK (Python)' }
-                ]"
-                :key="tab.id"
-                type="button"
-                role="tab"
-                :aria-selected="snippetTab === tab.id"
-                :class="[
-                  'oh-focus-ring rounded-oh-xs px-2 py-0.5 font-mono text-[11px] transition-colors',
-                  snippetTab === tab.id
-                    ? 'bg-oh-accent-subtle font-semibold text-oh-accent-text'
-                    : 'text-oh-muted hover:text-oh-primary'
-                ]"
-                @click="snippetTab = tab.id as 'curl' | 'ts' | 'python'"
-              >
-                {{ tab.label }}
-              </button>
+        <div v-if="detail?.additional_rates?.length || detail?.time_bands?.length" class="rounded-oh-md border border-oh-default bg-oh-surface">
+          <div class="border-b border-oh-subtle px-4 py-2.5">
+            <h3 class="font-mono text-[11px] font-semibold uppercase tracking-wider text-oh-secondary">
+              {{ isZh ? '阶梯费率与分时折扣' : 'Additional Rate Bands & Time Multipliers' }}
+            </h3>
+          </div>
+          <div class="divide-y divide-oh-subtle">
+            <div
+              v-for="(band, idx) in detail.additional_rates ?? []"
+              :key="`rate-${idx}`"
+              class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-xs"
+            >
+              <div>
+                <span class="font-medium text-oh-primary">{{ formatRateBandKind(band.label || band.kind, isZh) }}</span>
+                <span v-if="band.min_tokens || band.max_tokens" class="ml-2 font-mono text-[11px] text-oh-muted">
+                  [{{ formatContextTokens(band.min_tokens) }} – {{ band.max_tokens ? formatContextTokens(band.max_tokens) : '∞' }}]
+                </span>
+              </div>
+              <span class="font-mono tabular-nums text-oh-primary">{{ formatRateBandPrice(band.rate, isZh) }}</span>
+            </div>
+            <div
+              v-for="(tb, idx) in detail.time_bands ?? []"
+              :key="`tb-${idx}`"
+              class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-xs"
+            >
+              <span class="font-mono text-oh-secondary">
+                {{ tb.start_time }}–{{ tb.end_time }} ({{ tb.timezone }})
+                <template v-if="tb.weekdays_only"> · {{ isZh ? '仅工作日' : 'Weekdays' }}</template>
+              </span>
+              <Badge tone="accent" size="xs" variant="subtle" mono>×{{ tb.multiplier }}</Badge>
             </div>
           </div>
-          <CopyButton
-            :value="integrationSnippet"
-            variant="secondary"
-            :aria-label="isZh ? '复制接入代码' : 'Copy snippet'"
-          />
         </div>
-        <pre
-          class="oh-focus-ring min-w-0 max-w-full overflow-x-auto p-4 font-mono text-xs leading-relaxed text-oh-primary"
-          tabindex="0"
-          role="region"
-          :aria-label="isZh ? '模型调用代码示例' : 'Model API code snippet'"
-        ><code>{{ integrationSnippet }}</code></pre>
       </section>
 
-      <section class="grid gap-6 py-2 lg:grid-cols-2">
+      <!-- 3. Capabilities & Specs Section -->
+      <section data-testid="detail-section-capabilities" class="grid gap-6 py-2 lg:grid-cols-2">
         <div class="min-w-0">
           <div class="flex items-center justify-between gap-2">
             <h2 class="text-sm font-semibold text-oh-primary">
@@ -951,7 +899,7 @@ onBeforeUnmount(() => {
                   class="inline-flex items-center gap-1 rounded-full border border-oh-subtle bg-oh-surface px-2.5 py-0.5 text-[11px] text-oh-muted"
                 >
                   <span>{{ item.label }}</span>
-                  <span class="font-mono text-[10px] opacity-75">· {{ isZh ? '未声明' : 'N/A' }}</span>
+                  <span class="font-mono text-[10px] opacity-75">· —</span>
                 </span>
               </div>
               <div v-if="showUndeclaredDetails" class="mt-3 space-y-2 border-t border-oh-subtle pt-2.5">
@@ -959,7 +907,7 @@ onBeforeUnmount(() => {
                   <span class="font-medium text-oh-secondary">{{ item.label }}:</span>
                   {{
                     item.sourceNote ||
-                    (isZh ? '模型注册表与上游探测尚未提供该字段的核验声明。' : 'Not yet declared by registry or upstream verification.')
+                    (isZh ? '模型目录与上游探测尚未提供该字段的核验声明。' : 'Not yet declared by the model catalog or upstream verification.')
                   }}
                 </div>
               </div>
@@ -1048,63 +996,221 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </div>
-        </div>
-      </section>
-
-      <section
-        v-if="detail?.additional_rates?.length || detail?.time_bands?.length || detail?.benchmarks?.length"
-        class="mt-6 grid gap-6 lg:grid-cols-2"
-      >
-        <div v-if="detail?.additional_rates?.length || detail?.time_bands?.length">
-          <h2 class="text-sm font-semibold text-oh-primary">
-            {{ isZh ? '阶梯费率与分时折扣' : 'Additional Rate Bands & Time Multipliers' }}
-          </h2>
-          <div class="mt-3 divide-y divide-oh-subtle rounded-oh-md border border-oh-default bg-oh-surface">
-            <div
-              v-for="(band, idx) in detail.additional_rates ?? []"
-              :key="`rate-${idx}`"
-              class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-xs"
-            >
-              <div>
-                <span class="font-medium text-oh-primary">{{ formatRateBandKind(band.label || band.kind, isZh) }}</span>
-                <span v-if="band.min_tokens || band.max_tokens" class="ml-2 font-mono text-[11px] text-oh-muted">
-                  [{{ formatContextTokens(band.min_tokens) }} – {{ band.max_tokens ? formatContextTokens(band.max_tokens) : '∞' }}]
+          <div v-if="detail?.benchmarks?.length">
+            <h2 class="text-sm font-semibold text-oh-primary">
+              {{ isZh ? '公开基准评测 (Benchmarks)' : 'Published Benchmarks' }}
+            </h2>
+            <div class="mt-3 divide-y divide-oh-subtle rounded-oh-md border border-oh-default bg-oh-surface">
+              <div
+                v-for="bm in detail.benchmarks"
+                :key="bm.benchmark_id"
+                class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-xs"
+              >
+                <div>
+                  <span class="font-mono font-medium text-oh-primary">{{ bm.benchmark_id }}</span>
+                  <span class="ml-2 text-[11px] text-oh-muted">{{ formatCatalogOriginLabel(bm.source, isZh) }}</span>
+                </div>
+                <span class="font-mono font-semibold tabular-nums text-oh-primary">
+                  {{ bm.value }} {{ bm.unit }}
                 </span>
               </div>
-              <span class="font-mono tabular-nums text-oh-primary">{{ formatRateBandPrice(band.rate, isZh) }}</span>
-            </div>
-            <div
-              v-for="(tb, idx) in detail.time_bands ?? []"
-              :key="`tb-${idx}`"
-              class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-xs"
-            >
-              <span class="font-mono text-oh-secondary">
-                {{ tb.start_time }}–{{ tb.end_time }} ({{ tb.timezone }})
-                <template v-if="tb.weekdays_only"> · {{ isZh ? '仅工作日' : 'Weekdays' }}</template>
-              </span>
-              <Badge tone="accent" size="xs" variant="subtle" mono>×{{ tb.multiplier }}</Badge>
             </div>
           </div>
         </div>
+      </section>
 
-        <div v-if="detail?.benchmarks?.length">
-          <h2 class="text-sm font-semibold text-oh-primary">
-            {{ isZh ? '公开基准评测 (Benchmarks)' : 'Published Benchmarks' }}
-          </h2>
-          <div class="mt-3 divide-y divide-oh-subtle rounded-oh-md border border-oh-default bg-oh-surface">
+      <!-- 4. Quickstart Integration Section (Collapsed by default when not live) -->
+      <section
+        data-testid="detail-section-quickstart"
+        class="mt-6 min-w-0 max-w-full overflow-x-auto rounded-oh-md border border-oh-default bg-oh-surface"
+      >
+        <div
+          v-if="!modelVm.availability.isCallable"
+          data-testid="detail-quickstart-banner"
+          role="note"
+          class="border-b border-oh-default bg-oh-subtle/60 px-4 py-2.5 text-xs text-oh-secondary"
+        >
+          {{ copy.empty.catalogOnlyQuickstartBanner }}
+        </div>
+        <div class="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-oh-default px-4 py-2.5">
+          <div class="flex min-w-0 flex-wrap items-center gap-2">
+            <h2 class="text-xs font-semibold uppercase tracking-wider text-oh-secondary">
+              {{ isZh ? '快速调用示例' : 'Quickstart Integration' }}
+            </h2>
             <div
-              v-for="bm in detail.benchmarks"
-              :key="bm.benchmark_id"
-              class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-xs"
+              v-show="quickstartExpanded"
+              class="flex min-w-0 flex-wrap items-center gap-1"
+              role="tablist"
+              :aria-label="isZh ? 'SDK 语言切换' : 'SDK language tabs'"
             >
-              <div>
-                <span class="font-mono font-medium text-oh-primary">{{ bm.benchmark_id }}</span>
-                <span class="ml-2 text-[11px] text-oh-muted">{{ bm.source }}</span>
-              </div>
-              <span class="font-mono font-semibold tabular-nums text-oh-primary">
-                {{ bm.value }} {{ bm.unit }}
-              </span>
+              <button
+                v-for="tab in [
+                  { id: 'curl', label: 'cURL' },
+                  { id: 'ts', label: 'OpenAI SDK (TS)' },
+                  { id: 'python', label: 'OpenAI SDK (Python)' }
+                ]"
+                :key="tab.id"
+                type="button"
+                role="tab"
+                :aria-selected="snippetTab === tab.id"
+                :class="[
+                  'oh-focus-ring rounded-oh-xs px-2 py-0.5 font-mono text-[11px] transition-colors',
+                  snippetTab === tab.id
+                    ? 'bg-oh-accent-subtle font-semibold text-oh-accent-text'
+                    : 'text-oh-muted hover:text-oh-primary'
+                ]"
+                @click="snippetTab = tab.id as 'curl' | 'ts' | 'python'"
+              >
+                {{ tab.label }}
+              </button>
             </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="detail-quickstart-toggle"
+              class="oh-focus-ring rounded-oh-xs border border-oh-default px-2.5 py-1 font-mono text-[11px] text-oh-secondary hover:border-oh-strong hover:text-oh-primary"
+              :aria-expanded="quickstartExpanded"
+              @click="quickstartExpanded = !quickstartExpanded"
+            >
+              {{
+                quickstartExpanded
+                  ? (isZh ? '收起示例' : 'Collapse snippet')
+                  : (isZh ? '展开参考示例' : 'Expand reference snippet')
+              }}
+            </button>
+            <CopyButton
+              v-show="quickstartExpanded"
+              :value="integrationSnippet"
+              variant="secondary"
+              :aria-label="isZh ? '复制接入代码' : 'Copy snippet'"
+            />
+          </div>
+        </div>
+        <pre
+          v-show="quickstartExpanded"
+          class="oh-focus-ring min-w-0 max-w-full overflow-x-auto p-4 font-mono text-xs leading-relaxed text-oh-primary"
+          tabindex="0"
+          role="region"
+          :aria-label="isZh ? '模型调用代码示例' : 'Model API code snippet'"
+        ><code>{{ integrationSnippet }}</code></pre>
+      </section>
+
+      <!-- 5. Lifecycle & Aliases Section -->
+      <section data-testid="detail-section-lifecycle" class="mt-6 rounded-oh-md border border-oh-default bg-oh-surface p-4">
+        <h2 class="text-sm font-semibold text-oh-primary">
+          {{ isZh ? '生命周期与别名映射' : 'Lifecycle & Aliases' }}
+        </h2>
+        <dl class="mt-3 grid gap-4 text-xs sm:grid-cols-3">
+          <div>
+            <dt class="font-mono text-[11px] uppercase text-oh-muted">{{ isZh ? '成熟度 / 状态' : 'Maturity' }}</dt>
+            <dd class="mt-1">
+              <Badge :tone="maturityTone(model.maturity)" size="xs" variant="outline">
+                {{ maturityLabel(model.maturity, isZh) }}
+              </Badge>
+            </dd>
+          </div>
+          <div>
+            <dt class="font-mono text-[11px] uppercase text-oh-muted">{{ isZh ? '规范模型 ID' : 'Canonical ID' }}</dt>
+            <dd class="mt-1 break-all font-mono text-oh-primary">{{ modelVm.canonicalId || modelVm.id }}</dd>
+          </div>
+          <div>
+            <dt class="font-mono text-[11px] uppercase text-oh-muted">{{ isZh ? '支持别名' : 'Aliases' }}</dt>
+            <dd v-if="detail?.aliases?.length" class="mt-1 flex flex-wrap gap-1">
+              <span
+                v-for="alias in detail.aliases"
+                :key="alias"
+                class="rounded-oh-xs border border-oh-subtle px-1.5 py-0.5 font-mono text-[11px] text-oh-secondary"
+              >
+                {{ alias }}
+              </span>
+            </dd>
+            <dd v-else class="mt-1 font-mono text-oh-muted">—</dd>
+          </div>
+        </dl>
+      </section>
+
+      <!-- 6. Telemetry Section -->
+      <section data-testid="detail-section-telemetry" class="mt-6 rounded-oh-md border border-oh-default bg-oh-surface p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h2 class="text-sm font-semibold text-oh-primary">
+            {{ isZh ? '实测网关遥测指标' : 'Observed Gateway Telemetry' }}
+          </h2>
+          <span class="font-mono text-[11px] text-oh-muted">
+            {{ formatMetricsWindow(detail?.metrics, isZh) }} · {{ formatMetricsSource(detail?.metrics?.source, isZh) }}
+          </span>
+        </div>
+        <div class="mt-4 grid gap-4 sm:grid-cols-3">
+          <div>
+            <p class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+              {{ isZh ? '实测中位首字延迟 (P50 TTFT)' : 'Observed TTFT (P50)' }}
+            </p>
+            <div class="mt-1.5 flex items-center gap-2">
+              <span
+                v-if="detail?.metrics?.ttft_p50_ms != null"
+                class="font-mono text-lg font-semibold tabular-nums text-oh-primary"
+              >
+                {{ detail.metrics.ttft_p50_ms }} ms
+              </span>
+              <Tooltip v-else :content="metricsStateReason(detail?.metrics?.state, isZh)">
+                <Badge tone="unknown" variant="subtle">
+                  {{ isZh ? '未观测' : 'Unobserved' }}
+                </Badge>
+              </Tooltip>
+            </div>
+            <p class="mt-1 font-mono text-[11px] text-oh-muted">
+              {{
+                detail?.metrics?.ttft_samples
+                  ? (isZh ? `${detail.metrics.ttft_samples} 次有效采样` : `${detail.metrics.ttft_samples} samples`)
+                  : metricsStateReason(detail?.metrics?.state, isZh)
+              }}
+            </p>
+          </div>
+          <div>
+            <p class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+              {{ isZh ? '输出吞吐速率' : 'Output Throughput' }}
+            </p>
+            <div class="mt-1.5 flex items-center gap-2 font-mono tabular-nums">
+              <span
+                v-if="detail?.metrics?.output_tokens_per_second != null"
+                class="text-lg font-semibold text-oh-primary"
+              >
+                {{ detail.metrics.output_tokens_per_second.toFixed(1) }} t/s
+              </span>
+              <Badge v-else tone="unknown" variant="subtle">
+                {{ isZh ? '未观测' : 'Unobserved' }}
+              </Badge>
+            </div>
+            <p class="mt-1 font-mono text-[11px] text-oh-muted">
+              {{
+                detail?.metrics?.speed_samples
+                  ? (isZh ? `${detail.metrics.speed_samples} 次吞吐采样` : `${detail.metrics.speed_samples} speed samples`)
+                  : (isZh ? '基于网关真实流量被动观测' : 'Passive gateway traffic observation')
+              }}
+            </p>
+          </div>
+          <div>
+            <p class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+              {{ isZh ? '窗口成功率与请求量' : 'Success Rate & Volume' }}
+            </p>
+            <div class="mt-1.5 flex items-center gap-2 font-mono tabular-nums">
+              <span
+                v-if="detail?.metrics?.success_rate != null"
+                class="text-lg font-semibold text-oh-primary"
+              >
+                {{ (detail.metrics.success_rate * 100).toFixed(2) }}%
+              </span>
+              <Badge v-else tone="unknown" variant="subtle">
+                {{ isZh ? '未观测' : 'Unobserved' }}
+              </Badge>
+            </div>
+            <p class="mt-1 font-mono text-[11px] text-oh-muted">
+              {{
+                detail?.metrics?.requests
+                  ? (isZh ? `统计窗口请求数：${detail.metrics.requests}` : `Window requests: ${detail.metrics.requests}`)
+                  : (isZh ? '样本不足或未观测' : 'Insufficient or unobserved samples')
+              }}
+            </p>
           </div>
         </div>
       </section>

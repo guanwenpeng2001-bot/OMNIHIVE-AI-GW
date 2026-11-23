@@ -409,13 +409,17 @@ describe('W07 Public Portal & Plaza Fixes (P2-1..5, P3-1..4, FE4-P1-02)', () => 
 
     // Reference price shown once + source shown instead of duplicating price
     expect(wrapper.text().match(/\$5\.00/g)?.length ?? 0).toBe(1)
-    expect(wrapper.text()).toContain('Reference source: pi-ai')
+    expect(wrapper.text()).toContain('Community Catalog (pi)')
+    expect(wrapper.text()).toContain('Non-settlement')
+    expect(wrapper.text()).not.toContain('pi-ai')
+    expect(wrapper.text()).not.toContain('On demand')
 
     // cannot_opt_out is NOT mislabeled as "Not trained"
     expect(wrapper.text()).toContain('cannot_opt_out')
     expect(wrapper.text()).not.toContain('Not trained (cannot_opt_out)')
 
-    // Image model snippet uses /v1/images/generations and notes catalog_only
+    // Image model snippet uses /v1/images/generations, starts collapsed, and notes catalog-only
+    expect(wrapper.get('[data-testid="detail-quickstart-toggle"]').attributes('aria-expanded')).toBe('false')
     expect(wrapper.text()).toContain('/v1/images/generations')
     expect(wrapper.text()).toContain('catalog-only')
 

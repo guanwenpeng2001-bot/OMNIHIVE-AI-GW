@@ -61,8 +61,8 @@ export default {
         baseline: '比较基准 / 分母', compared: '待比较价格', savedCharge: '已保存配置样本费用', added: '新增', removed: '移除',
         fields: { context_window: '上下文 / 输入上限', max_context_window: '总上下文上限', max_output_tokens: '输出上限', input_modalities: '输入模态', output_modalities: '输出模态', supports_function_calling: '工具调用', reasoning: '推理', reasoning_control: '推理控制 / 挡位 / 预算', supported_reasoning_levels: '推理挡位', embedding_dimensions: '嵌入维度', task_limits: '任务类型限制' }
       },
-      title: '渠道管理',
-      description: '管理渠道和自定义模型定价',
+      title: '渠道与定价',
+      description: '管理渠道模型映射、销售价（区别于参考价（非结算价）、内部成本与实收结算价）及路由分组绑定',
       searchChannels: '搜索渠道...',
       createChannel: '创建渠道',
       editChannel: '编辑渠道',
@@ -801,10 +801,10 @@ export default {
         showGuide: '使用指南',
         step1: {
           title: '创建订阅分组',
-          line1: '前往「分组管理」页面，点击「创建分组」',
+          line1: '前往「路由分组」页面，点击「创建分组」',
           line2: '将计费类型设为「订阅」，配置日/周/月额度限制',
           line3: '保存分组，确保状态为「正常」',
-          link: '前往分组管理'
+          link: '前往路由分组'
         },
         step2: {
           title: '分配订阅给用户',
@@ -823,7 +823,7 @@ export default {
           revoke: '撤销',
           revokeDesc: '立即终止该用户的订阅，可在已撤销列表中恢复'
         },
-        tip: '提示：订阅分组下拉列表中只会显示计费类型为「订阅」且状态为「正常」的分组。如果没有可选项，请先到分组管理中创建。'
+        tip: '提示：订阅分组下拉列表中只会显示计费类型为「订阅」且状态为「正常」的分组。如果没有可选项，请先到路由分组中创建。'
       }
     },
 

@@ -266,7 +266,6 @@ import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore } 
 import { uniqueNavigationItems } from '@/router/navigationItems'
 import {
   ADMIN_CONSOLE_SECTIONS,
-  ADMIN_MODELS_NAV_ITEM,
   CORE_NAVIGATION_ITEMS,
   USER_CONSOLE_SECTIONS,
   getRegisteredNavigationItems,
@@ -460,7 +459,6 @@ function mapRegistrySpecToNavItem(spec: ShellNavItemSpec): NavItem {
 function registryItemsForSection(domain: NavDomain, section: NavSectionId): NavItem[] {
   const allSpecs: ShellNavItemSpec[] = [
     ...CORE_NAVIGATION_ITEMS,
-    ...(domain === 'admin' && section === 'connections' ? [ADMIN_MODELS_NAV_ITEM] : []),
     ...getRegisteredNavigationItems()
   ]
   const seenPaths = new Set<string>()

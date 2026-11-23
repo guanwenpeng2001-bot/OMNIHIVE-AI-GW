@@ -14,7 +14,7 @@ vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<main><slot /></main>' } }))
 
 const workspace = { id: 2, name: 'Team', role: 'admin', is_default: false }
-const mountPage = () => mount(WorkspacesView, { global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } } } })
+const mountPage = (requestAccess = false) => mount(WorkspacesView, { props: { requestAccess }, global: { stubs: { ProjectAccessRequest: true, RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } } } })
 
 beforeEach(() => {
   vi.resetAllMocks()
@@ -26,6 +26,13 @@ beforeEach(() => {
 })
 
 describe('workspace membership UI', () => {
+  it('opens the access request dialog from a scope gate link', async () => {
+    const page = mountPage(true)
+    await flushPromises()
+    expect(page.getComponent({ name: 'ProjectAccessRequest' }).props('initialWorkspaceId')).toBe('2')
+    page.unmount()
+  })
+
   it('keeps ordinary members out of delegation controls', async () => {
     mocks.list.mockResolvedValue([{ ...workspace, role: 'member' }])
     const page = mountPage()

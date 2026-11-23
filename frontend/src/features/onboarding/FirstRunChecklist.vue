@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref, type Component } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useConsoleScopeStore } from '@/stores/consoleScope'
-import { persistConsoleScope, readPersistedConsoleScope } from '@/features/console/scope'
+import { getConsoleScopeStore, requestScopeSwitcher } from '@/stores/consoleScope'
 import { isProtectedSharedDefaultProject } from '@/features/members/cas'
 import type { IdentityProject, IdentityWorkspace } from '@/features/members/types'
+import ScopeGateEmptyState from '@/features/console/components/ScopeGateEmptyState.vue'
 import ProjectAccessRequest from './ProjectAccessRequest.vue'
 
 export interface PersonalRoutingGroupSummary {
@@ -61,17 +61,7 @@ const emit = defineEmits<{
   (e: 'expand-connect'): void
   (e: 'navigate', path: string): void
   (e: 'retry-probe'): void
-  (e: 'scope-changed'): void
 }>()
-
-// Optional reuse of FE-1's shared ScopeGateEmptyState when present in the tree
-const fe1ScopeGateModules = import.meta.glob<{ default: Component }>(
-  '@/features/console/components/ScopeGateEmptyState.vue'
-)
-const SharedScopeGateEmptyState = computed<Component | null>(() => {
-  const loader = Object.values(fe1ScopeGateModules)[0]
-  return loader ? defineAsyncComponent(loader) : null
-})
 
 const { t, locale } = useI18n()
 const isZh = computed(() => String(locale?.value || 'zh').toLowerCase().startsWith('zh'))
@@ -86,25 +76,10 @@ function tr(key: string, zhFallback: string, enFallback: string, params?: Record
   )
 }
 
-let consoleScopeStore: ReturnType<typeof useConsoleScopeStore> | null = null
-try {
-  consoleScopeStore = useConsoleScopeStore()
-} catch {
-  consoleScopeStore = null
-}
+const consoleScopeStore = getConsoleScopeStore()
 
 const activeBranch = ref<'personal' | 'project'>('personal')
-const showScopeChooser = ref(false)
-const draftScopeMode = ref<'personal' | 'workspace'>('personal')
-const draftWorkspaceId = ref<string>('')
-const draftProjectId = ref<string>('')
-
-const activeScope = computed(() => {
-  if (consoleScopeStore?.activeScope) {
-    return consoleScopeStore.activeScope
-  }
-  return readPersistedConsoleScope()
-})
+const activeScope = computed(() => consoleScopeStore.activeScope)
 
 const isPersonalScope = computed(
   () => activeScope.value.mode === 'personal' || !activeScope.value.workspaceId
@@ -221,57 +196,12 @@ const canRunProjectPlayground = computed(
 )
 
 function handleSelectPersonalAndGoToKeys(): void {
-  consoleScopeStore?.selectPersonalScope?.()
-  persistConsoleScope({ mode: 'personal', workspaceId: null, projectId: null })
-  emit('scope-changed')
+  consoleScopeStore.selectPersonalScope()
   emit('navigate', '/keys?create=personal')
 }
 
 function handleSwitchToPersonalScope(): void {
-  consoleScopeStore?.selectPersonalScope?.()
-  persistConsoleScope({ mode: 'personal', workspaceId: null, projectId: null })
-  emit('scope-changed')
-}
-
-function openScopeChooserModal(): void {
-  draftScopeMode.value = isPersonalScope.value ? 'personal' : 'workspace'
-  draftWorkspaceId.value = activeScope.value.workspaceId || scopesList.value[0]?.workspace_id || ''
-  draftProjectId.value = activeScope.value.projectId || ''
-  showScopeChooser.value = true
-  if (scopesList.value.length === 0 && typeof consoleScopeStore?.fetchScopes === 'function') {
-    void consoleScopeStore.fetchScopes()
-  }
-}
-
-function cancelScopeChooser(): void {
-  // Preserve current selection on cancel
-  showScopeChooser.value = false
-}
-
-function applyScopeChooser(): void {
-  if (draftScopeMode.value === 'personal' || !draftWorkspaceId.value) {
-    handleSwitchToPersonalScope()
-  } else {
-    const projId = draftProjectId.value || null
-    consoleScopeStore?.selectWorkspaceScope?.(draftWorkspaceId.value, projId)
-    persistConsoleScope({
-      mode: 'workspace',
-      workspaceId: draftWorkspaceId.value,
-      projectId: projId
-    })
-    emit('scope-changed')
-  }
-  showScopeChooser.value = false
-}
-
-function handleSwitchedFromAccessRequest(payload: { workspaceId: string; projectId: string }): void {
-  consoleScopeStore?.selectWorkspaceScope?.(payload.workspaceId, payload.projectId)
-  persistConsoleScope({
-    mode: 'workspace',
-    workspaceId: payload.workspaceId,
-    projectId: payload.projectId
-  })
-  emit('scope-changed')
+  consoleScopeStore.selectPersonalScope()
 }
 
 function switchToProjectBranchForRequest(): void {
@@ -643,92 +573,12 @@ function switchToProjectBranchForRequest(): void {
             type="button"
             data-testid="onboarding-scope-chooser-toggle"
             class="btn btn-secondary btn-sm px-2.5 py-0.5 text-[11px]"
-            @click="openScopeChooserModal"
+            @click="requestScopeSwitcher"
           >
             {{ tr('onboarding.checklist.switchScopeBtn', '切换作用域', 'Switch Scope') }}
           </button>
         </div>
 
-        <!-- Inline Scope Chooser (Preserves current selection on cancel) -->
-        <div
-          v-if="showScopeChooser"
-          data-testid="onboarding-scope-switcher"
-          class="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 space-y-2.5"
-        >
-          <div class="flex items-center gap-3">
-            <label class="flex items-center gap-1.5 text-xs">
-              <input
-                v-model="draftScopeMode"
-                type="radio"
-                value="personal"
-                data-testid="chooser-mode-personal"
-              />
-              <span>{{ isZh ? '个人空间 (PER)' : 'Personal Space (PER)' }}</span>
-            </label>
-            <label class="flex items-center gap-1.5 text-xs">
-              <input
-                v-model="draftScopeMode"
-                type="radio"
-                value="workspace"
-                data-testid="chooser-mode-workspace"
-              />
-              <span>{{ isZh ? '工作空间 / 项目' : 'Workspace / Project' }}</span>
-            </label>
-          </div>
-
-          <div v-if="draftScopeMode === 'workspace'" class="grid gap-2 sm:grid-cols-2">
-            <select
-              v-model="draftWorkspaceId"
-              data-testid="chooser-workspace-select"
-              class="input text-xs"
-              :aria-label="isZh ? '选择工作空间' : 'Select workspace'"
-            >
-              <option
-                v-for="ws in scopesList"
-                :key="ws.workspace_id"
-                :value="ws.workspace_id"
-              >
-                {{ ws.name }} (#{{ ws.workspace_id }})
-              </option>
-            </select>
-            <select
-              v-model="draftProjectId"
-              data-testid="chooser-project-select"
-              class="input text-xs"
-              :aria-label="isZh ? '选择项目' : 'Select project'"
-            >
-              <option value="">
-                {{ isZh ? '全部项目（工作空间总览）' : 'All Projects (Workspace Overview)' }}
-              </option>
-              <option
-                v-for="proj in scopesList.find((w) => w.workspace_id === draftWorkspaceId)?.projects ?? []"
-                :key="proj.id"
-                :value="proj.id"
-              >
-                {{ proj.name }} (#{{ proj.id }})
-              </option>
-            </select>
-          </div>
-
-          <div class="flex justify-end gap-2">
-            <button
-              type="button"
-              data-testid="chooser-cancel-btn"
-              class="btn btn-ghost btn-sm text-xs"
-              @click="cancelScopeChooser"
-            >
-              {{ isZh ? '取消' : 'Cancel' }}
-            </button>
-            <button
-              type="button"
-              data-testid="chooser-apply-btn"
-              class="btn btn-primary btn-sm text-xs"
-              @click="applyScopeChooser"
-            >
-              {{ isZh ? '应用作用域' : 'Apply Scope' }}
-            </button>
-          </div>
-        </div>
       </div>
 
       <!-- Step 1: Request or Select Authorized Team Project -->
@@ -745,7 +595,6 @@ function switchToProjectBranchForRequest(): void {
         <ProjectAccessRequest
           mode="inline"
           :initial-workspace-id="activeScope.workspaceId || ''"
-          @switched-project="handleSwitchedFromAccessRequest"
         />
       </div>
 
@@ -825,19 +674,18 @@ function switchToProjectBranchForRequest(): void {
         <p class="text-[11px] text-[var(--muted-foreground)]">
           {{ tr('onboarding.checklist.projectStep3Desc', '模型调试台绑定项目预算冻结与权威销售价，需在具备 playground.run 的团队项目运行。', 'Playground binds to team project budget reservation and authoritative Sale Rate (requires playground.run).') }}
         </p>
-        <component
-          :is="SharedScopeGateEmptyState"
-          v-if="!canRunProjectPlayground && SharedScopeGateEmptyState"
+        <ScopeGateEmptyState
+          v-if="!canRunProjectPlayground"
+          :state="projectProbeState === 'unavailable' || projectProbeState === 'loading' ? projectProbeState : 'denied'"
           surface="playground"
           required-grant="playground.run"
+          :request-id="probeRequestId"
+          :show-retry="projectProbeState === 'unavailable'"
+          @switch-personal="handleSelectPersonalAndGoToKeys"
+          @request-access="emit('navigate', '/workspaces?requestAccess=1')"
+          @switch-project="requestScopeSwitcher"
+          @retry="emit('retry-probe')"
         />
-        <p
-          v-else-if="!canRunProjectPlayground"
-          data-testid="project-playground-denied-notice"
-          class="rounded border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-[var(--foreground)]"
-        >
-          {{ t('rbac.playground.denied') }}
-        </p>
         <div class="pt-1">
           <button
             type="button"
