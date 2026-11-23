@@ -97,7 +97,7 @@ ON CONFLICT (setting_key) DO NOTHING;
 
 -- Provider provenance cannot be reconstructed safely from an existing value.
 WITH provider_keys(setting_key) AS (
-    SELECT setting_key
+    SELECT key
     FROM settings
     WHERE key ~ '^(linuxdo_connect|dingtalk_connect|wechat_connect|oidc_connect|github_oauth|google_oauth)_'
 )
