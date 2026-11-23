@@ -19,9 +19,11 @@ const (
 )
 
 // Binding is produced by the caller's authorization and routing layer. Model
-// is the billing identity after mappings, and Provider is the outbound platform.
+// is the billing identity after channel mapping, and Provider is the outbound
+// platform. WireModel is the authorized outbound model for token fallback.
 type Binding struct {
 	Provider, Model    string
+	WireModel          string
 	GroupID, ChannelID int64
 	Workspace, Project int64
 	Funding            string

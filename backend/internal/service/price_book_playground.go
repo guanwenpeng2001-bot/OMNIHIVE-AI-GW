@@ -90,16 +90,9 @@ func (s *GatewayService) ResolvePlaygroundPrice(ctx context.Context, key *APIKey
 	case BillingModelSourceChannelMapped:
 		billingModel = mapping.MappedModel
 	}
-	if billingModel != outbound {
-		if group.Platform == PlatformComposite && resolver.configuredForKey(ctx, billingModel, key) == nil {
-			billingModel = outbound
-		} else if candidate := resolver.Resolve(ctx, PricingInput{Model: billingModel, Provider: provider, Group: group, GroupID: gid}); candidate.BasePricing == nil && candidate.descriptor == nil && candidate.channelPricing == nil {
-			billingModel = outbound
-		}
-	}
 	base := s.ResolveUserGroupRateMultiplier(ctx, key.UserID, group.ID, group.RateMultiplier)
 	book := NewPlatformPriceBook(resolver)
-	binding := pricing.Binding{Provider: provider, Model: billingModel, Funding: funding, GroupID: group.ID, ChannelID: mapping.ChannelID, Action: action, Protocol: protocol, Mode: string(BillingModeToken), RateMultiplier: base, At: at}
+	binding := pricing.Binding{Provider: provider, Model: billingModel, WireModel: outbound, Funding: funding, GroupID: group.ID, ChannelID: mapping.ChannelID, Action: action, Protocol: protocol, Mode: string(BillingModeToken), RateMultiplier: base, At: at}
 	tariff, err := book.ResolveForGroup(ctx, binding, group)
 	if err != nil {
 		return decision, err

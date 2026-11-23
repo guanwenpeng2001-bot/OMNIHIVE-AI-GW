@@ -168,6 +168,16 @@ func TestPriceBookProviderOwnersOverridesAndFallback(t *testing.T) {
 	require.Equal(t, PricingSourceGroup, d.Rates[0].Origin)
 	require.Equal(t, "0", d.Rates[0].Rate.Amount().String())
 	require.Equal(t, PricingSourceStaticFallback, d.Rates[1].Origin)
+
+	// A provider-scoped partial card keeps its own rates even if the outbound
+	// model has a complete compatibility tariff.
+	partial, err := book.Describe(ctx, pricing.Binding{Provider: PlatformOpenAI, Model: "shared",
+		WireModel: "gpt-5.2", At: time.Now(), RateMultiplier: 1})
+	require.NoError(t, err)
+	require.Equal(t, pricing.Partial, partial.Outcome)
+	require.Equal(t, PricingSourceLiteLLM, partial.Source)
+	require.Len(t, partial.Rates, 1)
+	require.Equal(t, "input", partial.Rates[0].Kind)
 }
 
 func TestPriceBookFreeConflictAndSnapshotReplay(t *testing.T) {

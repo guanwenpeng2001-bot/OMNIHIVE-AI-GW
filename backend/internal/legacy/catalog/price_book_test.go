@@ -7,9 +7,29 @@ import (
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCatalogSaleBindingCarriesAuthorizedProviderAndWireModel(t *testing.T) {
+	identity := catalog.NewModelIdentity("bedrock", "public-alias")
+	offer := service.PlazaCatalogOffer{BillingModelSource: service.BillingModelSourceChannelMapped, ChannelMappedModel: "channel-alias"}
+	account := service.PlazaCatalogBinding{}
+	account.Identity.Platform = service.PlatformAnthropic
+	account.UpstreamModel = "wire-model"
+
+	binding := saleBinding(catalog.Perspective{}, bindingFor(identity, 3, offer, account))
+	require.Equal(t, service.PlatformAnthropic, binding.Provider)
+	require.Equal(t, "channel-alias", binding.Model)
+	require.Equal(t, "wire-model", binding.WireModel)
+
+	offer.BillingModelSource = service.BillingModelSourceResponse
+	binding = saleBinding(catalog.Perspective{}, bindingFor(identity, 3, offer, account))
+	require.Empty(t, binding.Model)
+	require.Empty(t, binding.WireModel)
+}
 
 func TestPriceBookDisplayUsesEffectiveRatesAndExactVersion(t *testing.T) {
 	input, err := money.NewRate("USD", "1.25", "input_token", "1000000")
