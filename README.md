@@ -17,10 +17,12 @@ A self-hosted AI gateway for routing requests across provider accounts and track
 - Serve OpenAI Chat and Responses, Anthropic Messages and Gemini requests. Endpoint availability depends on the model and provider account.
 - Route across eligible account pools using model access, health, affinity and fallback policies. Inspect candidate selection in the console.
 - Track quotes, decimal ledger entries and request receipts. Inspect requests with incomplete usage evidence during reconciliation.
-- Manage workspace and project access, budgets and bring-your-own-key (BYOK) credentials.
-- Browse models and pricing in the Model Plaza. Run requests from the Playground with a project key and a verified connection.
+- Manage workspace and project access, access requests, budgets and BYOK credentials, with personal-key self-service onboarding.
+- Browse the model catalog by source, availability and billing status, with provenance in public views and an admin model catalog. Run requests from the Playground with a project key and a verified connection.
+- Diagnose effective configuration and reset database overrides from admin settings.
 - Extend the gateway with signed WASI plugin packages. Monitor usage, request attempts and asynchronous media tasks in the console.
 - Install binary updates from GitHub Releases and roll back to eligible versions from the console.
+- Run verified scheduled backups and inspect scheduler health; backup S3 credentials use a dedicated encryption key.
 
 ## Architecture
 
