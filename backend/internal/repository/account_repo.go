@@ -661,11 +661,14 @@ func (r *accountRepository) updateLockedAccount(
 	if err != nil {
 		return nil, err
 	}
+	// Admin fallback updates carry the same delta as billing-settings updates.
+	// Always apply it after locking, including preservation intent; runtime-only
+	// callers without a delta retain their existing replacement behavior.
+	if credentials, ok := service.MergeAccountCredentialChanges(ctx, current.Credentials); ok {
+		account.Credentials = credentials
+	}
 	if configurationOnly {
 		mergeAccountRuntimeExtra(extra, current.Extra)
-		if credentials, ok := service.MergeAccountCredentialChanges(ctx, current.Credentials); ok {
-			account.Credentials = credentials
-		}
 		account.LastUsedAt = current.LastUsedAt
 		account.RateLimitedAt = current.RateLimitedAt
 		account.RateLimitResetAt = current.RateLimitResetAt

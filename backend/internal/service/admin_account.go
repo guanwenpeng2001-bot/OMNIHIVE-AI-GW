@@ -640,10 +640,18 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 }
 
 func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error) {
-	if input != nil {
-		if err := validateAccountProxyChoice(input.ProxyID, input.ProxyGroupID); err != nil {
-			return nil, err
-		}
+	if input == nil {
+		return nil, ErrAccountNilInput
+	}
+	if err := ValidateAccountModelSelectionPreservation(input.PreserveModelSelection, input.Credentials, input.Extra); err != nil {
+		return nil, err
+	}
+	if input.PreserveModelSelection {
+		_, compactEdit := input.Credentials["compact_model_mapping"]
+		ctx = WithAccountModelSelectionPreserved(ctx, compactEdit)
+	}
+	if err := validateAccountProxyChoice(input.ProxyID, input.ProxyGroupID); err != nil {
+		return nil, err
 	}
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
@@ -749,6 +757,21 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 		// Strip SSO/password residue that must never sit next to OAuth tokens.
 		account.Credentials = SanitizeStoredCredentials(account.Platform, account.Credentials)
+	}
+	if input.PreserveModelSelection {
+		// Keep normalization/validation on the saved selection too. The repository
+		// reapplies only unprotected deltas against the locked, possibly newer row.
+		account.Credentials = maps.Clone(account.Credentials)
+		if account.Credentials == nil {
+			account.Credentials = map[string]any{}
+		}
+		fields, _ := ctx.Value(accountPreservedModelFieldsKey{}).(map[string]bool)
+		for key := range fields {
+			delete(account.Credentials, key)
+			if value, exists := previousCredentials[key]; exists {
+				account.Credentials[key] = value
+			}
+		}
 	}
 	// Extra 使用 map：需要区分“未提供(nil)”与“显式清空({})”。
 	// 关闭配额限制时前端会删除 quota_* 键并提交 extra:{}，此时也必须落库。
