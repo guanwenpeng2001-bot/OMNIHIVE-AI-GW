@@ -18,9 +18,9 @@ func WithGatewayTokenRequestPricing(ctx context.Context) (context.Context, time.
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	pricingAt := timezone.Now()
-	if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
-		pricingAt = plan.Snapshot().PricingAt
+	pricingAt, _, err := pricingEvaluationInstant(ctx, time.Time{}, time.Time{})
+	if err != nil {
+		return ctx, time.Time{}
 	}
 	ctx = context.WithValue(ctx, gatewayTokenRequestPricingAtCtxKey{}, pricingAt)
 	// 调度过程中可能因 fallback/composite 路由覆盖 ctxkey.Group；计费 D 仍必须
@@ -29,6 +29,40 @@ func WithGatewayTokenRequestPricing(ctx context.Context) (context.Context, time.
 		ctx = context.WithValue(ctx, gatewayTokenRequestBillingGroupCtxKey{}, group)
 	}
 	return ctx, pricingAt
+}
+
+// pricingEvaluationInstant chooses the request's already captured clock before
+// considering a caller's explicit instant. The bool distinguishes a frozen
+// request from an ordinary calculation that may resolve again at another time.
+func pricingEvaluationInstant(ctx context.Context, requested, serviceFrozen time.Time) (time.Time, bool, error) {
+	var captured [4]time.Time
+	if bundle := salePricingFromContext(ctx); bundle != nil {
+		captured[0] = bundle.at
+	}
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+		captured[1] = plan.Snapshot().PricingAt
+	}
+	if at, ok := gatewayTokenRequestPricingAtFromContext(ctx); ok {
+		captured[2] = at
+	}
+	captured[3] = serviceFrozen
+	var frozen time.Time
+	for _, at := range captured {
+		if at.IsZero() {
+			continue
+		}
+		if !frozen.IsZero() && !frozen.Equal(at) {
+			return time.Time{}, true, ErrSalePriceChanged
+		}
+		frozen = at
+	}
+	if !frozen.IsZero() {
+		return frozen, true, nil
+	}
+	if !requested.IsZero() {
+		return requested, false, nil
+	}
+	return timezone.Now(), false, nil
 }
 
 func gatewayTokenRequestPricingAtFromContext(ctx context.Context) (time.Time, bool) {

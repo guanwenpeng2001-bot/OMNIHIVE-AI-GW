@@ -33,6 +33,11 @@ func (s *PricingService) BoundPricingModel(provider, model string) (string, erro
 	defer s.mu.RUnlock()
 	model = strings.ToLower(strings.TrimSpace(model))
 	provider = strings.ToLower(strings.TrimSpace(provider))
+	return s.boundPricingModelLocked(provider, model)
+}
+
+// The caller holds the same price-publication read lock through alias binding.
+func (s *PricingService) boundPricingModelLocked(provider, model string) (string, error) {
 	if provider != "" {
 		qualified := provider + "/" + model
 		if _, ok := s.pricingData[qualified]; ok {
@@ -40,23 +45,31 @@ func (s *PricingService) BoundPricingModel(provider, model string) (string, erro
 		}
 	}
 	if _, ok := s.pricingData[model]; ok {
-		return model, nil
+		prefix, _, qualified := strings.Cut(model, "/")
+		if provider == "" || !qualified || prefix == provider {
+			return model, nil
+		}
+	}
+	if native, ok := pricingProtocolNativeModel(model); ok {
+		return s.boundPricingModelLocked(provider, native)
 	}
 	base := s.extractBaseName(model)
+	if index := s.baseNameIndex.Load(); index != nil && index.revision == s.pricingRevision {
+		return index.boundPricingModel(provider, model, base)
+	}
+	// Direct fixtures may omit the reload-derived index. Production reloads and
+	// frozen billing services publish/share it with the same pricing revision.
 	matched := ""
-	qualifiedMatches := map[string]bool{}
+	foreignMatch := false
 	for key := range s.pricingData {
-		candidate := key
-		if provider != "" && strings.HasPrefix(candidate, provider+"/") {
-			candidate = strings.TrimPrefix(candidate, provider+"/")
+		prefix, native, qualified := strings.Cut(key, "/")
+		fullMatch := s.extractBaseName(key) == base
+		nativeMatch := qualified && s.extractBaseName(native) == base
+		if !fullMatch && !nativeMatch {
+			continue
 		}
-		if prefix, native, ok := strings.Cut(key, "/"); ok && s.extractBaseName(native) == base {
-			qualifiedMatches[prefix] = true
-			if provider == "" {
-				candidate = native
-			}
-		}
-		if s.extractBaseName(candidate) != base {
+		if provider != "" && qualified && prefix != provider {
+			foreignMatch = true
 			continue
 		}
 		if matched != "" && matched != key {
@@ -67,10 +80,79 @@ func (s *PricingService) BoundPricingModel(provider, model string) (string, erro
 	if matched != "" {
 		return matched, nil
 	}
-	if len(qualifiedMatches) > 1 {
-		return "", fmt.Errorf("%w: provider is required for tariff identity %s", ErrModelPricingUnavailable, model)
+	if provider != "" && (foreignMatch || strings.Contains(model, "/")) {
+		return "", fmt.Errorf("%w: tariff identity %s is not bound to provider %s", ErrModelPricingUnavailable, model, provider)
 	}
 	return model, nil // explicit legacy policies remain owned by BillingService
+}
+
+// Gemini/Vertex protocol resource names are syntax aliases, not provider
+// namespaces. Accept only the existing resource shapes, then bind the native
+// name again; an arbitrary trailing path segment is never a pricing identity.
+func pricingProtocolNativeModel(model string) (string, bool) {
+	for _, prefix := range []string{"models/", "publishers/google/models/"} {
+		if native, ok := strings.CutPrefix(model, prefix); ok {
+			return native, native != "" && !strings.Contains(native, "/")
+		}
+	}
+	if !strings.HasPrefix(model, "projects/") {
+		return "", false
+	}
+	parts := strings.Split(model, "/")
+	if len(parts) == 8 && parts[0] == "projects" && parts[1] != "" &&
+		parts[2] == "locations" && parts[3] != "" && parts[4] == "publishers" &&
+		parts[5] == "google" && parts[6] == "models" && parts[7] != "" {
+		return parts[7], true
+	}
+	return "", false
+}
+
+// Only matching identities are visited; an unknown model never scans the
+// catalog. This index belongs to the same immutable publication as pricingData.
+func (index *pricingBaseNameIndex) boundPricingModel(provider, model, base string) (string, error) {
+	matched := ""
+	foreignMatch := false
+	add := func(key string) bool {
+		if matched != "" && matched != key {
+			return false
+		}
+		matched = key
+		return true
+	}
+	for _, key := range index.keysByBase[base] {
+		prefix, _, qualified := strings.Cut(key, "/")
+		if provider != "" && qualified && prefix != provider {
+			foreignMatch = true
+			continue
+		}
+		if !add(key) {
+			return "", fmt.Errorf("%w: ambiguous tariff identity %s", ErrModelPricingUnavailable, model)
+		}
+	}
+	nativeMatches := index.keysByNative[base]
+	if provider != "" {
+		for _, key := range nativeMatches[provider] {
+			if !add(key) {
+				return "", fmt.Errorf("%w: ambiguous tariff identity %s", ErrModelPricingUnavailable, model)
+			}
+		}
+		foreignMatch = foreignMatch || len(nativeMatches) > 0
+	} else {
+		for _, keys := range nativeMatches {
+			for _, key := range keys {
+				if !add(key) {
+					return "", fmt.Errorf("%w: ambiguous tariff identity %s", ErrModelPricingUnavailable, model)
+				}
+			}
+		}
+	}
+	if matched != "" {
+		return matched, nil
+	}
+	if provider != "" && (foreignMatch || strings.Contains(model, "/")) {
+		return "", fmt.Errorf("%w: tariff identity %s is not bound to provider %s", ErrModelPricingUnavailable, model, provider)
+	}
+	return model, nil
 }
 
 // Complete provenance for the declared rate dimensions. Source metadata is

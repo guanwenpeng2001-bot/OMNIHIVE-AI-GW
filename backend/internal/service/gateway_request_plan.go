@@ -570,12 +570,12 @@ func captureGatewayRequestPlan(ctx context.Context, spec GatewayRequestSpec, set
 		return ctx, existing
 	}
 	bundle := salePricingFromContext(ctx)
-	if bundle != nil {
-		spec.PricingAt = bundle.at
+	var serviceFrozen time.Time
+	if billing != nil {
+		serviceFrozen = billing.forGatewayRequest(ctx).frozenPricingAt
 	}
-	if spec.PricingAt.IsZero() {
-		spec.PricingAt = time.Now()
-	}
+	var pricingErr error
+	spec.PricingAt, _, pricingErr = pricingEvaluationInstant(ctx, spec.PricingAt, serviceFrozen)
 	if spec.ExecutionKind == "" {
 		spec.ExecutionKind = "request"
 	}
@@ -589,6 +589,10 @@ func captureGatewayRequestPlan(ctx context.Context, spec GatewayRequestSpec, set
 		}
 	}
 	p := NewGatewayRequestPlan(spec)
+	if pricingErr != nil {
+		p.admissionErr = pricingErr
+		return WithGatewayRequestPlan(ctx, p), p
+	}
 	if bundle != nil {
 		if bundle.version == "" || spec.PriceVersion != bundle.version || spec.Model != bundle.model ||
 			spec.APIKeyID != bundle.keyID || spec.UserID != bundle.payerID || spec.BillingGroupID != bundle.group.ID ||

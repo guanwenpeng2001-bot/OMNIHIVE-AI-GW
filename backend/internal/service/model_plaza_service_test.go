@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/stretchr/testify/require"
@@ -167,8 +168,9 @@ func TestListPlazaGroups_CompositeAndOrdinaryGroupsDoNotLeakPlatforms(t *testing
 		byName[group.Name] = group
 	}
 	require.Len(t, byName["anthropic-only"].Models, 1)
+	// Missing confirmation metadata preserves historical explicit channel publication.
 	require.Equal(t, []PlazaModel{{
-		Name: "claude-sonnet", Platform: PlatformAnthropic, Pricing: byName["anthropic-only"].Models[0].Pricing,
+		Name: "claude-sonnet", Platform: PlatformAnthropic, Published: true, Pricing: byName["anthropic-only"].Models[0].Pricing,
 	}}, byName["anthropic-only"].Models)
 	require.Len(t, byName["composite"].Models, 2)
 	require.Equal(t, []string{"claude-sonnet", "gpt-5"}, []string{
@@ -179,6 +181,37 @@ func TestListPlazaGroups_CompositeAndOrdinaryGroupsDoNotLeakPlatforms(t *testing
 		byName["composite"].Models[0].Platform,
 		byName["composite"].Models[1].Platform,
 	})
+	for _, model := range byName["composite"].Models {
+		require.True(t, model.Published, "historical channel publication applies to each matching platform")
+	}
+}
+
+func TestListPlazaGroups_ConfirmedPublicationIsIndependentOfPriceAndDiscovery(t *testing.T) {
+	channel := plazaPricedChannel(1, "explicit", []int64{10}, PlatformOpenAI, "priced-but-unconfirmed")
+	channel.ModelMapping = map[string]map[string]string{PlatformOpenAI: {"mapped-but-unconfirmed": "private-upstream"}}
+	channel.FeaturesConfig = map[string]any{PlazaConfirmationConfigKey: PlazaConfirmationConfig{Groups: map[string][]PlazaConfirmedModel{"10": {}}}}
+	groups := []Group{{ID: 10, Name: "g", Platform: PlatformOpenAI, RateMultiplier: 1}}
+	accounts := []Account{{ID: 7, Platform: PlatformOpenAI, Extra: map[string]any{UpstreamModelCatalogExtraKey: AccountModelCatalogSnapshot{Complete: true, DiscoveredModels: []string{"discovered-without-price"}}}}}
+
+	view, err := BuildPlazaCandidates(&channel, 10, PlatformOpenAI, accounts)
+	require.NoError(t, err)
+	selected := []PlazaModelIdentity{{Platform: PlatformOpenAI, Name: "discovered-without-price"}}
+	require.Equal(t, selected, view.Candidates)
+	require.Empty(t, view.Selected)
+
+	// Prices, mappings and discovered candidates do not override an explicit empty selection.
+	out, err := newPlazaService([]Channel{channel}, groups, nil).ListGroups(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, out)
+
+	input := PlazaConfirmationInput{GroupID: 10, Revision: view.Revision, Models: selected}
+	require.NoError(t, ApplyPlazaConfirmation(&channel, view, input, 42, time.Unix(1, 0)))
+	out, err = newPlazaService([]Channel{channel}, groups, nil).ListGroups(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	require.Equal(t, []PlazaModel{{
+		Name: "discovered-without-price", Platform: PlatformOpenAI, Published: true,
+	}}, out[0].Models, "only the confirmed model is published; price and routing evidence remain absent")
 }
 
 func TestListPlazaGroups_InactiveChannelSkipped(t *testing.T) {

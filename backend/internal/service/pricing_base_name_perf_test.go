@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func BenchmarkPricingExtractBaseName(b *testing.B) {
@@ -78,6 +79,42 @@ func TestPricingBaseNameIndexTracksReloadsAndFixtureFallback(t *testing.T) {
 	if got := svc.GetIdentifiedModelPricing("other"); got != first {
 		t.Fatal("new catalog key missing from rebuilt base-name index")
 	}
+}
+
+func TestPricingIdentityIndexTracksReloadAndFrozenPriceMap(t *testing.T) {
+	svc := NewPricingService(nil, nil)
+	svc.replacePricingData(map[string]*LiteLLMModelPricing{
+		"provider-a/same-20260101": {InputCostPerToken: 1},
+		"provider-b/same-20260201": {InputCostPerToken: 2},
+	})
+	check := func(prices *PricingService, provider, want string, wantError bool) {
+		t.Helper()
+		got, err := prices.BoundPricingModel(provider, "same")
+		if wantError {
+			if err == nil {
+				t.Fatalf("provider %q unexpectedly bound to %q", provider, got)
+			}
+			return
+		}
+		if err != nil || got != want {
+			t.Fatalf("provider %q bound to %q (%v), want %q", provider, got, err, want)
+		}
+	}
+	check(svc, "provider-a", "provider-a/same-20260101", false)
+	check(svc, "provider-b", "provider-b/same-20260201", false)
+	check(svc, "", "", true)
+	check(svc, "provider-c", "", true)
+
+	frozen := frozenBillingService(&BillingService{pricingService: svc}, nil, time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC))
+	svc.replacePricingData(map[string]*LiteLLMModelPricing{
+		"provider-b/same-20260301": {InputCostPerToken: 3},
+	})
+	check(svc, "provider-b", "provider-b/same-20260301", false)
+	check(svc, "", "provider-b/same-20260301", false)
+	check(svc, "provider-a", "", true)
+	check(frozen.pricingService, "provider-a", "provider-a/same-20260101", false)
+	check(frozen.pricingService, "provider-b", "provider-b/same-20260201", false)
+	check(frozen.pricingService, "", "", true)
 }
 
 func TestPricingBaseNameMatchesLegacyImplementation(t *testing.T) {

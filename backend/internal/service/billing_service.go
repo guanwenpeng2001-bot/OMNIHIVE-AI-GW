@@ -1523,7 +1523,30 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (cost *CostBreakd
 	if err := validateOpenAIGPT62BillingTier(input.Model, input.ServiceTier, input.Provider); err != nil {
 		return nil, err
 	}
-	if input.Resolver == nil && input.Mode != "" {
+	// Reuse an admitted request's price map before selecting its clock. A
+	// normal calculation captures a read-only service for this one evaluation.
+	s = s.forGatewayRequest(input.Ctx)
+	input.Group = frozenSaleGroup(input.Ctx, input.Group)
+	resolvedAt, err := resolvedPricingInstant(input.Resolved)
+	if err != nil {
+		return nil, err
+	}
+	requestedAt := input.PricingAt
+	if requestedAt.IsZero() {
+		requestedAt = resolvedAt
+	}
+	var pinnedInstant bool
+	input.PricingAt, pinnedInstant, err = pricingEvaluationInstant(input.Ctx, requestedAt, s.frozenPricingAt)
+	if err != nil {
+		return nil, err
+	}
+	if s.frozenPricingAt.IsZero() {
+		s = frozenBillingService(s, ModelRegistrySnapshotFromContext(input.Ctx), input.PricingAt)
+	}
+	if input.Provider == "" {
+		input.Provider, _ = ResolvedTargetPlatformFromContext(input.Ctx)
+	}
+	if input.Resolver == nil && (input.Mode != "" || input.Provider != "") {
 		input.Resolver = NewModelPricingResolver(nil, s)
 	}
 
@@ -1548,19 +1571,55 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (cost *CostBreakd
 		return breakdown, err
 	}
 
-	// 优先使用预解析结果，避免重复 Resolve 调用
+	// A pre-resolved card can contain a time-selected variant. Re-evaluate an
+	// ordinary calculation at its requested time; never relabel frozen rates.
 	resolved := input.Resolved
+	contextMismatch := !resolvedAt.IsZero() && !resolvedAt.Equal(input.PricingAt)
+	if resolved != nil && resolved.Context != nil {
+		pc := resolved.Context
+		// Empty fields belong to legacy/pre-authorized cards. Compare only
+		// declared identities; raw model spellings may be legitimate aliases.
+		provider := input.Provider
+		if provider == "" && input.Group != nil && input.Group.Platform != PlatformComposite {
+			provider = input.Group.Platform
+		}
+		if provider != "" && pc.Provider != "" && provider != pc.Provider {
+			contextMismatch = true
+		}
+		groupID := int64(0)
+		if input.Group != nil {
+			groupID = input.Group.ID
+		} else if input.GroupID != nil {
+			groupID = *input.GroupID
+		}
+		if groupID > 0 && pc.GroupID > 0 && groupID != pc.GroupID {
+			contextMismatch = true
+		}
+	}
+	if contextMismatch {
+		if pinnedInstant {
+			return nil, ErrSalePriceChanged
+		}
+		resolved = nil
+	}
 	if resolved == nil {
 		resolved = input.Resolver.Resolve(input.Ctx, PricingInput{
-			Mode:    input.Mode,
-			Model:   input.Model,
-			GroupID: input.GroupID,
-			Group:   input.Group,
+			Provider:  input.Provider,
+			Mode:      input.Mode,
+			Model:     input.Model,
+			GroupID:   input.GroupID,
+			Group:     input.Group,
+			PricingAt: input.PricingAt,
 		})
 	}
 	if resolved.pricingErr != nil {
 		return nil, resolved.pricingErr
 	}
+	resolvedAt, err = resolvedPricingInstant(resolved)
+	if err != nil || !resolvedAt.IsZero() && !resolvedAt.Equal(input.PricingAt) {
+		return nil, ErrSalePriceChanged
+	}
+	priceContext := resolved.Context
 	if input.Mode != "" && resolved.descriptor != nil && input.Mode != resolved.Mode {
 		resolved = resolved.descriptor.resolvePricing(input.Mode)
 	}
@@ -1574,9 +1633,19 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (cost *CostBreakd
 	if conditionErr != nil {
 		return nil, conditionErr
 	}
+	// Descriptor unit changes may construct a new card. Restore only the
+	// context already verified against this calculation, without mutating it.
+	if resolved.Context == nil && priceContext != nil {
+		copied := *resolved
+		copied.Context = priceContext
+		resolved = &copied
+	}
+	resolvedAt, err = resolvedPricingInstant(resolved)
+	if err != nil || !resolvedAt.IsZero() && !resolvedAt.Equal(input.PricingAt) {
+		return nil, ErrSalePriceChanged
+	}
 
 	var breakdown *CostBreakdown
-	var err error
 	switch resolved.Mode {
 	case BillingModePerRequest, BillingModeImage, BillingModeVideo:
 		breakdown, err = s.calculatePerRequestCost(resolved, input)
@@ -1621,12 +1690,9 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 
 	// 计费时点：优先请求级 PricingAt（历史补账与 DeepSeek pro→Flash 切换判定
 	// 同源），零值回退当前时刻。
-	pricingAt := input.PricingAt
-	if pricingAt.IsZero() {
-		pricingAt = s.frozenPricingAt
-		if pricingAt.IsZero() {
-			pricingAt = timezone.Now()
-		}
+	pricingAt, _, err := pricingEvaluationInstant(input.Ctx, input.PricingAt, s.frozenPricingAt)
+	if err != nil {
+		return nil, err
 	}
 
 	// 默认价卡（Source=LiteLLM）应用 DeepSeek 官方价强制覆盖（幂等，GetModelPricing
@@ -1653,7 +1719,7 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 	applyLongCtx := len(resolved.Intervals) == 0 && contextTierPricingEnabled
 
 	breakdown := s.computeTokenBreakdown(pricing, input.Tokens, input.RateMultiplier, input.ServiceTier, applyLongCtx)
-	applyCostBreakdownMultiplier(breakdown, resolvedChannelTimeMultiplier(resolved, input.PricingAt))
+	applyCostBreakdownMultiplier(breakdown, resolvedChannelTimeMultiplier(resolved, pricingAt))
 	applyCostBreakdownMultiplier(breakdown, maxReasoningEffortBillingMultiplier(input.Model, input.ReasoningEffort, pricing))
 	var source, version string
 	if !input.displayProbe {
@@ -1663,7 +1729,7 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 	if provider == "" && input.Group != nil {
 		provider = channelLookupPlatform(input.Ctx, input.Group.Platform)
 	}
-	err := freezePricing(breakdown, PricingSnapshot{PriceContext: resolved.Context, displayProbe: input.displayProbe, Model: input.Model, Provider: provider, PricingAt: pricingAt, Mode: string(BillingModeToken), Source: source, PriceCardVersion: version, Tokens: input.Tokens, TokenPrices: pricing, ThinkingEnabled: input.ThinkingEnabled, ServiceTier: input.ServiceTier, SizeTier: input.SizeTier, RateMultiplier: input.RateMultiplier, TimeMultiplier: resolvedChannelTimeMultiplier(resolved, input.PricingAt), ReasoningMultiplier: maxReasoningEffortBillingMultiplier(input.Model, input.ReasoningEffort, pricing)})
+	err = freezePricing(breakdown, PricingSnapshot{PriceContext: resolved.Context, displayProbe: input.displayProbe, Model: input.Model, Provider: provider, PricingAt: pricingAt, Mode: string(BillingModeToken), Source: source, PriceCardVersion: version, Tokens: input.Tokens, TokenPrices: pricing, ThinkingEnabled: input.ThinkingEnabled, ServiceTier: input.ServiceTier, SizeTier: input.SizeTier, RateMultiplier: input.RateMultiplier, TimeMultiplier: resolvedChannelTimeMultiplier(resolved, pricingAt), ReasoningMultiplier: maxReasoningEffortBillingMultiplier(input.Model, input.ReasoningEffort, pricing)})
 	return breakdown, err
 }
 
@@ -1895,6 +1961,15 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 	longContextBillingEnabled bool,
 	providers ...string,
 ) (*CostBreakdown, error) {
+	// New legacy calculations record the same actual clock as unified ones;
+	// replay continues to read only the previously persisted snapshot.
+	if s.frozenPricingAt.IsZero() {
+		at, _, err := pricingEvaluationInstant(nil, time.Time{}, time.Time{})
+		if err != nil {
+			return pricingFailure(err), err
+		}
+		s = frozenBillingService(s, ModelRegistrySnapshotFromContext(nil), at)
+	}
 	if err := validateOpenAIGPT62BillingTier(model, serviceTier, providers...); err != nil {
 		return pricingFailure(err), err
 	}
@@ -1916,7 +1991,7 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 		return pricingFailure(err), err
 	}
 	breakdown := s.computeTokenBreakdown(pricing, tokens, rateMultiplier, serviceTier, longContextBillingEnabled)
-	err = freezePricing(breakdown, PricingSnapshot{Model: model, Mode: string(BillingModeToken), Source: pricing.Source, Tokens: tokens, TokenPrices: pricing, ServiceTier: serviceTier, RateMultiplier: rateMultiplier, TimeMultiplier: 1, ReasoningMultiplier: 1})
+	err = freezePricing(breakdown, PricingSnapshot{Model: model, PricingAt: s.frozenPricingAt, Mode: string(BillingModeToken), Source: pricing.Source, Tokens: tokens, TokenPrices: pricing, ServiceTier: serviceTier, RateMultiplier: rateMultiplier, TimeMultiplier: 1, ReasoningMultiplier: 1})
 	if err != nil {
 		return pricingFailure(err), err
 	}

@@ -89,9 +89,9 @@ func TestBE07QuoteCompareAndMigration(t *testing.T) {
 	const model = "m_0123456789abcdef0123456789abcdef"
 	const unknown = "m_11111111111111111111111111111111"
 	capability := catalog.Capability{Action: "text.chat", Protocol: "openai_chat", Tools: "unsupported"}
-	d := catalog.Detail{Model: catalog.Summary{ID: model, Input: &r, PriceState: "priced", AccessState: "allowed"},
+	d := catalog.Detail{Model: catalog.Summary{ID: model, Provider: "openai", Model: "fixture-priced", Input: &r, PriceState: "priced", AccessState: "allowed"},
 		Capabilities: []catalog.Capability{capability}, PriceSource: "published", PriceVersion: &version.ID}
-	missing := catalog.Detail{Model: catalog.Summary{ID: unknown, AccessState: "allowed"}, Capabilities: []catalog.Capability{capability}}
+	missing := catalog.Detail{Model: catalog.Summary{ID: unknown, Provider: "openai", Model: "fixture-unpriced", AccessState: "allowed"}, Capabilities: []catalog.Capability{capability}}
 	reader := testCatalog{catalog.Snapshot{Version: "cat_test", AsOf: at, Details: []catalog.Detail{d, missing}}}
 	scope := catalog.Perspective{Actor: 4, Workspace: 1, Project: 2, AccessVersion: 3}
 	public := catalog.Perspective{Workspace: 1}
@@ -149,7 +149,17 @@ func TestBE07QuoteCompareAndMigration(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, string(expected), post("/projects/2/quotes", string(input), 200))
 	keyed := func(id string) string { return strings.Replace(string(input), "{", `{"api_key_id":"`+id+`",`, 1) }
-	require.JSONEq(t, string(expected), post("/projects/2/quotes", keyed("5"), 200))
+	var keyedExpected map[string]any
+	require.NoError(t, json.Unmarshal(expected, &keyedExpected))
+	keyedExpected["price_context"] = pricing.PriceContext{
+		WorkspaceID: 1, ProjectID: 2, ActorID: 4, KeyID: 5,
+		Provider: "openai", Model: "fixture-priced", ModelID: model, Funding: "wallet",
+		PolicyVersion: 3, CatalogVersion: "cat_test", PricingAt: at,
+	}
+	keyedExpected["expires_at"] = at.Add(time.Minute)
+	keyedJSON, err := json.Marshal(keyedExpected)
+	require.NoError(t, err)
+	require.JSONEq(t, string(keyedJSON), post("/projects/2/quotes", keyed("5"), 200))
 	post("/projects/2/quotes", keyed("6"), 404)
 	unpriced, err := os.ReadFile("../../../../../contracts/api/quotes/quote-unpriced.json")
 	require.NoError(t, err)

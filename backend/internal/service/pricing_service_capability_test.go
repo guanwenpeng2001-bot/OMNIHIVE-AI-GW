@@ -28,13 +28,45 @@ func TestPricingCapabilityMetadataDoesNotChangePrices(t *testing.T) {
 	baseline := []byte(`{"model":{"input_cost_per_token":0.001,"output_cost_per_token":0.002,"supports_prompt_caching":true}}`)
 	expected, err := svc.parsePricingData(baseline)
 	require.NoError(t, err)
-	for _, metadata := range []string{
-		`"max_input_tokens":128000,"supports_reasoning":false,"input_modalities":[]`,
-		`"max_input_tokens":"invalid","max_output_tokens":{},"max_tokens":[],"supports_reasoning":{},"supports_vision":[],"supports_function_calling":1,"input_modalities":false,"output_modalities":1`,
+	require.Len(t, expected, 1)
+	require.NotNil(t, expected["model"])
+	pricingSources := map[string]string{
+		"input_cost_per_token":    PricingSourceLiteLLM,
+		"output_cost_per_token":   PricingSourceLiteLLM,
+		"supports_prompt_caching": PricingSourceLiteLLM,
+	}
+	require.Equal(t, pricingSources, expected["model"].fieldSources)
+	for _, entry := range []struct {
+		metadata string
+		fields   []string
+	}{
+		{
+			metadata: `"max_input_tokens":128000,"supports_reasoning":false,"input_modalities":[]`,
+			fields:   []string{"max_input_tokens", "supports_reasoning", "input_modalities"},
+		},
+		{
+			metadata: `"max_input_tokens":"invalid","max_output_tokens":{},"max_tokens":[],"supports_reasoning":{},"supports_vision":[],"supports_function_calling":1,"input_modalities":false,"output_modalities":1`,
+			fields:   []string{"max_input_tokens", "max_output_tokens", "max_tokens", "supports_reasoning", "supports_vision", "supports_function_calling", "input_modalities", "output_modalities"},
+		},
 	} {
-		actual, err := svc.parsePricingData([]byte(`{"model":{"input_cost_per_token":0.001,"output_cost_per_token":0.002,"supports_prompt_caching":true,` + metadata + `}}`))
+		actual, err := svc.parsePricingData([]byte(`{"model":{"input_cost_per_token":0.001,"output_cost_per_token":0.002,"supports_prompt_caching":true,` + entry.metadata + `}}`))
 		require.NoError(t, err)
-		require.Equal(t, expected, actual)
+		require.Len(t, actual, 1)
+		require.NotNil(t, actual["model"])
+		actualSources := make(map[string]string, len(pricingSources)+len(entry.fields))
+		for field, source := range pricingSources {
+			actualSources[field] = source
+		}
+		for _, field := range entry.fields {
+			actualSources[field] = PricingSourceLiteLLM
+		}
+		require.Equal(t, actualSources, actual["model"].fieldSources)
+
+		// Supplied metadata retains its own provenance, including invalid capability
+		// values. Every pricing field must stay identical after that map is verified.
+		expectedPrice, actualPrice := *expected["model"], *actual["model"]
+		actualPrice.fieldSources = expectedPrice.fieldSources
+		require.Equal(t, expectedPrice, actualPrice)
 	}
 }
 

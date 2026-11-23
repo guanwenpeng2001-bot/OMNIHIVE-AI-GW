@@ -39,7 +39,13 @@ func (s *BillingService) CalculateTokenCostForRequest(req TokenCostRequest) (*Co
 	if req.ReasoningEffort != "" {
 		return s.CalculateCostUnified(s.tokenCostInput(req, resolved))
 	}
-	return s.CalculateCost(req.Model, req.Tokens, req.RateMultiplier)
+	// Preserve this legacy branch's catalog-only policy: it historically
+	// ignored Resolver and ServiceTier. Carry only its original inputs plus
+	// the request context/instant needed to freeze the same calculation.
+	return s.CalculateCostUnified(CostInput{
+		Ctx: req.Ctx, Model: req.Model, Tokens: req.Tokens,
+		RateMultiplier: req.RateMultiplier, PricingAt: req.PricingAt,
+	})
 }
 
 func (s *BillingService) tokenCostInput(req TokenCostRequest, resolved *ResolvedPricing) CostInput {

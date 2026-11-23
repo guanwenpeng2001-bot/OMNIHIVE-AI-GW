@@ -258,7 +258,8 @@ func TestCalculateTokenCostForRequest_ChannelOverridesFable51MaxEffortMultiplier
 }
 
 // Compare all amounts, metadata and snapshot fields, excluding only the wall-clock
-// timestamp of the two independently calculated snapshots.
+// timestamp of the two independently calculated snapshots. Each snapshot must
+// first agree with its nested price context about that request's frozen instant.
 func requireEqualTokenCostIgnoringPricingAt(t *testing.T, want, got *CostBreakdown) {
 	t.Helper()
 	normalize := func(cost *CostBreakdown) CostBreakdown {
@@ -267,10 +268,25 @@ func requireEqualTokenCostIgnoringPricingAt(t *testing.T, want, got *CostBreakdo
 		if copy.PricingSnapshot != "" {
 			var snapshot map[string]json.RawMessage
 			require.NoError(t, json.Unmarshal([]byte(copy.PricingSnapshot), &snapshot))
+			var at time.Time
 			if raw, ok := snapshot["pricing_at"]; ok {
-				var at time.Time
 				require.NoError(t, json.Unmarshal(raw, &at))
 				require.False(t, at.IsZero())
+			}
+			if raw, ok := snapshot["price_context"]; ok {
+				var priceContext map[string]json.RawMessage
+				require.NoError(t, json.Unmarshal(raw, &priceContext))
+				require.NotNil(t, priceContext)
+				var contextAt time.Time
+				require.NoError(t, json.Unmarshal(priceContext["pricing_at"], &contextAt))
+				require.False(t, at.IsZero(), "a price context requires the snapshot pricing instant")
+				require.True(t, at.Equal(contextAt), "snapshot pricing_at %s differs from price_context.pricing_at %s", at, contextAt)
+				priceContext["pricing_at"] = json.RawMessage(`"2000-01-01T00:00:00Z"`)
+				encodedContext, err := json.Marshal(priceContext)
+				require.NoError(t, err)
+				snapshot["price_context"] = encodedContext
+			}
+			if !at.IsZero() {
 				snapshot["pricing_at"] = json.RawMessage(`"2000-01-01T00:00:00Z"`)
 			}
 			encoded, err := json.Marshal(snapshot)

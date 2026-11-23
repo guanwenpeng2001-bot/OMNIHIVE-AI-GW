@@ -234,8 +234,10 @@ type PricingService struct {
 }
 
 type pricingBaseNameIndex struct {
-	revision uint64
-	byName   map[string][]*LiteLLMModelPricing
+	revision     uint64
+	byName       map[string][]*LiteLLMModelPricing
+	keysByBase   map[string][]string
+	keysByNative map[string]map[string][]string
 }
 
 func (s *PricingService) rebuildBaseNameIndex() {
@@ -245,10 +247,24 @@ func (s *PricingService) rebuildBaseNameIndex() {
 		return
 	}
 	s.pricingRevision++
-	index := &pricingBaseNameIndex{revision: s.pricingRevision, byName: make(map[string][]*LiteLLMModelPricing, len(s.pricingData))}
+	index := &pricingBaseNameIndex{
+		revision:     s.pricingRevision,
+		byName:       make(map[string][]*LiteLLMModelPricing, len(s.pricingData)),
+		keysByBase:   make(map[string][]string, len(s.pricingData)),
+		keysByNative: make(map[string]map[string][]string),
+	}
 	for key, pricing := range s.pricingData {
-		keyBase := s.extractBaseName(strings.ToLower(key))
+		normalized := strings.ToLower(key)
+		keyBase := s.extractBaseName(normalized)
 		index.byName[keyBase] = append(index.byName[keyBase], pricing)
+		index.keysByBase[keyBase] = append(index.keysByBase[keyBase], key)
+		if provider, native, qualified := strings.Cut(normalized, "/"); qualified {
+			nativeBase := s.extractBaseName(native)
+			if index.keysByNative[nativeBase] == nil {
+				index.keysByNative[nativeBase] = make(map[string][]string)
+			}
+			index.keysByNative[nativeBase][provider] = append(index.keysByNative[nativeBase][provider], key)
+		}
 	}
 	s.baseNameIndex.Store(index)
 }
@@ -1652,6 +1668,11 @@ func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
 		}
 		var selected *LiteLLMModelPricing
 		for key, pricing := range s.pricingData {
+			// A provider tariff must first bind to its complete identity;
+			// legacy family guessing cannot cross into another namespace.
+			if strings.Contains(key, "/") {
+				continue
+			}
 			keyLower := strings.ToLower(key)
 			if strings.Contains(keyLower, pattern) {
 				if selected != nil && selected != pricing {

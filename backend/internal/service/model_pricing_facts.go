@@ -145,10 +145,15 @@ func (d *ModelPricingDescriptor) UnitPrice(unit, dimension, conditions string) (
 // ResolveDescriptor uses the same group/channel precedence as billing. It never
 // publishes pricing into the capability registry or guesses sibling lifecycles.
 func (r *ModelPricingResolver) ResolveDescriptor(ctx context.Context, input PricingInput) (*ModelPricingDescriptor, error) {
-	pricingAt := SalePricingInstant(ctx, time.Now())
-	if plan := GatewayRequestPlanFromContext(ctx); plan != nil && !plan.Snapshot().PricingAt.IsZero() {
-		pricingAt = plan.Snapshot().PricingAt
+	if input.Provider != "" {
+		ctx = WithResolvedTargetPlatform(ctx, input.Provider)
 	}
+	var err error
+	r, input, err = r.forPricingInstant(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	pricingAt := input.PricingAt
 	platform := input.Provider
 	if platform == "" {
 		platform, _ = ResolvedTargetPlatformFromContext(ctx)
@@ -184,10 +189,15 @@ func (r *ModelPricingResolver) ResolveDescriptor(ctx context.Context, input Pric
 }
 
 func (r *ModelPricingResolver) configuredPriceDescriptor(ctx context.Context, input PricingInput) (*ModelPricingDescriptor, bool, error) {
-	pricingAt := SalePricingInstant(ctx, time.Now())
-	if plan := GatewayRequestPlanFromContext(ctx); plan != nil && !plan.Snapshot().PricingAt.IsZero() {
-		pricingAt = plan.Snapshot().PricingAt
+	if input.Provider != "" {
+		ctx = WithResolvedTargetPlatform(ctx, input.Provider)
 	}
+	var err error
+	r, input, err = r.forPricingInstant(ctx, input)
+	if err != nil {
+		return nil, false, err
+	}
+	pricingAt := input.PricingAt
 	platform := input.Provider
 	if platform == "" {
 		platform, _ = ResolvedTargetPlatformFromContext(ctx)

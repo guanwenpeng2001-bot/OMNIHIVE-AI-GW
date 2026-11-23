@@ -75,11 +75,57 @@ func NewModelPricingResolver(channelService *ChannelService, billingService *Bil
 
 // PricingInput 定价解析输入
 type PricingInput struct {
-	Provider string
-	Mode     BillingMode // required billing unit; empty preserves the token entry point
-	Model    string
-	GroupID  *int64 // nil 表示不检查渠道
-	Group    *Group
+	Provider  string
+	Mode      BillingMode // required billing unit; empty preserves the token entry point
+	Model     string
+	GroupID   *int64 // nil 表示不检查渠道
+	Group     *Group
+	PricingAt time.Time
+}
+
+// forPricingInstant captures the existing request service first. A normal
+// calculation pins its current read-only price map and the selected clock once;
+// an admitted request never replaces its already frozen prices.
+func (r *ModelPricingResolver) forPricingInstant(ctx context.Context, input PricingInput) (*ModelPricingResolver, PricingInput, error) {
+	input.Group = frozenSaleGroup(ctx, input.Group)
+	billing := r.billingService.forGatewayRequest(ctx)
+	var frozenAt time.Time
+	if billing != nil {
+		frozenAt = billing.frozenPricingAt
+	}
+	var err error
+	input.PricingAt, _, err = pricingEvaluationInstant(ctx, input.PricingAt, frozenAt)
+	if err != nil {
+		return r, input, err
+	}
+	if billing != nil && billing.frozenPricingAt.IsZero() {
+		billing = frozenBillingService(billing, ModelRegistrySnapshotFromContext(ctx), input.PricingAt)
+	}
+	if billing != r.billingService {
+		frozen := *r
+		frozen.billingService = billing
+		r = &frozen
+	}
+	return r, input, nil
+}
+
+// A descriptor can choose a lifecycle/expiry-specific tariff. Its clock and
+// the exported context must agree before a pre-resolved card can be reused.
+func resolvedPricingInstant(resolved *ResolvedPricing) (time.Time, error) {
+	if resolved == nil {
+		return time.Time{}, nil
+	}
+	var at time.Time
+	if resolved.Context != nil {
+		at = resolved.Context.PricingAt
+	}
+	if resolved.descriptor != nil && !resolved.descriptor.PricingAt.IsZero() {
+		if !at.IsZero() && !at.Equal(resolved.descriptor.PricingAt) {
+			return time.Time{}, ErrSalePriceChanged
+		}
+		at = resolved.descriptor.PricingAt
+	}
+	return at, nil
 }
 
 func pricingGroupID(key *APIKey) *int64 {
@@ -111,10 +157,10 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 	if input.Provider != "" {
 		ctx = WithResolvedTargetPlatform(ctx, input.Provider)
 	}
-	if billing := r.billingService.forGatewayRequest(ctx); billing != r.billingService {
-		frozen := *r
-		frozen.billingService = billing
-		r = &frozen
+	var err error
+	r, input, err = r.forPricingInstant(ctx, input)
+	if err != nil {
+		return &ResolvedPricing{Mode: input.Mode, pricingErr: err}
 	}
 	if input.Provider == "" {
 		input.Provider, _ = ResolvedTargetPlatformFromContext(ctx)
@@ -126,10 +172,11 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 		if result == nil {
 			return
 		}
-		at := SalePricingInstant(ctx, time.Now().UTC())
-		pc := pricing.PriceContext{Provider: input.Provider, Model: input.Model, Funding: "wallet", PricingAt: at}
+		pc := pricing.PriceContext{Provider: input.Provider, Model: input.Model, Funding: "wallet", PricingAt: input.PricingAt}
 		if input.GroupID != nil {
 			pc.GroupID = *input.GroupID
+		} else if input.Group != nil {
+			pc.GroupID = input.Group.ID
 		}
 		if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
 			pc = plan.PriceContext(input.Provider, input.Model)

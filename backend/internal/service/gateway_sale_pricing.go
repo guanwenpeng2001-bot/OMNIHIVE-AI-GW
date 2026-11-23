@@ -127,8 +127,9 @@ func (s *GatewayService) CaptureSalePricing(ctx context.Context, key *APIKey, at
 	if math.IsNaN(rate) || math.IsInf(rate, 0) || rate < 0 {
 		return ctx, nil, ErrInvalidBillingAmount
 	}
-	if at.IsZero() {
-		at = time.Now().UTC()
+	at, _, err = pricingEvaluationInstant(ctx, at, s.billingService.frozenPricingAt)
+	if err != nil {
+		return ctx, nil, err
 	}
 	registry := ModelRegistrySnapshotFromContext(ctx)
 	bundle := &gatewaySalePricing{keyID: key.ID, payerID: key.UserID, workspaceID: key.WorkspaceID,

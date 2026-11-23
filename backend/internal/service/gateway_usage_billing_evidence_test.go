@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,31 +18,38 @@ import (
 )
 
 func TestGatewaysShareConfiguredPriceSelection(t *testing.T) {
+	ctx, at := WithGatewayTokenRequestPricing(t.Context())
+	requireInstant := func(resolved *ResolvedPricing) {
+		require.NotNil(t, resolved)
+		require.NotNil(t, resolved.Context)
+		require.True(t, at.Equal(resolved.Context.PricingAt), "resolved price context must preserve the request pricing instant")
+	}
 	rate := 0.01
 	resolver := NewModelPricingResolver(nil, NewBillingService(nil, nil))
 	g, o := &GatewayService{resolver: resolver}, &OpenAIGatewayService{resolver: resolver}
 	group := &Group{ID: 2, ModelPricing: []ChannelModelPricing{{Models: []string{"custom"}, InputPrice: &rate, OutputPrice: &rate}}}
 	for _, key := range []*APIKey{nil, {}, {Group: group}} {
-		a := g.resolveChannelPricing(t.Context(), "custom", key)
-		b := o.resolveOpenAIChannelPricing(t.Context(), "custom", key)
-		require.Equal(t, a, b)
+		a := g.resolveChannelPricing(ctx, "custom", key)
+		b := o.resolveOpenAIChannelPricing(ctx, "custom", key)
 		if key != nil && key.Group != nil {
-			require.NotNil(t, a)
+			requireInstant(a)
+			requireInstant(b)
 			require.Equal(t, PricingSourceGroup, a.Source)
 		} else {
 			require.Nil(t, a)
 		}
+		require.Equal(t, a, b)
 	}
 	channel := newResolverWithChannel(t, []ChannelModelPricing{{Platform: PlatformAnthropic, Models: []string{"custom"}, InputPrice: &rate, OutputPrice: &rate}})
 	g.resolver, o.resolver = channel, channel
 	for _, key := range []*APIKey{{GroupID: groupIDPtr()}, {Group: &Group{ID: *groupIDPtr(), Platform: PlatformAnthropic}}} {
-		left := g.resolveChannelPricing(t.Context(), "custom", key)
-		right := o.resolveOpenAIChannelPricing(t.Context(), "custom", key)
-		require.NotNil(t, left)
+		left := g.resolveChannelPricing(ctx, "custom", key)
+		right := o.resolveOpenAIChannelPricing(ctx, "custom", key)
+		requireInstant(left)
+		requireInstant(right)
 		require.Equal(t, PricingSourceChannel, left.Source)
 		require.Equal(t, left, right)
 	}
-
 }
 
 func TestGatewaysAssembleIdenticalFrozenReceiptFromEquivalentUsage(t *testing.T) {
@@ -66,6 +74,13 @@ func TestGatewaysAssembleIdenticalFrozenReceiptFromEquivalentUsage(t *testing.T)
 	second := receiptFixture(t, o).receipt
 	require.NotNil(t, first)
 	require.NotNil(t, second)
+	for index, receipt := range []*UsageSettlementReceipt{first, second} {
+		var snapshot PricingSnapshot
+		require.NoError(t, json.Unmarshal([]byte(receipt.Usage.PricingSnapshot), &snapshot))
+		require.NotNil(t, snapshot.PriceContext)
+		require.True(t, when.Equal(snapshot.PricingAt), "receipt %d changed the requested pricing instant", index)
+		require.True(t, snapshot.PricingAt.Equal(snapshot.PriceContext.PricingAt), "receipt %d has different snapshot and price-context pricing instants", index)
+	}
 	require.Equal(t, UsageSettlementSettled, first.State)
 	require.Equal(t, first.Command, second.Command)
 	require.Equal(t, 7, first.Usage.InputTokens)

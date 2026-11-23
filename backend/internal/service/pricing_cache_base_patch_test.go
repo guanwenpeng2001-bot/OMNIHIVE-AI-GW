@@ -70,6 +70,14 @@ func TestCacheBasePatch_ProvenSourceFieldsUseExistingPipeline(t *testing.T) {
 			require.NoError(t, svc.loadPricingData(svc.getPricingFilePath()))
 			before := *svc.pricingData[modelID]
 			before.exactTokenRates = maps.Clone(before.exactTokenRates)
+			before.sourceQuotes = maps.Clone(before.sourceQuotes)
+			before.fieldSources = maps.Clone(before.fieldSources)
+			baselineSources := make(map[string]string, len(entry))
+			for sourceField := range entry {
+				baselineSources[sourceField] = PricingSourceLiteLLM
+			}
+			require.Equal(t, baselineSources, before.fieldSources, "all downloaded fields retain their actual origin")
+			require.Equal(t, PricingSourceLiteLLM, before.sourceOrigin)
 			require.NotContains(t, before.exactTokenRates, reviewed.dimension, "missing base rates must not be synthesized from tiers")
 			if field == "cache_creation_input_token_cost" {
 				require.Zero(t, before.CacheCreationInputTokenCost, "fallback must not fill an existing model's missing field")
@@ -91,7 +99,13 @@ func TestCacheBasePatch_ProvenSourceFieldsUseExistingPipeline(t *testing.T) {
 			// Exact billing retains the decimal form of this same approved field.
 			// The full comparison still rejects changes to any other rate or tier.
 			before.exactTokenRates[reviewed.dimension] = reviewed.exactBase
-			require.Equal(t, before, *svc.pricingData[modelID], "only the proven base field may change")
+			patchedSources := maps.Clone(baselineSources)
+			patchedSources[field] = "operator_override"
+			require.Equal(t, patchedSources, svc.pricingData[modelID].fieldSources, "only the approved field originates from the operator patch")
+			require.Equal(t, "mixed_sale", svc.pricingData[modelID].sourceOrigin)
+			before.fieldSources = patchedSources
+			before.sourceOrigin = "mixed_sale"
+			require.Equal(t, before, *svc.pricingData[modelID], "only the proven base field and its verified provenance may change")
 			require.Equal(t, unrelated, *svc.pricingData["claude-sonnet-4-5"])
 			require.Equal(t, anchor, svc.localHash)
 			cachedBody, err := os.ReadFile(svc.getPricingFilePath())
@@ -141,6 +155,8 @@ func TestCacheBasePatch_ProvenSourceFieldsUseExistingPipeline(t *testing.T) {
 				require.Zero(t, svc.pricingData[modelID].CacheReadInputTokenCost)
 			}
 			require.NotContains(t, svc.pricingData[modelID].exactTokenRates, reviewed.dimension)
+			require.Equal(t, baselineSources, svc.pricingData[modelID].fieldSources)
+			require.Equal(t, PricingSourceLiteLLM, svc.pricingData[modelID].sourceOrigin)
 		})
 	}
 }

@@ -165,6 +165,11 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	}
 
 	apiKey := input.APIKey
+	if group := frozenSaleGroup(ctx, apiKey.Group); group != apiKey.Group {
+		copied := *apiKey
+		copied.Group = group
+		apiKey = &copied
+	}
 	user := input.User
 	account := input.Account
 	if account != nil {
@@ -223,8 +228,20 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	// 变价）；未装配 PricingAt 的路径回退记录时刻，保持既有行为。不并入上面的
 	// Resolve，以免污染 user:group 倍率缓存。
 	baseMultiplier := multiplier
-	pricingAt := openAIUsagePricingAt(input)
-	multiplier, imageMultiplier := computePeakAwareMultipliers(apiKey, baseMultiplier, pricingAt)
+	var serviceFrozen time.Time
+	if billing := s.billingService.forGatewayRequest(ctx); billing != nil {
+		serviceFrozen = billing.frozenPricingAt
+	}
+	pricingAt, _, pricingErr := pricingEvaluationInstant(ctx, input.PricingAt, serviceFrozen)
+	imageMultiplier := baseMultiplier
+	if pricingErr == nil {
+		ctx = context.WithValue(ctx, gatewayTokenRequestPricingAtCtxKey{}, pricingAt)
+		multiplier, imageMultiplier = computePeakAwareMultipliers(apiKey, baseMultiplier, pricingAt)
+	} else if requestPricingErr == nil {
+		// Keep consumed usage on the existing pricing-failure/needs-review
+		// path instead of returning before its audit receipt is assembled.
+		requestPricingErr = pricingErr
+	}
 	videoMultiplier := resolveVideoRateMultiplier(apiKey, baseMultiplier)
 
 	var cost *CostBreakdown
