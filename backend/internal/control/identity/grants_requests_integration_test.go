@@ -94,7 +94,7 @@ func TestExactGrantsAndMembershipRequests(t *testing.T) {
 	require.Equal(t, "approved", result.State)
 	again, err := store.DecideAccess(ctx, admin, w, r.ID, 1, dec, "request")
 	require.NoError(t, err)
-	require.Equal(t, result, again)
+	requireSameAccessDecision(t, result, again)
 	g, err = store.MemberGrants(ctx, admin, w, member)
 	require.NoError(t, err)
 	rows[1].Actions = []string{"keys.read", "text.chat"}
@@ -193,7 +193,7 @@ func TestAccessDecisionReplayReceipt(t *testing.T) {
 					require.ErrorIs(t, err, fault.Conflict)
 				default:
 					require.NoError(t, err)
-					require.Equal(t, result, again)
+					requireSameAccessDecision(t, result, again)
 				}
 			}
 			require.Equal(t, version, id("SELECT grant_version FROM workspace_members WHERE workspace_id=$1 AND user_id=$2", w, member))
@@ -208,4 +208,17 @@ func TestAccessDecisionReplayReceipt(t *testing.T) {
 			}
 		})
 	}
+}
+
+func requireSameAccessDecision(t *testing.T, want, got domain.AccessRequest) {
+	t.Helper()
+	// PostgreSQL and the JSON receipt can decode the same instant with
+	// different location objects.
+	require.True(t, want.CreatedAt.Equal(got.CreatedAt), "created_at changed on replay")
+	got.CreatedAt = want.CreatedAt
+	if want.DecidedAt != nil && got.DecidedAt != nil {
+		require.True(t, want.DecidedAt.Equal(*got.DecidedAt), "decided_at changed on replay")
+		got.DecidedAt = want.DecidedAt
+	}
+	require.Equal(t, want, got)
 }
