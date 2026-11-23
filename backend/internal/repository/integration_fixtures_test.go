@@ -81,7 +81,7 @@ func cleanupRepositoryRows(t *testing.T) {
 		"pending_auth_sessions", "announcement_reads", "promo_code_usages",
 		"passkey_credentials", "passkey_user_handles", "user_affiliates",
 		"user_attribute_values", "user_avatars", "user_group_rate_multipliers",
-		"user_platform_quotas", "user_provider_default_grants", "project_grants",
+		"user_platform_quotas", "user_provider_default_grants", "project_grants", "project_access_requests",
 		"mcp_grants", "mcp_clients", "registration_agreements", "workspace_members", "users",
 		"scheduled_test_results", "scheduled_test_plans", "account_groups",
 	}
