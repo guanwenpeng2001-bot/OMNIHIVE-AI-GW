@@ -56,7 +56,8 @@ describe('unified v2 catalog client', () => {
     })
     const scoped = await listProjectModels('2', '9', {
       api_key_id: '42',
-      accessible: true
+      accessible: true,
+      routable: true
     })
     expect(scoped.scope_version).toBe('17')
     expect(getMock).toHaveBeenLastCalledWith(
@@ -65,6 +66,7 @@ describe('unified v2 catalog client', () => {
         params: expect.objectContaining({
           api_key_id: '42',
           accessible: true,
+          routable: true,
           timezone: undefined
         })
       })

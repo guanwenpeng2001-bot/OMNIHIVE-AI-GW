@@ -47,5 +47,5 @@ export type CatalogCompareRow = components['schemas']['CatalogCompareRow']
 export type CatalogCompareResult = components['schemas']['CatalogCompareResult']
 export type CatalogPublicationState = components['schemas']['CatalogAvailability']['publication']
 export type CatalogAccessAxisState = components['schemas']['CatalogAvailability']['access']
-export type CatalogBillingReason = components['schemas']['CatalogBilling']['reason']
-export type CatalogListParams = NonNullable<operations['listProjectModels']['parameters']['query']>
+export type CatalogListParams = NonNullable<operations['listPublicModels']['parameters']['query']>
+export type ProjectCatalogListParams = NonNullable<operations['listProjectModels']['parameters']['query']>

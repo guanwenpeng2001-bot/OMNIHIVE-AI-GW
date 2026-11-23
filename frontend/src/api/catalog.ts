@@ -4,6 +4,7 @@ import type {
   CatalogCompareInput,
   CatalogCompareResult,
   CatalogListParams,
+  ProjectCatalogListParams,
   CatalogModelDetail,
   CatalogModelPage,
   CatalogModelSummary,
@@ -89,8 +90,6 @@ function buildListQueryParams(params: CatalogListParams = {}): Record<string, un
     availability_state: params.availability_state || undefined,
     availability: params.availability || undefined,
     billing: params.billing || undefined,
-    api_key_id: params.api_key_id || undefined,
-    accessible: params.accessible !== undefined ? params.accessible : undefined,
     sort: params.sort || undefined,
     cursor: params.cursor || undefined,
     limit: params.limit ?? 20
@@ -211,13 +210,18 @@ export async function comparePublicModels(
 export async function listProjectModels(
   workspaceId: string,
   projectId: string,
-  params: CatalogListParams = {},
+  params: ProjectCatalogListParams = {},
   requestOptions?: CatalogRequestOptions
 ): Promise<CatalogModelPage> {
   const { data } = await apiClient.get(
     `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}/models`,
     {
-      params: withoutImplicitTimezone(buildListQueryParams(params)),
+      params: withoutImplicitTimezone({
+        ...buildListQueryParams(params),
+        api_key_id: params.api_key_id,
+        accessible: params.accessible,
+        routable: params.routable
+      }),
       paramsSerializer: { indexes: null },
       ...(requestOptions?.signal ? { signal: requestOptions.signal } : {})
     }
