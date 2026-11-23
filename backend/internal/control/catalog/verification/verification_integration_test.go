@@ -139,6 +139,7 @@ func TestVerificationLifecycleHTTPPostgres(t *testing.T) {
 	})
 
 	router := gin.New()
+	router.Use(middleware.DefaultWorkspaceResolution(service.NewWorkspaceService(repository.NewWorkspaceRepository(db))))
 	v2 := router.Group("/api/v2")
 	session := func(c *gin.Context) {
 		who, _ := strconv.ParseInt(c.GetHeader("X-Actor"), 10, 64)
