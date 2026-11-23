@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick, reactive } from 'vue'
 import { identityScoped } from '@/router/identityScope'
@@ -298,6 +298,8 @@ const IconStub = {
   template: '<span data-test="icon">{{ name }}</span>',
 }
 
+const mountedViewWrappers: VueWrapper[] = []
+
 const mountView = async (scoped = false) => {
   const wrapper = mount(scoped ? identityScoped(KeysView, false) : KeysView, {
     global: {
@@ -325,6 +327,7 @@ const mountView = async (scoped = false) => {
       },
     },
   })
+  mountedViewWrappers.push(wrapper)
   await flushPromises()
   await nextTick()
   return wrapper
@@ -349,6 +352,12 @@ const historyError = { status: 409, reason: 'USAGE_HISTORY_INCOMPLETE', metadata
 const usageResponse = { stats: { 1: { today_actual_cost: 12.3456, total_actual_cost: 45.6789, by_platform: [{ platform: 'grok', today_actual_cost: 12.3456, total_actual_cost: 45.6789 }] } } }
 
 describe('user KeysView column settings', () => {
+  afterEach(() => {
+    while (mountedViewWrappers.length > 0) {
+      mountedViewWrappers.pop()?.unmount()
+    }
+  })
+
   beforeEach(() => {
     localStorage.clear()
     vi.restoreAllMocks()
