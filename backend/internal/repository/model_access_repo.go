@@ -103,6 +103,9 @@ func lockAccessResource(ctx context.Context, tx *sql.Tx, resource string, identi
 		args = append(args, owner)
 	}
 	var found int64
+	if resource == "keys" && service.IsLegacyKeyManagement(ctx) {
+		ownerFilter += " AND " + fmt.Sprintf(personalAPIKeyPredicate, "api_keys.id")
+	}
 	err = tx.QueryRowContext(ctx, fmt.Sprintf("SELECT id FROM %s WHERE id=$1 AND workspace_id=$2 AND deleted_at IS NULL%s FOR UPDATE", table, ownerFilter), args...).Scan(&found)
 	return modelAccessError(err)
 }

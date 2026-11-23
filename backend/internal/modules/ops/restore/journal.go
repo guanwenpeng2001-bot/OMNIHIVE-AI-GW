@@ -9,6 +9,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
@@ -17,6 +18,9 @@ import (
 )
 
 var digestFormat = regexp.MustCompile("^sha256:[a-f0-9]{64}$")
+
+// ErrIsolatedTargetUnavailable indicates that the production journal is ready for fencing.
+var ErrIsolatedTargetUnavailable = errors.New("isolated restore target is unavailable")
 
 func databaseIdentity(ctx context.Context, db *sql.DB) (cluster, name string, err error) {
 	err = db.QueryRowContext(ctx, "SELECT system_identifier::text,current_database() FROM pg_control_system()").Scan(&cluster, &name)
@@ -32,12 +36,18 @@ func (s *Service) Initialize(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	i, in, err := databaseIdentity(ctx, s.Targets[Isolated].DB)
-	if err != nil {
-		return err
-	}
-	if i == p || i == j || (j == p && jn == pn) {
+	if j == p && jn == pn {
 		return errors.New("restore needs an independent journal database and a separate rehearsal cluster")
+	}
+	targets := map[string]string{Production: p + "/" + pn}
+	probe, cancel := context.WithTimeout(ctx, 5*time.Second)
+	i, in, isolatedErr := databaseIdentity(probe, s.Targets[Isolated].DB)
+	cancel()
+	if isolatedErr == nil {
+		if i == p || i == j {
+			return errors.New("restore needs an independent journal database and a separate rehearsal cluster")
+		}
+		targets[Isolated] = i + "/" + in
 	}
 	tx, err := s.Journal.BeginTx(ctx, nil)
 	if err != nil {
@@ -54,7 +64,7 @@ func (s *Service) Initialize(ctx context.Context) error {
 	if _, err = tx.ExecContext(ctx, string(ddl)); err != nil {
 		return err
 	}
-	for name, id := range map[string]string{Production: p + "/" + pn, Isolated: i + "/" + in} {
+	for name, id := range targets {
 		var bound string
 		err = tx.QueryRowContext(ctx, `INSERT INTO restore_journal.targets(name,database_identity) VALUES ($1,$2)
   ON CONFLICT(name) DO UPDATE SET name=excluded.name RETURNING database_identity`, name, id).Scan(&bound)
@@ -65,7 +75,13 @@ func (s *Service) Initialize(ctx context.Context) error {
 			return errors.New("restore journal belongs to a different target")
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if isolatedErr != nil {
+		return ErrIsolatedTargetUnavailable
+	}
+	return nil
 }
 func (s *Service) Import(ctx context.Context, id string, record json.RawMessage, review bool) error {
 	_, err := s.Journal.ExecContext(ctx, `INSERT INTO restore_journal.backups(id,record,review_required) VALUES($1,$2,$3)

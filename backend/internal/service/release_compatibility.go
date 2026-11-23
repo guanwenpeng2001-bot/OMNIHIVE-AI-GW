@@ -38,8 +38,12 @@ type ReleaseEligibility struct {
 
 type RollbackEligibilityReport struct {
 	DatabaseFloor    string            `json:"database_floor"`
+	CurrentVersion   string            `json:"current_version"`
+	RemoteStatus     string            `json:"remote_status"`
+	RemoteReason     string            `json:"remote_reason,omitempty"`
 	Versions         []RollbackVersion `json:"versions"`
 	ExcludedVersions []RollbackVersion `json:"excluded_versions"`
+	LocalVersions    []RollbackVersion `json:"local_versions"`
 }
 
 // ResolveReleaseCompatibility is shared by online updates and the installer CLI.
@@ -138,7 +142,7 @@ func (s *UpdateService) rollbackCandidateEligibility(ctx context.Context, r *Git
 	}
 	data, err := s.githubClient.FetchChecksumFile(ctx, checksums.DownloadURL)
 	if err != nil {
-		return ReleaseEligibility{}, err
+		return ReleaseEligibility{}, ErrUpdateCheckUnavailable.WithCause(err)
 	}
 	if _, err := findReleaseChecksum(data, archive.Name); err != nil {
 		return ReleaseEligibility{}, err
@@ -154,7 +158,7 @@ func (s *UpdateService) rollbackCandidateEligibility(ctx context.Context, r *Git
 	defer os.RemoveAll(dir)
 	path := dir + "/" + manifest.Name
 	if err := s.githubClient.DownloadFile(ctx, manifest.DownloadURL, path, maxReleaseManifestSize); err != nil {
-		return ReleaseEligibility{}, err
+		return ReleaseEligibility{}, ErrUpdateCheckUnavailable.WithCause(err)
 	}
 	floor, err := s.databaseRollbackFloor(ctx)
 	if err != nil {
