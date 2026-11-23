@@ -2548,7 +2548,7 @@
       <div v-show="editActiveTab === 'all' || editActiveTab === 'models'" class="space-y-4">
       <AccountModelConfigurationSection ref="modelConfigurationSection" :candidate-identity="modelCandidateIdentity" :active="show" :account-id="cursorCredentialDraft ? undefined : account.id" :platform="account.platform" :sync-credentials="cursorDraftPreview"
         v-model="allowedModels" v-model:mappings="modelMappings" :presets="presetMappings"
-        :discovery-disabled="compatibleDiscoveryDisabled(selectedCompatibleProvider, compatibleDraft)" :connection-context="modelDiscoveryContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="savedModelGeneration" :model-allowlist="accountModelAllowlist(account)" @selection-saved="handleModelSelectionSaved">
+        :discovery-disabled="compatibleDiscoveryDisabled(selectedCompatibleProvider, compatibleDraft)" :connection-context="modelDiscoveryContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="savedModelGeneration" :persisted-selection="persistedModelSelection" :register-actions="registerModelSelectionActions" :model-allowlist="accountModelAllowlist(account)" @selection-saved="handleModelSelectionSaved">
         <template #model-rules>
       <ModelAccessRuleEditor v-if="show" :key="account.id" :path="`/admin/accounts/${account.id}`" />
         </template>
@@ -2564,42 +2564,116 @@
     </form>
 
     <template #footer>
-      <div v-if="account" class="flex w-full flex-wrap items-center justify-between gap-3">
-        <p class="max-w-[420px] truncate text-xs text-[var(--muted-foreground)]" :title="t('admin.accounts.editSections.independentSaves')">{{ t('admin.accounts.editSections.independentSaves') }}</p>
-        <div class="ml-auto flex items-center gap-2.5">
-        <button @click="handleClose" type="button" class="btn btn-secondary">
-          {{ t('common.close') }}
+      <div v-if="account" class="w-full space-y-2.5">
+        <div
+          v-if="hasUnsavedModelSelection"
+          role="status"
+          data-testid="unsaved-model-selection-banner"
+          class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300/70 bg-amber-50/80 px-3 py-2 text-xs text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200"
+        >
+          <span>
+            {{
+              modelConfigurationDirty
+                ? t('admin.accounts.modelSync.unsavedSelectionSaveConnectionFirst')
+                : t('admin.accounts.modelSync.unsavedSelectionBanner')
+            }}
+          </span>
+          <button
+            type="button"
+            data-testid="footer-save-model-selection"
+            class="btn btn-secondary btn-sm"
+            :disabled="submitting || savingUnsavedSelection || modelConfigurationDirty || !canTriggerModelSelectionSave"
+            @click="handleSaveModelSelectionFromBanner"
+          >
+            {{ savingUnsavedSelection ? t('admin.accounts.modelSync.savingSelection') : t('admin.accounts.modelSync.saveSelection') }}
+          </button>
+        </div>
+        <div class="flex w-full flex-wrap items-center justify-between gap-3">
+          <p class="max-w-[420px] truncate text-xs text-[var(--muted-foreground)]" :title="t('admin.accounts.editSections.independentSaves')">{{ t('admin.accounts.editSections.independentSaves') }}</p>
+          <div class="ml-auto flex items-center gap-2.5">
+          <button @click="handleClose" type="button" class="btn btn-secondary">
+            {{ t('common.close') }}
+          </button>
+          <button
+            type="submit"
+            form="edit-account-form"
+            :disabled="submitting"
+            class="btn btn-primary"
+            data-tour="account-form-submit"
+          >
+            <svg
+              v-if="submitting"
+              class="-ml-1 mr-2 h-4 w-4 animate-spin"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                class="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="4"
+              ></circle>
+              <path
+                class="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              ></path>
+            </svg>
+            {{ submitting ? t('admin.accounts.updating') : t('admin.accounts.editSections.save') }}
+          </button>
+          </div>
+        </div>
+      </div>
+    </template>
+  </BaseDialog>
+
+  <!-- Unsaved Model Selection Close Guard -->
+  <BaseDialog
+    :show="showUnsavedModelSelectionDialog"
+    :title="t('admin.accounts.modelSync.unsavedSelectionCloseTitle')"
+    width="narrow"
+    @close="showUnsavedModelSelectionDialog = false"
+  >
+    <div data-testid="unsaved-model-selection-dialog" class="space-y-3">
+      <p class="text-sm leading-relaxed text-[var(--muted-foreground)]">
+        {{
+          modelConfigurationDirty
+            ? t('admin.accounts.modelSync.unsavedSelectionSaveConnectionFirst')
+            : t('admin.accounts.modelSync.unsavedSelectionCloseMessage')
+        }}
+      </p>
+    </div>
+    <template #footer>
+      <div class="flex flex-wrap justify-end gap-2">
+        <button
+          type="button"
+          data-testid="unsaved-selection-cancel-btn"
+          class="btn btn-secondary"
+          :disabled="savingUnsavedSelection"
+          @click="showUnsavedModelSelectionDialog = false"
+        >
+          {{ t('common.cancel') }}
         </button>
         <button
-          type="submit"
-          form="edit-account-form"
-          :disabled="submitting"
-          class="btn btn-primary"
-          data-tour="account-form-submit"
+          type="button"
+          data-testid="unsaved-selection-discard-btn"
+          class="btn btn-secondary border-red-200 text-red-600 dark:border-red-800 dark:text-red-400"
+          :disabled="savingUnsavedSelection"
+          @click="handleDiscardAndClose"
         >
-          <svg
-            v-if="submitting"
-            class="-ml-1 mr-2 h-4 w-4 animate-spin"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle
-              class="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              stroke-width="4"
-            ></circle>
-            <path
-              class="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-            ></path>
-          </svg>
-          {{ submitting ? t('admin.accounts.updating') : t('admin.accounts.editSections.save') }}
+          {{ t('admin.accounts.modelSync.discardAndClose') }}
         </button>
-        </div>
+        <button
+          type="button"
+          data-testid="unsaved-selection-save-btn"
+          class="btn btn-primary"
+          :disabled="savingUnsavedSelection"
+          @click="handleSaveModelSelectionAndClose"
+        >
+          {{ savingUnsavedSelection ? t('admin.accounts.modelSync.savingSelection') : t('admin.accounts.modelSync.saveSelection') }}
+        </button>
       </div>
     </template>
   </BaseDialog>
@@ -3759,8 +3833,68 @@ const normalizePoolModeRetryCount = (value: number) => {
   return normalized
 }
 
-const loadModelRestrictionFromMapping = (rawMapping?: Record<string, unknown>) => {
-  const parsed = splitModelMappingObject(rawMapping)
+const canonicalModelSelectionKey = (models: string[], mappings: ModelMapping[]) =>
+  JSON.stringify(
+    [
+      ...models.map(model => [model, model]),
+      ...mappings.map(mapping => [mapping.from, mapping.to])
+    ].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+  )
+
+const canonicalCompactMappingKey = (mappings: ModelMapping[]) =>
+  JSON.stringify(
+    mappings
+      .map(mapping => [mapping.from.trim(), mapping.to.trim()])
+      .filter(([from, to]) => Boolean(from || to))
+      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+  )
+
+const persistedModelSelection = ref<{ models: string[]; mappings: ModelMapping[] }>({ models: [], mappings: [] })
+const savedCompactMappingKey = ref(canonicalCompactMappingKey([]))
+const modelSelectionDirty = computed(
+  () =>
+    canonicalModelSelectionKey(allowedModels.value, modelMappings.value) !==
+    canonicalModelSelectionKey(persistedModelSelection.value.models, persistedModelSelection.value.mappings)
+)
+const hasUnsavedModelSelection = computed(
+  () => Boolean(props.account) && !cursorCredentialDraft.value && modelSelectionDirty.value
+)
+const compactMappingDirty = computed(
+  () => canonicalCompactMappingKey(openAICompactModelMappings.value) !== savedCompactMappingKey.value
+)
+const showUnsavedModelSelectionDialog = ref(false)
+const savingUnsavedSelection = ref(false)
+const modelSelectionActions = ref<{ saveSelection: () => Promise<boolean>; canSaveSelection: () => boolean } | null>(null)
+const registerModelSelectionActions = (
+  actions: { saveSelection: () => Promise<boolean>; canSaveSelection: () => boolean } | null
+) => {
+  modelSelectionActions.value = actions
+}
+const canTriggerModelSelectionSave = computed(() => Boolean(modelSelectionActions.value?.canSaveSelection()))
+
+const extractAccountModelSelection = (newAccount: Account | null): { allowedModels: string[]; modelMappings: ModelMapping[] } => {
+  if (!newAccount) return { allowedModels: [], modelMappings: [] }
+  const credentials = newAccount.credentials as Record<string, unknown> | undefined
+  if (
+    newAccount.platform === 'antigravity' &&
+    (!credentials?.model_mapping || typeof credentials.model_mapping !== 'object') &&
+    Array.isArray(credentials?.model_whitelist)
+  ) {
+    const legacyModels = credentials.model_whitelist
+      .map(model => String(model).trim())
+      .filter(Boolean)
+    return splitModelMappingObject(Object.fromEntries(legacyModels.map(model => [model, model])))
+  }
+  return splitModelMappingObject(credentials?.model_mapping as Record<string, unknown> | undefined)
+}
+
+const hydrateModelSelectionFromAccount = (newAccount: Account | null, preserveDraft = false) => {
+  const parsed = extractAccountModelSelection(newAccount)
+  persistedModelSelection.value = {
+    models: [...parsed.allowedModels],
+    mappings: parsed.modelMappings.map(entry => ({ ...entry }))
+  }
+  if (preserveDraft) return
   allowedModels.value = parsed.allowedModels
   modelMappings.value = parsed.modelMappings
   modelRestrictionMode.value =
@@ -3772,31 +3906,20 @@ const loadModelRestrictionFromMapping = (rawMapping?: Record<string, unknown>) =
 const buildModelRestrictionMapping = () =>
   buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
 
-const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>) => {
-  const shouldApplyModelMapping = !openaiPassthroughEnabled.value
-
-  if (shouldApplyModelMapping) {
-    const modelMapping = buildModelRestrictionMapping()
-    if (modelMapping) {
-      credentials.model_mapping = modelMapping
-    } else {
-      delete credentials.model_mapping
-    }
-  } else if (!credentials.model_mapping) {
-    delete credentials.model_mapping
-  }
-
-  const compactModelMapping = buildModelMappingObject('mapping', [], openAICompactModelMappings.value)
-  if (compactModelMapping) {
-    credentials.compact_model_mapping = compactModelMapping
-  } else {
+const applyOpenAICompactModelMappingCredentials = (credentials: Record<string, unknown>) => {
+  delete credentials.model_mapping
+  if (!compactMappingDirty.value) {
     delete credentials.compact_model_mapping
+    return
   }
+  const compactModelMapping = buildModelMappingObject('mapping', [], openAICompactModelMappings.value)
+  credentials.compact_model_mapping = compactModelMapping ?? {}
 }
 
 const savedModelGeneration = ref(0)
 const modelDiscoveryContext = computed(() => JSON.stringify([
   selectedCompatibleProvider.value ? compatibleDraft.value : null,
+  props.account?.platform === 'workbuddy' ? [workbuddySite.value, workbuddyOAuthCredentials.value] : null,
   form, editBaseUrl.value, editApiKey.value, cursorKeyMode.value, cursorAutoCredentials.value, cursorClientVersion.value,
   editApiProtocol.value, editAccountMode.value, editOpenCodeAccountMode.value, editGeminiTier.value, editPlanType.value, editAdaptiveBaseUrls.value, editOpenCodeGoProtocolRules.value,
   usageCredentials.value, quotaCredentials.value, editZhipuOrganization.value, editZhipuProject.value, editBedrockAccessKeyId.value, editBedrockSecretAccessKey.value, editBedrockSessionToken.value,
@@ -3814,9 +3937,10 @@ const markModelConfigurationSaved = () => {
 }
 
 let modelSelectionEchoAccountId: number | null = null
+let accountSaveEchoAccountId: number | null = null
 const handleModelSelectionSaved = (account: Account) => {
   if (account.id !== props.account?.id || !props.show) return
-  loadModelRestrictionFromMapping(account.credentials?.model_mapping as Record<string, unknown> | undefined)
+  hydrateModelSelectionFromAccount(account)
   savedModelGeneration.value++
   // AccountsView synchronously echoes updated as a new object with runtime fields.
   // Only that update should bypass full initialization of the unrelated drafts.
@@ -3825,17 +3949,26 @@ const handleModelSelectionSaved = (account: Account) => {
   void nextTick(() => { modelSelectionEchoAccountId = null })
 }
 
-const syncFormFromAccount = (newAccount: Account | null) => {
+const syncFormFromAccount = (
+  newAccount: Account | null,
+  options?: { preserveModelSelectionDraft?: boolean }
+) => {
+  const preserveDraft = Boolean(options?.preserveModelSelectionDraft)
   usageCredentials.value = usageQueryDraft(newAccount?.credentials)
   byteplusCredentials.value = byteplusQuotaDraft(newAccount?.credentials)
   tencentCredentials.value = tencentQuotaDraft(newAccount?.credentials)
   quotaCredentials.value = volcengineQuotaDraft(newAccount?.credentials)
-  loadModelRestrictionFromMapping(newAccount?.credentials?.model_mapping as Record<string, unknown> | undefined)
+  hydrateModelSelectionFromAccount(newAccount, preserveDraft)
+  if (!preserveDraft) {
+    showUnsavedModelSelectionDialog.value = false
+  }
   if (!newAccount) {
     editApiKey.value = ''
     editBaseUrl.value = ''
     cursorAutoCredentials.value = {}
     cursorClientVersion.value = ''
+    openAICompactModelMappings.value = []
+    savedCompactMappingKey.value = canonicalCompactMappingKey([])
     return
   }
   // 进入回填窗口：抑制 CN 模式/协议 watcher 联动重置 base_url（见 syncingForm 注释）。
@@ -3992,6 +4125,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       openAICompactModelMappings.value = Object.entries(compactMappings).map(([from, to]) => ({ from, to }))
     }
   }
+  savedCompactMappingKey.value = canonicalCompactMappingKey(openAICompactModelMappings.value)
   if (newAccount.platform === 'anthropic' && newAccount.type === 'apikey') {
     anthropicPassthroughEnabled.value = extra?.anthropic_passthrough === true
     anthropicAPIKeyAuthScheme.value = extra?.anthropic_apikey_auth_scheme === 'authorization_bearer'
@@ -4163,9 +4297,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       ? editAdaptiveBaseUrls.value.chat_completions
       : (credentials.base_url as string) || platformDefaultUrl
 
-    // Load model mappings and detect mode
-    loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
-
     // Load pool mode
     poolModeEnabled.value = credentials.pool_mode === true
     poolModeRetryCount.value = normalizePoolModeRetryCount(
@@ -4209,9 +4340,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     editQuotaWeeklyLimit.value = typeof bedrockExtra.quota_weekly_limit === 'number' ? bedrockExtra.quota_weekly_limit : null
     // Load quota notify for bedrock
     loadQuotaNotifyFromExtra(bedrockExtra)
-
-    // Load model mappings for bedrock
-    loadModelRestrictionFromMapping(bedrockCreds.model_mapping as Record<string, unknown> | undefined)
   } else if (newAccount.type === 'upstream' && newAccount.credentials) {
     const credentials = newAccount.credentials as Record<string, unknown>
     editBaseUrl.value = (credentials.base_url as string) || ''
@@ -4220,9 +4348,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     editVertexProjectId.value = (credentials.project_id as string) || ''
     editVertexClientEmail.value = (credentials.client_email as string) || ''
     editVertexLocation.value = (credentials.location as string) || (credentials.vertex_location as string) || 'us-central1'
-
-    // Load model mappings for service_account
-    loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
   } else {
     const platformDefaultUrl =
       newAccount.platform === 'openai'
@@ -4234,27 +4359,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
             : 'https://api.anthropic.com'
     editBaseUrl.value = platformDefaultUrl
 
-    // Load model mappings for supported OAuth accounts
-    if (['openai', 'grok', 'cursor', 'antigravity'].includes(newAccount.platform) && newAccount.credentials) {
-      const oauthCredentials = newAccount.credentials as Record<string, unknown>
-      loadModelRestrictionFromMapping(oauthCredentials.model_mapping as Record<string, unknown> | undefined)
-    } else {
-      modelRestrictionMode.value = 'whitelist'
-      modelMappings.value = []
-      allowedModels.value = []
-    }
     poolModeEnabled.value = false
     poolModeRetryCount.value = DEFAULT_POOL_MODE_RETRY_COUNT
     poolModeRetryStatusCodesInput.value = ''
     customErrorCodesEnabled.value = false
     selectedErrorCodes.value = []
-  }
-  // Preserve legacy Antigravity selections without a second model-state path.
-  if (newAccount.platform === 'antigravity' &&
-      (!credentials?.model_mapping || typeof credentials.model_mapping !== 'object') &&
-      Array.isArray(credentials?.model_whitelist)) {
-    const legacyModels = credentials.model_whitelist.map(model => String(model).trim()).filter(Boolean)
-    loadModelRestrictionFromMapping(Object.fromEntries(legacyModels.map(model => [model, model])))
   }
   editApiKey.value = ''
   markModelConfigurationSaved()
@@ -4275,16 +4384,25 @@ watch(
     if (!show || !newAccount) {
       modelSelectionEchoAccountId = null
       credentialEchoAccountId = null
+      accountSaveEchoAccountId = null
       syncFormFromAccount(null)
       return
     }
-    if (wasShow && newAccount.id === previousAccount?.id && (newAccount.id === modelSelectionEchoAccountId || newAccount.id === credentialEchoAccountId)) {
+    if (
+      wasShow &&
+      newAccount.id === previousAccount?.id &&
+      (newAccount.id === modelSelectionEchoAccountId ||
+        newAccount.id === credentialEchoAccountId ||
+        newAccount.id === accountSaveEchoAccountId)
+    ) {
       modelSelectionEchoAccountId = null
       credentialEchoAccountId = null
+      accountSaveEchoAccountId = null
       return
     }
     modelSelectionEchoAccountId = null
     credentialEchoAccountId = null
+    accountSaveEchoAccountId = null
     if (!wasShow || newAccount !== previousAccount) {
       syncFormFromAccount(newAccount)
       loadTLSProfiles()
@@ -4655,8 +4773,8 @@ const formatDateTimeLocal = formatDateTimeLocalInput
 const parseDateTimeLocal = parseDateTimeLocalInput
 
 // Methods
-const handleClose = () => {
-  if (submitting.value) return
+const finalizeClose = () => {
+  showUnsavedModelSelectionDialog.value = false
   if (cursorCredentialDraft.value) {
     void apiClient.delete(`/admin/accounts/credential-drafts/${encodeURIComponent(cursorCredentialDraft.value.credential_draft)}`).catch(() => {})
     cursorCredentialDraft.value = null
@@ -4666,6 +4784,65 @@ const handleClose = () => {
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
   emit('close')
+}
+
+const handleClose = () => {
+  if (submitting.value || savingUnsavedSelection.value) return
+  if (hasUnsavedModelSelection.value) {
+    showUnsavedModelSelectionDialog.value = true
+    return
+  }
+  finalizeClose()
+}
+
+const handleDiscardAndClose = () => {
+  if (submitting.value || savingUnsavedSelection.value) return
+  finalizeClose()
+}
+
+const handleSaveModelSelectionFromBanner = async () => {
+  if (submitting.value || savingUnsavedSelection.value) return
+  if (modelConfigurationDirty.value) {
+    appStore.showInfo?.(t('admin.accounts.modelSync.unsavedSelectionSaveConnectionFirst'))
+    return
+  }
+  if (!modelSelectionActions.value?.canSaveSelection()) {
+    editActiveTab.value = 'models'
+    return
+  }
+  savingUnsavedSelection.value = true
+  try {
+    await modelSelectionActions.value.saveSelection()
+  } finally {
+    savingUnsavedSelection.value = false
+  }
+}
+
+const handleSaveModelSelectionAndClose = async () => {
+  if (submitting.value || savingUnsavedSelection.value) return
+  if (modelConfigurationDirty.value) {
+    showUnsavedModelSelectionDialog.value = false
+    editActiveTab.value = 'models'
+    appStore.showInfo?.(t('admin.accounts.modelSync.unsavedSelectionSaveConnectionFirst'))
+    return
+  }
+  if (!modelSelectionActions.value?.canSaveSelection()) {
+    showUnsavedModelSelectionDialog.value = false
+    editActiveTab.value = 'models'
+    return
+  }
+  savingUnsavedSelection.value = true
+  try {
+    const saved = await modelSelectionActions.value.saveSelection()
+    if (saved) {
+      finalizeClose()
+    } else {
+      showUnsavedModelSelectionDialog.value = false
+      editActiveTab.value = 'models'
+    }
+  } finally {
+    savingUnsavedSelection.value = false
+  }
 }
 
 const persistGrokMediaEligibility = async (accountID: number, updatedAccount: Account): Promise<Account> => {
@@ -4709,6 +4886,8 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
   submitting.value = true
   try {
     const extra = { ...(props.account?.extra ?? {}), ...((updatePayload.extra as Record<string, unknown>) ?? {}) }
+    const usedCursorDraft = Boolean(cursorCredentialDraft.value)
+    const preserveDraftOnReload = !usedCursorDraft && hasUnsavedModelSelection.value
     let updatedAccount: Account
     if (cursorCredentialDraft.value) {
       const pending = cursorCredentialDraft.value
@@ -4729,8 +4908,13 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
     } else updatedAccount = await adminAPI.accounts.update(accountID, withAntigravityConfirmFlag(updatePayload))
     updatedAccount = await persistGrokMediaEligibility(accountID, updatedAccount)
     appStore.showSuccess(t('admin.accounts.accountUpdated'))
+    if (preserveDraftOnReload) {
+      appStore.showInfo?.(t('admin.accounts.modelSync.accountSavedSelectionStillUnsaved'))
+    }
+    accountSaveEchoAccountId = updatedAccount?.id ?? null
     emit('updated', updatedAccount)
-    syncFormFromAccount(updatedAccount)
+    syncFormFromAccount(updatedAccount, { preserveModelSelectionDraft: preserveDraftOnReload })
+    void nextTick(() => { accountSaveEchoAccountId = null })
   } catch (error: unknown) {
     if (extractApiErrorStatus(error) === 409 && extractApiErrorCode(error) === 'mixed_channel_warning' && needsMixedChannelCheck()) {
       const metadata = extractApiErrorMetadata(error)
@@ -4808,7 +4992,6 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
     if (props.account.type === 'apikey') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
       const newBaseUrl = editBaseUrl.value.trim() || defaultBaseUrl.value
-      const shouldApplyModelMapping = !(props.account.platform === 'openai' && openaiPassthroughEnabled.value)
 
       // Always update credentials for apikey type to handle model mapping changes
       const newCredentials: Record<string, unknown> = {
@@ -4927,25 +5110,9 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
         return
       }
 
-      // Add model mapping if configured（OpenAI 开启自动透传时保留现有映射，不再编辑）
-      if (shouldApplyModelMapping) {
-        const modelMapping = buildModelRestrictionMapping()
-        if (modelMapping) {
-          newCredentials.model_mapping = modelMapping
-        } else {
-          delete newCredentials.model_mapping
-        }
-      } else if (currentCredentials.model_mapping) {
-        newCredentials.model_mapping = currentCredentials.model_mapping
-      }
       if (props.account.platform === 'openai') {
         applyOpenAIEndpointCapabilities(newCredentials)
-        const compactModelMapping = buildModelMappingObject('mapping', [], openAICompactModelMappings.value)
-        if (compactModelMapping) {
-          newCredentials.compact_model_mapping = compactModelMapping
-        } else {
-          delete newCredentials.compact_model_mapping
-        }
+        applyOpenAICompactModelMappingCredentials(newCredentials)
       }
 
       // Add pool mode if enabled
@@ -5054,14 +5221,6 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
       newCredentials.location = editVertexLocation.value.trim()
       newCredentials.tier_id = 'vertex'
 
-      // Add model mapping if configured
-      const modelMapping = buildModelRestrictionMapping()
-      if (modelMapping) {
-        newCredentials.model_mapping = modelMapping
-      } else {
-        delete newCredentials.model_mapping
-      }
-
       applyInterceptWarmup(newCredentials, interceptWarmupRequests.value, 'edit')
       applyAccountSchedulingThresholdOverridePatch(newCredentials, currentCredentials)
       if (!applyTempUnschedConfig(newCredentials)) {
@@ -5112,14 +5271,6 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
         delete newCredentials.pool_mode_retry_status_codes
       }
 
-      // Model mapping
-      const modelMapping = buildModelRestrictionMapping()
-      if (modelMapping) {
-        newCredentials.model_mapping = modelMapping
-      } else {
-        delete newCredentials.model_mapping
-      }
-
       applyInterceptWarmup(newCredentials, interceptWarmupRequests.value, 'edit')
       applyAccountSchedulingThresholdOverridePatch(newCredentials, currentCredentials)
       if (!applyTempUnschedConfig(newCredentials)) {
@@ -5151,16 +5302,10 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
         oauthCredentials: workbuddyOAuthCredentials.value,
         existing: currentCredentials
       })
-      const modelMapping = buildModelRestrictionMapping()
-      if (modelMapping) {
-        newCredentials.model_mapping = modelMapping
-      } else {
-        delete newCredentials.model_mapping
-      }
       updatePayload.credentials = newCredentials
     }
 
-    // OpenAI/Grok OAuth: persist model mapping to credentials
+    // OpenAI OAuth: apply compact model mapping edits while preserving primary model selection
     if ((props.account.platform === 'openai' || props.account.platform === 'grok') && props.account.type === 'oauth') {
       const currentCredentials = isSparkShadow.value
         ? {}
@@ -5168,14 +5313,7 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
           ((props.account.credentials as Record<string, unknown>) || {})
       const newCredentials: Record<string, unknown> = { ...currentCredentials }
       if (props.account.platform === 'openai') {
-        applyOpenAIModelMappingCredentials(newCredentials)
-      } else {
-        const modelMapping = buildModelRestrictionMapping()
-        if (modelMapping) {
-          newCredentials.model_mapping = modelMapping
-        } else {
-          delete newCredentials.model_mapping
-        }
+        applyOpenAICompactModelMappingCredentials(newCredentials)
       }
 
       updatePayload.credentials = newCredentials
@@ -5233,8 +5371,7 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
       updatePayload.credentials = applyPlanType({ ...currentCredentials }, editPlanType.value)
     }
 
-    // Antigravity: persist model mapping to credentials (applies to all antigravity types)
-    // Antigravity 只支持映射模式
+    // Antigravity: persist project_id while preserving primary model selection
     if (props.account.platform === 'antigravity') {
       const currentCredentials = (updatePayload.credentials as Record<string, unknown>) ||
         ((props.account.credentials as Record<string, unknown>) || {})
@@ -5242,9 +5379,6 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
       if (props.account.type === 'oauth') {
         applyAntigravityProjectID(newCredentials, antigravityProjectId.value, 'edit')
       }
-
-      delete newCredentials.model_whitelist
-      newCredentials.model_mapping = buildModelRestrictionMapping() ?? {}
 
       updatePayload.credentials = newCredentials
     }
@@ -5274,9 +5408,6 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
         } finally { submitting.value = false }
         return
       }
-      const mapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
-      delete cursorCredentials.model_mapping
-      if (mapping) cursorCredentials.model_mapping = mapping
       if (cursorKeyMode.value === 'relay') {
         const headerError = headerOverrideEnabled.value && validateHeaderOverrideRows(headerOverrideRows.value)
         if (headerError) { revealSection('account-connection-settings'); appStore.showError(t(`admin.accounts.headerOverride.${headerError}`)); return }
@@ -5618,12 +5749,32 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
       updatePayload.extra = newExtra
     }
 
-    if (['anthropic', 'gemini'].includes(props.account.platform) && ['oauth', 'setup-token'].includes(props.account.type)) {
-      const credentials = { ...props.account.credentials, ...((updatePayload.credentials as Record<string, unknown>) ?? {}) }
-      const mapping = buildModelRestrictionMapping()
-      if (mapping) credentials.model_mapping = mapping
-      else delete credentials.model_mapping
-      updatePayload.credentials = credentials
+    if (!cursorCredentialDraft.value) {
+      updatePayload.preserve_model_selection = true
+      if (updatePayload.credentials && typeof updatePayload.credentials === 'object') {
+        const sanitizedCredentials = { ...(updatePayload.credentials as Record<string, unknown>) }
+        delete sanitizedCredentials.model_mapping
+        delete sanitizedCredentials.model_whitelist
+        if (!compactMappingDirty.value) {
+          delete sanitizedCredentials.compact_model_mapping
+        }
+        const originalCredentials = (props.account.credentials as Record<string, unknown>) || {}
+        const hadNonProtectedCredentials =
+          !isSparkShadow.value &&
+          Object.keys(originalCredentials).some(
+            key => key !== 'model_mapping' && key !== 'model_whitelist' && key !== 'compact_model_mapping'
+          )
+        if (Object.keys(sanitizedCredentials).length > 0 || hadNonProtectedCredentials) {
+          updatePayload.credentials = sanitizedCredentials
+        } else {
+          delete updatePayload.credentials
+        }
+      }
+      if (updatePayload.extra && typeof updatePayload.extra === 'object') {
+        const sanitizedExtra = { ...(updatePayload.extra as Record<string, unknown>) }
+        delete sanitizedExtra.upstream_model_allowlist
+        updatePayload.extra = sanitizedExtra
+      }
     }
 
     const reviewedPayload = JSON.stringify([accountID, updatePayload])

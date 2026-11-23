@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createI18n } from 'vue-i18n'
 import ConnectionWizardView from '@/views/admin/connections/ConnectionWizardView.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
+import EditAccountModal from '@/components/account/EditAccountModal.vue'
+import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import WorkBuddyAuthFields from '@/components/account/WorkBuddyAuthFields.vue'
 import type { ConnectionSchema } from '@/features/connections/types'
 import type { Account } from '@/types'
@@ -15,6 +17,10 @@ const {
   mockConnectionsApi,
   mockGetProxies,
   mockAccountUpdate,
+  mockAccountGetById,
+  mockUpdateModelAllowlist,
+  mockGetModelCatalog,
+  mockGetAvailableModels,
   startOAuthMock,
   pollOAuthMock
 } = vi.hoisted(() => ({
@@ -36,6 +42,10 @@ const {
   },
   mockGetProxies: vi.fn(),
   mockAccountUpdate: vi.fn(),
+  mockAccountGetById: vi.fn(),
+  mockUpdateModelAllowlist: vi.fn(),
+  mockGetModelCatalog: vi.fn(),
+  mockGetAvailableModels: vi.fn(),
   startOAuthMock: vi.fn(),
   pollOAuthMock: vi.fn()
 }))
@@ -50,18 +60,65 @@ vi.mock('@/stores/app', () => ({
     reactive({
       siteName: 'OmniHive',
       showSuccess: vi.fn(),
-      showError: vi.fn()
+      showError: vi.fn(),
+      showInfo: vi.fn(),
+      showWarning: vi.fn()
     })
+}))
+
+vi.mock('@/stores/auth', () => ({
+  useAuthStore: () => ({ isSimpleMode: true })
 }))
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     proxies: { getAll: mockGetProxies },
+    tlsFingerprintProfiles: { list: vi.fn().mockResolvedValue([]) },
+    settings: {
+      getWebSearchEmulationConfig: vi.fn().mockResolvedValue({ enabled: false })
+    },
     accounts: {
       update: mockAccountUpdate,
+      getById: mockAccountGetById,
+      checkMixedChannelRisk: vi.fn().mockResolvedValue({ has_risk: false }),
       applyOAuthCredentials: vi.fn()
     }
   }
+}))
+
+vi.mock('@/api/admin/accounts', () => ({
+  accountsAPI: {
+    getById: mockAccountGetById,
+    getModelCatalog: mockGetModelCatalog,
+    getAvailableModels: mockGetAvailableModels,
+    updateModelAllowlist: mockUpdateModelAllowlist,
+    syncUpstreamModels: vi.fn(),
+    syncUpstreamModelsPreview: vi.fn()
+  }
+}))
+
+vi.mock('@/api/admin/platformModelPresets', () => ({
+  getPlatformModelPresets: vi.fn().mockResolvedValue([])
+}))
+
+vi.mock('@/api/modelAccess', () => ({
+  modelAccess: {
+    groups: vi.fn().mockResolvedValue([]),
+    rule: vi.fn().mockResolvedValue({ access_group_id: null, models: null, exclude: [], revision: 0 }),
+    saveRule: vi.fn(),
+    preview: vi.fn()
+  }
+}))
+
+vi.mock('@/api/admin/modelAvailability', () => ({
+  modelAvailabilityAPI: { get: vi.fn(), declare: vi.fn(), revoke: vi.fn() }
+}))
+
+vi.mock('@/api/admin/credentialSecrets', () => ({
+  getCredentialSecret: vi.fn().mockRejectedValue({ reason: 'CREDENTIAL_SECRET_NOT_FOUND' }),
+  convertCredentialSecret: vi.fn(),
+  rotateCredentialSecret: vi.fn(),
+  revokeCredentialSecret: vi.fn()
 }))
 
 vi.mock('@/api/admin/workbuddy', async (importOriginal) => {
@@ -331,6 +388,142 @@ describe('WorkBuddy ConnectionWizardView & ReAuthAccountModal flows', () => {
       })
     })
     expect(wrapper.emitted('reauthorized')).toEqual([[updatedAccount]])
+    wrapper.unmount()
+  })
+
+  it('echoes saved WorkBuddy OAuth model mapping across save, parent updated echo, and reopen (T11)', async () => {
+    vi.useRealTimers()
+    const initialMapping = {
+      'hunyuan-t1': 'hunyuan-t1',
+      'wb-alias': 'hunyuan-t1',
+      'claude-*': 'hunyuan-t1'
+    }
+    const savedMapping = {
+      ...initialMapping,
+      'hunyuan-turbos': 'hunyuan-turbos'
+    }
+    const initialAccount = {
+      id: 91,
+      name: 'WorkBuddy CN OAuth',
+      notes: '',
+      platform: 'workbuddy',
+      type: 'oauth',
+      credentials: {
+        site: 'cn',
+        domain: 'www.workbuddy.cn',
+        uid: 'uid-wb-91',
+        model_mapping: initialMapping
+      },
+      extra: {},
+      proxy_id: null,
+      concurrency: 1,
+      priority: 1,
+      rate_multiplier: 1,
+      status: 'active',
+      group_ids: [],
+      expires_at: null,
+      auto_pause_on_expired: false
+    } as unknown as Account
+    const persistedAfterSelection = {
+      ...initialAccount,
+      credentials: { ...initialAccount.credentials, model_mapping: savedMapping }
+    } as unknown as Account
+    const persistedAfterRename = {
+      ...persistedAfterSelection,
+      name: 'WorkBuddy CN Renamed'
+    } as unknown as Account
+
+    mockGetAvailableModels.mockReset().mockResolvedValue([])
+    mockGetModelCatalog.mockReset().mockResolvedValue({
+      synced: true,
+      warnings: [],
+      state: { rules_revision: '11' }
+    })
+    mockUpdateModelAllowlist.mockReset().mockResolvedValue({ rules_revision: '12' })
+    mockAccountGetById.mockReset().mockResolvedValue(persistedAfterSelection)
+    mockAccountUpdate.mockReset().mockResolvedValue(persistedAfterRename)
+
+    const wrapper = mount(EditAccountModal, {
+      props: {
+        show: true,
+        account: initialAccount,
+        proxies: [],
+        groups: [],
+        onUpdated: (updated: Account) => {
+          void wrapper.setProps({ account: { ...updated } })
+        }
+      },
+      global: {
+        plugins: [makeI18n()],
+        stubs: {
+          BaseDialog: {
+            props: ['show'],
+            template: '<div v-if="show"><slot /><slot name="footer" /></div>'
+          },
+          Select: true,
+          Icon: true,
+          ModelIcon: true,
+          ProxySelector: true,
+          GroupSelector: true,
+          AccountProxySelector: true,
+          ModelAccessRuleEditor: true,
+          AccountCredentialSecretSection: true,
+          TempUnschedStatusModal: true
+        }
+      }
+    })
+    await flushPromises()
+
+    const selector = wrapper.getComponent(ModelWhitelistSelector)
+    expect(selector.props('modelValue')).toEqual(['hunyuan-t1'])
+    expect(selector.props('modelMappings')).toEqual([
+      { from: 'wb-alias', to: 'hunyuan-t1' },
+      { from: 'claude-*', to: 'hunyuan-t1' }
+    ])
+
+    await selector.get(`input[aria-label="${enAccounts.accounts.customModelName}"]`).setValue('hunyuan-turbos')
+    const addBtn = selector.findAll('button').find((button) => button.text().trim() === enAccounts.accounts.addModel)!
+    await addBtn.trigger('click')
+    await selector.get('[data-testid="save-model-selection"]').trigger('click')
+    await flushPromises()
+
+    expect(mockUpdateModelAllowlist).toHaveBeenCalledWith(
+      91,
+      expect.objectContaining({
+        expected_rules_revision: '11',
+        model_mapping: savedMapping
+      })
+    )
+    expect(wrapper.emitted('updated')?.[0]).toEqual([persistedAfterSelection])
+    expect(selector.props('modelValue')).toEqual(['hunyuan-t1', 'hunyuan-turbos'])
+    expect(selector.props('modelMappings')).toEqual([
+      { from: 'wb-alias', to: 'hunyuan-t1' },
+      { from: 'claude-*', to: 'hunyuan-t1' }
+    ])
+
+    // Rename-only save must send preserve_model_selection: true and omit model_mapping
+    await wrapper.get('input').setValue('WorkBuddy CN Renamed')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(mockAccountUpdate).toHaveBeenCalledWith(
+      91,
+      expect.objectContaining({
+        name: 'WorkBuddy CN Renamed',
+        preserve_model_selection: true
+      })
+    )
+    expect(mockAccountUpdate.mock.calls[0]?.[1]?.credentials).not.toHaveProperty('model_mapping')
+
+    // Close and reopen: saved model mapping must echo cleanly without reset
+    await wrapper.setProps({ show: false })
+    await flushPromises()
+    await wrapper.setProps({ show: true, account: persistedAfterRename })
+    await flushPromises()
+    expect(selector.props('modelValue')).toEqual(['hunyuan-t1', 'hunyuan-turbos'])
+    expect(selector.props('modelMappings')).toEqual([
+      { from: 'wb-alias', to: 'hunyuan-t1' },
+      { from: 'claude-*', to: 'hunyuan-t1' }
+    ])
     wrapper.unmount()
   })
 })
