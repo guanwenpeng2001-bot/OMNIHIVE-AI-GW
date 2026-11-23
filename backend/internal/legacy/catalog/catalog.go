@@ -183,6 +183,9 @@ func (s *Source) load(ctx context.Context, p catalog.Perspective, window catalog
 		}
 		if err == nil && !admin {
 			userRates, priceErr = s.keys.GetUserGroupRates(ctx, catalogPayer(ctx, p))
+			if s.prices != nil && priceErr != nil {
+				return catalog.Input{}, priceErr
+			}
 		}
 	}
 	if err != nil {

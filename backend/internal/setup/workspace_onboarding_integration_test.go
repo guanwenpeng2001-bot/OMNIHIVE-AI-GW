@@ -69,6 +69,9 @@ func TestInitialAdminDefaultWorkspaceOnboarding(t *testing.T) {
 	created, _, err = createAdminUser(cfg)
 	require.NoError(t, err)
 	require.True(t, created)
+	var plazaEnabled string
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT value FROM settings WHERE key=$1", service.SettingKeyModelPlazaEnabled).Scan(&plazaEnabled))
+	require.Equal(t, "true", plazaEnabled)
 	var role string
 	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT m.role FROM users u JOIN workspace_members m ON m.user_id=u.id WHERE u.email=$1 AND m.workspace_id=$2`, cfg.Admin.Email, workspace).Scan(&role))
 	require.Equal(t, "admin", role)

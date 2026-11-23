@@ -113,8 +113,9 @@ func (h *SettingHandler) SystemSettingsProjection(ctx context.Context) (map[stri
 	if err != nil {
 		return nil, fmt.Errorf("get default platform quotas: %w", err)
 	}
-	return systemSettingsResponseData(payload, authSourceDefaults)
+	return systemSettingsResponseData(payload, authSourceDefaults), nil
 }
+
 func (h *SettingHandler) writeSystemSettingsProjection(c *gin.Context) {
 	projection, err := h.SystemSettingsProjection(c.Request.Context())
 	if err != nil {

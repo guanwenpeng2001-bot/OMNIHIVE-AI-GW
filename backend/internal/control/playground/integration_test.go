@@ -46,7 +46,7 @@ func (r snapshotReader) Snapshot(context.Context, catalog.Perspective, time.Time
 // dispatch reauthorization, the single send permit, reservations and receipts use production services.
 func TestPaidPlayground(t *testing.T) {
 	ctx := t.Context()
-	db, ent, _ := testutil.NewCapabilityPostgres(t)
+	db, ent, accounts := testutil.NewCapabilityPostgres(t)
 	cache := redis.NewClient(&redis.Options{Addr: os.Getenv("AFFINITY_REDIS_TEST_ADDR")})
 	t.Cleanup(func() { cache.Close() })
 	require.NoError(t, cache.Ping(ctx).Err())
@@ -78,7 +78,7 @@ func TestPaidPlayground(t *testing.T) {
 	ep := "ep_" + catalog.Digest([2]int64{p, account})[:32]
 	model := "model-a"
 	mid := catalog.StableID("openai", model)
-	endpoints := []catalog.Endpoint{{ID: ep, Capabilities: []catalog.Capability{{Protocol: "openai_chat", Action: "text.chat", Tools: "supported", VerifiedAt: &now, Evidence: catalog.Evidence{State: "fresh"}}}}}
+	endpoints := []catalog.Endpoint{{ID: ep, Provider: service.PlatformOpenAI, Capabilities: []catalog.Capability{{Protocol: "openai_chat", Action: "text.chat", Tools: "supported", VerifiedAt: &now, Evidence: catalog.Evidence{State: "fresh"}}}}}
 	secondModel := catalog.StableID("openai", "model-b")
 	c := snapshotReader{Version: "cat", Details: []catalog.Detail{
 		{Model: catalog.Summary{ID: mid, Model: model, Provider: "openai", AccessState: "allowed", RouteState: "eligible"}, EligibleGroups: []int64{group}, Endpoints: endpoints},
@@ -87,7 +87,12 @@ func TestPaidPlayground(t *testing.T) {
 	cfg := &config.Config{}
 	repo := repository.NewUsageSettlementReceiptRepository(db)
 	financial := service.NewUsageSettlementService(repo, nil, nil)
-	plans := service.ProvideGatewayService(nil, nil, nil, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(nil, nil), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, financial)
+	groups := repository.NewGroupRepository(ent, db)
+	channels := service.NewChannelService(repository.NewChannelRepository(db), groups, nil, nil, nil)
+	billing := service.NewBillingService(nil, nil)
+	resolver := service.NewModelPricingResolver(channels, billing)
+	plans := service.ProvideGatewayService(accounts, groups, nil, nil, nil, nil, nil, nil, cfg, nil, nil, billing,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, channels, resolver, nil, nil, nil, financial)
 	keys := service.NewAPIKeyService(repository.NewAPIKeyRepository(ent, db), nil, nil, nil, nil, nil, cfg)
 	queue := "playground/" + uuid.NewString()
 	settle := func(request string) error {
@@ -107,6 +112,11 @@ func TestPaidPlayground(t *testing.T) {
 		}
 		b, _ := io.ReadAll(c.Request.Body)
 		plan := service.GatewayRequestPlanFromContext(c.Request.Context())
+		if plan.Snapshot().PriceVersion == "" {
+			t.Error("native Playground request is missing the admitted tariff version")
+			c.AbortWithStatus(500)
+			return
+		}
 		if !plan.BudgetAdmitted() {
 			c.AbortWithStatus(503)
 			return
