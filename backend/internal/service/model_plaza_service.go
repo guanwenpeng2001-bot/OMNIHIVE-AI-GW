@@ -195,7 +195,9 @@ func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group
 			VideoRateIndependent:      g.VideoRateIndependent,
 			VideoRateMultiplier:       g.VideoRateMultiplier,
 			LongContextPricingEnabled: g.LongContextPricingEnabled,
-			catalogGroup:              g,
+		}
+		if fullCatalog {
+			byGroup[g.ID].catalogGroup = g
 		}
 		groupEnt[g.ID] = g
 		order = append(order, g.ID)
@@ -221,9 +223,12 @@ func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group
 				modelIdx[gid] = idx
 			}
 			supported := PlazaVisibleModels(ch, gid)
-			configured := make(map[catalog.ModelIdentity]*ChannelModelPricing, len(supported))
-			for _, model := range supported {
-				configured[catalog.NewModelIdentity(model.Platform, model.Name)] = model.Pricing
+			var configured map[catalog.ModelIdentity]*ChannelModelPricing
+			if fullCatalog {
+				configured = make(map[catalog.ModelIdentity]*ChannelModelPricing, len(supported))
+				for _, model := range supported {
+					configured[catalog.NewModelIdentity(model.Platform, model.Name)] = model.Pricing
+				}
 			}
 			fillGlobalPricingFallback(s.pricingService, supported)
 			for j := range supported {
@@ -266,17 +271,21 @@ func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group
 					}
 				}
 				key := catalog.NewModelIdentity(m.Platform, m.Name)
-				offer := plazaOffer(ch, m, catalogBindings, true)
-				offer.configuredPrice = configured[key]
-				if fullCatalog && s.resolver != nil && s.resolver.channelService != nil {
-					mapping := s.resolver.channelService.ResolveChannelMapping(WithResolvedTargetPlatform(ctx, m.Platform), gid, m.Name)
-					if mapping.ChannelID == ch.ID {
-						offer.ChannelMappedModel = mapping.MappedModel
-						offer.BillingModelSource = mapping.BillingModelSource
+				var catalogOffers []PlazaCatalogOffer
+				if fullCatalog {
+					offer := plazaOffer(ch, m, catalogBindings, true)
+					offer.configuredPrice = configured[key]
+					if s.resolver != nil && s.resolver.channelService != nil {
+						mapping := s.resolver.channelService.ResolveChannelMapping(WithResolvedTargetPlatform(ctx, m.Platform), gid, m.Name)
+						if mapping.ChannelID == ch.ID {
+							offer.ChannelMappedModel = mapping.MappedModel
+							offer.BillingModelSource = mapping.BillingModelSource
+						}
 					}
+					catalogOffers = []PlazaCatalogOffer{offer}
 				}
 				if at, seen := idx[key]; seen {
-					pg.Models[at].CatalogOffers = append(pg.Models[at].CatalogOffers, offer)
+					pg.Models[at].CatalogOffers = append(pg.Models[at].CatalogOffers, catalogOffers...)
 					// 先见者胜；仅当已存条目无定价而新条目有定价时升级。
 					if pg.Models[at].Pricing == nil && m.Pricing != nil {
 						pg.Models[at].Pricing = m.Pricing
@@ -290,7 +299,7 @@ func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group
 					Pricing:         m.Pricing,
 					Capabilities:    capabilities,
 					CatalogBindings: catalogBindings,
-					CatalogOffers:   []PlazaCatalogOffer{offer},
+					CatalogOffers:   catalogOffers,
 				})
 			}
 		}
