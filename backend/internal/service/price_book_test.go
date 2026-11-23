@@ -76,33 +76,46 @@ func TestPriceBookReferenceNeverFundsGateway(t *testing.T) {
 			require.Equal(t, estimate.Result, compared.Rows[0].Quote)
 
 			repo := &keyBudgetReceiptStub{}
-			gateway := &GatewayService{billingService: billing, resolver: resolver}
+			wallet := &openAIRecordUsageUserRepoStub{}
+			receipts := &recordUsageReceiptFixture{
+				usage: &openAIRecordUsageLogRepoStub{inserted: true}, users: wallet,
+				billing: func() UsageBillingRepository { return nil },
+			}
+			gateway := &GatewayService{billingService: billing, resolver: resolver, usageSettlement: NewUsageSettlementService(receipts, nil, nil)}
 			requestCtx, plan := captureGatewayRequestPlan(WithResolvedTargetPlatform(ctx, PlatformOpenAI), GatewayRequestSpec{ExecutionID: "pricebook-reference", APIKeyID: 5, UserID: 4, PricingAt: at}, nil, billing, nil)
 			plan.settlement = NewUsageSettlementService(repo, nil, nil)
 			err = plan.ReserveBudget(requestCtx, RequestBudgetEstimate{Model: model, InputTokens: 1000, OutputTokens: 0, InputOnly: true, RateMultiplier: 1})
 			key := &APIKey{ID: 5}
-			cost := gateway.calculateRecordUsageCost(requestCtx, &ForwardResult{Usage: ClaudeUsage{InputTokens: 1000}}, key, model, 1, 1, at)
-			usageLog := &UsageLog{Model: model, InputTokens: 1000}
-			command := buildUsageBillingCommand("pricebook-reference", usageLog, &postUsageBillingParams{APIKey: key, User: &User{ID: 4}, Account: &Account{ID: 1, Platform: PlatformOpenAI}, Cost: cost})
-			require.NotNil(t, command)
+			usageErr := gateway.RecordUsage(requestCtx, &RecordUsageInput{
+				Result: &ForwardResult{RequestID: "pricebook-reference", Model: model, Usage: ClaudeUsage{InputTokens: 1000}},
+				APIKey: key, User: &User{ID: 4}, Account: &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, PricingAt: at,
+			})
+			require.NotNil(t, receipts.receipt)
+			command, usageLog := receipts.receipt.Command, receipts.receipt.Usage
 			if !paid {
 				require.Error(t, err)
+				require.ErrorIs(t, usageErr, ErrUsageSettlementNeedsReview)
 				require.Empty(t, repo.reservations)
 				require.Equal(t, pricing.Missing, estimate.Reason)
 				require.Nil(t, estimate.Charge)
-				require.Equal(t, PricingStateUnpriced, cost.PricingState)
+				require.Equal(t, PricingStateUnpriced, usageLog.PricingState)
+				require.Equal(t, UsageSettlementNeedsReview, receipts.receipt.State)
+				require.Zero(t, wallet.deductCalls)
 				require.Zero(t, command.BalanceCost)
 				require.Zero(t, command.SubscriptionCost)
 				require.Zero(t, command.APIKeyQuotaCost)
 				return
 			}
 			require.NoError(t, err)
+			require.NoError(t, usageErr)
 			require.Len(t, repo.reservations, 1)
 			require.Equal(t, "0.00200000", estimate.Charge.String())
 			require.InDelta(t, 0.002, command.BalanceCost, 1e-12)
+			require.Equal(t, 1, wallet.deductCalls)
+			require.InDelta(t, command.BalanceCost, wallet.lastAmount, 1e-12)
 			require.InDelta(t, command.BalanceCost, repo.reservations[0].HoldAmount, 1e-12)
-			require.Equal(t, *estimate.PriceVersion, cost.PriceCardVersion)
-			require.Equal(t, *estimate.Source, cost.PriceSource)
+			require.Equal(t, *estimate.PriceVersion, optionalStringValue(usageLog.PriceCardVersion))
+			require.Equal(t, *estimate.Source, optionalStringValue(usageLog.PriceSource))
 		})
 	}
 }

@@ -904,7 +904,13 @@ func (s *GatewayService) hasResolvableTokenPricing(ctx context.Context, model st
 	if s.billingService == nil {
 		return false
 	}
-	return s.billingService.forGatewayRequest(ctx).hasProviderTokenPrice(ctx, priceBookProviderForKey(ctx, apiKey), model)
+	billing := s.billingService.forGatewayRequest(ctx)
+	provider := priceBookProviderForKey(ctx, apiKey)
+	if provider == "" {
+		_, err := billing.GetModelPricing(model)
+		return err == nil
+	}
+	return billing.hasProviderTokenPrice(ctx, provider, model)
 }
 
 // hasIdentifiedResponseModelPricing 判断上游自报的响应模型是否可以作为计费基准，
