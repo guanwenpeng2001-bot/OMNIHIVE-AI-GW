@@ -2,9 +2,12 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useAppStore, useAuthStore } from '@/stores'
-import { SCOPE_CHANGED_EVENT } from '@/stores/app'
-import { readPersistedGlobalScope } from '@/stores/consoleScope'
+import { useAuthStore } from '@/stores'
+import {
+  SCOPE_CHANGED_EVENT,
+  getConsoleScopeStore,
+  isDefaultSharedScope
+} from '@/stores/consoleScope'
 import { workspaceIDFromPath } from '@/api/workspaceScope'
 import Skeleton from '@/components/ui/Skeleton.vue'
 import Badge from '@/components/ui/Badge.vue'
@@ -18,10 +21,10 @@ withDefaults(
   }
 )
 
-const { locale } = useI18n()
+const { t, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
-const appStore = useAppStore()
+const scopeStore = getConsoleScopeStore()
 const authStore = useAuthStore()
 
 const open = ref(false)
@@ -37,15 +40,16 @@ const isZh = computed(() => String(locale?.value || 'zh').toLowerCase().startsWi
 const isSignedIn = computed(() => Boolean(authStore.isAuthenticated ?? authStore.user))
 const isAdminRoute = computed(() => Boolean(route.path?.startsWith('/admin')))
 
-const scopes = computed(() => appStore.scopes ?? [])
-const scopesLoading = computed(() => Boolean(appStore.scopesLoading))
-const scopesRefreshing = computed(() => Boolean(appStore.scopesRefreshing))
-const scopesStale = computed(() => Boolean(appStore.scopesStale))
-const scopesError = computed(() => appStore.scopesError ?? null)
-const scopesNextCursor = computed(() => appStore.scopesNextCursor ?? null)
+const scopes = computed(() => scopeStore.scopes ?? [])
+const scopesLoading = computed(() => Boolean(scopeStore.scopesLoading))
+const scopesRefreshing = computed(() => Boolean(scopeStore.scopesRefreshing))
+const scopesStale = computed(() => Boolean(scopeStore.scopesStale))
+const scopesError = computed(() => scopeStore.scopesError ?? null)
+const scopesNextCursor = computed(() => scopeStore.scopesNextCursor ?? null)
 const activeScope = computed(
-  () => appStore.activeScope ?? { mode: 'personal' as const, workspaceId: null, projectId: null }
+  () => scopeStore.activeScope ?? { mode: 'personal' as const, workspaceId: null, projectId: null }
 )
+const scopeValidationStatus = computed(() => scopeStore.scopeValidationStatus)
 
 const urlWorkspaceId = computed(() => workspaceIDFromPath(route.path || '') ?? null)
 
@@ -67,8 +71,10 @@ const currentProject = computed(() => {
 
 const tierBadgeLabel = computed(() => {
   if (isAdminRoute.value) return 'ADMIN'
-  if (effectiveWorkspaceId.value) return 'WORKSPACE'
-  return 'PERSONAL'
+  if (effectiveWorkspaceId.value) {
+    return activeScope.value.projectId ? 'PRJ' : 'WS'
+  }
+  return 'PER'
 })
 
 const primaryScopeLabel = computed(() => {
@@ -78,12 +84,13 @@ const primaryScopeLabel = computed(() => {
     }
     return `#${effectiveWorkspaceId.value}`
   }
-  return isZh.value ? '个人空间' : 'Personal'
+  return t('scope.personal.label')
 })
 
 const secondaryProjectLabel = computed(() => {
   if (!effectiveWorkspaceId.value) return ''
   if (currentProject.value) return currentProject.value.name
+  if (activeScope.value.projectId) return `#${activeScope.value.projectId}`
   if (currentWorkspace.value && currentWorkspace.value.projects.length === 0) {
     return isZh.value ? '无项目' : 'No projects'
   }
@@ -98,14 +105,17 @@ interface FlatScopeOption {
   label: string
   subLabel: string
   selected: boolean
+  disabled?: boolean
+  isArchived?: boolean
+  isDefaultShared?: boolean
 }
 
 const filteredOptions = computed<FlatScopeOption[]>(() => {
   const q = query.value.trim().toLowerCase()
   const result: FlatScopeOption[] = []
 
-  const personalLabel = isZh.value ? '个人空间' : 'Personal'
-  const personalSub = isZh.value ? '默认个人工作台' : 'Default personal scope'
+  const personalLabel = t('scope.personal.label')
+  const personalSub = t('scope.personal.description')
   if (
     !q ||
     personalLabel.toLowerCase().includes(q) ||
@@ -118,7 +128,7 @@ const filteredOptions = computed<FlatScopeOption[]>(() => {
       projectId: null,
       label: personalLabel,
       subLabel: personalSub,
-      selected: !effectiveWorkspaceId.value
+      selected: activeScope.value.mode === 'personal' && !effectiveWorkspaceId.value
     })
   }
 
@@ -139,6 +149,7 @@ const filteredOptions = computed<FlatScopeOption[]>(() => {
 
     if (!wsMatches && matchingProjects.length === 0) continue
 
+    const wsArchived = ws.workspace_state === 'archived'
     const isWsSelected =
       effectiveWorkspaceId.value === ws.workspace_id && !activeScope.value.projectId
     result.push({
@@ -147,11 +158,15 @@ const filteredOptions = computed<FlatScopeOption[]>(() => {
       workspaceId: ws.workspace_id,
       projectId: null,
       label: ws.name,
-      subLabel: `#${ws.workspace_id}`,
-      selected: isWsSelected
+      subLabel: `#${ws.workspace_id} · ${t('scope.workspace.overviewShort')}`,
+      selected: isWsSelected,
+      disabled: wsArchived,
+      isArchived: wsArchived
     })
 
     for (const proj of matchingProjects) {
+      const projArchived = wsArchived || proj.state === 'archived'
+      const defaultShared = isDefaultSharedScope(ws, proj)
       const isProjSelected =
         effectiveWorkspaceId.value === ws.workspace_id &&
         activeScope.value.projectId === proj.id
@@ -162,7 +177,10 @@ const filteredOptions = computed<FlatScopeOption[]>(() => {
         projectId: proj.id,
         label: proj.name,
         subLabel: `${ws.name} · #${proj.id}`,
-        selected: isProjSelected
+        selected: isProjSelected,
+        disabled: projArchived,
+        isArchived: projArchived,
+        isDefaultShared: defaultShared
       })
     }
   }
@@ -171,15 +189,44 @@ const filteredOptions = computed<FlatScopeOption[]>(() => {
 })
 
 function ensureScopesFetched(force = false): void {
-  if (!isSignedIn.value || typeof appStore.fetchScopes !== 'function') return
-  void appStore.fetchScopes({ force })
+  if (!isSignedIn.value || typeof scopeStore.fetchScopes !== 'function') return
+  void scopeStore.fetchScopes({ force })
+}
+
+const SCOPE_QUERY_KEYS = ['workspace_id', 'workspaceId', 'project_id', 'projectId'] as const
+
+function hasScopeQueryParams(rawQuery: Record<string, unknown> | undefined): boolean {
+  if (!rawQuery) return false
+  return SCOPE_QUERY_KEYS.some((key) => rawQuery[key] !== undefined)
+}
+
+function cleanScopeQuery(rawQuery: Record<string, unknown> | undefined): Record<string, string | null | (string | null)[]> {
+  if (!rawQuery) return {}
+  const next: Record<string, string | null | (string | null)[]> = {}
+  for (const [key, value] of Object.entries(rawQuery)) {
+    if ((SCOPE_QUERY_KEYS as readonly string[]).includes(key)) continue
+    next[key] = value as string | null | (string | null)[]
+  }
+  return next
 }
 
 watch(
-  () => urlWorkspaceId.value,
-  (wsId) => {
-    if (wsId && wsId !== activeScope.value.workspaceId && typeof appStore.selectWorkspaceScope === 'function') {
-      appStore.selectWorkspaceScope(wsId, null)
+  () => [
+    isSignedIn.value,
+    route.path,
+    route.query?.workspace_id,
+    route.query?.workspaceId,
+    route.query?.project_id,
+    route.query?.projectId
+  ],
+  ([signedIn]) => {
+    if (!signedIn) return
+    scopeStore.syncFromLocation?.(
+      route.path || '',
+      (route.query ?? {}) as Record<string, unknown>
+    )
+    if (urlWorkspaceId.value) {
+      ensureScopesFetched(false)
     }
   },
   { immediate: true }
@@ -224,25 +271,35 @@ function closePopover(restoreFocus = false): void {
 }
 
 async function applyOption(option: FlatScopeOption): Promise<void> {
+  if (option.disabled) return
   const currentPath = route.path || ''
   const fromUrlWs = workspaceIDFromPath(currentPath)
+  const rawQuery = (route.query ?? {}) as Record<string, unknown>
+  const hasQueryScope = hasScopeQueryParams(rawQuery)
 
   if (option.kind === 'personal') {
-    appStore.selectPersonalScope?.()
+    scopeStore.selectPersonalScope()
     closePopover(true)
-    if (fromUrlWs) {
-      const stripped = currentPath.replace(/^\/workspaces\/[1-9]\d*/, '') || '/dashboard'
-      await router.push(stripped)
+    if (fromUrlWs || hasQueryScope) {
+      const stripped = fromUrlWs
+        ? currentPath.replace(/^\/workspaces\/[1-9]\d*/, '') || '/dashboard'
+        : currentPath
+      await router.push({ path: stripped, query: cleanScopeQuery(rawQuery) })
     }
     return
   }
 
   if (option.workspaceId) {
-    appStore.selectWorkspaceScope?.(option.workspaceId, option.projectId)
+    scopeStore.selectWorkspaceScope(option.workspaceId, option.projectId)
     closePopover(true)
     if (fromUrlWs && fromUrlWs !== option.workspaceId) {
       const suffix = currentPath.replace(/^\/workspaces\/[1-9]\d*/, '')
-      await router.push(`/workspaces/${option.workspaceId}${suffix}`)
+      await router.push({
+        path: `/workspaces/${option.workspaceId}${suffix}`,
+        query: cleanScopeQuery(rawQuery)
+      })
+    } else if (hasQueryScope) {
+      await router.replace({ path: currentPath, query: cleanScopeQuery(rawQuery) })
     }
   }
 }
@@ -266,7 +323,7 @@ function handleKeydown(event: KeyboardEvent): void {
     }
   } else if (event.key === 'Enter') {
     const target = filteredOptions.value[activeIndex.value]
-    if (target) {
+    if (target && !target.disabled) {
       event.preventDefault()
       void applyOption(target)
     }
@@ -277,7 +334,7 @@ async function handleLoadMoreWorkspaces(): Promise<void> {
   if (!scopesNextCursor.value || loadingMoreWorkspaces.value) return
   loadingMoreWorkspaces.value = true
   try {
-    await appStore.fetchScopes?.({ cursor: scopesNextCursor.value })
+    await scopeStore.fetchScopes({ cursor: scopesNextCursor.value })
   } finally {
     loadingMoreWorkspaces.value = false
   }
@@ -287,7 +344,7 @@ async function handleLoadMoreProjects(workspaceId: string): Promise<void> {
   if (loadingProjectsFor.value) return
   loadingProjectsFor.value = workspaceId
   try {
-    await appStore.loadMoreWorkspaceProjects?.(workspaceId)
+    await scopeStore.loadMoreWorkspaceProjects(workspaceId)
   } finally {
     loadingProjectsFor.value = null
   }
@@ -305,20 +362,7 @@ function handleDocumentPointerDown(event: MouseEvent): void {
 }
 
 function handleExternalScopeChanged(): void {
-  const persisted = readPersistedGlobalScope()
-  const current = activeScope.value
-  if (
-    current.mode === persisted.mode &&
-    current.workspaceId === persisted.workspaceId &&
-    current.projectId === persisted.projectId
-  ) {
-    return
-  }
-  if (persisted.mode === 'workspace' && persisted.workspaceId) {
-    appStore.selectWorkspaceScope?.(persisted.workspaceId, persisted.projectId)
-  } else {
-    appStore.selectPersonalScope?.()
-  }
+  scopeStore.syncFromStorage()
 }
 
 onMounted(() => {
@@ -339,7 +383,7 @@ onBeforeUnmount(() => {
 <template>
   <div v-if="isSignedIn" ref="rootRef" class="relative min-w-0 shrink sm:shrink-0">
     <div
-      v-if="scopesLoading && !appStore.scopesLoaded"
+      v-if="scopesLoading && !scopeStore.scopesLoaded"
       class="inline-flex h-8 max-w-full min-w-0 items-center gap-2 rounded-oh-md border border-oh-subtle bg-oh-subtle px-2 sm:px-2.5"
       aria-busy="true"
       :aria-label="isZh ? '正在加载工作空间作用域' : 'Loading workspace scopes'"
@@ -388,6 +432,12 @@ onBeforeUnmount(() => {
         v-if="scopesStale"
         class="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--oh-warn-fg)]"
         :title="isZh ? '作用域列表使用缓存，点击刷新' : 'Showing cached scopes'"
+      />
+      <span
+        v-else-if="scopeValidationStatus === 'unavailable'"
+        data-testid="scope-switcher-unavailable-dot"
+        class="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--oh-danger-fg)]"
+        :title="t('rbac.probe.scopeUnavailable')"
       />
 
       <svg
@@ -486,10 +536,14 @@ onBeforeUnmount(() => {
             role="option"
             :data-testid="`scope-option-${item.key}`"
             :aria-selected="item.selected"
+            :aria-disabled="item.disabled ? 'true' : undefined"
+            :disabled="item.disabled"
             :class="[
               'flex w-full items-center justify-between gap-2 rounded-oh-sm px-2.5 py-1.5 text-left text-[13px] transition-colors',
               item.kind === 'project' ? 'pl-6' : '',
-              idx === activeIndex
+              item.disabled
+                ? 'cursor-not-allowed opacity-55'
+                : idx === activeIndex
                 ? 'bg-oh-selected text-oh-primary'
                 : 'text-oh-primary hover:bg-oh-hover'
             ]"
@@ -510,6 +564,23 @@ onBeforeUnmount(() => {
                   }}
                 </span>
                 <span class="truncate font-medium">{{ item.label }}</span>
+                <Badge
+                  v-if="item.isArchived"
+                  tone="warning"
+                  variant="outline"
+                  size="sm"
+                >
+                  {{ isZh ? '已归档' : 'Archived' }}
+                </Badge>
+                <Badge
+                  v-else-if="item.isDefaultShared"
+                  data-testid="scope-option-default-shared"
+                  tone="neutral"
+                  variant="outline"
+                  size="sm"
+                >
+                  {{ t('scope.project.defaultSharedShort') }}
+                </Badge>
               </div>
               <p class="oh-tabular truncate text-[11px] text-oh-muted">
                 {{ item.subLabel }}
@@ -594,7 +665,15 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div class="flex items-center justify-between border-t border-oh-subtle bg-oh-subtle px-3 py-2 text-xs">
+      <div class="flex flex-wrap items-center justify-between gap-2 border-t border-oh-subtle bg-oh-subtle px-3 py-2 text-xs">
+        <router-link
+          to="/workspaces?requestAccess=1"
+          data-testid="scope-switcher-request-access"
+          class="font-medium text-oh-accent-text hover:underline"
+          @click="closePopover(false)"
+        >
+          {{ t('scopeGate.requestAccess') }}
+        </router-link>
         <router-link
           to="/workspaces"
           class="font-medium text-oh-secondary hover:text-oh-primary"
