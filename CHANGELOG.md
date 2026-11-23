@@ -4,6 +4,42 @@ This project follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/
 
 ## Unreleased
 
+## 0.3.4 - 2026-11-23
+
+### Added
+
+- **Personal and project key onboarding**: Self-service personal keys, project-scoped key issuance, fail-closed scope/access checks, and a first-run checklist for starting with a personal key or joining a workspace project.
+- **Model catalog provenance and 3-axis status**: Public and project catalog views expose `source`, `availability`, and `billing` independently, with per-field provenance and common facts on model details.
+- **Admin model catalog**: Platform admins can inspect catalog identity, provenance, account/route offers, pricing waterfalls, and diagnostic quick filters from the admin console.
+- **Configuration diagnostics**: Admin-only effective configuration API reports each setting's value, authority, source, fallback chain, restart/reset semantics, and hard/soft gate state without exposing secrets.
+- **Verified scheduled backups**: Backup jobs persist scheduler state and object manifests, verify uploaded remote objects before completion, and expose scheduler health plus the last verified backup.
+
+### Changed
+
+- Settings now resolve through declared authority layers: `deployment` uses env > YAML > default, `database_override` uses DB > env > YAML > default, `database_only` uses DB > default, and versioned artifacts remain artifact-only.
+- Catalog refresh is opt-in with `MODEL_CATALOG_REFRESH_ENABLED=false`; the default log format is JSON.
+- New-user balance and concurrency are database-authoritative defaults (`0` and `5`) and are only seeded during installation.
+- Backup S3 credentials use a dedicated AES-256-GCM envelope key when `BACKUP_SECRET_ENCRYPTION_KEY` is configured, while legacy TOTP-encrypted credentials remain readable during the rollback window.
+- Update and rollback eligibility is resolved from the highest of the oldest supported release, the persisted database floor, and the verified artifact floor before download or replacement.
+
+### Fixed
+
+- General account edits preserve model mapping and allowlist selections when `preserve_model_selection` is used, instead of silently overwriting them.
+- Project key listing and issuance expose the credential only on first issuance; replays return refreshed metadata without repeating the secret.
+
+### Security
+
+- Effective configuration responses, logs, audits, and cache snapshots never return secret values; sensitive settings report only `configured`, source, and key metadata.
+- Turnstile, WebAuthn/passkey, and Ops expose derived hard/soft gate state and fail closed when a required gate is unavailable or incomplete.
+- Backup secret envelope decryption failures are never reinterpreted as plaintext.
+
+### Upgrade notes
+
+- Migrations `339` through `343` are additive. Back up PostgreSQL, application data, and persistent keys before upgrading.
+- Configure `BACKUP_SECRET_ENCRYPTION_KEY` (64 hex characters) before storing or rotating backup S3 credentials. Existing legacy TOTP-encrypted backup credentials remain readable and are marked `migration_required` until re-encrypted.
+- The v0.3.4 artifact rollback floor is `0.3.0`; the oldest supported release remains `v0.2.5`, and the database floor is not raised. v0.3.3 can still read its legacy backup fields.
+- Installations that previously relied on the old code default for `model_catalog_refresh_enabled=true` now default to `false`; set the variable explicitly to opt in.
+
 ## 0.3.2 - 2026-11-22
 
 ### Added
