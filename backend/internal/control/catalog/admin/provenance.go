@@ -78,8 +78,8 @@ type contextWindow struct {
 func projectFieldValue(field string, value any) (any, bool) {
 	switch field {
 	case "context_window":
-		// BE-3's context observation uses a private struct. Decode only its
-		// numeric token count and recognized basis for the wire projection.
+		// Decode the token count and recognized basis from the catalog's
+		// internal context observation for the API response.
 		var window contextWindow
 		if raw, err := json.Marshal(value); err == nil && json.Unmarshal(raw, &window) == nil && window.Tokens > 0 {
 			switch window.Basis {

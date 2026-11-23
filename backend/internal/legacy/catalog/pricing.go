@@ -10,8 +10,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
-// plazaPricePort adapts the existing resolver-backed plaza tariff schedule.
-// BE-4 can provide a port with immutable PriceBook versions through NewSourceWithPorts.
+// plazaPricePort projects the legacy plaza tariff schedule into catalog prices.
 type plazaPricePort struct {
 	plaza     *service.ModelPlazaService
 	model     service.PlazaModel

@@ -15,8 +15,8 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
-// SetConfigResetHooks connects optional runtime reloaders without changing the
-// settings constructor or assigning backup/image-secret ownership to BE-6.
+// SetConfigResetHooks supplies callbacks to refresh Ops settings and reset the
+// image storage runtime after configuration overrides are cleared.
 func (h *SettingHandler) SetConfigResetHooks(refresh func(context.Context) error, imageReset func(context.Context) error) {
 	h.configResetHooks = service.SettingResetHooks{Refresh: refresh, ImageReset: imageReset}
 }

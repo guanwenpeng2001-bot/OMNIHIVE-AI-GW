@@ -210,9 +210,9 @@ type AccountHandler struct {
 	cfg                     *config.Config
 }
 
-// SetDefaultWorkspaceResolver connects BE-1's flagged-workspace lookup without
-// depending on its concrete implementation. Missing wiring skips legacy jobs
-// lacking ownership rather than assuming a database ID.
+// SetDefaultWorkspaceResolver supplies the flagged Default workspace lookup for
+// legacy accounts without workspace ownership. Background jobs skip those
+// accounts when the lookup is unavailable.
 func (h *AccountHandler) SetDefaultWorkspaceResolver(resolve func(context.Context) (int64, error)) {
 	h.defaultWorkspaceResolver = resolve
 }

@@ -103,8 +103,14 @@ Existing-install CLI upgrade and rollback checks need database access through
   manual remote backup and confirm it is `completed` and `verified_at` is set.
 - Rollback eligibility shows the `database_floor`, eligible versions, and
   exclusion reasons.
-- Reconcile any shared Default workspace grants reported by migration `339`
-  before treating the upgrade as complete.
+- Review the shared Default project grants reported by migration `339` after
+  upgrading. The upgrade must preserve existing grants and add zero new ones.
+  The production-copy rehearsal retained all 53 grants that a platform admin
+  assigned manually before v0.3.4. With self-service personal keys available,
+  use the grant matrix to identify manual grants that are no longer needed.
+  The matrix currently shows the shared Default project as read-only, and the
+  grant API returns `PROTECTED_DEFAULT_GRANTS` for removals. Record proposed
+  revocations for platform-owner review.
 
 ## Rollback
 
