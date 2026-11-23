@@ -277,22 +277,22 @@ func (s *SettingService) resolveEffectiveSetting(registration SettingRegistratio
 				item.Source = "default"
 				item.Value = registration.Default
 			}
-		return s.redactEffectiveSetting(item, databaseConfigured || registration.Sensitive && raw != "")
+			return s.redactEffectiveSetting(item, databaseConfigured || registration.Sensitive && raw != "")
 		}
 	}
 
-		baseline, source, valid := s.deploymentBaseline(registration)
-		if _, configured := stored[registration.Key+"_install_seed_source"]; configured && registration.EnvironmentKey != "" {
-			item.Baseline, source, valid = s.deploymentBaseline(registration)
-		} else if raw, ok := os.LookupEnv(registration.EnvironmentKey); registration.EnvironmentKey != "" && ok {
-			item.Source = "environment"
-			item.Value, valid = parseEffectiveValue(raw, registration.ValueType)
-			if !valid {
-				item.State = EffectiveSettingStateInvalid
-				item.Value = failClosedValue(registration)
-			}
-			return s.redactEffectiveSetting(item, false)
+	baseline, source, valid := s.deploymentBaseline(registration)
+	if _, configured := stored[registration.Key+"_install_seed_source"]; configured && registration.EnvironmentKey != "" {
+		item.Baseline, source, valid = s.deploymentBaseline(registration)
+	} else if raw, ok := os.LookupEnv(registration.EnvironmentKey); registration.EnvironmentKey != "" && ok {
+		item.Source = "environment"
+		item.Value, valid = parseEffectiveValue(raw, registration.ValueType)
+		if !valid {
+			item.State = EffectiveSettingStateInvalid
+			item.Value = failClosedValue(registration)
 		}
+		return s.redactEffectiveSetting(item, false)
+	}
 	item.Baseline = baseline
 	item.HasBaseline = true
 	if !databaseConfigured {

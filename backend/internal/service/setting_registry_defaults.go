@@ -15,7 +15,7 @@ var coreDatabaseSettingDefaults = map[string]string{
 	SettingKeySMTPHost: "", SettingKeySMTPPort: "587", SettingKeySMTPUsername: "", SettingKeySMTPPassword: "",
 	SettingKeySMTPFrom: "", SettingKeySMTPFromName: "", SettingKeySMTPUseTLS: "false", SettingKeyAdminAPIKey: "",
 	SettingKeyAntigravityUserAgentVersion: "",
-	SettingKeyOpenAITTFTMode: OpenAITTFTModeSemantic, SettingKeyEnableFingerprintUnification: "true",
+	SettingKeyOpenAITTFTMode:              OpenAITTFTModeSemantic, SettingKeyEnableFingerprintUnification: "true",
 	SettingKeyEnableMetadataPassthrough: "false", SettingKeyEnableCCHSigning: "false",
 	SettingKeyEnableClaudeOAuthSystemPromptInjection: "true", SettingKeyClaudeOAuthSystemPrompt: "",
 	SettingKeyClaudeOAuthSystemPromptBlocks: "", SettingKeyEnableAnthropicCacheTTL1hInjection: "false",
