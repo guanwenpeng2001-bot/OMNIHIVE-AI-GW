@@ -180,9 +180,6 @@ func (s *SettingService) databaseSettingDefaults() map[string]string {
 	for key, value := range coreDatabaseSettingDefaults {
 		defaults[key] = value
 	}
-	for _, registration := range oauthSettingRegistrations {
-		defaults[registration.Key] = fmt.Sprint(zeroSettingValue(registration.ValueType))
-	}
 	return defaults
 }
 
@@ -197,13 +194,13 @@ func (s *SettingService) installSettingDefaults(newInstallation bool) map[string
 
 func (s *SettingService) SettingRegistry() []SettingRegistration {
 	defaults := s.databaseSettingDefaults()
-	registrations := make([]SettingRegistration, 0, len(defaults)+len(deploymentSettingRegistrations)+len(oauthSettingRegistrations))
+	byKey := make(map[string]SettingRegistration, len(defaults)+len(deploymentSettingRegistrations)+len(oauthSettingRegistrations))
 	for key, raw := range defaults {
-		registrations = append(registrations, databaseRegistration(key, raw))
+		byKey[key] = databaseRegistration(key, raw)
 	}
 	for _, registration := range deploymentSettingRegistrations {
 		registration.Projection = registration.Key
-		registrations = append(registrations, registration)
+		byKey[registration.Key] = registration
 	}
 	for _, registration := range oauthSettingRegistrations {
 		registration.Group = oauthGroup(registration.Key)
@@ -219,9 +216,9 @@ func (s *SettingService) SettingRegistry() []SettingRegistration {
 		} else {
 			registration.Default = zeroSettingValue(registration.ValueType)
 		}
-		registrations = append(registrations, registration)
+		byKey[registration.Key] = registration
 	}
-	registrations = append(registrations,
+	for _, registration := range []SettingRegistration{
 		SettingRegistration{Key: "default_balance_install_seed_source", Group: "onboarding", ValueType: SettingValueString, Authority: SettingAuthorityDatabaseOnly, Default: "unknown", Projection: "default_balance.install_seed_source", ErrorPolicy: SettingErrorFailClosed, Validation: "migration provenance"},
 		SettingRegistration{Key: "default_concurrency_install_seed_source", Group: "onboarding", ValueType: SettingValueString, Authority: SettingAuthorityDatabaseOnly, Default: "unknown", Projection: "default_concurrency.install_seed_source", ErrorPolicy: SettingErrorFailClosed, Validation: "migration provenance"},
 		SettingRegistration{Key: settingKeyImageStorageConfig, Group: "image_storage", ValueType: SettingValueObject, Authority: SettingAuthorityDatabaseOverride, Projection: "image_storage", Resettable: true, ResetGroup: "image_storage", Sensitive: true, ErrorPolicy: SettingErrorFailClosed, Validation: "validated ImageStorageSettings JSON"},
@@ -229,7 +226,13 @@ func (s *SettingService) SettingRegistry() []SettingRegistration {
 		SettingRegistration{Key: SettingKeyOpsRuntimeLogConfig, Group: "ops", ValueType: SettingValueObject, Authority: SettingAuthorityDatabaseOverride, Default: map[string]any{}, Projection: "ops_runtime_log_config", Resettable: true, ErrorPolicy: SettingErrorFailClosed, Validation: "validated OpsRuntimeLogConfig JSON"},
 		SettingRegistration{Key: "backup_s3_config", Group: "backup", ValueType: SettingValueObject, Authority: SettingAuthorityDatabaseOnly, Default: map[string]any{}, Sensitive: true, ErrorPolicy: SettingErrorFailClosed, Validation: "managed by BackupService"},
 		SettingRegistration{Key: "backup_schedule", Group: "backup", ValueType: SettingValueObject, Authority: SettingAuthorityDatabaseOnly, Default: map[string]any{"enabled": false, "retain_days": 14}, ErrorPolicy: SettingErrorFailClosed, Validation: "managed by BackupService"},
-	)
+	} {
+		byKey[registration.Key] = registration
+	}
+	registrations := make([]SettingRegistration, 0, len(byKey))
+	for _, registration := range byKey {
+		registrations = append(registrations, registration)
+	}
 	sort.Slice(registrations, func(left, right int) bool { return registrations[left].Key < registrations[right].Key })
 	return registrations
 }
@@ -237,7 +240,7 @@ func (s *SettingService) SettingRegistry() []SettingRegistration {
 func databaseRegistration(key, raw string) SettingRegistration {
 	registration := SettingRegistration{
 		Key: key, Group: settingGroup(key), Authority: SettingAuthorityDatabaseOnly,
-		Projection: key, Default: decodeSettingDefault(raw), ErrorPolicy: SettingErrorDefault,
+		Projection: key, Default: decodeSettingDefault(raw), ErrorPolicy: SettingErrorDefault, EnvironmentKey: installSeedSettingKeys[key],
 		Validation: "registered database value",
 	}
 	registration.ValueType = settingValueType(registration.Default)
