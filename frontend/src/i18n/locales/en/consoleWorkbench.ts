@@ -48,4 +48,55 @@ export default {
     copyPayload: 'Copy JSON',
     copyFrames: 'Copy Frames',
   },
+  scope: {
+    personal: {
+      badge: 'Personal Space · Personal Account Billing',
+      label: 'Personal Space',
+      description: 'Personal API keys, balance & billing · No project grant required',
+    },
+    workspace: {
+      overview: 'Workspace Overview (All Projects · Select a project to run)',
+      overviewShort: 'Workspace Overview (All Projects · Overview Only)',
+    },
+    project: {
+      defaultShared: 'Shared Default Project · Browse Only (Use Personal Space)',
+      defaultSharedShort: 'Shared Default · Browse Only',
+    },
+  },
+  rbac: {
+    keys: {
+      deniedProject: 'Lacks {grant} in "{project}". Switch to Personal Space.',
+      emptyActions: 'Has keys.create but zero delegable model actions.',
+      createOnlyHint: 'You can issue project keys (keys.create), but lack keys.read to list existing project keys.',
+      requestCallGrantAction: 'Request invocation grant from Workspace Admin',
+    },
+    playground: {
+      denied: 'Playground requires a team project with playground.run.',
+      noModels: 'Key allow-list, group, and action intersection is empty.',
+    },
+    byok: {
+      denied: 'BYOK credential management requires credentials.byok.manage in the active scope.',
+      workspaceRequired: 'Select a team workspace or switch to Personal Space for owner self-service.',
+      projectRequired: 'Select a project under the active workspace to view or manage project BYOK credentials.',
+    },
+    probe: {
+      unavailable: 'Service unreachable (Unknown · req: {reqId}); mutations locked.',
+      unavailableNoReq: 'Permission or catalog service unreachable (Unknown); mutations locked.',
+      scopeUnavailable: 'The requested workspace or project scope is missing, revoked, or archived.',
+    },
+  },
+  scopeGate: {
+    switchPersonal: 'Switch to Personal Space',
+    switchPersonalCreateKey: 'Switch to Personal Space to Create Key →',
+    personalLocalCall: 'Use Personal Key Locally →',
+    returnPersonal: 'Return to Personal Space',
+    requestAccess: 'Request Project Access',
+    switchProject: 'Switch Project',
+    selectAuthorizedProject: 'Switch to Authorized Project',
+    selectProjectPlaceholder: 'Choose a workspace / project…',
+    defaultSharedTag: 'Shared Default · Browse Only',
+    retry: 'Retry Now',
+    requiredGrantLabel: 'Required grant: {grant}',
+    requestIdLabel: 'Request ID: {reqId}',
+  },
 }

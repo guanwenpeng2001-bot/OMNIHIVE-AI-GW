@@ -1,12 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { identityApi, persistConsoleScope } from '@/features/console/scope'
+import { createPinia, setActivePinia } from 'pinia'
+import { identityApi } from '@/api/identity'
+import { useConsoleScopeStore } from '@/stores/consoleScope'
+import { resetScopeAccessCache } from '@/features/console/scopeAccess'
 import PlaygroundCostConfirmModal from '@/features/playground/components/PlaygroundCostConfirmModal.vue'
+import type { PlaygroundKeyModelItem } from '@/features/playground/types'
 import PlaygroundView from '../PlaygroundView.vue'
 
 const mocks = vi.hoisted(() => ({
   listScopedModels: vi.fn(),
   listPublicModels: vi.fn(),
+  listKeyModels: vi.fn(),
   listV1Keys: vi.fn(),
   submitRun: vi.fn(),
   replayRequest: vi.fn(),
@@ -48,6 +53,7 @@ vi.mock('@/features/console/catalogApi', () => ({
 
 vi.mock('@/features/playground/api', () => ({
   playgroundApi: {
+    listKeyModels: mocks.listKeyModels,
     submitRun: mocks.submitRun,
     replayRequest: mocks.replayRequest,
     getRunByIdempotencyKey: mocks.getRunByIdempotencyKey,
@@ -56,10 +62,50 @@ vi.mock('@/features/playground/api', () => ({
   }
 }))
 
+function futureISO(offsetMs = 3600_000): string {
+  return new Date(Date.now() + offsetMs).toISOString()
+}
+
+const gptModel: PlaygroundKeyModelItem = {
+  id: 'm_11111111111111111111111111111111',
+  slug: 'gpt-5.4-mini',
+  display_name: 'GPT-5.4 Mini',
+  provider: 'openai',
+  action_protocols: [{ action: 'text.chat', protocol: 'openai_chat' }],
+  protocols: ['openai_chat'],
+  modalities: ['text'],
+  max_output_tokens: 8192,
+  context_tokens: 128000,
+  tools_supported: true,
+  reasoning_supported: true,
+  input_rate: { currency: 'USD', amount: '1.00', unit: 'input_token', per: '1000000' },
+  output_rate: { currency: 'USD', amount: '4.00', unit: 'output_token', per: '1000000' }
+}
+
+const claudeModel: PlaygroundKeyModelItem = {
+  id: 'm_22222222222222222222222222222222',
+  slug: 'claude-4-sonnet',
+  display_name: 'Claude 4 Sonnet',
+  provider: 'anthropic',
+  action_protocols: [{ action: 'text.chat', protocol: 'anthropic_messages' }],
+  protocols: ['anthropic_messages'],
+  modalities: ['text'],
+  max_output_tokens: 8192,
+  context_tokens: 200000,
+  tools_supported: true,
+  reasoning_supported: true,
+  input_rate: { currency: 'USD', amount: '3.00', unit: 'input_token', per: '1000000' },
+  output_rate: { currency: 'USD', amount: '15.00', unit: 'output_token', per: '1000000' }
+}
+
 describe('PlaygroundView 3-pane workbench', () => {
   beforeEach(() => {
     localStorage.clear()
+    sessionStorage.clear()
+    setActivePinia(createPinia())
+    resetScopeAccessCache()
     vi.resetAllMocks()
+    mocks.authUser = { id: '1', role: 'admin' }
     vi.spyOn(identityApi, 'listScopes').mockResolvedValue({
       items: [
         {
@@ -79,6 +125,8 @@ describe('PlaygroundView 3-pane workbench', () => {
           project_id: '9',
           name: 'Service Key',
           prefix: 'oh_live_15',
+          owner_id: '1',
+          group_id: '7',
           state: 'active',
           created_at: '2026-11-19T09:00:00Z',
           version: '1'
@@ -93,39 +141,19 @@ describe('PlaygroundView 3-pane workbench', () => {
       project_id: '9',
       actions: ['keys.read', 'playground.run'],
       scope_version: '1',
-      expires_at: '2026-11-20T00:00:00Z'
+      expires_at: futureISO()
     })
     mocks.listV1Keys.mockResolvedValue({ items: [] })
-    mocks.listScopedModels.mockResolvedValue([
-      {
-        id: 'm_11111111111111111111111111111111',
-        slug: 'gpt-5.4-mini',
-        displayName: 'GPT-5.4 Mini',
-        provider: 'openai',
-        protocols: ['openai_chat'],
-        modalities: ['text'],
-        maxOutputTokens: 8192,
-        contextTokens: 128000,
-        toolsSupported: true,
-        reasoningSupported: true,
-        inputRate: { currency: 'USD', amount: '1.00', unit: 'input_token', per: '1000000' },
-        outputRate: { currency: 'USD', amount: '4.00', unit: 'output_token', per: '1000000' }
-      },
-      {
-        id: 'm_22222222222222222222222222222222',
-        slug: 'claude-4-sonnet',
-        displayName: 'Claude 4 Sonnet',
-        provider: 'anthropic',
-        protocols: ['anthropic_messages'],
-        modalities: ['text'],
-        maxOutputTokens: 8192,
-        contextTokens: 200000,
-        toolsSupported: true,
-        reasoningSupported: true,
-        inputRate: { currency: 'USD', amount: '3.00', unit: 'input_token', per: '1000000' },
-        outputRate: { currency: 'USD', amount: '15.00', unit: 'output_token', per: '1000000' }
-      }
-    ])
+    mocks.listKeyModels.mockResolvedValue({
+      key_id: '15',
+      workspace_id: '2',
+      project_id: '9',
+      scope_version: '1',
+      as_of: '2026-11-19T10:00:00Z',
+      next_cursor: null,
+      items: [gptModel, claudeModel]
+    })
+    useConsoleScopeStore().selectWorkspaceScope('2', '9')
   })
 
   afterEach(() => {
@@ -173,6 +201,8 @@ describe('PlaygroundView 3-pane workbench', () => {
       action: 'text.chat',
       funding_acknowledged: true
     })
+    expect(mocks.listPublicModels).not.toHaveBeenCalled()
+    expect(mocks.listScopedModels).not.toHaveBeenCalled()
     expect(wrapper.get('[data-testid="output-text-A"]').text()).toContain('Verified output')
     wrapper.unmount()
   })
@@ -307,7 +337,7 @@ describe('PlaygroundView 3-pane workbench', () => {
     wrapper.unmount()
   })
 
-  it('treats revoked-only project keys as empty and clears stale key selection on scope switch', async () => {
+  it('filters out inactive, missing-owner, or groupless keys and clears stale key selection on scope switch', async () => {
     const listProjectKeysSpy = vi
       .spyOn(identityApi, 'listProjectKeys')
       .mockResolvedValueOnce({
@@ -317,6 +347,8 @@ describe('PlaygroundView 3-pane workbench', () => {
             project_id: '9',
             name: 'Service Key',
             prefix: 'oh_live_15',
+            owner_id: '1',
+            group_id: '7',
             state: 'active',
             created_at: '2026-11-19T09:00:00Z',
             version: '1'
@@ -330,9 +362,32 @@ describe('PlaygroundView 3-pane workbench', () => {
           {
             id: '19',
             project_id: '10',
-            name: 'Revoked Key',
+            name: 'Disabled Key',
             prefix: 'oh_live_19',
-            state: 'revoked',
+            owner_id: '1',
+            group_id: '7',
+            state: 'disabled',
+            created_at: '2026-11-19T09:00:00Z',
+            version: '1'
+          },
+          {
+            id: '20',
+            project_id: '10',
+            name: 'No Owner Key',
+            prefix: 'oh_live_20',
+            group_id: '7',
+            state: 'active',
+            created_at: '2026-11-19T09:00:00Z',
+            version: '1'
+          },
+          {
+            id: '21',
+            project_id: '10',
+            name: 'Groupless Key',
+            prefix: 'oh_live_21',
+            owner_id: '1',
+            group_id: null,
+            state: 'active',
             created_at: '2026-11-19T09:00:00Z',
             version: '1'
           }
@@ -355,6 +410,14 @@ describe('PlaygroundView 3-pane workbench', () => {
       next_cursor: null,
       as_of: '2026-11-19T10:00:00Z'
     })
+    vi.spyOn(identityApi, 'getProjectAccess').mockImplementation(async (_ws, proj) => ({
+      actor_id: '1',
+      workspace_id: '2',
+      project_id: proj,
+      actions: ['keys.read', 'playground.run'],
+      scope_version: '1',
+      expires_at: futureISO()
+    }))
     mocks.listV1Keys.mockResolvedValue({
       items: [{ id: 9, name: 'Personal Leak Key', key: 'sk-personal-9', status: 'active' }]
     })
@@ -363,8 +426,8 @@ describe('PlaygroundView 3-pane workbench', () => {
     await flushPromises()
     expect((wrapper.get('[data-testid="select-key-a"]').element as HTMLSelectElement).value).toBe('15')
 
-    // Switch to project 10 via external scope change event
-    persistConsoleScope({ mode: 'workspace', workspaceId: '2', projectId: '10' })
+    // Switch to project 10 via consoleScope store
+    useConsoleScopeStore().selectWorkspaceScope('2', '10')
     await flushPromises()
 
     expect(listProjectKeysSpy).toHaveBeenCalledWith('2', '10', { limit: 100 })
@@ -398,6 +461,7 @@ describe('PlaygroundView 3-pane workbench', () => {
   })
 
   it('blocks execution and shows scope-required empty state when no project scope is available', async () => {
+    useConsoleScopeStore().selectPersonalScope()
     const listProjectKeysSpy = vi.spyOn(identityApi, 'listProjectKeys')
     vi.spyOn(identityApi, 'listScopes').mockResolvedValue({
       items: [],
@@ -413,9 +477,11 @@ describe('PlaygroundView 3-pane workbench', () => {
 
     expect(listProjectKeysSpy).not.toHaveBeenCalled()
     expect(mocks.listV1Keys).not.toHaveBeenCalled()
-    expect(wrapper.get('[data-testid="playground-keys-empty-state"]').text()).toContain('playgroundKeys.scopeRequiredTitle')
-    await wrapper.get('[data-testid="message-input-0"]').setValue('Try personal run')
-    expect(wrapper.get('[data-testid="playground-run-trigger"]').attributes('disabled')).toBeDefined()
+    expect(mocks.listKeyModels).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="scope-gate-empty-state"]').attributes('data-state')).toBe('empty')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true }))
+    await flushPromises()
+    expect(mocks.submitRun).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
@@ -463,7 +529,7 @@ describe('PlaygroundView 3-pane workbench', () => {
       project_id: '9',
       actions: ['keys.read', 'playground.run'],
       scope_version: '1',
-      expires_at: '2026-11-20T00:00:00Z'
+      expires_at: futureISO()
     })
     vi.spyOn(identityApi, 'listProjectKeys').mockResolvedValue({
       items: [
@@ -472,6 +538,7 @@ describe('PlaygroundView 3-pane workbench', () => {
           name: 'My Key',
           prefix: 'oh_live_15',
           owner_id: '1',
+          group_id: '7',
           state: 'active',
           version: '1',
           credential: null
@@ -481,6 +548,7 @@ describe('PlaygroundView 3-pane workbench', () => {
           name: 'Other Admin Key',
           prefix: 'oh_live_22',
           owner_id: '99',
+          group_id: '7',
           state: 'active',
           version: '1',
           credential: null
@@ -508,7 +576,7 @@ describe('PlaygroundView 3-pane workbench', () => {
       project_id: '9',
       actions: ['keys.read', 'keys.act_as', 'playground.run'],
       scope_version: '1',
-      expires_at: '2026-11-20T00:00:00Z'
+      expires_at: futureISO()
     })
     vi.spyOn(identityApi, 'listProjectKeys').mockResolvedValue({
       items: [
@@ -517,6 +585,7 @@ describe('PlaygroundView 3-pane workbench', () => {
           name: 'My Key',
           prefix: 'oh_live_15',
           owner_id: '1',
+          group_id: '7',
           state: 'active',
           version: '1',
           credential: null
@@ -526,6 +595,7 @@ describe('PlaygroundView 3-pane workbench', () => {
           name: 'Teammate Key',
           prefix: 'oh_live_22',
           owner_id: '99',
+          group_id: '7',
           state: 'active',
           version: '1',
           credential: null
@@ -608,9 +678,9 @@ describe('PlaygroundView 3-pane workbench', () => {
       actor_id: '1',
       workspace_id: '2',
       project_id: '9',
-      actions: ['projects.read', 'models.read', 'playground.run'],
+      actions: ['projects.read', 'models.read', 'keys.read', 'playground.run'],
       scope_version: '1',
-      expires_at: '2026-11-20T00:00:00Z'
+      expires_at: futureISO()
     })
 
     const wrapper = mount(PlaygroundView, {
@@ -624,8 +694,10 @@ describe('PlaygroundView 3-pane workbench', () => {
     await flushPromises()
 
     const selectEl = wrapper.get('[data-testid="select-model-a"]')
-    expect((selectEl.element as HTMLSelectElement).value).toBe('catalog-only-model-x')
+    expect((selectEl.element as HTMLSelectElement).value).toBe('')
     expect(wrapper.get('[data-testid="playground-catalog-only-notice-A"]').text()).toContain('catalog-only-model-x')
+    await wrapper.get('[data-testid="message-input-0"]').setValue('Test')
+    expect(wrapper.get('[data-testid="playground-run-trigger"]').attributes('disabled')).toBeDefined()
 
     await wrapper.get('[data-testid="switch-routed-model-A"]').trigger('click')
     await flushPromises()
@@ -642,7 +714,7 @@ describe('PlaygroundView 3-pane workbench', () => {
       project_id: '9',
       actions: ['keys.read', 'playground.run'],
       scope_version: '1',
-      expires_at: '2026-11-20T00:00:00Z'
+      expires_at: futureISO()
     })
     mocks.submitRun.mockRejectedValue({
       status: 422,
@@ -662,5 +734,91 @@ describe('PlaygroundView 3-pane workbench', () => {
     expect(wrapper.find('[data-testid="playground-goto-byok-A"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="playground-contact-admin-A"]').exists()).toBe(true)
     wrapper.unmount()
+  })
+
+  it('loads independent per-key eligible models for A/B, synchronously clears model on key switch, and blocks empty/503 gates without public fallback', async () => {
+    mocks.authUser = { id: '1', role: 'admin' }
+    vi.spyOn(identityApi, 'getProjectAccess').mockResolvedValue({
+      actor_id: '1',
+      workspace_id: '2',
+      project_id: '9',
+      actions: ['keys.read', 'keys.act_as', 'playground.run'],
+      scope_version: '1',
+      expires_at: futureISO()
+    })
+    vi.spyOn(identityApi, 'listProjectKeys').mockResolvedValue({
+      items: [
+        { id: '15', name: 'Key A', prefix: 'oh_15', owner_id: '1', group_id: '7', state: 'active', version: '1' },
+        { id: '22', name: 'Key B', prefix: 'oh_22', owner_id: '99', group_id: '8', state: 'active', version: '1' }
+      ],
+      next_cursor: null,
+      as_of: '2026-11-19T10:00:00Z'
+    })
+    mocks.listKeyModels.mockImplementation(async (_ws, _proj, keyId: string) => ({
+      key_id: keyId,
+      workspace_id: '2',
+      project_id: '9',
+      scope_version: '1',
+      as_of: '2026-11-19T10:00:00Z',
+      next_cursor: null,
+      items: keyId === '15' ? [gptModel] : [claudeModel]
+    }))
+
+    const wrapper = mount(PlaygroundView, { props: { teleportDisabled: true } })
+    await flushPromises()
+
+    const compareBtn = wrapper.findAll('button').find((b) => b.text().includes('Compare A/B'))!
+    await compareBtn.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="select-model-a"]').findAll('option').map((o) => o.element.value)).toEqual(['gpt-5.4-mini'])
+    await wrapper.get('[data-testid="select-key-b"]').setValue('22')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="select-model-b"]').findAll('option').map((o) => o.element.value)).toEqual(['claude-4-sonnet'])
+    expect((wrapper.get('[data-testid="select-protocol-b"]').element as HTMLSelectElement).value).toBe('anthropic_messages')
+    expect(mocks.listPublicModels).not.toHaveBeenCalled()
+    expect(mocks.listScopedModels).not.toHaveBeenCalled()
+
+    // Synchronous clearing on key switch before async model response returns
+    let resolveSecond!: (value: unknown) => void
+    mocks.listKeyModels.mockImplementationOnce(
+      () =>
+        new Promise((res) => {
+          resolveSecond = res
+        })
+    )
+    const selectKeyA = wrapper.get('[data-testid="select-key-a"]')
+    await selectKeyA.setValue('22')
+    expect(wrapper.find('[data-testid="select-model-a"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="input-model-a"]').exists()).toBe(false)
+    resolveSecond({
+      key_id: '22',
+      workspace_id: '2',
+      project_id: '9',
+      scope_version: '1',
+      as_of: '2026-11-19T10:00:00Z',
+      next_cursor: null,
+      items: []
+    })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="playground-models-empty-A"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="message-input-0"]').setValue('Try empty model run')
+    expect(wrapper.get('[data-testid="playground-run-trigger"]').attributes('disabled')).toBeDefined()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true }))
+    await flushPromises()
+    expect(mocks.submitRun).not.toHaveBeenCalled()
+    wrapper.unmount()
+
+    // 503 access probe fails closed into ScopeGateEmptyState
+    resetScopeAccessCache()
+    mocks.listKeyModels.mockClear()
+    vi.spyOn(identityApi, 'getProjectAccess').mockRejectedValueOnce(
+      Object.assign(new Error('Service Unavailable'), { status: 503, metadata: { request_id: 'req-pg503' } })
+    )
+    const errWrapper = mount(PlaygroundView, { props: { teleportDisabled: true } })
+    await flushPromises()
+    expect(errWrapper.get('[data-testid="scope-gate-empty-state"]').attributes('data-state')).toBe('unavailable')
+    expect(mocks.listKeyModels).not.toHaveBeenCalled()
+    errWrapper.unmount()
   })
 })

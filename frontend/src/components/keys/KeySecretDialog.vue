@@ -10,6 +10,13 @@
   >
     <div data-testid="key-secret-once-dialog" class="space-y-4">
       <div
+        v-if="scopeLabel"
+        data-testid="key-secret-scope-pin"
+        class="inline-flex items-center gap-2 rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2.5 py-1 font-mono text-xs text-[var(--foreground)]"
+      >
+        <span>{{ scopeLabel }}</span>
+      </div>
+      <div
         class="flex items-start gap-3 rounded-[var(--oh-r-md,8px)] border border-[var(--oh-accent-border,rgba(245,158,11,0.4))] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.08))] p-3.5"
       >
         <p class="text-sm font-medium text-[var(--foreground)]">
@@ -75,6 +82,7 @@ const props = defineProps<{
   show: boolean
   secret: string
   graceUntil: string | null
+  scopeLabel?: string | null
 }>()
 
 const emit = defineEmits<{

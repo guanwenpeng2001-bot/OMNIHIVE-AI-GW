@@ -436,6 +436,26 @@ export const scopeSelectionStorage = createVersionedStorage({
   mode: 'migrate'
 })
 
+export function clearPersistedScopeSelection(): void {
+  scopeSelectionStorage.remove()
+  const store = resolveBrowserStorage('local')
+  safeStorageRemove(store, StorageKeys.WORKSPACE_ID)
+  safeStorageRemove(store, StorageKeys.PROJECT_ID)
+}
+
+export function readPersistedScopeRaw(): {
+  versioned: string | null
+  legacyWorkspaceId: string | null
+  legacyProjectId: string | null
+} {
+  const store = resolveBrowserStorage('local')
+  return {
+    versioned: scopeSelectionStorage.get(),
+    legacyWorkspaceId: safeStorageGet(store, StorageKeys.WORKSPACE_ID),
+    legacyProjectId: safeStorageGet(store, StorageKeys.PROJECT_ID)
+  }
+}
+
 export const routerChunkReloadStorage = createVersionedStorage({
   key: StorageKeys.ROUTER_CHUNK_RELOAD,
   legacyKeys: [LegacyStorageKeys.ROUTER_CHUNK_RELOAD],
@@ -463,6 +483,7 @@ export function clearPersistedAuthCredentials(): void {
   authStorage.refreshToken.remove()
   authStorage.user.remove()
   authStorage.expiresAt.remove()
+  clearPersistedScopeSelection()
 }
 
 export const TOKEN_REFRESH_LOCK_NAME = 'omnihive.auth.token_refresh.v1'

@@ -48,4 +48,55 @@ export default {
     copyPayload: '复制 JSON',
     copyFrames: '复制全部帧',
   },
+  scope: {
+    personal: {
+      badge: '个人空间 · 个人账户结算（无需项目授权）',
+      label: '个人空间',
+      description: '个人 API 密钥、个人余额与请求账单 · 无需项目授权',
+    },
+    workspace: {
+      overview: '工作空间总览（全部项目 · 仅汇总浏览，签发或调试请选项目）',
+      overviewShort: '工作空间总览（全部项目 · 仅总览）',
+    },
+    project: {
+      defaultShared: '默认共享项目 · 仅模型目录浏览（个人调用请切回个人空间）',
+      defaultSharedShort: '默认共享 · 仅模型目录浏览',
+    },
+  },
+  rbac: {
+    keys: {
+      deniedProject: '当前处于项目「{project}」，缺少密钥权限 ({grant})。个人调用请切至个人空间。',
+      emptyActions: '您拥有 keys.create，但尚未获得任何可签发的模型调用动作（如 text.chat）。',
+      createOnlyHint: '您拥有签发项目密钥权限 (keys.create)，但缺少 keys.read 查看其他项目密钥。',
+      requestCallGrantAction: '向工作空间管理员申请调用权限',
+    },
+    playground: {
+      denied: '模型调试台为团队项目工具。当前处于个人空间或缺少项目的 playground.run 权限。',
+      noModels: '所选密钥允许列表、路由分组与调用动作交集为空（已禁止回退公共目录）。',
+    },
+    byok: {
+      denied: '自带上游凭据管理需要当前作用域的 credentials.byok.manage 权限。',
+      workspaceRequired: '请先选择团队工作空间，或切回个人空间使用自助密钥调用。',
+      projectRequired: '请先在当前工作空间下选择具体项目，再查看或绑定项目级 BYOK 凭据。',
+    },
+    probe: {
+      unavailable: '权限或目录服务暂不可达（状态未知 · req: {reqId}），写操作已临时锁定。',
+      unavailableNoReq: '权限或目录服务暂不可达（状态未知），写操作已临时锁定。',
+      scopeUnavailable: '目标工作空间或项目不存在、已归档或授权已撤销。',
+    },
+  },
+  scopeGate: {
+    switchPersonal: '切至个人空间',
+    switchPersonalCreateKey: '切至个人空间创建密钥 →',
+    personalLocalCall: '个人密钥本地调用 →',
+    returnPersonal: '返回个人空间',
+    requestAccess: '申请项目权限',
+    switchProject: '切换项目',
+    selectAuthorizedProject: '切换至已有权限项目',
+    selectProjectPlaceholder: '选择工作空间与项目…',
+    defaultSharedTag: '默认共享 · 仅目录浏览',
+    retry: '立即重试',
+    requiredGrantLabel: '所需权限：{grant}',
+    requestIdLabel: '请求 ID：{reqId}',
+  },
 }

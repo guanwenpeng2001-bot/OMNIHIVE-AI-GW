@@ -140,7 +140,8 @@ const shouldInjectDefaultTimezone = (url: string | undefined, baseURL: string | 
 
 apiClient.interceptors.request.use(
   (config: SessionRequest) => {
-    const resolvedUrl = resolveVersionedRequestConfig(config.url, window.location.pathname, config.baseURL)
+    const pathname = typeof window !== 'undefined' ? window.location.pathname : '/'
+    const resolvedUrl = resolveVersionedRequestConfig(config.url, pathname, config.baseURL)
     if (resolvedUrl.baseURL) {
       config.baseURL = resolvedUrl.baseURL
     }
