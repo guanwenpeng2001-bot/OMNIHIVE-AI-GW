@@ -90,6 +90,7 @@ describe('navigationRegistry <-> router consistency contract', () => {
   it.each([
     ['/admin/connections/new', '管理 · 连接与路由'],
     ['/admin/connections/42/edit', '管理 · 连接与路由'],
+    ['/admin/models', '管理 · 连接与路由'],
     ['/admin/pools', '管理 · 连接与路由'],
     ['/admin/routing', '管理 · 连接与路由'],
     ['/admin/billing', '管理 · 结算与套餐'],
@@ -100,5 +101,11 @@ describe('navigationRegistry <-> router consistency contract', () => {
     ['/admin/settings/security', '管理 · 系统与治理']
   ])('resolves breadcrumb section for %s to %s', (path, expectedDomainZh) => {
     expect(resolveNavigationBreadcrumb(path).domainLabelZh).toBe(expectedDomainZh)
+  })
+
+  it('resolves /keys, /byok, and /workspaces to 开发者台 · 访问与空间', () => {
+    expect(resolveNavigationBreadcrumb('/keys').domainLabelZh).toBe('开发者台 · 访问与空间')
+    expect(resolveNavigationBreadcrumb('/byok').domainLabelZh).toBe('开发者台 · 访问与空间')
+    expect(resolveNavigationBreadcrumb('/workspaces').domainLabelZh).toBe('开发者台 · 访问与空间')
   })
 })

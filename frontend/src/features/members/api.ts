@@ -4,6 +4,7 @@ import type {
   IdentityAccess,
   IdentityGrantInput,
   IdentityGrantVersion,
+  IdentityMemberGrants,
   IdentityProject,
   IdentityProjectPage,
   IdentityWorkspacePage
@@ -12,6 +13,10 @@ import type {
 export const membersV2API = {
   async listScopes(params?: { limit?: number; cursor?: string }): Promise<IdentityWorkspacePage> {
     return controlGet<IdentityWorkspacePage>('/me/scopes', params)
+  },
+
+  async getWorkspaceAccess(workspaceId: string): Promise<IdentityAccess> {
+    return controlGet<IdentityAccess>(`/workspaces/${workspaceId}/access`)
   },
 
   async listProjects(
@@ -51,6 +56,12 @@ export const membersV2API = {
 
   async getProjectAccess(workspaceId: string, projectId: string): Promise<IdentityAccess> {
     return controlGet<IdentityAccess>(`/workspaces/${workspaceId}/projects/${projectId}/access`)
+  },
+
+  async getMemberGrants(workspaceId: string, memberId: string): Promise<IdentityMemberGrants> {
+    return controlGet<IdentityMemberGrants>(
+      `/workspaces/${workspaceId}/members/${memberId}/grants`
+    )
   },
 
   async setMemberGrants(
