@@ -42,7 +42,7 @@ SELECT
     item->>'id',
     COALESCE(item->>'triggered_by', 'manual'),
     CASE WHEN item->>'status' IN ('pending', 'running', 'completed', 'failed') THEN item->>'status' ELSE 'failed' END,
-    'legacy:' || item->>'id',
+    'legacy:' || (item->>'id'),
     1,
     NULLIF(item->>'progress', ''),
     COALESCE(NULLIF(item->>'started_at', '')::timestamptz, now()),
