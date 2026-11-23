@@ -24,7 +24,7 @@ function formatBillingSource(source?: string | null): string {
   const map: Record<string, { zh: string; en: string }> = {
     wallet: { zh: '钱包余额', en: 'Wallet Balance' },
     subscription: { zh: '订阅套餐额度', en: 'Subscription Allowance' },
-    byok: { zh: '自带密钥 (BYOK)', en: 'Tenant BYOK' },
+    byok: { zh: '自带上游凭据 (BYOK)', en: 'Tenant BYOK' },
     platform: { zh: '平台资金池', en: 'Platform Pool' }
   }
   return map[source] ? (isZh.value ? map[source].zh : map[source].en) : source

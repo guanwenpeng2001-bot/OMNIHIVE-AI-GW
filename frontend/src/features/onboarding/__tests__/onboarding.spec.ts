@@ -100,6 +100,35 @@ describe('ProjectAccessRequest & WorkspaceAccessRequestsInbox loop (AC-2)', () =
     vi.restoreAllMocks()
   })
 
+  it('keeps keyboard focus inside the request dialog and returns it to the opener', async () => {
+    const trigger = document.body.appendChild(document.createElement('button'))
+    trigger.focus()
+    const wrapper = mount(ProjectAccessRequest, {
+      attachTo: document.body,
+      props: { mode: 'modal', autoLoad: false, workspacesOverride: [] },
+      global: { plugins: [makeI18n('en')] }
+    })
+    try {
+      await flushPromises()
+      const panel = wrapper.get('[role="dialog"]').element
+      const first = document.activeElement
+      expect(panel.contains(first)).toBe(true)
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true }))
+      expect(document.activeElement).not.toBe(first)
+      expect(panel.contains(document.activeElement)).toBe(true)
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
+      expect(document.activeElement).toBe(first)
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      expect(wrapper.emitted('close')).toHaveLength(1)
+      await wrapper.setProps({ open: false })
+      await flushPromises()
+      expect(document.activeElement).toBe(trigger)
+    } finally {
+      wrapper.unmount()
+      trigger.remove()
+    }
+  })
+
   it('excludes protected shared Default project, submits request, and renders approved switch CTA', async () => {
     vi.spyOn(controlClient, 'controlGet').mockResolvedValueOnce({
       items: [],

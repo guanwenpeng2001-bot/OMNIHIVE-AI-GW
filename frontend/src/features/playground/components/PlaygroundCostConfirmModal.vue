@@ -94,7 +94,7 @@ function formatFundingSource(source: string | null | undefined): string {
   const mapZh: Record<string, string> = {
     wallet: '钱包余额',
     subscription: '订阅额度',
-    byok: '自带密钥 (BYOK)',
+    byok: '自带上游凭据 (BYOK)',
     mixed: '混合资金池',
     gift: '赠金抵扣',
     budget: '项目预算池'

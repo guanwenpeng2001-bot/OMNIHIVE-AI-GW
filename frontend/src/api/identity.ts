@@ -270,13 +270,13 @@ export const identityApi = {
 
   async listMembers(
     workspaceId: string,
-    _params?: { cursor?: string; limit?: number },
+    params?: { cursor?: string; limit?: number },
     signal?: AbortSignal
   ): Promise<IdentityMemberPage> {
     const apiClient = await getApiClient()
     const { data } = await apiClient.get<
       Array<{ user_id: number | string; role?: string; email?: string; version?: string }> | IdentityMemberPage
-    >(`/workspaces/${encodeURIComponent(workspaceId)}/members`, { signal })
+    >(v2Url(`/workspaces/${encodeURIComponent(workspaceId)}/members`), { baseURL: '', params, signal })
     if (Array.isArray(data)) {
       return {
         items: data.map((m) => ({

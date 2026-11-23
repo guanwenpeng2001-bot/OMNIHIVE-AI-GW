@@ -350,7 +350,7 @@ export default {
       personalStep2ExpandCta: '展开配置',
       personalStep3Title: '3. 发起首次调用并核对账单回执',
       personalStep3Desc: '首条网关请求完成后自动打勾，可实时核对 Token 用量、延迟与实收结算价。',
-      personalStep3Cta: '请求记录 →',
+      personalStep3Cta: '查看个人请求与用量明细 →',
       footerPrompt: '需要团队项目预算或模型调试台 (Playground)？',
       footerRequestCta: '向管理员申请项目权限 →',
       projectStep1Title: '1. 申请或选择已授权团队项目',

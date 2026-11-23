@@ -60,6 +60,16 @@
 
     <template #footer>
       <button
+        v-if="showSnippetsAction"
+        type="button"
+        data-testid="secret-dialog-open-snippets-btn"
+        class="btn btn-secondary"
+        :disabled="!canClose"
+        @click="emit('open-use-key')"
+      >
+        {{ t('keys.secretOnce.openSnippets') }}
+      </button>
+      <button
         type="button"
         data-testid="confirm-secret-close-btn"
         class="btn btn-primary"
@@ -82,10 +92,12 @@ const props = defineProps<{
   show: boolean
   secret: string
   graceUntil: string | null
+  showSnippetsAction?: boolean
   scopeLabel?: string | null
 }>()
 
 const emit = defineEmits<{
+  (e: 'open-use-key'): void
   (e: 'close'): void
 }>()
 

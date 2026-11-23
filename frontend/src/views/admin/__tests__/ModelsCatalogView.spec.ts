@@ -388,7 +388,7 @@ function mountCatalogView() {
   })
 }
 
-describe('ModelsCatalogView (/admin/models) & BE-9 Inspector Contract', () => {
+describe('ModelsCatalogView (/admin/models) & inspector contract', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockLocaleHolder.locale.value = 'zh-CN'
@@ -599,7 +599,7 @@ describe('ModelsCatalogView (/admin/models) & BE-9 Inspector Contract', () => {
     expect(wrapper.findAll('[data-testid="admin-model-row"]')).toHaveLength(3)
   })
 
-  it('normalizes exact BE-9 handoff JSON examples and tolerates null common_facts as unknown', () => {
+  it('normalizes catalog API responses and tolerates null common_facts as unknown', () => {
     const be9DetailPayload = {
       code: 0,
       message: 'success',

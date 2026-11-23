@@ -95,8 +95,14 @@ function encodeOptionKey(opt: ScopeGateProjectOption): string {
   return `${opt.workspaceId}:${opt.projectId}`
 }
 
+const selectableProjects = computed(() => props.projectOptions.filter(option =>
+  !option.isDefaultShared && (option.workspaceId !== props.workspaceId || option.projectId !== props.projectId)
+))
+const retryFirst = computed(() => props.state === 'unavailable' && props.showRetry)
+const personalFirst = computed(() => !retryFirst.value && (props.surface === 'keys' || props.state === 'unavailable'))
+
 watch(
-  () => props.projectOptions,
+  selectableProjects,
   (options) => {
     if (!Array.isArray(options) || options.length === 0) {
       selectedOptionKey.value = ''
@@ -105,7 +111,7 @@ watch(
     if (options.some((opt) => encodeOptionKey(opt) === selectedOptionKey.value)) {
       return
     }
-    const preferred = options.find((opt) => !opt.isDefaultShared) ?? options[0]
+    const preferred = options[0]
     selectedOptionKey.value = preferred ? encodeOptionKey(preferred) : ''
   },
   { immediate: true }
@@ -155,7 +161,7 @@ const resolvedRequestAccessLabel = computed(
 
 const resolvedSwitchProjectLabel = computed(() => {
   if (props.switchProjectLabel) return props.switchProjectLabel
-  return props.projectOptions.length > 0
+  return selectableProjects.value.length > 0
     ? tr('scopeGate.selectAuthorizedProject')
     : tr('scopeGate.switchProject')
 })
@@ -169,7 +175,7 @@ const badgeTone = computed<'danger' | 'warning' | 'unknown' | 'neutral'>(() => {
 })
 
 function handleSelectProject(): void {
-  const match = props.projectOptions.find((opt) => encodeOptionKey(opt) === selectedOptionKey.value)
+  const match = selectableProjects.value.find((opt) => encodeOptionKey(opt) === selectedOptionKey.value)
   if (match) {
     emit('select-project', { workspaceId: match.workspaceId, projectId: match.projectId })
   }
@@ -216,6 +222,26 @@ function handleSelectProject(): void {
     </div>
 
     <div class="flex flex-wrap items-center gap-2 pt-0.5">
+      <Button
+        v-if="retryFirst"
+        data-testid="scope-gate-retry"
+        variant="primary"
+        size="sm"
+        :loading="retrying"
+        @click="emit('retry')"
+      >
+        {{ resolvedRetryLabel }}
+      </Button>
+      <Button
+        v-if="showPersonalAction && personalFirst"
+        data-testid="scope-gate-switch-personal"
+        variant="primary"
+        size="sm"
+        @click="emit('switch-personal')"
+      >
+        {{ resolvedPersonalLabel }}
+      </Button>
+
       <slot
         name="request-access"
         :workspace-id="workspaceId"
@@ -231,7 +257,7 @@ function handleSelectProject(): void {
         <Button
           v-else-if="showRequestAccess"
           data-testid="scope-gate-request-access"
-          variant="primary"
+          :variant="retryFirst || personalFirst ? 'secondary' : 'primary'"
           size="sm"
           @click="emit('request-access')"
         >
@@ -239,8 +265,8 @@ function handleSelectProject(): void {
         </Button>
       </slot>
 
-      <slot name="switch-project" :project-options="projectOptions">
-        <div v-if="showSwitchProject && projectOptions.length > 0" class="inline-flex flex-wrap items-center gap-1.5">
+      <slot name="switch-project" :project-options="selectableProjects">
+        <div v-if="showSwitchProject && selectableProjects.length > 0" class="inline-flex flex-wrap items-center gap-1.5">
           <select
             v-model="selectedOptionKey"
             data-testid="scope-gate-project-select"
@@ -251,13 +277,12 @@ function handleSelectProject(): void {
               {{ tr('scopeGate.selectProjectPlaceholder') }}
             </option>
             <option
-              v-for="opt in projectOptions"
+              v-for="opt in selectableProjects"
               :key="encodeOptionKey(opt)"
               :value="encodeOptionKey(opt)"
             >
               {{ opt.projectName }}
               <template v-if="opt.workspaceName"> ({{ opt.workspaceName }})</template>
-              <template v-if="opt.isDefaultShared"> · {{ tr('scopeGate.defaultSharedTag') }}</template>
             </option>
           </select>
           <Button
@@ -282,7 +307,7 @@ function handleSelectProject(): void {
       </slot>
 
       <Button
-        v-if="showPersonalAction"
+        v-if="showPersonalAction && !personalFirst"
         data-testid="scope-gate-switch-personal"
         variant="ghost"
         size="sm"
@@ -292,17 +317,7 @@ function handleSelectProject(): void {
       </Button>
 
       <Button
-        v-if="secondaryActionLabel"
-        data-testid="scope-gate-secondary-action"
-        :variant="secondaryActionVariant"
-        size="sm"
-        @click="emit('secondary-action')"
-      >
-        {{ secondaryActionLabel }}
-      </Button>
-
-      <Button
-        v-if="showRetry"
+        v-if="showRetry && !retryFirst"
         data-testid="scope-gate-retry"
         variant="secondary"
         size="sm"
@@ -310,6 +325,15 @@ function handleSelectProject(): void {
         @click="emit('retry')"
       >
         {{ resolvedRetryLabel }}
+      </Button>
+      <Button
+        v-if="secondaryActionLabel"
+        data-testid="scope-gate-secondary-action"
+        :variant="secondaryActionVariant"
+        size="sm"
+        @click="emit('secondary-action')"
+      >
+        {{ secondaryActionLabel }}
       </Button>
     </div>
   </section>

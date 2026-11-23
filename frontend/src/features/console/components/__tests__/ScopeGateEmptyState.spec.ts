@@ -50,6 +50,7 @@ describe('ScopeGateEmptyState', () => {
 
     // Prefers non-default-shared team project by default
     const select = wrapper.get('[data-testid="scope-gate-project-select"]')
+    expect(select.find('option[value="1:1"]').exists()).toBe(false)
     expect((select.element as HTMLSelectElement).value).toBe('12:24')
 
     await wrapper.get('[data-testid="scope-gate-switch-project"]').trigger('click')
@@ -62,7 +63,7 @@ describe('ScopeGateEmptyState', () => {
     expect(wrapper.emitted('request-access')).toHaveLength(1)
   })
 
-  it('accepts custom request-access action via slot or component prop without importing FE-2 internals', async () => {
+  it('accepts custom request-access action via slot or component prop', async () => {
     const slotWrapper = mount(ScopeGateEmptyState, {
       props: {
         state: 'denied',
@@ -74,6 +75,7 @@ describe('ScopeGateEmptyState', () => {
         'request-access': '<button data-testid="custom-slot-request">Slot Request</button>'
       }
     })
+    expect(slotWrapper.get('button').attributes('data-testid')).toBe('scope-gate-switch-personal')
     expect(slotWrapper.find('[data-testid="custom-slot-request"]').exists()).toBe(true)
     expect(slotWrapper.find('[data-testid="scope-gate-request-access"]').exists()).toBe(false)
 
@@ -106,6 +108,7 @@ describe('ScopeGateEmptyState', () => {
         showRequestAccess: false
       }
     })
+    expect(wrapper.get('button').attributes('data-testid')).toBe('scope-gate-retry')
     expect(wrapper.text()).toContain('req-503-abc')
     await wrapper.get('[data-testid="scope-gate-retry"]').trigger('click')
     expect(wrapper.emitted('retry')).toHaveLength(1)

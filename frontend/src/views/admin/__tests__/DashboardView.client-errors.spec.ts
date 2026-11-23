@@ -9,7 +9,7 @@ import en from '@/i18n/locales/en/dashboard'
 import zh from '@/i18n/locales/zh/dashboard'
 
 const { showError } = vi.hoisted(() => ({ showError: vi.fn() }))
-vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError }) }))
+vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError, activeScope: { workspaceId: '72' }, scopes: [] }) }))
 vi.mock('vue-router', async () => ({ RouterLink: (await import('@vue/test-utils')).RouterLinkStub, useRouter: () => ({ push: vi.fn() }) }))
 vi.mock('@/composables/useBatchImageAccess', () => ({ useBatchImageAccess: () => ({ canUseBatchImage: false, refreshBatchImageAccess: vi.fn() }) }))
 // No mock of client.ts, Axios interceptors, or dashboard API functions.

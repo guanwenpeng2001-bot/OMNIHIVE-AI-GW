@@ -21,8 +21,21 @@
         </div>
       </div>
 
-      <!-- Platform-specific content -->
-      <template v-else>
+      <details v-if="hasBaseUrl" :open="!platform" @toggle="chatExamplesOpen = ($event.currentTarget as HTMLDetailsElement).open" class="space-y-2 rounded-lg border p-3">
+        <summary class="cursor-pointer font-semibold">cURL / Python SDK</summary>
+        <div v-for="(sample, index) in (!platform || chatExamplesOpen ? chatExamples : [])" :key="sample.label">
+          <div class="flex items-center justify-between">
+            <span class="text-xs">{{ sample.label }}</span>
+            <button type="button" class="btn btn-secondary btn-sm" @click="copyContent(sample.code, -index - 1)">
+              {{ copiedIndex === -index - 1 ? t('keys.useKeyModal.copied') : t('keys.useKeyModal.copy') }}
+            </button>
+          </div>
+          <pre class="overflow-x-auto p-2 text-xs"><code>{{ sample.code }}</code></pre>
+        </div>
+      </details>
+      <p v-else-if="!platform">{{ t('keys.useKeyModal.baseUrlMissing') }}</p>
+
+      <template v-if="platform">
         <!-- Description -->
         <p class="text-sm text-gray-600 dark:text-gray-400">
           {{ platformDescription }}
@@ -288,6 +301,7 @@ import { useClipboard } from '@/composables/useClipboard'
 import { fetchCodexModelsManifest } from '@/api/codex'
 import type { GroupPlatform } from '@/types'
 import { getPlatformLabel } from '@/constants/platforms'
+import { requestExample } from '@/components/intro/quickstart'
 import { buildClientBaseUrl } from '@/utils/url'
 import {
   findCodexCatalogModel,
@@ -343,6 +357,26 @@ let codexModelManifestRequestID = 0
 
 /** A client config needs the address this deployment publishes; the console origin is never assumed. */
 const hasBaseUrl = computed(() => props.baseUrl.trim() !== '')
+
+const chatExamplesOpen = ref(false)
+const chatExamples = computed(() => {
+  const root = buildClientBaseUrl(props.baseUrl)
+  return [
+    requestExample(root, 'YOUR_MODEL_ID', 'chat/completions').examples[0],
+    {
+      label: 'Python SDK',
+      code: `import os
+from openai import OpenAI
+
+client = OpenAI(base_url=${JSON.stringify(buildClientBaseUrl(root, 'v1'))}, api_key=os.environ["OMNIHIVE_API_KEY"])
+response = client.chat.completions.create(
+    model="YOUR_MODEL_ID",
+    messages=[{"role": "user", "content": "Hello"}],
+)
+print(response.choices[0].message.content)`
+    }
+  ]
+})
 
 // Responses and its Codex catalog use the shared gateway, not Antigravity-only routes.
 const responsesBaseUrl = computed(() => {

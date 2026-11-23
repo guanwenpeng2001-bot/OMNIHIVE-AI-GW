@@ -137,7 +137,7 @@ const stubs = {
   Teleport: true,
 }
 
-describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', () => {
+describe('KeysView project-scoped API key group binding guard', () => {
   const mountedWrappers: VueWrapper[] = []
 
   function mountKeysView() {
@@ -212,6 +212,19 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
       scope_version: '1',
       expires_at: new Date(Date.now() + 3600_000).toISOString(),
     })
+  })
+
+  it('switches from a project to Personal before opening the requested personal key form', async () => {
+    const store = seedProjectScope('10', '20')
+    mocks.getAvailableGroups.mockResolvedValue([])
+    const wrapper = mountKeysView()
+    await flushPromises()
+    await wrapper.setProps({ createPersonal: true })
+    await flushPromises()
+    expect(store.activeScope.mode).toBe('personal')
+    expect(wrapper.get('[data-tour="key-form-name"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="keys-link-requests"]').attributes('href')).toBe('/usage')
+    expect(mocks.listKeys).toHaveBeenCalled()
   })
 
   it('blocks project-scoped key creation and shows explicit validation error when no project group exists', async () => {

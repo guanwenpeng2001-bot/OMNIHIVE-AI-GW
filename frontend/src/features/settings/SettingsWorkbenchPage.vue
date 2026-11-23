@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, toRaw, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api'
 import type { SystemSettings } from '@/api/admin/settings'
@@ -41,7 +41,8 @@ const props = withDefaults(
 const { t, locale } = useI18n()
 const isZh = computed(() => String(locale?.value || 'zh').toLowerCase().startsWith('zh'))
 
-const activeSection = ref<SettingsSectionId>(props.initialSection)
+const emit = defineEmits<{ 'select-section': [section: string] }>()
+const activeSection = computed(() => props.initialSection)
 const sectionFilter = ref('')
 
 const hasLoadedSettings = ref(false)
@@ -179,7 +180,7 @@ async function handleSaveSection(): Promise<void> {
   try {
     const updated = await adminAPI.settings.updateSettings(patch)
     const nextBaseline: SettingsDraft = {
-      ...baseline.value,
+      ...toRaw(baseline.value),
       ...updated,
       smtp_password: '',
       turnstile_secret_key: ''
@@ -236,13 +237,13 @@ function handleDiagnosticsSettingsUpdated(updated: SystemSettings): void {
   if (!hasLoadedSettings.value) return
   const previouslyDirty = new Set<SettingsSectionId>(dirtySections.value)
   const nextBaseline: SettingsDraft = {
-    ...baseline.value,
+    ...toRaw(baseline.value),
     ...updated,
     smtp_password: '',
     turnstile_secret_key: ''
   }
   baseline.value = structuredClone(nextBaseline)
-  let nextDraft = structuredClone(draft.value)
+  let nextDraft = structuredClone(toRaw(draft.value))
   for (const sec of SETTINGS_SECTIONS) {
     if (!previouslyDirty.has(sec.id)) {
       nextDraft = resetSectionDraft(sec.id, nextBaseline, nextDraft)
@@ -384,7 +385,7 @@ onMounted(() => {
       </template>
 
       <template #tabs>
-        <Tabs v-model="activeSection" :items="tabItems" />
+        <Tabs :model-value="activeSection" :items="tabItems" @update:model-value="emit('select-section', $event)" />
       </template>
     </PageHeader>
 

@@ -874,6 +874,19 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     icon: 'cog',
     order: 65,
     keywords: ['settings', 'workbench', 'sections', 'security', 'smtp', '分区设置']
+  },
+  {
+    id: 'admin-settings-diagnostics',
+    path: '/admin/settings/diagnostics',
+    tier: 'admin',
+    section: 'settings',
+    labelKey: 'settingsDiagnostics.title',
+    fallbackLabelEn: 'Configuration Diagnostics',
+    fallbackLabelZh: '配置生效与来源诊断',
+    icon: 'cog',
+    order: 66,
+    hiddenInSidebar: true,
+    keywords: ['diagnostics', 'effective', 'config', 'override', '配置诊断', '生效配置']
   }
 ]
 

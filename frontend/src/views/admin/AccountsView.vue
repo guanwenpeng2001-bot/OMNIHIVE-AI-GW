@@ -2,11 +2,11 @@
   <AppLayout>
     <TablePageLayout>
       <template #filters>
-        <section class="account-workbench mb-2.5" aria-label="上游账号池工作台">
+        <section class="account-workbench mb-2.5" aria-label="上游连接工作台">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div class="flex flex-wrap items-center gap-2">
               <span class="pulse-dot" :class="loading ? 'pulse-warn' : accountPoolSummary.attention ? 'pulse-warn' : 'pulse-ok'" aria-hidden="true"></span>
-              <h1 class="text-sm font-semibold">上游账号池工作台</h1>
+              <h1 class="text-sm font-semibold">上游连接工作台</h1>
               <span class="text-xs text-gray-500 dark:text-gray-400">调度状态 · 账号容量 · 故障恢复</span>
               <div class="ml-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
                 <span>总账号 <b class="font-mono tabular-nums">{{ loading ? '—' : pagination.total }}</b></span>
@@ -1513,9 +1513,9 @@ function openAccountDiagnosisDrawer() {
     ['本页过载账号', summary.overloaded]
   ]
   openDrawer(
-    '上游账号池 · 调度诊断',
+    '上游连接 · 调度诊断',
     `<p class="mb-4 text-xs opacity-60">状态来自当前页快照；异常、限流与过载可能重叠。可使用状态筛选定位账号，再执行批量恢复或调度调整。</p><dl class="space-y-3">${metrics.map(([label, value]) => `<div class="flex justify-between gap-3 border-b pb-2" style="border-color:var(--border)"><dt>${label}</dt><dd class="font-mono tabular-nums">${value}</dd></div>`).join('')}</dl>`,
-    '<div class="flex flex-wrap gap-2"><button type="button" class="btn btn-primary btn-sm" data-drawer-nav="/admin/ops">运维实时监控</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-nav="/admin/channels/monitor">渠道监控</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-action="close">返回账号池</button></div>'
+    '<div class="flex flex-wrap gap-2"><button type="button" class="btn btn-primary btn-sm" data-drawer-nav="/admin/ops">运维实时监控</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-nav="/admin/channels/monitor">渠道监控</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-action="close">返回上游连接</button></div>'
   )
 }
 

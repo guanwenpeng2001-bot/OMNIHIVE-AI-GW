@@ -157,7 +157,7 @@ export default {
     admin: {
       welcome: {
         title: 'Welcome to OmniHive Workbench',
-        description: '<div style="line-height: 1.75;"><p style="margin-bottom: 14px;">OmniHive is a unified AI compute & model routing gateway that lets you orchestrate upstream connections and distribute API access from one console.</p><p style="margin-bottom: 10px;"><b>Core Capabilities:</b></p><ul style="margin-left: 18px; margin-bottom: 14px;"><li><b>Routing Groups</b> — Organize pools by protocol & SLA</li><li><b>Account Pool</b> — Connect upstream connections with automatic failover</li><li><b>API Keys</b> — Issue scoped credentials with quota guardrails</li><li><b>Billing & Ledger</b> — Multipliers, subscriptions, and live telemetry</li></ul><p style="color: var(--brand-text, #92610a); font-weight: 600;">Complete your initial gateway setup in 3 minutes →</p></div>',
+        description: '<div style="line-height: 1.75;"><p style="margin-bottom: 14px;">OmniHive is a unified AI compute & model routing gateway that lets you orchestrate upstream connections and distribute API access from one console.</p><p style="margin-bottom: 10px;"><b>Core Capabilities:</b></p><ul style="margin-left: 18px; margin-bottom: 14px;"><li><b>Routing Groups</b> — Organize pools by protocol & SLA</li><li><b>Resource Pool</b> — Connect upstream connections with automatic failover</li><li><b>API Keys</b> — Issue scoped credentials with quota guardrails</li><li><b>Billing & Ledger</b> — Multipliers, subscriptions, and live telemetry</li></ul><p style="color: var(--brand-text, #92610a); font-weight: 600;">Complete your initial gateway setup in 3 minutes →</p></div>',
         nextBtn: 'Start Setup →',
         prevBtn: 'Skip'
       },
@@ -326,7 +326,7 @@ export default {
       personalStep2ExpandCta: 'Expand Config',
       personalStep3Title: '3. Make First Call & Verify Settlement Receipt',
       personalStep3Desc: 'Completes automatically after your first call; inspect live token usage, latency, and settlement amount.',
-      personalStep3Cta: 'Request Records →',
+      personalStep3Cta: 'View Personal Requests & Usage →',
       footerPrompt: 'Need team project budget or Model Playground?',
       footerRequestCta: 'Request Project Access from Admin →',
       projectStep1Title: '1. Request or Select an Authorized Team Project',

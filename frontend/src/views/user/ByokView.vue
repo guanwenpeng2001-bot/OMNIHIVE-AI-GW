@@ -13,7 +13,7 @@ import Switch from '@/components/ui/Switch.vue'
 import Tabs from '@/components/ui/Tabs.vue'
 import { pushUiToast } from '@/components/ui/useToast'
 import { useAuthStore } from '@/stores/auth'
-import { getConsoleScopeStore } from '@/stores/consoleScope'
+import { getConsoleScopeStore, requestScopeSwitcher } from '@/stores/consoleScope'
 import { identityApi, type IdentityKey } from '@/api/identity'
 import {
   ensureProjectAccess,
@@ -666,6 +666,7 @@ onMounted(async () => {
         :project-options="consoleScopeStore.availableProjectOptions"
         :show-retry="scopeGateState === 'unavailable'"
         @switch-personal="handleSwitchPersonal"
+        @switch-project="requestScopeSwitcher"
         @select-project="handleSelectProject"
         @request-access="router.push('/workspaces?requestAccess=1')"
         @retry="handleFullRefresh"

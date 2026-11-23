@@ -178,6 +178,7 @@ export default {
       success: 'API key rotated successfully'
     },
     secretOnce: {
+      openSnippets: 'View client and cURL snippets →',
       title: 'Copy your new secret',
       warning: 'This secret is shown only once. Copy it now; you cannot view it again.',
       graceUntil: 'The previous secret stops working at {time}.',
@@ -222,7 +223,7 @@ export default {
       note: 'These environment variables will be active in the current terminal session. For permanent configuration, add them to ~/.bashrc, ~/.zshrc, or the appropriate configuration file.',
       claudeSettingsHint: 'User-level persistent configuration. Do not commit this file containing your API key to a project repository.',
       noGroupTitle: 'Please assign a group first',
-      noGroupDescription: 'This API key has not been assigned to a group. Please click the group column in the key list to assign one before viewing the configuration.',
+      noGroupDescription: 'Choose a routing group for platform-specific setup instructions, or use the compatible examples below.',
       baseUrlMissing: 'This deployment has no public API base URL configured (api_base_url), so no client configuration can be generated. Ask an administrator to configure it, then retry.',
       generationEntryHint:
         'The configurations above target text/vision protocols only (Messages, Responses, Chat Completions). Send image, video and speech generation to the media endpoints such as /v1/images/*, /v1/videos/*, /v1/tts and /v1/stt, not to the Messages endpoint.',

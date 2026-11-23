@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useOverlayDialog } from '@/components/ui/utils'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { apiClient } from '@/api/client'
@@ -264,6 +265,12 @@ onMounted(() => {
     void loadRequests(true)
   }
 })
+const panelRef = ref<HTMLElement | null>(null)
+useOverlayDialog({
+  open: computed(() => Boolean(activeRequest.value)),
+  panelRef,
+  onClose: () => { activeRequest.value = null }
+})
 </script>
 
 <template>
@@ -399,12 +406,13 @@ onMounted(() => {
     <div
       v-if="activeRequest"
       data-testid="approve-access-request-modal"
+      @click.self="activeRequest = null"
       role="dialog"
       aria-modal="true"
       :aria-label="t('membersAccess.inbox.approveModalTitle')"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
     >
-      <div class="w-full max-w-xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl space-y-4">
+      <div ref="panelRef" tabindex="-1" class="max-h-[calc(100dvh-2rem)] overflow-y-auto w-full max-w-xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl space-y-4">
         <div class="flex items-start justify-between gap-3">
           <div>
             <h4 class="text-base font-semibold text-[var(--foreground)]">

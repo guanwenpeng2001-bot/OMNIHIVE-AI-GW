@@ -144,6 +144,19 @@ const globalMountOptions = {
 }
 
 describe('ScopedAuditView & OperationalSignals Workbench', () => {
+  it('loads affected components from the public status resource for incident creation', async () => {
+    mockGet.mockImplementation(async (path: string) => ({
+      data: path === '/api/v2/public/status' ? { components: [{ id: 'inference', name: 'Model Inference' }] } : { items: [] }
+    }))
+    const wrapper = mount(OperationalSignals)
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text().includes('发布状态事件'))!.trigger('click')
+    await flushPromises()
+    expect(mockGet).toHaveBeenCalledWith('/api/v2/public/status', expect.any(Object))
+    expect(document.body.textContent + wrapper.text()).toContain('Model Inference')
+    wrapper.unmount()
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     mockLocaleHolder.locale = { value: 'zh-CN' }

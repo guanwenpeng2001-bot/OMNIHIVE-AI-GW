@@ -280,7 +280,7 @@ async function handleDelete(): Promise<void> {
     }
     pushUiToast({
       tone: 'success',
-      title: isZh.value ? '自带密钥已移除' : 'BYOK Credential Deleted'
+      title: isZh.value ? '自带上游凭据已移除' : 'BYOK Credential Deleted'
     })
     emit('credential-removed', cred.id)
     emit('update:open', false)
@@ -580,7 +580,7 @@ watch(
           <p class="text-xs text-oh-secondary">
             {{
               isZh
-                ? '强制吊销并从当前工作空间或项目列表中移除此自带密钥配置。'
+                ? '强制吊销并从当前工作空间或项目列表中移除此自带上游凭据配置。'
                 : 'Force-revokes and removes this BYOK credential from active routing.'
             }}
           </p>

@@ -20,7 +20,7 @@ import {
 } from '@/features/console/format'
 import { identityApi } from '@/api/identity'
 import { isSilentRequestError } from '@/api/client'
-import { getConsoleScopeStore } from '@/stores/consoleScope'
+import { getConsoleScopeStore, requestScopeSwitcher } from '@/stores/consoleScope'
 import {
   ensureProjectAccess,
   getAccessActionState,
@@ -97,6 +97,10 @@ const projectAccessEntry = ref<AccessProbeEntry | null>(null)
 const availableKeys = ref<KeyOption[]>([])
 const canActAsKeys = ref(false)
 const canManageByok = ref(false)
+const hasKeysCreate = computed(() => projectAccessEntry.value?.status === 'ready' &&
+  getAccessActionState(projectAccessEntry.value, 'keys.create') === 'allowed')
+const keyPickerA = ref<HTMLSelectElement | null>(null)
+const keyPickerB = ref<HTMLSelectElement | null>(null)
 const hasPlaygroundRun = ref(false)
 const hasKeysRead = ref(false)
 
@@ -1414,7 +1418,7 @@ function formatSettlementState(state: string | null | undefined): string {
         v-else-if="scopeGateState !== null"
         :state="scopeGateState"
         surface="playground"
-        :title="scopeGateState === 'empty' ? t('rbac.playground.denied') : undefined"
+        :title="consoleScopeStore.isWorkspaceOverview ? t('scope.workspace.overview') : scopeGateState === 'empty' ? t('rbac.playground.denied') : undefined"
         :workspace-id="activeWorkspaceId"
         :workspace-name="consoleScopeStore.activeWorkspace?.name ?? null"
         :project-id="activeProjectId"
@@ -1426,6 +1430,7 @@ function formatSettlementState(state: string | null | undefined): string {
         :project-options="consoleScopeStore.availableProjectOptions"
         :show-retry="scopeGateState === 'unavailable'"
         @switch-personal="handleGateSwitchPersonal"
+        @switch-project="requestScopeSwitcher"
         @select-project="handleGateSelectProject"
         @request-access="navigateTo('/workspaces?requestAccess=1')"
         @retry="loadKeysAndCatalog(true)"
@@ -1459,6 +1464,7 @@ function formatSettlementState(state: string | null | undefined): string {
                 {{ isZh ? '下游 API 密钥 (Key A)' : 'Downstream API Key (A)' }}
               </span>
               <select
+                ref="keyPickerA"
                 v-model="sideA.apiKeyId"
                 data-testid="select-key-a"
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))]"
@@ -1466,18 +1472,18 @@ function formatSettlementState(state: string | null | undefined): string {
                 <template v-if="actAsKeys.length > 0">
                   <optgroup v-if="ownedKeys.length > 0" :label="t('playgroundKeys.ownedGroupLabel')">
                     <option v-for="k in ownedKeys" :key="k.id" :value="k.id">
-                      {{ k.name }} (#{{ k.id }} · {{ k.state }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
+                      {{ k.name }} (#{{ k.id }} · {{ isZh ? '启用' : 'Active' }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
                     </option>
                   </optgroup>
                   <optgroup :label="t('playgroundKeys.actAsGroupLabel')">
                     <option v-for="k in actAsKeys" :key="k.id" :value="k.id">
-                      {{ k.name }} (#{{ k.id }} · {{ k.state }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
+                      {{ k.name }} (#{{ k.id }} · {{ isZh ? '启用' : 'Active' }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
                     </option>
                   </optgroup>
                 </template>
                 <template v-else>
                   <option v-for="k in ownedKeys" :key="k.id" :value="k.id">
-                    {{ k.name }} (#{{ k.id }} · {{ k.state }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
+                    {{ k.name }} (#{{ k.id }} · {{ isZh ? '启用' : 'Active' }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
                   </option>
                 </template>
               </select>
@@ -1508,13 +1514,22 @@ function formatSettlementState(state: string | null | undefined): string {
               </p>
               <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
                 <Button
-                  v-if="hasActiveProjectScope && !keysLoadError"
+                  v-if="hasKeysCreate && hasActiveProjectScope && !keysLoadError"
                   data-testid="playground-create-project-key-btn"
                   variant="outline-accent"
                   size="xs"
                   @click="navigateTo('/keys')"
                 >
                   {{ t('playgroundKeys.createProjectKeyAction') }}
+                </Button>
+                <Button
+                  v-else-if="hasActiveProjectScope && !keysLoadError"
+                  data-testid="playground-request-key-grant"
+                  variant="outline-accent"
+                  size="xs"
+                  @click="navigateTo('/workspaces?requestAccess=1')"
+                >
+                  {{ isZh ? '申请密钥签发权限' : 'Request key issuance permission' }}
                 </Button>
                 <Button
                   v-else-if="!hasActiveProjectScope && !keysLoadError"
@@ -1593,17 +1608,22 @@ function formatSettlementState(state: string | null | undefined): string {
                 class="space-y-1.5 rounded-[var(--oh-r-sm,6px)] border border-red-400/40 bg-red-500/10 px-2.5 py-2 text-[11px]"
               >
                 <p>{{ sideAModelsError.title }}</p>
+                <p v-if="sideAModelsError.requestId" class="font-mono">{{ t('scopeGate.requestIdLabel', { reqId: sideAModelsError.requestId }) }}</p>
                 <Button size="xs" variant="secondary" @click="sideA.apiKeyId && loadSideKeyModels('A', sideA.apiKeyId)">
                   {{ t('scopeGate.retry') }}
                 </Button>
               </div>
-              <p
+              <div
                 v-else
                 data-testid="playground-models-empty-A"
                 class="rounded-[var(--oh-r-sm,6px)] border border-dashed border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2.5 py-2 text-[11px] text-[var(--oh-ink-secondary,var(--muted-foreground))]"
               >
                 {{ t('rbac.playground.noModels') }}
-              </p>
+                <div v-if="availableKeys.length" class="mt-2 flex flex-wrap gap-2">
+                  <Button size="xs" variant="secondary" @click="navigateTo('/keys')">{{ isZh ? '检查密钥模型策略' : 'Inspect key model policy' }}</Button>
+                  <Button size="xs" variant="secondary" @click="keyPickerA?.focus()">{{ isZh ? '切换项目密钥' : 'Switch project key' }}</Button>
+                </div>
+              </div>
             </label>
 
             <div
@@ -1725,6 +1745,7 @@ function formatSettlementState(state: string | null | undefined): string {
                 {{ isZh ? '下游 API 密钥 (Key B)' : 'Downstream API Key (B)' }}
               </span>
               <select
+                ref="keyPickerB"
                 v-model="sideB.apiKeyId"
                 data-testid="select-key-b"
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))]"
@@ -1732,18 +1753,18 @@ function formatSettlementState(state: string | null | undefined): string {
                 <template v-if="actAsKeys.length > 0">
                   <optgroup v-if="ownedKeys.length > 0" :label="t('playgroundKeys.ownedGroupLabel')">
                     <option v-for="k in ownedKeys" :key="k.id" :value="k.id">
-                      {{ k.name }} (#{{ k.id }} · {{ k.state }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
+                      {{ k.name }} (#{{ k.id }} · {{ isZh ? '启用' : 'Active' }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
                     </option>
                   </optgroup>
                   <optgroup :label="t('playgroundKeys.actAsGroupLabel')">
                     <option v-for="k in actAsKeys" :key="k.id" :value="k.id">
-                      {{ k.name }} (#{{ k.id }} · {{ k.state }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
+                      {{ k.name }} (#{{ k.id }} · {{ isZh ? '启用' : 'Active' }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
                     </option>
                   </optgroup>
                 </template>
                 <template v-else>
                   <option v-for="k in ownedKeys" :key="k.id" :value="k.id">
-                    {{ k.name }} (#{{ k.id }} · {{ k.state }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
+                    {{ k.name }} (#{{ k.id }} · {{ isZh ? '启用' : 'Active' }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
                   </option>
                 </template>
               </select>
@@ -1784,17 +1805,22 @@ function formatSettlementState(state: string | null | undefined): string {
                 class="space-y-1.5 rounded-[var(--oh-r-sm,6px)] border border-red-400/40 bg-red-500/10 px-2.5 py-2 text-[11px]"
               >
                 <p>{{ sideBModelsError.title }}</p>
+                <p v-if="sideBModelsError.requestId" class="font-mono">{{ t('scopeGate.requestIdLabel', { reqId: sideBModelsError.requestId }) }}</p>
                 <Button size="xs" variant="secondary" @click="sideB.apiKeyId && loadSideKeyModels('B', sideB.apiKeyId)">
                   {{ t('scopeGate.retry') }}
                 </Button>
               </div>
-              <p
+              <div
                 v-else
                 data-testid="playground-models-empty-B"
                 class="rounded-[var(--oh-r-sm,6px)] border border-dashed border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2.5 py-2 text-[11px] text-[var(--oh-ink-secondary,var(--muted-foreground))]"
               >
                 {{ t('rbac.playground.noModels') }}
-              </p>
+                <div v-if="availableKeys.length" class="mt-2 flex flex-wrap gap-2">
+                  <Button size="xs" variant="secondary" @click="navigateTo('/keys')">{{ isZh ? '检查密钥模型策略' : 'Inspect key model policy' }}</Button>
+                  <Button size="xs" variant="secondary" @click="keyPickerB?.focus()">{{ isZh ? '切换项目密钥' : 'Switch project key' }}</Button>
+                </div>
+              </div>
             </label>
 
             <label class="block space-y-1 text-xs">
@@ -2067,7 +2093,7 @@ function formatSettlementState(state: string | null | undefined): string {
             >
               <span>{{ t('playgroundKeys.runBlockedHint') }}</span>
               <Button
-                v-if="hasActiveProjectScope && !keysLoadError"
+                v-if="hasKeysCreate && hasActiveProjectScope && !keysLoadError"
                 variant="ghost"
                 size="xs"
                 @click="navigateTo('/keys')"

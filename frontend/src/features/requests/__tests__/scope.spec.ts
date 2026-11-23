@@ -1,6 +1,8 @@
 import { createPinia, setActivePinia } from 'pinia'
+import { effectScope, nextTick } from 'vue'
+import { useAppStore } from '@/stores/app'
 import { describe, expect, it, vi } from 'vitest'
-import { firstAvailableScope, useProjectScope } from '../useProjectScope'
+import { useProjectScope } from '../useProjectScope'
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({ query: { workspace_id: '2', project_id: '9' } }),
@@ -8,16 +10,25 @@ vi.mock('vue-router', () => ({
 }))
 
 describe('project scope bootstrap', () => {
-  it('selects the first workspace that has a project', () => {
-    expect(firstAvailableScope([
-      { workspace_id: '1', projects: [] },
-      { workspace_id: '2', projects: [{ id: '9' }] },
-      { workspace_id: '3', projects: [{ id: '10' }] }
-    ])).toEqual({ workspaceId: '2', projectId: '9' })
-  })
-
-  it('does not invent a scope when no project is available', () => {
-    expect(firstAvailableScope([{ workspace_id: '1', projects: [] }])).toBeNull()
+  it('preserves Personal Space and workspace overview when projects become available', async () => {
+    setActivePinia(createPinia())
+    const app = useAppStore()
+    app.selectPersonalScope()
+    const effects = effectScope()
+    const project = effects.run(useProjectScope)!
+    try {
+      app.scopes = [{ workspace_id: '42', name: 'Default', projects: [{ id: '55', name: 'Default' }] }]
+      app.scopesLoaded = true
+      await nextTick()
+      expect(app.activeScope.mode).toBe('personal')
+      expect(project.scope.value).toBeNull()
+      app.selectWorkspaceScope('42', null)
+      await nextTick()
+      expect(app.activeScope.projectId).toBeNull()
+      expect(project.scopeKey.value).toBe('')
+    } finally {
+      effects.stop()
+    }
   })
 
   it('treats wildcard * grant in IdentityAccess as matching any action', () => {

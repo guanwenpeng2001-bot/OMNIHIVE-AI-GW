@@ -764,7 +764,7 @@ onBeforeUnmount(() => {
       <section data-testid="detail-section-pricing" class="space-y-4 py-6">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <h2 class="text-sm font-semibold text-oh-primary">
-            {{ isZh ? '销售定价与参考费率' : 'Pricing & Reference Rates' }}
+            {{ isZh ? '销售价与参考价（非结算价）' : 'Sale Rate & Reference Price (Non-settlement)' }}
           </h2>
           <div class="flex flex-wrap items-center gap-3 font-mono text-[11px] text-oh-muted">
             <span v-if="detail?.price_source">

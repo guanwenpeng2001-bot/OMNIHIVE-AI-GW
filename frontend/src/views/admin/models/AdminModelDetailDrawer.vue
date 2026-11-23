@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useOverlayDialog } from '@/components/ui/utils'
 import { computed, ref, watch } from 'vue'
 import CatalogVerificationWorkbench from '@/features/operations/components/CatalogVerificationWorkbench.vue'
 import {
@@ -106,6 +107,12 @@ const isRoutableUnpriced = computed(() => {
   if (!m) return false
   return m.availability.state === 'live' && m.billing.state === 'unpriced'
 })
+const panelRef = ref<HTMLElement | null>(null)
+useOverlayDialog({
+  open: computed(() => props.open),
+  panelRef,
+  onClose: () => emit('close')
+})
 </script>
 
 <template>
@@ -119,6 +126,8 @@ const isRoutableUnpriced = computed(() => {
     @click.self="emit('close')"
   >
     <div
+      ref="panelRef"
+      tabindex="-1"
       class="flex h-full w-full max-w-4xl flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--background)] text-[var(--foreground)] shadow-2xl"
     >
       <!-- Drawer Header -->

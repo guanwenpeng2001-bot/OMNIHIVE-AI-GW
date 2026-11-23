@@ -17,7 +17,7 @@
           <button type="button" class="btn btn-secondary btn-sm font-mono" @click="triggerCommandPalette">
             {{ isZh ? '⌘K 命令' : '⌘K Command' }}
           </button>
-          <button type="button" class="btn btn-secondary btn-sm" @click="navigateTo('/playground')">Playground</button>
+          <button v-if="canRunPlayground" type="button" class="btn btn-secondary btn-sm" @click="navigateTo('/playground')">{{ isZh ? '模型调试台' : 'Playground' }}</button>
           <button type="button" class="btn btn-secondary btn-sm" @click="navigateTo('/tasks')">{{ isZh ? '任务中心' : 'Tasks' }}</button>
           <button type="button" class="btn btn-secondary btn-sm" aria-controls="getStarted" :aria-expanded="!onboardingHidden" @click="toggleOnboardingVisibility">
             {{ onboardingHidden ? (isZh ? '恢复引导' : 'Show Guide') : (isZh ? '隐藏引导' : 'Hide Guide') }}
@@ -152,12 +152,12 @@
                   {{ isZh ? '尚未产生任何网关调用记录' : 'No Gateway Requests Recorded Yet' }}
                 </p>
                 <p class="mt-0.5 text-xs text-[var(--oh-ink-secondary,var(--muted-foreground))]">
-                  {{ isZh ? '创建 API 密钥或在 Playground 发送首条请求后，此处将实时展示真实花费、成功率与调用轨迹。' : 'Create an API key or run your first prompt in Playground to populate live spend, success rate, and request traces.' }}
+                  {{ isZh ? '创建 API 密钥或在模型调试台发送首条请求后，此处将实时展示真实花费、成功率与调用轨迹。' : 'Create an API key or run your first prompt in Playground to populate live spend, success rate, and request traces.' }}
                 </p>
               </div>
               <div class="flex flex-wrap items-center gap-2">
                 <button v-if="canCreateApiKey" type="button" class="btn btn-secondary btn-sm" @click="navigateTo('/keys')">{{ isZh ? '创建密钥' : 'Create API Key' }}</button>
-                <button v-if="canRunPlayground" type="button" class="btn btn-primary btn-sm" @click="navigateTo('/playground')">Playground →</button>
+                <button v-if="canRunPlayground" type="button" class="btn btn-primary btn-sm" @click="navigateTo('/playground')">{{ isZh ? '模型调试台' : 'Playground' }} →</button>
                 <template v-if="!canCreateApiKey && !canRunPlayground">
                   <button type="button" class="btn btn-secondary btn-sm" @click="navigateTo('/workspaces')">{{ isZh ? '查看工作空间' : 'View Workspaces' }}</button>
                   <button type="button" class="btn btn-primary btn-sm" @click="navigateTo('/model-plaza')">{{ isZh ? '浏览模型广场 →' : 'Browse Model Plaza →' }}</button>
@@ -278,7 +278,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, getCurrentInstance } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted, watch, getCurrentInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { resolveReportTimeZone, formatReportDateInput, formatDateTimeWithZone } from '@/utils/format'
 import type { OnboardingDTO, UpdateOnboardingPayload } from '@/api/mcp'
@@ -423,6 +423,7 @@ const copyClientConfig = async () => {
     const { useClipboard } = await import('@/composables/useClipboard')
     const success = await useClipboard().copyToClipboard(code)
     if (revision !== copyRevision || clientId !== activeClient.value || code !== selectedClient.value.code) return
+    if (success && !isStepCompleted(0)) toggleStepManualDone(0)
     copyStatus.value = success ? 'success' : 'error'
   } catch {
     if (revision !== copyRevision || clientId !== activeClient.value || code !== selectedClient.value.code) return
@@ -461,7 +462,6 @@ const isStepCompleted = (index: number): boolean => {
   const manual = manualDoneSteps.value[index]
   if (typeof manual === 'boolean') return manual
   if (onboarding.value?.steps[index]) return true
-  if (index === 0) return (stats.value?.total_requests || 0) > 0
   if (index === 1) return (stats.value?.total_api_keys || 0) > 0
   return index === 2 && ((stats.value?.total_requests || 0) > 0 || recentUsage.value.length > 0)
 }
@@ -506,7 +506,11 @@ const triggerCommandPalette = () => {
   if (typeof window === 'undefined') return
   window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, ctrlKey: true, bubbles: true }))
 }
-const openConnectClientDrawer = () => { connectExpanded.value = true }
+const openConnectClientDrawer = async () => {
+  connectExpanded.value = true
+  await nextTick()
+  document.getElementById('client-config-panel')?.scrollIntoView?.({ block: 'nearest' })
+}
 
 const loadPersonalPrerequisites = async () => {
   const userId = authStore.user?.id

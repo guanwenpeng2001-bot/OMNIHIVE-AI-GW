@@ -279,8 +279,8 @@ function handleSubmit(): void {
     :title="
       mode === 'create'
         ? (scopeLevel === 'project'
-            ? (isZh ? '登记项目专属自带密钥 (BYOK)' : 'Enroll Project BYOK Credential')
-            : (isZh ? '登记工作空间自带密钥 (BYOK)' : 'Enroll Workspace BYOK Credential'))
+            ? (isZh ? '登记项目自带上游凭据 (BYOK)' : 'Enroll Project BYOK Credential')
+            : (isZh ? '登记工作空间自带上游凭据 (BYOK)' : 'Enroll Workspace BYOK Credential'))
         : (isZh ? '编辑凭据授权范围与路由策略' : 'Edit Credential Scope & Routing Policy')
     "
     :description="
@@ -325,7 +325,7 @@ function handleSubmit(): void {
             <span class="font-semibold text-oh-primary">
               {{
                 isZh
-                  ? '当前工作空间尚未启用租户自有凭据 (BYOK) 供应商类别'
+                  ? '当前工作空间尚未启用自带上游凭据 (BYOK) 供应商类别'
                   : 'No BYOK provider classes are currently enabled for this workspace'
               }}
             </span>
@@ -517,7 +517,7 @@ function handleSubmit(): void {
           :label="isZh ? '允许回退至平台共享池' : 'Allow Platform Pool Fallback'"
           :description="
             isZh
-              ? '当自带密钥配额耗尽或上游不可用时，允许按项目计费回退至平台连接池。'
+              ? '当自带上游凭据配额耗尽或上游不可用时，允许按项目计费回退至平台上游资源池。'
               : 'Fall back to platform-funded pools when this BYOK credential is unavailable.'
           "
         />
