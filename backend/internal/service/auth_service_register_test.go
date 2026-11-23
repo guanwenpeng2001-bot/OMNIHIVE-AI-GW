@@ -643,6 +643,20 @@ func TestAuthService_Register_Success(t *testing.T) {
 	require.True(t, user.CheckPassword("password"))
 }
 
+func TestAuthService_Register_InvalidDefaultsPreventUserCreation(t *testing.T) {
+	repo := &userRepoStub{nextID: 5}
+	svc := newAuthService(repo, map[string]string{
+		SettingKeyRegistrationEnabled: "true",
+		SettingKeyDefaultConcurrency:  "-1",
+	}, nil, nil)
+
+	token, user, err := svc.Register(context.Background(), "user@test.com", "password")
+	require.ErrorIs(t, err, ErrRegistrationDefaultsUnavailable)
+	require.Empty(t, token)
+	require.Nil(t, user)
+	require.Empty(t, repo.created)
+}
+
 func TestAuthService_ValidateToken_ExpiredReturnsClaimsWithError(t *testing.T) {
 	repo := &userRepoStub{}
 	service := newAuthService(repo, nil, nil, nil)

@@ -124,7 +124,11 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInpu
 	if input.Balance != nil {
 		balance = *input.Balance
 	} else if s.settingService != nil {
-		balance = s.settingService.GetDefaultBalance(ctx)
+		defaults, err := s.settingService.RegistrationDefaults(ctx)
+		if err != nil {
+			return nil, ErrRegistrationDefaultsUnavailable.WithCause(err)
+		}
+		balance = defaults.Balance
 	}
 
 	// 角色可由管理员在创建时指定(admin/user);未提供时默认 user。

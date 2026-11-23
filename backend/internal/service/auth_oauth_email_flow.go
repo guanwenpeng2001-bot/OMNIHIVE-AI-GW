@@ -151,7 +151,10 @@ func (s *AuthService) RegisterOAuthEmailAccount(
 	}
 
 	signupSource = normalizeOAuthSignupSource(signupSource)
-	grantPlan := s.resolveSignupGrantPlan(ctx, signupSource)
+	grantPlan, err := s.resolveSignupGrantPlan(ctx, signupSource)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	user := &User{
 		SignupAgreement: signupAgreementFromContext(ctx),
@@ -238,7 +241,10 @@ func (s *AuthService) RegisterVerifiedOAuthEmailAccount(
 	}
 
 	signupSource = normalizeOAuthSignupSource(signupSource)
-	grantPlan := s.resolveSignupGrantPlan(ctx, signupSource)
+	grantPlan, err := s.resolveSignupGrantPlan(ctx, signupSource)
+	if err != nil {
+		return nil, nil, err
+	}
 	var defaultRPMLimit int
 	if s.settingService != nil {
 		defaultRPMLimit = s.settingService.GetDefaultUserRPMLimit(ctx)
@@ -295,6 +301,10 @@ func (s *AuthService) FinalizeOAuthEmailAccount(
 	if err != nil {
 		return err
 	}
+	grantPlan, err := s.resolveSignupGrantPlan(ctx, signupSource)
+	if err != nil {
+		return err
+	}
 	if invitationRedeemCode != nil {
 		if err := s.useOAuthRegistrationInvitation(ctx, invitationRedeemCode.ID, user.ID); err != nil {
 			return ErrInvitationCodeInvalid
@@ -302,7 +312,6 @@ func (s *AuthService) FinalizeOAuthEmailAccount(
 	}
 
 	s.updateOAuthSignupSource(ctx, user.ID, signupSource)
-	grantPlan := s.resolveSignupGrantPlan(ctx, signupSource)
 	s.assignSubscriptions(ctx, user.ID, grantPlan.Subscriptions, "auto assigned by signup defaults")
 	// snapshot user × platform quota（fail-open）
 	_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
