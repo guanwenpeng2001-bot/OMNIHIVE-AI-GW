@@ -1,6 +1,7 @@
 package legacy
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -12,6 +13,45 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/pkg/pluginapi/v2/actions"
 )
+
+type captureCatalogPrices struct {
+	inputs []catalog.PriceInput
+}
+
+func (p *captureCatalogPrices) Describe(_ context.Context, in catalog.PriceInput) (catalog.Price, error) {
+	p.inputs = append(p.inputs, in)
+	return catalog.Price{State: "unpriced"}, nil
+}
+
+func TestCatalogPricePortUsesAdmittedProviderAndBillingModel(t *testing.T) {
+	prices := &captureCatalogPrices{}
+	source := Source{prices: prices}
+	p := catalog.Perspective{Workspace: 1, Project: 2}
+	model := service.PlazaModel{Platform: "openrouter", Name: "openai/exact",
+		CatalogOffers: []service.PlazaCatalogOffer{{
+			ChannelID: 7, Eligible: true, PublicationBasis: "explicit", BillingModelSource: service.BillingModelSourceUpstream,
+			Bindings: []service.PlazaCatalogBinding{{
+				AccountModelBinding: service.AccountModelBinding{AccountID: 9, UpstreamModel: "upstream-exact", Endpoint: "chat_completions"},
+				Identity:            domain.ActionIdentity{Platform: "openrouter"},
+			}},
+		}}}
+	group := service.PlazaGroup{ID: 3, RateMultiplier: 1}
+	now := time.Now().UTC()
+	denied := source.modelOffers(context.Background(), p, model, group, false, nil, nil, nil, now)
+	require.Len(t, denied, 1)
+	require.Empty(t, prices.inputs)
+	allowed := source.modelOffers(context.Background(), p, model, group, true, map[int64]float64{3: 2}, nil, nil, now)
+	require.Len(t, allowed, 1)
+	require.True(t, allowed[0].Published)
+	require.Len(t, prices.inputs, 1)
+	price := prices.inputs[0]
+	require.Equal(t, catalog.NewModelIdentity("openrouter", "openai/exact"), price.Identity)
+	require.Equal(t, catalog.NewModelIdentity("openrouter", "upstream-exact"), price.Binding.BillingIdentity)
+	require.EqualValues(t, 3, price.Binding.BillingGroupID)
+	require.EqualValues(t, 7, price.Binding.ChannelID)
+	require.Equal(t, 2.0, price.Multiplier)
+	require.Equal(t, now, price.At)
+}
 
 func TestCatalogEndpointVerificationAndModelEvidence(t *testing.T) {
 	now := time.Now().UTC()
@@ -46,6 +86,11 @@ func TestCatalogEndpointVerificationAndModelEvidence(t *testing.T) {
 	require.Len(t, facts, 1)
 	require.Equal(t, "stale", facts[0].State)
 	require.Equal(t, &disabled, facts[0].Tools)
+	projected := b.CatalogFieldFacts(discoveryExpiry(b, e), now)
+	origin := projected[0].FieldOrigins["supports_function_calling"]
+	require.Equal(t, catalog.AccountDiscovery, origin.SourceKind)
+	require.Equal(t, "stale", origin.State)
+	require.NotContains(t, origin.RecordKey, b.UpstreamModel)
 }
 
 func TestReviewedEndpointActions(t *testing.T) {

@@ -344,20 +344,7 @@ func (h *GatewayHandler) ModelCatalog(ctx *gin.Context) {
 			return
 		}
 	}
-	canonical := make(map[string]string)
-	for _, id := range view.Models {
-		canonical[id] = id
-	}
-	for _, preset := range service.ModelRegistrySnapshotFromContext(ctx.Request.Context()).Presets() {
-		if platform != service.PlatformComposite && preset.Platform != platform {
-			continue
-		}
-		for _, model := range preset.Models {
-			if containsPublicModel(view.Models, model.ID) && model.CanonicalModelID != "" && containsPublicModel(view.Models, model.CanonicalModelID) {
-				canonical[model.ID] = model.CanonicalModelID
-			}
-		}
-	}
+	canonical := service.ModelRegistrySnapshotFromContext(ctx.Request.Context()).LegacyCatalogCanonicalNames(platform, view.Models)
 	entries := make([]publicCatalogModel, 0, len(ids))
 	for _, id := range ids {
 		// Upstream wire IDs are private routing targets, never canonical identities.

@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 
@@ -52,24 +51,19 @@ type AvailableChannel struct {
 // 前置条件：s.groupRepo 必须非 nil（由 wire DI 保证）。直接 nil-deref 用于 fail-fast，
 // 避免静默掩盖注入缺失。
 func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel, error) {
-	var err error
-	ctx, err = s.visibleModels.freeze(ctx)
-	if err != nil {
-		return nil, err
-	}
-	channels, err := s.repo.ListAll(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list channels: %w", err)
-	}
+	return s.listAvailable(ctx, nil)
+}
 
-	groups, err := s.groupRepo.ListActive(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list active groups: %w", err)
-	}
-	ctx, visible, err := visibleModelsForGroups(ctx, s.visibleModels, groups)
+func (s *ChannelService) ListAvailableForGroups(ctx context.Context, allowed map[int64]struct{}) ([]AvailableChannel, error) {
+	return s.listAvailable(ctx, func(group Group) bool { _, ok := allowed[group.ID]; return ok })
+}
+
+func (s *ChannelService) listAvailable(ctx context.Context, permitted func(Group) bool) ([]AvailableChannel, error) {
+	ctx, panels, err := acquireCatalogPanels(ctx, s.visibleModels, s.repo, s.groupRepo, permitted, nil)
 	if err != nil {
 		return nil, err
 	}
+	channels, groups, visible := panels.channels, panels.groups, panels.visible
 	policyGroups := make(map[int64]*Group, len(groups))
 	for index := range groups {
 		policyGroups[groups[index].ID] = &groups[index]
@@ -112,6 +106,9 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 					continue
 				}
 				if panelModelVisible(ctx, group, model.Name, visible) {
+					if s.visibleModels != nil && group.Platform == PlatformComposite && !catalogGroupProviderMatches(panels.bindings[groupID][model.Name], model.Platform) {
+						continue
+					}
 					supported = append(supported, model)
 					break
 				}
@@ -138,6 +135,15 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 		return nil, err
 	}
 	return out, nil
+}
+
+func catalogGroupProviderMatches(bindings []PlazaCatalogBinding, provider string) bool {
+	for _, binding := range bindings {
+		if domain.MatchesPlatformIdentity(binding.Identity.Platform, binding.Identity.HostedAccountType, provider, domain.HostedAccountType(provider)) {
+			return true
+		}
+	}
+	return false
 }
 
 // fillGlobalPricingFallback 对未命中渠道定价的支持模型，从全局 LiteLLM 数据合成一份

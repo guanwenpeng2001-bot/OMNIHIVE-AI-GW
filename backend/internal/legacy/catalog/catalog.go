@@ -2,6 +2,7 @@ package legacy
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"slices"
 	"strconv"
@@ -17,30 +18,136 @@ import (
 )
 
 type Source struct {
-	store    *postgres.Store
-	plaza    *service.ModelPlazaService
-	settings *service.SettingService
-	keys     *service.APIKeyService
-	ops      *service.OpsService
+	store          *postgres.Store
+	plaza          *service.ModelPlazaService
+	settings       *service.SettingService
+	keys           *service.APIKeyService
+	ops            *service.OpsService
+	prices         catalog.PricePort
+	keysForCatalog KeyCatalogPort
 }
 
 func NewSource(store *postgres.Store, plaza *service.ModelPlazaService, settings *service.SettingService, keys *service.APIKeyService, ops *service.OpsService) *Source {
-	return &Source{store, plaza, settings, keys, ops}
+	return NewSourceWithPorts(store, plaza, settings, keys, ops, nil, nil)
 }
 
+// KeyCatalogPort authorizes the selected Key and attaches its model policy
+// before reading model, endpoint, or tariff evidence.
+type KeyCatalogPort interface {
+	AuthorizeCatalogKey(context.Context, catalog.Perspective) (context.Context, int64, error)
+}
+
+func NewSourceWithPorts(store *postgres.Store, plaza *service.ModelPlazaService, settings *service.SettingService, keys *service.APIKeyService, ops *service.OpsService, prices catalog.PricePort, keyCatalog KeyCatalogPort) *Source {
+	return &Source{store: store, plaza: plaza, settings: settings, keys: keys, ops: ops, prices: prices, keysForCatalog: keyCatalog}
+}
+
+func (s *Source) scopedGroups(ctx context.Context, p catalog.Perspective, resources []postgres.Resource, keyGroup int64) ([]service.PlazaGroup, map[int64]bool, error) {
+	selection := service.PlazaCatalogSelection{Groups: map[int64]bool{}, Channels: map[int64]bool{}, Accounts: map[int64]domain.ActionIdentity{}, SelectedKey: keyGroup > 0}
+	for _, resource := range resources {
+		switch resource.Kind {
+		case "groups":
+			if keyGroup == 0 || keyGroup == resource.ID {
+				selection.Groups[resource.ID] = true
+			}
+		case "channels":
+			selection.Channels[resource.ID] = true
+		case "accounts":
+			selection.Accounts[resource.ID] = domain.ActionIdentity{Platform: resource.Platform, HostedAccountType: resource.AccountType}
+		}
+	}
+	if p.Kind == catalog.PerspectiveAdmin {
+		allowed := make(map[int64]struct{}, len(selection.Groups))
+		for group := range selection.Groups {
+			allowed[group] = struct{}{}
+		}
+		selection.IncludeHistorical = true
+		groups, err := s.plaza.ListProjectCatalogGroups(ctx, allowed, true, selection)
+		return groups, selection.Groups, err
+	}
+	if keyGroup > 0 && !selection.Groups[keyGroup] {
+		return nil, nil, fault.NotFound
+	}
+	allowed, restrict, err := s.keys.GetUserGroupVisibility(ctx, p.Actor)
+	if err != nil {
+		return nil, nil, err
+	}
+	bindable, err := s.keys.GetAvailableGroups(ctx, p.Actor)
+	if err != nil {
+		return nil, nil, err
+	}
+	access := make(map[int64]bool, len(bindable))
+	for _, group := range bindable {
+		access[group.ID] = selection.Groups[group.ID]
+	}
+	groups, err := s.plaza.ListProjectCatalogGroups(ctx, allowed, restrict, selection)
+	return groups, access, err
+}
+
+var catalogChanged = &fault.Fault{Status: 503, Reason: "CATALOG_CHANGED", Message: "The model catalog changed during the read. Try again."}
+
 func (s *Source) Load(ctx context.Context, p catalog.Perspective, window catalog.Window, now time.Time) (catalog.Input, error) {
-	runtime := s.settings.GetModelPlazaRuntime(ctx)
-	if !runtime.Enabled {
+	for range 2 {
+		out, err := s.load(ctx, p, window, now)
+		if !errors.Is(err, service.ErrVisibleModelRevisionChanged) {
+			return out, err
+		}
+	}
+	return catalog.Input{}, catalogChanged
+}
+
+func (s *Source) load(ctx context.Context, p catalog.Perspective, window catalog.Window, now time.Time) (catalog.Input, error) {
+	admin := p.Kind == catalog.PerspectiveAdmin
+	var runtime service.ModelPlazaRuntime
+	if p.Workspace <= 0 || !p.Public() && !admin && p.Project <= 0 {
 		return catalog.Input{}, fault.NotFound
 	}
-	if p.Public() && runtime.RequireAuth && !catalog.PublicViewerAuthenticated(ctx) {
-		return catalog.Input{}, fault.Unauthenticated
+	if !admin {
+		runtime = s.settings.GetModelPlazaRuntime(ctx)
+		if !runtime.Enabled {
+			return catalog.Input{}, fault.NotFound
+		}
+		if p.Public() && runtime.RequireAuth && !catalog.PublicViewerAuthenticated(ctx) {
+			return catalog.Input{}, fault.Unauthenticated
+		}
 	}
 	ctx = domain.WithWorkspaceScope(ctx, p.Workspace)
+	ctx = service.WithCatalogReadTime(ctx, now)
 	snapshot := service.ModelRegistrySnapshotFromContext(ctx)
 	ctx = service.WithModelRegistrySnapshot(ctx, snapshot)
-	var groups []service.PlazaGroup
+	registry := snapshot.CatalogFacts(now)
+	ctx = service.WithCatalogRegistryFacts(ctx, registry)
+	if !p.Public() {
+		ctx = scope.With(ctx, scope.Authorized{WorkspaceID: p.Workspace, ProjectID: p.Project, ActorID: p.Actor, Version: p.AccessVersion})
+	}
 	var err error
+	var keyGroup int64
+	if p.KeyID != 0 || p.Kind == catalog.PerspectiveSelectedKey {
+		if s.keysForCatalog == nil || p.Public() || admin || p.KeyID <= 0 {
+			return catalog.Input{}, fault.NotFound
+		}
+		ctx, keyGroup, err = s.keysForCatalog.AuthorizeCatalogKey(ctx, p)
+		if err != nil {
+			return catalog.Input{}, err
+		}
+		if keyGroup <= 0 {
+			return catalog.Input{}, fault.NotFound
+		}
+	}
+	fallbackRevision := s.plaza.CatalogPriceRevision()
+	ctx, err = s.plaza.FreezeCatalogRead(ctx)
+	if err != nil {
+		return catalog.Input{}, err
+	}
+	priceRevision := fallbackRevision
+	priceFence, hasPriceFence := s.prices.(catalog.PriceRevisionPort)
+	if hasPriceFence {
+		priceRevision, err = priceFence.PriceRevision(ctx)
+		if err != nil {
+			return catalog.Input{}, err
+		}
+	}
+	var groups []service.PlazaGroup
+	var resources []postgres.Resource
 	allowedGroups := map[int64]bool{}
 	var userRates map[int64]float64
 	var priceErr error
@@ -48,10 +155,25 @@ func (s *Source) Load(ctx context.Context, p catalog.Perspective, window catalog
 	if p.Public() {
 		groups, err = s.plaza.ListPublicCatalogGroups(ctx)
 	} else {
-		ctx = scope.With(ctx, scope.Authorized{WorkspaceID: p.Workspace, ProjectID: p.Project, ActorID: p.Actor, Version: p.AccessVersion})
-		groups, allowedGroups, err = s.scopedGroups(ctx, p)
+		resources, err = s.store.ProjectResources(ctx, p)
 		if err == nil {
+			groups, allowedGroups, err = s.scopedGroups(ctx, p, resources, keyGroup)
+		}
+		if err == nil && admin {
+			var accounts []int64
+			for _, resource := range resources {
+				if resource.Kind == "accounts" {
+					accounts = append(accounts, resource.ID)
+				}
+			}
+			var models []service.PlazaModel
+			models, err = s.plaza.AdminCatalogInventory(ctx, accounts, registry)
+			groups = append(groups, service.PlazaGroup{Models: models})
+		}
+		if err == nil && p.EndpointMetadata {
 			endpoints, err = s.store.EndpointEvidence(ctx, p, endpointAccounts(groups))
+		}
+		if err == nil && !admin {
 			userRates, priceErr = s.keys.GetUserGroupRates(ctx, p.Actor)
 		}
 	}
@@ -59,49 +181,38 @@ func (s *Source) Load(ctx context.Context, p catalog.Perspective, window catalog
 		return catalog.Input{}, err
 	}
 
-	out := catalog.Input{RegistryVersion: snapshot.Version(), Registry: snapshot.CatalogFacts(now), Metrics: make(map[string]catalog.Metrics)}
-	if err := s.store.ImportRegistry(ctx, out.RegistryVersion, out.Registry); err != nil {
-		return catalog.Input{}, err
+	out := catalog.Input{RegistryVersion: snapshot.Version(), Registry: registry, Metrics: make(map[string]catalog.Metrics)}
+	if p.Public() {
+		if err := s.store.ImportRegistry(ctx, out.RegistryVersion, out.Registry); err != nil {
+			return catalog.Input{}, err
+		}
 	}
+	generation, _ := service.CatalogReadGeneration(ctx)
+	out.Revision = catalog.Digest(struct {
+		Generation int64
+		Price      string
+		Resources  []postgres.Resource
+	}{generation, priceRevision, resources})
 	modelAt := make(map[string]int)
 	metricIDs := map[postgres.MetricKey]string{}
 	for _, group := range groups {
 		for _, model := range group.Models {
-			id := catalog.StableID(model.Platform, model.Name)
+			identity := catalog.NewModelIdentity(model.Platform, model.Name)
+			id := identity.ID()
 			i, exists := modelAt[id]
 			if !exists {
 				i = len(out.Models)
 				modelAt[id] = i
-				out.Models = append(out.Models, catalog.Candidate{Provider: model.Platform, Model: model.Name})
+				out.Models = append(out.Models, catalog.Candidate{Provider: identity.Provider, Model: identity.Model})
 			}
-			offer := catalog.Offer{GroupID: group.ID, Access: allowedGroups[group.ID], Eligible: !model.CatalogOnly && (p.Public() || len(model.CatalogBindings) > 0), CatalogOnly: model.CatalogOnly}
-			if !model.CatalogOnly && (p.Public() || offer.Access) {
-				if priceErr == nil {
-					offer.Price = priceFor(model, group, userRates, p.Public())
-				} else {
-					offer.Price.State = "error"
+			offers := s.modelOffers(ctx, p, model, group, allowedGroups[group.ID], userRates, priceErr, endpoints, now)
+			out.Models[i].Offers = append(out.Models[i].Offers, offers...)
+			for _, offer := range model.CatalogOffers {
+				if offer.ChannelMappedModel != "" && offer.ChannelMappedModel != model.Name {
+					out.Models[i].Canonicals = append(out.Models[i].Canonicals, offer.ChannelMappedModel)
 				}
 			}
-			for _, binding := range append(slices.Clone(model.CatalogBindings), model.CatalogObservations...) {
-				e := endpoints[binding.AccountID]
-				offer.Facts = append(offer.Facts, binding.CatalogModelFacts(discoveryExpiry(binding, e), now)...)
-				if service.AuthoritativeCatalogModelField(binding.Metadata, "task_type") {
-					_, actions := catalog.TaskPresentation(binding.Metadata.TaskType)
-					offer.Actions = append(offer.Actions, actions...)
-				}
-				if endpoint, ok := projectEndpoint(p, model.Platform, binding, e, now); ok {
-					if offer.Access && p.EndpointMetadata {
-						for i := range endpoint.Capabilities {
-							capability := &endpoint.Capabilities[i]
-							capability.VerifiedExtensionActions = verifiedExtensionActions(*capability, e.VerifiedActions[model.Name])
-						}
-					}
-					offer.Endpoints = append(offer.Endpoints, endpoint)
-					offer.Capabilities = append(offer.Capabilities, endpoint.Capabilities...)
-				}
-			}
-			out.Models[i].Offers = append(out.Models[i].Offers, offer)
-			if offer.Access {
+			if allowedGroups[group.ID] && !admin {
 				key := postgres.MetricKey{Group: group.ID, Model: model.Name}
 				if prior, have := metricIDs[key]; have && prior != id {
 					metricIDs[key] = ""
@@ -120,14 +231,40 @@ func (s *Source) Load(ctx context.Context, p catalog.Perspective, window catalog
 		return catalog.Input{}, err
 	}
 	if !p.Public() && len(metricIDs) > 0 {
-		out.Metrics, err = s.store.Metrics(ctx, p, window, metricIDs, s.ops.IsMonitoringEnabled(ctx))
+		out.Metrics, err = s.store.Metrics(ctx, p, window, metricIDs, s.ops != nil && s.ops.IsMonitoringEnabled(ctx))
 		if err != nil && ctx.Err() != nil {
 			return catalog.Input{}, err
 		}
 	}
+	if err := s.plaza.ValidateCatalogRead(ctx); err != nil {
+		return catalog.Input{}, err
+	}
+	if !p.Public() {
+		current, err := s.store.ProjectResources(ctx, p)
+		if err != nil {
+			return catalog.Input{}, err
+		}
+		if !slices.Equal(resources, current) {
+			return catalog.Input{}, service.ErrVisibleModelRevisionChanged
+		}
+	}
+	if hasPriceFence {
+		current, err := priceFence.PriceRevision(ctx)
+		if err != nil {
+			return catalog.Input{}, err
+		}
+		if priceRevision != current {
+			return catalog.Input{}, service.ErrVisibleModelRevisionChanged
+		}
+	}
+	if fallbackRevision != s.plaza.CatalogPriceRevision() {
+		return catalog.Input{}, service.ErrVisibleModelRevisionChanged
+	}
+	if !admin && runtime != s.settings.GetModelPlazaRuntime(ctx) {
+		return catalog.Input{}, service.ErrVisibleModelRevisionChanged
+	}
 	return out, nil
 }
-
 func verifiedExtensionActions(c catalog.Capability, labels []string) []string {
 	if c.State != "fresh" || c.VerifiedAt == nil {
 		return nil
@@ -145,45 +282,6 @@ func verifiedExtensionActions(c catalog.Capability, labels []string) []string {
 		return []string{label}
 	}
 	return nil
-}
-
-func (s *Source) scopedGroups(ctx context.Context, p catalog.Perspective) ([]service.PlazaGroup, map[int64]bool, error) {
-	resources, err := s.store.ProjectResources(ctx, p)
-	if err != nil {
-		return nil, nil, err
-	}
-	selection := service.PlazaCatalogSelection{Groups: map[int64]bool{}, Channels: map[int64]bool{}, Accounts: map[int64]domain.ActionIdentity{}}
-	for _, resource := range resources {
-		switch resource.Kind {
-		case "groups":
-			selection.Groups[resource.ID] = true
-		case "channels":
-			selection.Channels[resource.ID] = true
-		case "accounts":
-			selection.Accounts[resource.ID] = domain.ActionIdentity{Platform: resource.Platform, HostedAccountType: resource.AccountType}
-		}
-	}
-	allowed, restrict, err := s.keys.GetUserGroupVisibility(ctx, p.Actor)
-	if err != nil {
-		return nil, nil, err
-	}
-	bindable, err := s.keys.GetAvailableGroups(ctx, p.Actor)
-	if err != nil {
-		return nil, nil, err
-	}
-	access := make(map[int64]bool, len(bindable))
-	for _, group := range bindable {
-		access[group.ID] = selection.Groups[group.ID]
-	}
-	groups, err := s.plaza.ListProjectCatalogGroups(ctx, allowed, restrict, selection)
-	if err != nil {
-		return nil, nil, err
-	}
-	current, err := s.store.ProjectResources(ctx, p)
-	if err == nil && !slices.Equal(resources, current) {
-		err = service.ErrVisibleModelRevisionChanged
-	}
-	return groups, access, err
 }
 
 func endpointAccounts(groups []service.PlazaGroup) []int64 {
@@ -224,18 +322,7 @@ func projectEndpoint(p catalog.Perspective, provider string, b service.PlazaCata
 		return catalog.Endpoint{}, false
 	}
 	d := domain.PlatformAction(b.Identity, adapterAction)
-	mode := "unknown"
-	switch b.Endpoint {
-	case service.CompositeRouteEndpointResponses:
-		if descriptor, ok := domain.LookupPlatform(b.Identity.Platform); ok && descriptor.ResponsesPOST != "" && !descriptor.MultiProtocol {
-			mode = string(descriptor.ResponsesPOST)
-		}
-	case service.CompositeRouteEndpointMessages:
-		if b.Identity.Platform == service.PlatformAnthropic && domain.HostedAccountType(b.Identity.Platform) == "" &&
-			b.Identity.HostedAccountType != domain.AccountTypeBedrock && b.Identity.HostedAccountType != domain.AccountTypeServiceAccount {
-			mode = "native"
-		}
-	}
+	mode := catalogBindingMode(b)
 	tools := "unknown"
 	if action == "text.chat" && service.AuthoritativeCatalogModelField(b.Metadata, "supports_function_calling") {
 		if value := b.Metadata.SupportsFunctionCalling; value != nil && (!*value || mode == "native") {
@@ -277,6 +364,21 @@ func projectEndpoint(p catalog.Perspective, provider string, b service.PlazaCata
 		endpoint.RegionEvidence = &region
 	}
 	return endpoint, true
+}
+
+func catalogBindingMode(b service.PlazaCatalogBinding) string {
+	switch b.Endpoint {
+	case service.CompositeRouteEndpointResponses:
+		if descriptor, ok := domain.LookupPlatform(b.Identity.Platform); ok && descriptor.ResponsesPOST != "" && !descriptor.MultiProtocol {
+			return string(descriptor.ResponsesPOST)
+		}
+	case service.CompositeRouteEndpointMessages:
+		if b.Identity.Platform == service.PlatformAnthropic && domain.HostedAccountType(b.Identity.Platform) == "" &&
+			b.Identity.HostedAccountType != domain.AccountTypeBedrock && b.Identity.HostedAccountType != domain.AccountTypeServiceAccount {
+			return "native"
+		}
+	}
+	return "unknown"
 }
 
 func decimalText(n float64) string {

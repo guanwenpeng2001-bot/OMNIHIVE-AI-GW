@@ -148,7 +148,7 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 		allowedGroupIDs[userGroups[i].ID] = struct{}{}
 	}
 
-	channels, err := h.channelService.ListAvailable(c.Request.Context())
+	channels, err := h.channelService.ListAvailableForGroups(c.Request.Context(), allowedGroupIDs)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

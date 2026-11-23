@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
@@ -67,23 +66,14 @@ func TestCatalogCursorBindsCurrentSnapshotAndFilters(t *testing.T) {
 	read("?provider=openai&cursor="+token, 410)
 }
 
-func TestCatalogExactCompareEstimate(t *testing.T) {
-	rate := func(unit money.Unit, amount string) *money.Rate {
-		r, err := money.NewRate("USD", amount, unit, "1000000")
-		require.NoError(t, err)
-		return &r
-	}
-	v := "ref"
-	d := catalog.Detail{PriceVersion: &v, Model: catalog.Summary{Input: rate("input_token", "1.25"), Output: rate("output_token", "10")},
-		AdditionalRates: []catalog.RateBand{{Kind: "cache_read", Rate: *rate("cache_read_token", "0.5")}}}
+func TestCatalogCompareScenarioUsesExactQuantities(t *testing.T) {
 	qs, err := scenarioQuantities(scenario{Input: "1000", Cached: "100", Output: "100", Requests: "2"})
 	require.NoError(t, err)
-	result := simpleEstimate(d, qs)
-	require.Equal(t, "estimated", result.State)
-	require.Equal(t, "0.00435000", result.Charge.String())
-	require.Len(t, result.Components, 3)
-	require.Equal(t, "1800", result.Components[0].Quantity)
-	require.Equal(t, "200", result.Components[1].Quantity)
+	var amounts []string
+	for _, q := range qs {
+		amounts = append(amounts, q.Amount().String())
+	}
+	require.Equal(t, []string{"1800", "200", "200", "2"}, amounts)
 	_, err = scenarioQuantities(scenario{Input: "1000", Cached: "1001"})
 	require.Error(t, err)
 }

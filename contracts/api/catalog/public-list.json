@@ -5,9 +5,35 @@
     "items": [
       {
         "id": "m_999fff7ac750942004e8fc300d1b1259",
+        "canonical_id": "m_999fff7ac750942004e8fc300d1b1259",
         "model": "gpt-4o",
         "display_name": "GPT-4o",
         "provider": "openai",
+        "source": {
+          "kinds": ["builtin_reviewed", "platform_preset"],
+          "candidate": true,
+          "discovered": null
+        },
+        "availability": {
+          "state": "requires_scope",
+          "publication": "published",
+          "access": "requires_scope",
+          "reason": "scope_required"
+        },
+        "billing": {
+          "state": "priced",
+          "sale_price": {
+            "source": "public_plaza_reference",
+            "scope": "public",
+            "price_version": null,
+            "valid_from": null,
+            "valid_until": null,
+            "input_rate": {"currency": "USD", "amount": "2.5", "unit": "input_token", "per": "1000000"},
+            "output_rate": {"currency": "USD", "amount": "10", "unit": "output_token", "per": "1000000"},
+            "additional_rates": [],
+            "time_bands": []
+          }
+        },
         "modalities": [
           "text",
           "image"

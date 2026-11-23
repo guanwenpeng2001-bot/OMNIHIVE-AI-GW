@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	modelcapabilities "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/resources/model-capabilities"
 )
 
@@ -13,9 +14,12 @@ import (
 // account access, and pricing overrides remain owned by the pricing resolver.
 // Its data is private; accessors return copies or immutable snapshots.
 type ModelRegistrySnapshot struct {
-	release      modelcapabilities.ReleaseIdentity
-	presets      []PlatformModelPreset
-	capabilities *ModelCapabilitySnapshot
+	release         modelcapabilities.ReleaseIdentity
+	presets         []PlatformModelPreset
+	capabilities    *ModelCapabilitySnapshot
+	reviewed        map[string]CapabilityRecord
+	methods         map[catalog.ModelIdentity][]string
+	methodConflicts map[catalog.ModelIdentity]bool
 }
 
 func (s *ModelRegistrySnapshot) Generation() int64                            { return s.release.ApprovedGeneration }
@@ -87,4 +91,10 @@ func ModelRegistrySnapshotFromContext(ctx context.Context) *ModelRegistrySnapsho
 		}
 	}
 	return NewModelRegistry().Snapshot()
+}
+
+func init() {
+	catalog.RegisterReviewedMethodLookup(func(ctx context.Context, provider, model string) []string {
+		return ModelRegistrySnapshotFromContext(ctx).ReviewedMethods(provider, model)
+	})
 }

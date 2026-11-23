@@ -64,105 +64,149 @@ func (r *Reader) markPublished(version string, now time.Time) {
 }
 
 func Project(p Perspective, input Input, window Window, asOf time.Time) Snapshot {
-	registry := make(map[string][]RegistryModel)
+	registry := make(map[ModelIdentity][]RegistryModel)
+	approvedAliases := make(map[ModelIdentity][]string)
 	for _, entry := range input.Registry {
-		key := StableID(entry.Provider, entry.Model)
-		registry[key] = append(registry[key], entry)
+		id := NewModelIdentity(entry.Provider, entry.Model)
+		registry[id] = append(registry[id], entry)
+		for _, alias := range entry.Aliases {
+			aliasID := NewModelIdentity(entry.Provider, alias)
+			approvedAliases[aliasID] = append(approvedAliases[aliasID], entry.Model)
+		}
 	}
 	out := Snapshot{AsOf: asOf, Details: make([]Detail, 0, len(input.Models))}
-	visible := make(map[string]bool, len(input.Models))
-	aliases := make(map[string][]string)
+	if !p.Public() {
+		out.ScopeVersion = &p.AccessVersion
+	}
+	canonicals := make(map[ModelIdentity]ModelIdentity, len(input.Models))
 	for _, m := range input.Models {
-		id := StableID(m.Provider, m.Model)
-		visible[id] = true
-		canonical := canonicalModel(m.Model, registry[id])
-		key := StableID(m.Provider, canonical)
-		aliases[key] = append(aliases[key], m.Model)
+		id := NewModelIdentity(m.Provider, m.Model)
+		names := slices.Clone(m.Canonicals)
+		for _, entry := range registry[id] {
+			if entry.Canonical != "" {
+				names = append(names, entry.Canonical)
+			}
+		}
+		if len(names) == 0 && len(registry[id]) == 0 {
+			names = slices.Clone(approvedAliases[id])
+		}
+		canonicals[id] = NewModelIdentity(id.Provider, CanonicalName(id.Model, names))
+	}
+	aliases := make(map[ModelIdentity][]string)
+	for id, target := range canonicals {
+		// Keep the relation only when the target is independently visible
+		// and is itself canonical.
+		if canonicals[target] != target {
+			target = id
+		}
+		aliases[target] = append(aliases[target], id.Model)
 	}
 	for _, m := range input.Models {
-		id := StableID(m.Provider, m.Model)
-		detail := projectModel(p, m, registry[id], window, input.Metrics[id])
-		detail.Compatibility = input.Compatibility[id]
-		canonical := canonicalModel(m.Model, registry[id])
-		key := StableID(m.Provider, canonical)
-		if visible[key] {
-			for _, alias := range aliases[key] {
-				if alias != m.Model {
-					detail.Aliases = append(detail.Aliases, alias)
-				}
-			}
-			slices.Sort(detail.Aliases)
+		identity := NewModelIdentity(m.Provider, m.Model)
+		m.Provider = identity.Provider
+		id := identity.ID()
+		detail := projectModel(p, m, registry[identity], window, input.Metrics[id])
+		detail.Compatibility = unique(input.Compatibility[id])
+		target := canonicals[identity]
+		if canonicals[target] != target {
+			target = identity
 		}
+		detail.Model.CanonicalID = target.ID()
+		for _, alias := range aliases[target] {
+			if alias != m.Model {
+				detail.Aliases = append(detail.Aliases, alias)
+			}
+		}
+		detail.Aliases = stringsSorted(detail.Aliases)
 		out.Details = append(out.Details, detail)
 	}
 	sort.Slice(out.Details, func(i, j int) bool { return out.Details[i].Model.ID < out.Details[j].Model.ID })
+	projection := slices.Clone(out.Details)
+	offerRevisions := make([]string, 0, len(out.Details))
+	for i := range projection {
+		if projection[i].Metrics.Requests == nil {
+			projection[i].Metrics.Start, projection[i].Metrics.End = time.Time{}, time.Time{}
+		}
+		offers := make([]string, 0, len(projection[i].Offers))
+		for _, offer := range projection[i].Offers {
+			offers = append(offers, Digest(struct {
+				Group, Channel int64
+				Availability   [4]bool
+				Basis          string
+				Bindings       []ModelBinding
+				Price          Price
+				PriceVersion   *string
+				Semantics      string
+			}{offer.GroupID, offer.ChannelID, [4]bool{offer.Access, offer.Eligible, offer.Published, offer.Discovered},
+				offer.PublicationBasis, unique(offer.Bindings), offer.Price, offer.Price.Version, offer.Price.Semantics}))
+		}
+		offerRevisions = append(offerRevisions, Digest(stringsSorted(offers)))
+	}
 	out.Version = "cat_" + Digest(struct {
 		Perspective Perspective
 		Registry    string
+		Revision    string
 		Details     []Detail
-	}{p, input.RegistryVersion, out.Details})
+		Offers      []string
+	}{p, input.RegistryVersion, input.Revision, projection, offerRevisions})
 	for i := range out.Details {
 		out.Details[i].Model.Version = out.Version
 	}
 	return out
 }
 
-func canonicalModel(name string, entries []RegistryModel) string {
-	canonical := ""
-	for _, entry := range entries {
-		if entry.Canonical == "" || (canonical != "" && entry.Canonical != canonical) {
-			return name
-		}
-		canonical = entry.Canonical
-	}
-	if canonical == "" {
-		return name
-	}
-	return canonical
-}
-
 func projectModel(p Perspective, m Candidate, entries []RegistryModel, w Window, metrics Metrics) Detail {
 	summary := Summary{
 		ID: StableID(m.Provider, m.Model), Model: m.Model, DisplayName: m.Model, Provider: m.Provider,
-		Maturity: "unknown", CatalogState: "listed", AvailabilityState: "catalog_only", AccessState: "requires_scope", RouteState: "requires_scope",
-		Modalities: []string{}, Protocols: []string{}, Actions: []string{}, Regions: []string{},
-		EvidenceState: "unknown",
+		Maturity: "unknown", CatalogState: "listed", AccessState: "requires_scope", RouteState: "requires_scope",
+		Modalities: []string{}, Protocols: []string{}, Actions: []string{}, Regions: []string{}, EvidenceState: "unknown",
 	}
 	d := Detail{Model: summary, Aliases: []string{}, Facts: []ModelFacts{}, Capabilities: []Capability{},
-		Endpoints: []Endpoint{}, AdditionalRates: []RateBand{}, TimeBands: []TimeBand{}, Benchmarks: []Benchmark{}, Redactions: []string{}}
-	var contexts []ModelFacts
-	displayName, conflictingName := "", false
-	for _, entry := range entries {
-		if entry.Facts.Source != "approved_registry" {
-			continue
+		Endpoints: []Endpoint{}, AdditionalRates: []RateBand{}, TimeBands: []TimeBand{}, Benchmarks: []Benchmark{}, Redactions: []string{}, Offers: m.Offers}
+	var descriptive []ModelFacts
+	displayName, displayPriority, conflictingName := "", -1, false
+	methodPriority := -1
+	for _, entry := range slices.Concat(entries, supplementalFacts(NewModelIdentity(m.Provider, m.Model))) {
+		rank := sourcePriority(entry.Facts.Origin.SourceKind)
+		if entry.Facts.Source == "approved_registry" && rank == 0 {
+			rank = sourcePriority(BuiltinReviewed)
 		}
 		if entry.DisplayName != "" {
-			conflictingName = conflictingName || (displayName != "" && displayName != entry.DisplayName)
-			displayName = entry.DisplayName
+			if rank > displayPriority {
+				displayName, displayPriority, conflictingName = entry.DisplayName, rank, false
+			} else if rank == displayPriority && displayName != entry.DisplayName {
+				conflictingName = true
+			}
 		}
-		if d.Model.Maturity == "unknown" || entry.Facts.Maturity == "deprecated" {
+		if entry.Facts.Maturity != "" && (d.Model.Maturity == "unknown" || entry.Facts.Maturity == "deprecated" ||
+			entry.Facts.Maturity == "experimental" && d.Model.Maturity == "stable") {
 			d.Model.Maturity = entry.Facts.Maturity
 		}
-		contexts = append(contexts, entry.Facts)
-		d.Facts = append(d.Facts, entry.Facts)
-		d.Capabilities = append(d.Capabilities, entry.Capabilities...)
+		descriptive = append(descriptive, entry.Facts)
+		blocked := slices.Contains(entry.Facts.Suppressed, "supported_methods")
+		if entry.Methods != nil || len(entry.Capabilities) > 0 || blocked {
+			if rank > methodPriority {
+				d.Capabilities, methodPriority = d.Capabilities[:0], rank
+			}
+			if rank == methodPriority && !blocked {
+				d.Capabilities = append(d.Capabilities, entry.Capabilities...)
+			}
+		}
 		d.Model.Actions = append(d.Model.Actions, entry.Actions...)
 	}
 	if displayName != "" && !conflictingName {
 		d.Model.DisplayName = displayName
 	}
-	for _, offer := range m.Offers {
-		if offer.Eligible && !offer.CatalogOnly {
-			d.Model.AvailabilityState = "live"
-		}
-	}
+	d.Facts = append(d.Facts, descriptive...)
+	var bindings []BindingFacts
+	var historical []Provenance
 	if p.Public() {
 		d.Redactions = []string{"endpoints", "scoped_evidence", "scoped_metrics", "scoped_prices"}
 		d.Metrics = unavailableMetrics(w, "withheld")
 	} else {
 		d.Model.Scope = &EffectiveScope{p.Workspace, p.Project, p.AccessVersion}
+		d.ScopeVersion = &p.AccessVersion
 		d.Model.AccessState, d.Model.RouteState = "denied", "unknown"
-		var scopedFacts []ModelFacts
 		for _, offer := range m.Offers {
 			if offer.Access && offer.Eligible && !offer.CatalogOnly && offer.GroupID > 0 && !slices.Contains(d.EligibleGroups, offer.GroupID) {
 				d.EligibleGroups = append(d.EligibleGroups, offer.GroupID)
@@ -173,39 +217,60 @@ func projectModel(p Perspective, m Candidate, entries []RegistryModel, w Window,
 			if offer.Eligible && !offer.CatalogOnly {
 				d.Model.RouteState = "eligible"
 			}
-			scopedFacts = append(scopedFacts, offer.Facts...)
-			d.Capabilities = append(d.Capabilities, offer.Capabilities...)
-			d.Model.Actions = append(d.Model.Actions, offer.Actions...)
+			if offer.Access || p.Kind == PerspectiveAdmin {
+				bindings = append(bindings, offer.BindingFacts...)
+				if len(offer.BindingFacts) == 0 && len(offer.Facts) != 0 {
+					bindings = append(bindings, BindingFacts{Facts: offer.Facts})
+				}
+			} else if p.EndpointMetadata {
+				_, observations := resolveFacts(offer.Facts, nil)
+				for _, observation := range observations {
+					if observation.SourceKind != "" {
+						historical = append(historical, observation)
+					}
+				}
+			}
 			if p.EndpointMetadata {
+				d.Facts = append(d.Facts, offer.Facts...)
 				d.Endpoints = append(d.Endpoints, offer.Endpoints...)
 				for _, endpoint := range offer.Endpoints {
 					d.Model.Regions = append(d.Model.Regions, endpoint.Regions...)
 				}
 			}
+			d.Capabilities = append(d.Capabilities, offer.Capabilities...)
+			d.Model.Actions = append(d.Model.Actions, offer.Actions...)
 		}
 		if !p.EndpointMetadata {
-			d.Redactions = append(d.Redactions, "endpoints")
-		}
-		d.Facts = append(d.Facts, scopedFacts...)
-		if len(scopedFacts) > 0 {
-			contexts = scopedFacts
+			d.Redactions = append(d.Redactions, "endpoints", "scoped_evidence")
 		}
 		d.Metrics = metrics
 		if d.Metrics.State == "" {
 			d.Metrics = unavailableMetrics(w, "unavailable")
 		}
 	}
-	for _, f := range d.Facts {
-		d.Model.Modalities = append(d.Model.Modalities, f.Modalities...)
+	if !p.EndpointMetadata {
+		bindings = nil
 	}
-	d.Model.Context = commonContext(contexts)
+	common, provenance := resolveFacts(descriptive, bindings)
+	reference := piReferencePrice(m.Provider, m.Model)
+	if reference != nil {
+		provenance = append(provenance, Provenance{Field: "reference_price", State: "known", SourceKind: PiAIReference,
+			RecordKey: m.Provider + "/" + m.Model, ArtifactVersion: piTokenPrices().version, Provider: m.Provider,
+			MatchRule: "exact_public_name", Trust: "reference", Scope: "public"})
+	}
+	d.Provenance = redactProvenance(p, append(provenance, historical...))
+	d.CommonFacts = &common
+	d.Model.Context = common.Context
+	d.Model.Modalities = append(d.Model.Modalities, common.Modalities...)
+	d.Model.Source = sourceAxis(p, len(entries) > 0, m.Offers, d.Provenance)
+	availability, legacy := projectAvailability(p, m.Offers, d.Model.Source)
+	d.Model.Availability, d.Model.AvailabilityState = &availability, legacy
 	for _, c := range d.Capabilities {
 		if c.State != "stale" {
 			d.Model.Protocols = append(d.Model.Protocols, c.Protocol)
 			d.Model.Actions = append(d.Model.Actions, c.Action)
 		}
 	}
-	fillBuiltinFacts(&d, contexts)
 	d.Facts = unique(d.Facts)
 	d.Capabilities = unique(d.Capabilities)
 	d.Endpoints = mergeEndpoints(d.Endpoints)
@@ -213,83 +278,46 @@ func projectModel(p Perspective, m Candidate, entries []RegistryModel, w Window,
 	d.Model.Actions = stringsSorted(d.Model.Actions)
 	d.Model.Modalities = stringsSorted(d.Model.Modalities)
 	d.Model.Regions = stringsSorted(d.Model.Regions)
+	slices.Sort(d.EligibleGroups)
 	for _, fact := range d.Facts {
-		if d.Model.ObservedAt == nil || fact.ObservedAt != nil && fact.ObservedAt.After(*d.Model.ObservedAt) {
-			d.Model.ObservedAt = fact.ObservedAt
-		}
-		if fact.State == "stale" || (d.Model.EvidenceState == "unknown" && fact.State == "fresh") {
-			d.Model.EvidenceState = fact.State
-		}
+		applyEvidence(&d.Model, fact.Evidence)
 	}
 	for _, capability := range d.Capabilities {
-		if capability.State == "stale" || (d.Model.EvidenceState == "unknown" && capability.State == "fresh") {
-			d.Model.EvidenceState = capability.State
-		}
-		if d.Model.ObservedAt == nil || capability.ObservedAt != nil && capability.ObservedAt.After(*d.Model.ObservedAt) {
-			d.Model.ObservedAt = capability.ObservedAt
-		}
+		applyEvidence(&d.Model, capability.Evidence)
 	}
 
-	price := commonPrice(m.Offers, p.Public())
+	billing, price := offerBilling(m.Offers, p.Public())
+	billing.ReferencePrice = reference
+	d.Model.Billing = &billing
 	if price.State == "unpriced" {
-		d.ReferencePrice = piReferencePrice(d.Model.Provider, d.Model.Model)
+		d.ReferencePrice = billing.ReferencePrice
 	}
 	d.Model.PriceState, d.Model.Input, d.Model.Output = price.State, price.Input, price.Output
 	d.PriceSource, d.ContextBasis = price.Source, price.ContextBasis
+	if d.PriceSource == "" {
+		d.PriceSource = "unavailable"
+	}
+	if p.Public() && (price.State == "priced" || price.State == "free") {
+		d.PriceSource = "public_plaza_reference"
+	}
 	d.AdditionalRates, d.TimeBands = price.Additional, price.TimeBands
 	if price.State == "priced" || price.State == "free" {
-		version := "ref_" + Digest(price)
-		d.PriceVersion = &version
+		d.PriceVersion = price.Version
+		if d.PriceVersion == nil {
+			version := "ref_" + Digest(price)
+			d.PriceVersion = &version
+		}
 	}
 	return d
 }
 
-func commonContext(entries []ModelFacts) *int64 {
-	var result *int64
-	kind := ""
-	for _, fact := range entries {
-		if fact.Context == nil || fact.State == "stale" || fact.ContextKind == "" {
-			continue
-		}
-		if result != nil && (kind != fact.ContextKind || *result != *fact.Context) {
-			return nil
-		}
-		result, kind = fact.Context, fact.ContextKind
+func applyEvidence(summary *Summary, evidence Evidence) {
+	if summary.ObservedAt == nil || evidence.ObservedAt != nil && evidence.ObservedAt.After(*summary.ObservedAt) {
+		summary.ObservedAt = evidence.ObservedAt
 	}
-	return result
-}
-
-func commonPrice(offers []Offer, public bool) Price {
-	unpriced := Price{State: "unpriced", Source: "unavailable", Additional: []RateBand{}, TimeBands: []TimeBand{}}
-
-	var candidate *Price
-	var signature string
-	for i := range offers {
-		offer := &offers[i]
-		if offer.CatalogOnly {
-			continue
-		}
-		if (!public && !offer.Access) || (public && offer.Price.Source != "public_plaza_reference" && offer.Price.State != "error") {
-			continue
-		}
-		switch offer.Price.State {
-		case "error":
-			unpriced.State = "error"
-			return unpriced
-		case "priced", "free":
-		default:
-			return unpriced
-		}
-		current := Digest(offer.Price)
-		if candidate != nil && signature != current {
-			return unpriced
-		}
-		candidate, signature = &offer.Price, current
+	if evidence.State == "stale" || summary.EvidenceState == "unknown" && evidence.State == "fresh" {
+		summary.EvidenceState = evidence.State
 	}
-	if candidate != nil {
-		return *candidate
-	}
-	return unpriced
 }
 
 func unavailableMetrics(w Window, state string) Metrics {

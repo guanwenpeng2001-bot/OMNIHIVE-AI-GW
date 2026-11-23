@@ -92,43 +92,29 @@ v1 富目录为 `GET /v1/models/catalog`，按 ID 查询为同资源 `GET /v1/mo
 
 ### v2 模型广场与项目目录
 
-v0.3.2 起，模型广场与项目目录使用 v2 公开资源，并由与 v1 富目录相同的 catalog resolver 和 revision 投影；DTO、授权与作用域不同，不能互相替代。
+v0.3.4 的 v2 列表和详情按 `(provider, exact model)` 标识。稳定 ID 继续使用 `m_[0-9a-f]{32}`。`provider/model` 在第一个斜线处分隔，保留模型名的大小写和其余斜线。详情优先匹配 ID 或明确的 provider slug，再尝试唯一的旧裸名。只有已公开且无冲突的规范名关系才会投影为不同的 `canonical_id`，别名保留各自的公开地址与绑定。
 
-| 作用域 | 路径 | 语义 |
+| 视角 | 路径 | 合同 |
 | --- | --- | --- |
-| 公开 | `GET /api/v2/public/models` | 匿名可见的有限模型集；支持 `q`、`provider`、`protocol`、`action`、`modality`、`region`、`retention`、`stability`、`availability_state` 过滤，`sort` 可取 `name`、`price_input`、`context`、`ttft`、`availability`，使用 `limit` + `cursor` 分页 |
-| 公开 | `GET /api/v2/public/models/{id}` | 同一快照的单模型；`id` 接受稳定 ID `m_[0-9a-f]{32}` 或 `provider/model` slug；带 `catalog_version` 时锁定列表快照，revision 不匹配返回 410 `SNAPSHOT_EXPIRED` |
-| 公开 | `POST /api/v2/public/models/compare` | 仅接受当前可见集合内的 1–3 个 `model_ids`，可选 `protocol`、`action`、`scenario`、`price_at`；不可见或跨作用域 ID 必须失败，不得借对比绕过列表授权 |
-| 项目 | `GET /api/v2/workspaces/{workspace_id}/projects/{project_id}/models` | 项目会话视角；复用同一 resolver，但按项目/工作空间授权重新裁剪 |
-| 项目 | `GET .../models/{id}` | 项目内单模型，ID 规则与公开详情相同 |
-| 项目 | `POST .../models/compare` | 项目内对比；不能复用公开作用域的可见性结论 |
+| 公开 | `GET /api/v2/public/models` | 使用 `availability` 和 `billing` 筛选新状态。旧筛选和排序仍可用。 |
+| 公开 | `GET /api/v2/public/models/{id}` | 可传 `catalog_version` 固定到当前列表版本。版本已变化时返回 410 `SNAPSHOT_EXPIRED`。 |
+| 项目 | `GET /api/v2/workspaces/{workspace_id}/projects/{project_id}/models` 与 `GET .../models/{id}` | 以项目与操作者权限裁剪。可传十进制字符串 `api_key_id` 选择已获授权的 Key。 |
+| 对比 | `POST .../models/compare` | 接受当前视角内 1–3 个稳定 ID，可选 `protocol`、`action`、`scenario`、`price_at`。项目请求可在 body 传 `api_key_id`。 |
 
-`availability_state` 的取值固定为 `live` 或 `catalog_only`。`live` 表示当前作用域至少有一个可路由的 live 绑定；`catalog_only` 表示仅有目录事实、没有 live 绑定。该字段不授予路由或价格权限：`catalog_only` 条目仍可带 `reference_price` 参考价，但必须有已授权绑定才能服务请求。字段缺失表示未知，不得在投影时补成 `live` 或 `catalog_only`。
+- `source` 描述字段来源与候选、发现成员关系。签名能力记录为 `builtin_reviewed`，签名预设为 `platform_preset`。内置补充为 `builtin_supplement`，pi 能力和参考费率为 `pi_ai_reference`。账号原生发现和身份绑定的申报分别为 `account_discovery` 与 `account_declaration`。匿名 `discovered` 为 `null`。
+- `availability` 分别报告可用性、公开发布与访问。匿名条目返回 `requires_scope`，即使已发布且可宣传销售价。作用域内的 `live` 至少需要一个获准的当前可用绑定。原因区分仅候选、已发现但无资格、已发布但无可用绑定、枚举不完整和访问受限。
+- `billing` 独立报告 `priced`、`free`、`conditional`、`partial`、`conflict`、`unpriced`、`error` 或 `unknown`。销售价与参考价可同时出现。费率使用十进制字符串、币种、计量单位和 `per`。参考价没有可执行的费率版本。缺失费率、缺少必要计量维度、多 offer 缺价或冲突以及读取失败各有原因码。
+- 详情的 `provenance[]` 逐字段记录已知、未知、过期、冲突或抑制状态。原生精确观测和身份绑定申报先于签名能力、预设、内置补充和 pi。明确的 `false`、空集合和抑制记录阻挡低优先级补齐。跨 profile 或绑定的值与上下文基准有分歧时，`common_facts` 的共同字段为 `null`。公开 provenance 仅提供字段、状态、来源类别、安全版本与观测时间。项目账号证据需要 `connections.read`。
 
-分页游标是不透明字符串，绑定稳定 ID、catalog revision、作用域与筛选条件；后续页必须重新校验当前 Key、工作空间、项目、组和规则，撤权后旧游标不得返回已不可见条目。`next_cursor` 在末页为 `null`；非法、篡改、跨作用域或 revision 不匹配的游标必须失败并要求重新开始。
+同一视角的列表和详情共享未分页、未过滤的 `catalog_version`。作用域响应另外返回十进制字符串 `scope_version`。列表游标绑定视角、Key、筛选、排序和版本，有效期 15 分钟。后续页重新读取当前权限和投影，失效版本返回 410。末页 `next_cursor` 为 `null`。
 
-对比结果保留缺价和未知值：未知价格不填 0，空 benchmark 表示没有已验证 benchmark；对比只读取当前快照，不触发新的上游探测或计费。
+旧 `availability_state` 继续用于兼容筛选。公开 `live` 表示存在旧版的有效 offer，真实可用性取 `availability.state`。旧 `price_state` 将冲突、部分、未知及缺价归为 `unpriced`，兼容的上下文或分时卡仍可使用旧字段。保留 `effective_scope` 和详情顶层旧 `reference_price` 投影。
 
-列表与单查使用以下字段合同。字段命名用于后续 DTO 实施；只在富目录中增加这些字段，不扩展供应商极简模型对象。`null` 表示未知或不能保证，`[]` 表示已知空集，false/0 只可用于有事实支撑的实际值；未知数字不得填 0。
+### v1 富目录和兼容入口
 
-| 位置/字段 | 类型 | 必须满足的语义 |
-| --- | --- | --- |
-| 列表 `data` | 条目数组 | 当前 Key 可见、可绑定的有限公开模型集；稳定公开 ID 升序 |
-| 列表 `revision` | 不透明字符串 | 当前目录事实与授权版本的标识，不编码明文内部身份 |
-| 列表 `has_more`、`next_cursor` | boolean、string/null | `limit/cursor` 在授权后集合分页；游标绑定稳定 ID、revision、作用域与筛选条件；末页 cursor 为 null |
-| 单查/条目 `id`、`display_name` | string | 当前公开模型名及显示名称 |
-| 条目 `canonical`、`aliases` | string/null、string[] | 仅输出当前授权域内可解析的公开规范名与别名；无可公开 canonical 时为 null |
-| 条目 `created`、`created_source` | integer、`upstream` 或 `first_registered` | 与极简 DTO 相同稳定时间；来源不是账号创建时间 |
-| 条目 `revision` | 不透明字符串 | 此次投影所属版本；单查同样校验权威版本 |
-| 条目 `availability_state` | `live` 或 `catalog_only` | 当前作用域是否存在 live 可路由绑定；不授予路由/价格权限，缺失为未知 |
-| 条目 `capabilities` | 有类型对象 | 按下表聚合当前授权且可路由的绑定，不掺入候选或无关账号 |
-| 条目 `pricing` | object/null | 有效销售价：币种、计量单位、条件/阶梯及有效期；确认为免费时明确零价；未解析到销售价为 null，调用计价仍必须报缺价，不降为免费 |
-| 条目 `lifecycle` | object/null | 有来源的状态/到期等生命周期事实，按 variant 保留差异；未知为 null |
+`GET /v1/models/catalog` 从当前 Key 和协议解析获得成员及 `fully_enumerable`。列表返回 `data`、`revision`、`fully_enumerable`、`next_cursor`，详情返回 `model`、`revision`、`fully_enumerable`。条目保留公开 `id`、`canonical_id`、`aliases`、可信创建时间、能力、可用端点和已有模型版本字段。富目录继续使用公开模型名作为 ID。无法确定单一安全规范名的条目以自身为规范名。网关协议继续使用原有响应结构、分页和 `X-Model-Catalog-Revision`。
 
-`pricing` 非空时字段为 `currency: string`、`rates: array`、`valid_from/valid_until: UTC时间或null`；每条 rate 必须有 `unit: string`、`amount: 十进制定点字符串`、`conditions: object`，金额精度沿用既有解析器，计量单位必须含计费基数（例如每百万 token、每张、每秒），不能只写无量纲数字。conditions 复用既有价卡的公开条件维度，保留 native/thinking/cache/batch 及阶梯边界，不把成本条件整包暴露。`lifecycle` 非空时包含有来源的 `status: string`、`expires_at: UTC时间或null`；不同变体状态不一致时用 `variants` 保留公开语义差异，不捏造统一到期时间。嵌套未知值同样不得填零或猜默认。
-
-公开 pricing 只能投影调用者有效销售报价，不包含上游成本、利润控制阈值或账号总额度。无法确定统一销售报价时必须保留按公开条件区分的 rates，不能随机取一账号报价。供应商 usage 原始事实不得为了代理优惠重分类。所有字段均采用白名单投影，不能递归透传管理对象；禁止内部部署 ID、账号 ID、项目秘密、凭据、secret reference、内部 host、原始证据 URL/错误和诊断泄漏。
-
+`/api/v1/model-plaza` 和 `/api/v1/channels/available` 保留分组或渠道顺序、原有鉴权及功能开关。已公开的渠道确认模型和可用渠道中的已配置模型保留各自的兼容成员规则。公开与项目目录复用同一份已批准注册表快照和绑定解析。账号或凭据身份、内部部署、原始证据 URL、成本和余额由各视角的白名单筛掉。
 ### 保证值、可用值与未知值
 
 每项能力使用 `{guaranteed, available, unknown}` 三部分：`guaranteed` 是所有当前合格绑定的共同保证，`available` 是至少一个当前合格绑定的已知可用值/变体，`unknown: boolean` 明确是否存在证据缺口。这不是把 true/false/unknown 压成一个“支持”布尔值；字段值按能力类型定义。仅有 available 的要求必须在选路时筛选兼容绑定，不能随机投给不支持者。没有任何合格绑定时不输出模型条目，不对空集合推导“全部保证”；全部证据未知时 guaranteed/available 都为 null，unknown=true。

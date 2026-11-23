@@ -1,0 +1,209 @@
+paths:
+  /api/v2/admin/catalog/models:
+    get:
+      operationId: listAdminCatalogModels
+      summary: Inspect the model catalog for a workspace.
+      parameters:
+      - $ref: '#/components/parameters/AdminCatalogWorkspace'
+      - $ref: '#/components/parameters/AdminCatalogProject'
+      - $ref: '#/components/parameters/CatalogAvailability'
+      - $ref: '#/components/parameters/CatalogBilling'
+      - $ref: '#/components/parameters/IdentityCursor'
+      - name: provider
+        in: query
+        schema:
+          type: string
+      - name: model
+        in: query
+        schema:
+          type: string
+      - name: q
+        in: query
+        schema:
+          type: string
+      - name: source
+        in: query
+        schema:
+          $ref: '#/components/schemas/CatalogSourceKind'
+      - name: publication
+        in: query
+        schema:
+          type: string
+          enum: [published, unpublished, unknown]
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+      responses:
+        '200':
+          description: Workspace catalog ordered by provider, exact public name and stable ID.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/CatalogModelPage'
+        default:
+          $ref: '#/components/responses/AdminCatalogError'
+  /api/v2/admin/catalog/models/{id}:
+    get:
+      operationId: getAdminCatalogModel
+      summary: Inspect model evidence and offers within a workspace.
+      parameters:
+      - $ref: '#/components/parameters/AdminCatalogWorkspace'
+      - $ref: '#/components/parameters/AdminCatalogProject'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^m_[0-9a-f]{32}$
+      - name: catalog_version
+        in: query
+        schema:
+          type: string
+          pattern: ^cat_[0-9a-f]{64}$
+      - name: accounts_cursor
+        in: query
+        schema:
+          type: string
+      - name: offers_cursor
+        in: query
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Model detail with separate pages of up to 50 accounts and 50 offers.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/AdminCatalogDetail'
+        default:
+          $ref: '#/components/responses/AdminCatalogError'
+components:
+  parameters:
+    AdminCatalogWorkspace:
+      name: workspace_id
+      in: query
+      required: true
+      schema:
+        type: string
+        pattern: ^[1-9][0-9]*$
+    AdminCatalogProject:
+      name: project_id
+      in: query
+      schema:
+        type: string
+        pattern: ^[1-9][0-9]*$
+  responses:
+    AdminCatalogError:
+      description: Authorization, validation or catalog version error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/IdentityError'
+  schemas:
+    AdminCatalogDetail:
+      type: object
+      required: [model, provenance, accounts, offers, publications, next_accounts_cursor, next_offers_cursor, catalog_version, as_of]
+      properties:
+        model:
+          $ref: '#/components/schemas/ModelSummary'
+        provenance:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogFieldProvenance'
+        accounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminCatalogAccount'
+        offers:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminCatalogOffer'
+        publications:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminCatalogPublication'
+        next_accounts_cursor:
+          type: [string, 'null']
+        next_offers_cursor:
+          type: [string, 'null']
+        catalog_version:
+          type: string
+        as_of:
+          type: string
+          format: date-time
+    AdminCatalogAccount:
+      type: object
+      required: [account_id, label, account_type, discovery_state, observed_at, identity_revision, snapshot_revision, rules_revision]
+      properties:
+        account_id:
+          type: string
+        label:
+          type: string
+        account_type:
+          type: string
+        discovery_state:
+          type: string
+          enum: [current, stale, invalidated]
+        observed_at:
+          type: [string, 'null']
+          format: date-time
+        identity_revision:
+          type: string
+        snapshot_revision:
+          type: string
+        rules_revision:
+          type: string
+    AdminCatalogOffer:
+      type: object
+      required: [group_id, channel_id, eligible, billing, price_context]
+      properties:
+        group_id:
+          type: string
+        channel_id:
+          type: string
+        action:
+          type: string
+        protocol:
+          type: string
+        eligible:
+          type: boolean
+        reason:
+          type: string
+        price_context:
+          const: group_default
+        billing:
+          $ref: '#/components/schemas/CatalogBilling'
+    AdminCatalogPublication:
+      type: object
+      required: [group_id, channel_id, state, basis]
+      properties:
+        group_id:
+          type: string
+        channel_id:
+          type: string
+        state:
+          type: string
+          enum: [published, unpublished, unknown]
+        basis:
+          type: string
+          enum: [explicit, legacy_default]
