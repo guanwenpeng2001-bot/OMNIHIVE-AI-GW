@@ -744,7 +744,7 @@ export const useConsoleScopeStore = defineStore('consoleScope', () => {
           mergedProjects.push({
             id: p.id,
             name: p.name,
-            ...(p.is_default !== undefined ? { is_default: p.is_default } : {}),
+            is_default: p.is_default,
             ...(p.state !== undefined ? { state: p.state } : {})
           })
         }

@@ -1,3 +1,4 @@
+import type { components } from '@/api/generated/openapi'
 import { apiClient } from '../client'
 
 export interface BackupS3Config {
@@ -38,7 +39,7 @@ export interface BackupSchedulerRuntime {
 
 export interface BackupScheduleStatus extends BackupScheduleConfig {
   runtime: BackupSchedulerRuntime
-  last_verified_backup?: BackupRecord
+  last_verified_backup?: components['schemas']['AdminVerifiedBackup']
   backup_secret_key: BackupSecretKeyStatus
 }
 

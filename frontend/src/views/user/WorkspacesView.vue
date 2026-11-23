@@ -694,7 +694,7 @@ const requesterWorkspacesSummary = computed<IdentityWorkspace[]>(() =>
         ? projects.value.map((p) => ({
             id: p.id,
             name: p.name,
-            is_default: (p as { is_default?: boolean }).is_default
+            is_default: p.is_default
           }))
         : [],
     projects_next_cursor: null

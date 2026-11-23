@@ -483,6 +483,7 @@ import type {
   BackupSchedulerRuntime,
   BackupSecretKeyStatus,
   BackupRecord,
+  BackupScheduleStatus,
   BackupDownloadPart,
   ImageStorageConfig,
 } from '@/api/admin/backup'
@@ -563,7 +564,7 @@ const backupSecretKey = ref<BackupSecretKeyStatus>({
   configured: false,
   migration_required: true,
 })
-const lastVerifiedBackup = ref<BackupRecord | undefined>()
+const lastVerifiedBackup = ref<BackupScheduleStatus['last_verified_backup']>()
 
 // Backups
 const backups = ref<BackupRecord[]>([])
