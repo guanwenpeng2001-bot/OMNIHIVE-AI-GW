@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import { AxiosError } from 'axios'
+import { apiClient } from '@/api/client'
 import { identityApi } from '@/api/identity'
 import { useConsoleScopeStore } from '@/stores/consoleScope'
 import { resetScopeAccessCache } from '@/features/console/scopeAccess'
@@ -142,6 +144,29 @@ describe('PlaygroundView 3-pane workbench', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('renders the request ID from a 503 response header on the project access gate', async () => {
+    vi.mocked(identityApi.getProjectAccess).mockRestore()
+    const adapter = apiClient.defaults.adapter
+    apiClient.defaults.adapter = async config => {
+      throw new AxiosError('Service unavailable', 'ERR_BAD_RESPONSE', config, undefined, {
+        status: 503, statusText: 'Unavailable', config, headers: { 'X-Request-ID': 'scope-503-42' },
+        data: { code: 503, message: 'Project access temporarily unavailable' }
+      })
+    }
+    try {
+      const wrapper = mount(PlaygroundView, { props: { teleportDisabled: true } })
+      await flushPromises()
+      const gate = wrapper.get('[data-testid="scope-gate-empty-state"]')
+      expect(gate.attributes('data-state')).toBe('unavailable')
+      expect(gate.text()).toContain('scope-503-42')
+      expect(gate.get('[data-testid="scope-gate-retry"]').exists()).toBe(true)
+      expect(mocks.submitRun).not.toHaveBeenCalled()
+      wrapper.unmount()
+    } finally {
+      apiClient.defaults.adapter = adapter
+    }
   })
 
   it('gates run execution behind cost estimate confirmation before calling POST /playground/runs', async () => {
