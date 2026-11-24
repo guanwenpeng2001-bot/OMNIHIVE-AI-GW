@@ -293,6 +293,9 @@ export async function getDashboardModels(params?: {
   billing_mode?: string | null
   timezone?: string
 }): Promise<ModelStatsResponse> {
+  if (!params?.start_date?.trim() || !params.end_date?.trim()) {
+    return { models: [], start_date: params?.start_date ?? '', end_date: params?.end_date ?? '' }
+  }
   const { data } = await apiClient.get<ModelStatsResponse>('/usage/dashboard/models', { params })
   return data
 }

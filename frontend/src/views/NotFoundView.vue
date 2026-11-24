@@ -56,7 +56,7 @@
           to="/home"
           class="oh-focus-ring rounded-oh-xs font-medium text-oh-accent-text transition-colors hover:underline"
         >
-          {{ isZh ? '返回首页' : 'Home Portal' }}
+          {{ isZh ? '门户首页' : 'Home Portal' }}
         </router-link>
         <span aria-hidden="true">·</span>
         <router-link

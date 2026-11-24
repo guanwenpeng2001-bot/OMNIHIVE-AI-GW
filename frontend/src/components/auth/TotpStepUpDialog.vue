@@ -3,7 +3,7 @@
     <div class="flex min-h-full items-center justify-center p-4">
       <div class="fixed inset-0 bg-black/50 transition-opacity" @click="handleCancel"></div>
 
-      <div class="relative w-full max-w-md rounded-lg border border-[var(--border)] bg-[var(--card)] p-5 text-[var(--foreground)] sm:p-7">
+      <div ref="panel" role="dialog" aria-modal="true" :aria-label="t('stepUp.title')" class="relative w-full max-w-md rounded-lg border border-[var(--border)] bg-[var(--card)] p-5 text-[var(--foreground)] sm:p-7">
         <div class="mb-6 text-center">
           <div class="mx-auto flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-2)]">
             <svg class="h-6 w-6 text-[var(--brand-text)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
@@ -67,7 +67,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { useOverlayDialog } from '@/components/ui/utils'
+import { computed, ref, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores'
 import { totpAPI } from '@/api'
@@ -84,6 +85,9 @@ const verifying = ref(false)
 const code = ref<string[]>(['', '', '', '', '', ''])
 const inputRefs = ref<(HTMLInputElement | null)[]>([])
 const hiddenOtpInputRef = ref<HTMLInputElement | null>(null)
+
+const panel = ref<HTMLElement | null>(null)
+useOverlayDialog({ open: computed(() => props.controller.visible.value), panelRef: panel, onClose: () => handleCancel() })
 
 // Focus the first cell whenever the dialog opens.
 watch(

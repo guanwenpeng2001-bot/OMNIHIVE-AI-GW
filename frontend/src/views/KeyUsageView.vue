@@ -1,48 +1,6 @@
 <template>
-  <div class="usage-portal relative flex min-h-screen flex-col bg-[var(--background)] text-[var(--foreground)]">
-    <!-- Header (same pattern as HomeView) -->
-    <header class="glass-bar sticky top-0 z-20 border-b border-[var(--border)] px-6 py-3.5 ">
-      <nav class="mx-auto flex max-w-6xl items-center justify-between">
-        <router-link to="/home" class="flex items-center gap-2.5" :data-logo="Boolean(siteLogo)">
-          <div class="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl border border-amber-500/25 bg-[var(--card)] shadow-sm  ">
-            <img v-if="siteLogo" :src="siteLogo" alt="Logo" class="h-full w-full object-contain" />
-            <svg v-else width="24" height="24" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-              <path d="M16 2 28.1 9v14L16 30 3.9 23V9Z" fill="var(--primary, #16161a)" />
-              <path d="M16 5.6 25 10.8v10.4L16 26.4 7 21.2V10.8Z" stroke="var(--brand, #f59e0b)" stroke-width="1.8" />
-              <path d="M16 10.2 21 13.1v5.8L16 21.8l-5-2.9v-5.8Z" fill="var(--brand, #f59e0b)" />
-              <circle cx="16" cy="16" r="2.1" fill="var(--primary, #16161a)" />
-            </svg>
-          </div>
-          <span class="text-base font-bold tracking-tight text-[var(--foreground)] ">OmniHive</span>
-          <span class="hidden rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold sm:inline-block" style="background: color-mix(in srgb, var(--brand) 16%, transparent); color: var(--brand-text)">KEY PROBE</span>
-        </router-link>
-        <div class="flex items-center gap-3">
-          <LocaleSwitcher />
-          <a
-            v-if="docUrl"
-            :href="docUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="rounded-lg p-2 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]   "
-            :title="t('home.viewDocs')"
-          >
-            <Icon name="book" size="md" />
-          </a>
-          <button
-            @click="toggleTheme"
-            class="rounded-lg p-2 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]   "
-            :title="isDark ? t('home.switchToLight') : t('home.switchToDark')"
-            :aria-label="isDark ? t('home.switchToLight') : t('home.switchToDark')"
-          >
-            <Icon v-if="isDark" name="sun" size="md" />
-            <Icon v-else name="moon" size="md" />
-          </button>
-        </div>
-      </nav>
-    </header>
-
-    <!-- Main Content -->
-    <main class="flex-1 w-full max-w-5xl mx-auto px-6 py-12">
+  <PublicShell>
+    <div class="usage-portal mx-auto w-full max-w-5xl">
       <!-- Hero -->
       <div class="text-center mb-12">
         <h1 class="text-3xl sm:text-4xl font-bold tracking-tight mb-3 text-[var(--foreground)] ">
@@ -92,6 +50,7 @@
               v-model="apiKey"
               :type="keyVisible ? 'text' : 'password'"
               :placeholder="t('keyUsage.placeholder')"
+              :aria-label="t('keyUsage.placeholder')"
               class="input-ring w-full h-12 pl-12 pr-12 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] transition-all    "
               @keydown.enter="queryKey"
             />
@@ -436,32 +395,8 @@
           </div>
         </div>
       </div>
-    </main>
-
-    <!-- Footer (same pattern as HomeView) -->
-    <footer class="relative z-10 border-t border-[var(--border)] px-6 py-8 ">
-      <div class="mx-auto flex max-w-6xl flex-col items-center justify-center gap-4 text-center sm:flex-row sm:text-left">
-        <p class="text-sm text-[var(--muted-foreground)] ">
-          &copy; {{ currentYear }} {{ siteName }}. {{ t('home.footer.allRightsReserved') }}
-        </p>
-        <div class="flex items-center gap-4">
-          <a
-            v-if="docUrl"
-            :href="docUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]  "
-          >{{ t('home.docs') }}</a>
-          <a
-            :href="githubUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]  "
-          >GitHub</a>
-        </div>
-      </div>
-    </footer>
-  </div>
+    </div>
+  </PublicShell>
 </template>
 
 <script setup lang="ts">
@@ -473,39 +408,23 @@ import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore, useAuthStore } from '@/stores'
 import { FeatureFlags, resolveFeatureFlag } from '@/utils/featureFlags'
-import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
-import Icon from '@/components/icons/Icon.vue'
+import { useThemeDirection } from '@/composables/useThemeDirection'
+import PublicShell from '@/components/layout/PublicShell.vue'
 import { buildGatewayUrl } from '@/api/client'
 import { keysAPI } from '@/api/keys'
 import { getDashboardApiKeysUsage, getMyApiKeyDailyUsage, type ApiKeyDailyUsagePoint } from '@/api/usage'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import type { ApiKey } from '@/types'
 import { formatDateLocalInput } from '@/utils/format'
-import { sanitizeUrl } from '@/utils/url'
 
 const { t, locale } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 const subscriptionFeatureEnabled = computed(() => resolveFeatureFlag(appStore.cachedPublicSettings, FeatureFlags.subscription))
 
-// ==================== Site Settings (same as HomeView) ====================
+// ==================== Theme ====================
 
-const siteName = computed(() => appStore.cachedPublicSettings?.site_name?.trim() || appStore.siteName?.trim() || 'OmniHive')
-const siteLogo = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '', { allowRelative: true, allowDataUrl: true }))
-const docUrl = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl || ''))
-const githubUrl = 'https://github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW'
-
-// ==================== Theme (same as HomeView) ====================
-
-const isDark = ref(document.documentElement.classList.contains('dark'))
-
-function toggleTheme() {
-  isDark.value = !isDark.value
-  document.documentElement.classList.toggle('dark', isDark.value)
-  localStorage.setItem('theme', isDark.value ? 'dark' : 'light')
-}
-
-const currentYear = computed(() => new Date().getFullYear())
+const { isDark } = useThemeDirection()
 
 // ==================== Key Query State ====================
 
@@ -1136,14 +1055,6 @@ watch(() => authStore.user?.id, () => {
   void loadSessionKeys()
 })
 
-function initTheme() {
-  const savedTheme = localStorage.getItem('theme')
-  if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-    isDark.value = true
-    document.documentElement.classList.add('dark')
-  }
-}
-
 function formatResetTime(resetAt: string | null | undefined): string {
   if (!resetAt) return ''
   const diff = new Date(resetAt).getTime() - now.value.getTime()
@@ -1157,7 +1068,6 @@ function formatResetTime(resetAt: string | null | undefined): string {
 }
 
 onMounted(() => {
-  initTheme()
   if (!appStore.publicSettingsLoaded) {
     appStore.fetchPublicSettings()
   }

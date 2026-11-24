@@ -1,27 +1,29 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { Skeleton } from '@/components/ui'
 import type { AsyncViewState } from '@/features/shared/asyncState'
 
 defineProps<{ state: AsyncViewState; message?: string }>()
 
+const { t } = useI18n()
 const labels: Record<AsyncViewState, string> = {
-  skeleton: '正在加载',
-  refreshing: '正在刷新',
+  skeleton: 'adminPlatform.operationState.skeleton',
+  refreshing: 'adminPlatform.operationState.refreshing',
   ready: '',
-  empty: '暂无记录',
-  'zero-filter': '没有符合条件的记录',
-  'partial-error': '部分数据暂不可用',
-  forbidden: '当前账号没有权限',
-  stale: '显示上次成功读取的数据',
-  conflict: '状态冲突，请刷新后核对',
-  confirmed: '操作已确认',
-  unknown: '结果未知，请核对后再继续',
+  empty: 'adminPlatform.operationState.empty',
+  'zero-filter': 'adminPlatform.operationState.zeroFilter',
+  'partial-error': 'adminPlatform.operationState.partialError',
+  forbidden: 'adminPlatform.operationState.forbidden',
+  stale: 'adminPlatform.operationState.stale',
+  conflict: 'adminPlatform.operationState.conflict',
+  confirmed: 'adminPlatform.operationState.confirmed',
+  unknown: 'adminPlatform.operationState.unknown',
 }
 </script>
 
 <template>
   <div v-if="state !== 'ready' || message" role="status" class="space-y-2 text-sm text-oh-secondary">
     <Skeleton v-if="state === 'skeleton'" class="h-8 w-full" />
-    <p>{{ message || labels[state] }}</p>
+    <p>{{ message || t(labels[state]) }}</p>
   </div>
 </template>

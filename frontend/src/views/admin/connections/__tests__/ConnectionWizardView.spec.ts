@@ -218,6 +218,39 @@ describe('ConnectionWizardView state machine & truth invariants', () => {
     expect(activateBtn.attributes('disabled')).toBeUndefined()
   })
 
+  it('requires probe evidence for an active account and reconciles the model selection before preview', async () => {
+    mockRoute.params = { id: 'conn_active_1' }
+    const model_ids = ['provider-preset', 'gpt-4o']
+    mockConnectionsApi.getConnection
+      .mockResolvedValueOnce(buildActiveResource({ model_ids, last_verification: null }))
+      .mockResolvedValue(buildActiveResource({ model_ids }))
+    mockConnectionsApi.verifyConnection.mockResolvedValue({ operation_id: 'op1', state: 'succeeded' })
+    mockPollConnectionOperation.mockResolvedValue({ operation_id: 'op1', state: 'succeeded' })
+
+    const wrapper = mountWizard()
+    await flushPromises()
+    const button = (text: string) => wrapper.findAll('button').find(btn => btn.text() === text)!
+    for (let i = 0; i < 2; i++) {
+      await button('Continue').trigger('click')
+      await flushPromises()
+    }
+    expect(button('Continue').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('Run connection verification before previewing')
+    await button('Run Verification Probe').trigger('click')
+    await flushPromises()
+    await button('Continue').trigger('click')
+    const input = wrapper.get<HTMLInputElement>('input[placeholder="gpt-4o, gpt-4.1-mini"]')
+    expect(input.element.value).toBe('gpt-4o')
+    await input.setValue('gpt-4o, unknown')
+    expect(button('Generate Preview').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('Remove models missing from the last probe: unknown')
+    await input.setValue('gpt-4o')
+    await button('Generate Preview').trigger('click')
+    await flushPromises()
+    expect(mockConnectionsApi.previewConnection).toHaveBeenCalledWith('conn_active_1', '5',
+      expect.objectContaining({ model_ids: ['gpt-4o'] }))
+  })
+
   it('renders diagnostic Retry / Save Draft & Exit actions on Step 3 EVIDENCE_UNAVAILABLE and blocks Step 4 deadlock', async () => {
     mockRoute.params = { id: 'conn_compat_1' }
     const draftCompat = buildActiveResource({

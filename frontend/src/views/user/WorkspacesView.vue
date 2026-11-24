@@ -332,6 +332,7 @@
                   <div class="inline-flex flex-wrap items-center justify-end gap-1.5">
                     <button
                       type="button"
+                      v-if="proj.state !== 'archived'"
                       :data-testid="`switch-project-${proj.id}`"
                       class="btn btn-secondary btn-sm px-2.5 py-1 font-mono text-xs"
                       @click="activateScope(String(selected.id), proj.id)"
@@ -373,7 +374,7 @@
         v-if="selected && canManageWorkspaceGrants && hasAuthenticatedUser"
         :workspace-id="String(selected.id)"
         :workspace-is-default="Boolean(selected.is_default)"
-        :projects="projects"
+        :projects="activeProjects"
         :grant-action-options="grantActionOptions"
         @decided="loadMembers"
       />
@@ -510,7 +511,7 @@
         :workspace-id="String(selected.id)"
         :workspace-is-default="Boolean(selected.is_default)"
         :member="grantMatrixMember"
-        :projects="projects"
+        :projects="activeProjects"
         :grant-action-options="grantActionOptions"
         @close="grantMatrixMember = null"
       />
@@ -535,6 +536,7 @@ import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import { workspacesAPI, type Workspace, type WorkspaceMember } from '@/api/workspaces'
+import { getConsoleScopeStore } from '@/stores/consoleScope'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { normalizeApiError } from '@/utils/apiError'
@@ -580,9 +582,8 @@ const activeScope = ref<ConsoleScopeSelection>(readPersistedConsoleScope())
 const isSelectedWorkspaceActive = computed(
   () => Boolean(selected.value && String(selected.value.id) === activeScope.value.workspaceId)
 )
-const preferredProject = computed(
-  () => projects.value.find((proj) => (proj.state ?? 'active') === 'active') ?? projects.value[0] ?? null
-)
+const activeProjects = computed(() => projects.value.filter(proj => proj.state !== 'archived'))
+const preferredProject = computed(() => activeProjects.value[0] ?? null)
 const activeProject = computed(
   () => projects.value.find((proj) => proj.id === activeScope.value.projectId) ?? null
 )
@@ -691,7 +692,7 @@ const requesterWorkspacesSummary = computed<IdentityWorkspace[]>(() =>
     is_default: ws.is_default,
     projects:
       selected.value?.id === ws.id
-        ? projects.value.map((p) => ({
+        ? activeProjects.value.map((p) => ({
             id: p.id,
             name: p.name,
             is_default: p.is_default
@@ -940,10 +941,7 @@ async function loadProjects(workspaceID: number | null | undefined, explicit = f
         String(selected.value.id) === String(workspaceID) &&
         !activeScope.value.workspaceId
       ) {
-        const defaultProj =
-          projects.value.find((proj) => (proj.state ?? 'active') === 'active') ??
-          projects.value[0] ??
-          null
+        const defaultProj = preferredProject.value
         const initialScope: ConsoleScopeSelection = {
           mode: 'workspace',
           workspaceId: String(selected.value.id),
@@ -1068,12 +1066,21 @@ async function handleArchiveProject(proj: IdentityProject) {
   projectActionBusy.value = true
   projectsNotice.value = null
   try {
+    const workspaceId = String(selected.value.id)
     const archived = await identityApi.archiveProject(
-      String(selected.value.id),
+      workspaceId,
       proj.id,
       proj.version
     )
-    projects.value = projects.value.map((item) => (item.id === archived.id ? archived : item))
+    if (activeScope.value.workspaceId === workspaceId && activeScope.value.projectId === archived.id) {
+      activateScope(workspaceId, null)
+    }
+    void getConsoleScopeStore().fetchScopes({ force: true })
+    if (String(selected.value?.id) !== workspaceId) return
+    if (renamingProjectId.value === archived.id) renamingProjectId.value = null
+    projects.value = projects.value.map((item) =>
+      item.id === archived.id ? { ...archived, state: 'archived' } : item
+    )
     scopeConfirmedNotice.value = {
       kind: 'confirmed',
       title: isZh.value

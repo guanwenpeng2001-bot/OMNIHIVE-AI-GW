@@ -100,10 +100,10 @@ export default {
         },
         "rows": {
           "account": {
-            "layer": "上游账号",
-            "content": "管理员配置的上游账号与模型映射",
-            "purpose": "可用性取决于账号、模型映射及上游支持。",
-            "view": "列表为空时联系管理员检查账号配置与路由。"
+            "layer": "上游连接",
+            "content": "管理员配置的上游连接与模型映射",
+            "purpose": "可用性取决于上游连接、模型映射及上游支持。",
+            "view": "列表为空时联系管理员检查连接配置与路由。"
           },
           "group": {
             "layer": "密钥分组",
@@ -235,7 +235,7 @@ export default {
             "base": "官方文档未提供自定义 OpenAI 兼容地址",
             "key": "—",
             "model": "—",
-            "notes": "Windsurf 官方文档没有自定义第三方 OpenAI 兼容端点/自带密钥的配置说明；请在 Windsurf 内用 Cline、Roo Code 或 Continue 插件接入本站。"
+            "notes": "Windsurf 官方文档没有自定义第三方 OpenAI 兼容端点/自带上游凭据 (BYOK) 的配置说明；请在 Windsurf 内用 Cline、Roo Code 或 Continue 插件接入本站。"
           },
           "claude": {
             "client": "Claude Code CLI",
@@ -336,11 +336,11 @@ export default {
           "windows": {
             "field": "密钥用量窗口",
             "meaning": "用户密钥可设置 5 小时、1 天、7 天消费上限（rate_limit_5h / rate_limit_1d / rate_limit_7d）。",
-            "notes": "以密钥页面显示的用量与重置时间为准；这些限制与订阅日、周、月额度及上游账号限制分别计算。"
+            "notes": "以密钥页面显示的用量与重置时间为准；这些限制与订阅日、周、月额度及上游连接限制分别计算。"
           },
           "limits": {
             "field": "额度",
-            "meaning": "密钥消费上限、订阅日/周/月限额、上游账号窗口分别约束请求，不能相加当成统一余额。",
+            "meaning": "密钥消费上限、订阅日/周/月限额、上游连接窗口分别约束请求，不能相加当成统一余额。",
             "notes": "订阅额度耗尽需续订、调整合适分组或等显示的重置时间；增加密钥上限不会充值。"
           },
           "charges": {
@@ -1392,7 +1392,7 @@ export default {
   },
   "suppliers": {
     "title": "供应商、套餐与访问范围",
-    "intro": "供应商是管理员配置的上游账号来源。客户端使用本站 API Key 连接本站；目录里的供应商名称不代表另一个公开网关地址。",
+    "intro": "供应商是管理员配置的上游连接来源。客户端使用本站 API Key 连接本站；目录里的供应商名称不代表另一个公开网关地址。",
     "steps": {},
     "tables": {
       "scope": {

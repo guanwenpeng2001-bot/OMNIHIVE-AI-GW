@@ -53,9 +53,9 @@ vi.mock('@/composables/useThemeDirection', () => ({
     closeCommandPalette: vi.fn()
   })
 }))
-vi.mock('@/router/navigationRegistry', () => ({
-  resolveVisibleTierNavItems: () => []
-}))
+vi.mock('@/router/navigationRegistry', async (importOriginal) => {
+  return await importOriginal<typeof import('@/router/navigationRegistry')>()
+})
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: routerPushMock }),
   useRoute: () => ({ path: '/model-plaza', query: {}, meta: {} })
@@ -143,5 +143,51 @@ describe('ShellCommandPalette v2 catalog integration', () => {
 
     await wrapper.get('[data-item-id="mdl-m_live_1"]').trigger('click')
     expect(routerPushMock).toHaveBeenCalledWith('/model-plaza/m_live_1')
+  })
+
+  it('includes /docs, /compatibility, and /model-plaza/compare in PUBLIC palette items with search keywords [P1-2]', async () => {
+    apiGetMock.mockResolvedValueOnce({ data: { items: [] } })
+
+    let capturedGroups: Array<{
+      id: string
+      items: Array<{ id: string; description?: string; keywords?: string[]; onSelect?: () => void }>
+    }> = []
+
+    const wrapper = mount(ShellCommandPalette, {
+      global: {
+        stubs: {
+          CommandPalette: {
+            props: ['open', 'groups', 'loading'],
+            setup(props: { groups: typeof capturedGroups }) {
+              capturedGroups = props.groups
+              return () => null
+            }
+          }
+        }
+      }
+    })
+    wrappers.push(wrapper)
+
+    appState.commandPaletteOpen = true
+    await flushPromises()
+
+    const publicGroup = capturedGroups.find((g) => g.id === 'nav-public')
+    expect(publicGroup).toBeDefined()
+
+    const docsItem = publicGroup!.items.find((item) => item.description === '/docs')
+    const compatItem = publicGroup!.items.find((item) => item.description === '/compatibility')
+    const compareItem = publicGroup!.items.find((item) => item.description === '/model-plaza/compare')
+
+    expect(docsItem?.keywords).toEqual(expect.arrayContaining(['docs', 'documentation', '文档']))
+    expect(compatItem?.keywords).toEqual(expect.arrayContaining(['compatibility', '兼容']))
+    expect(compareItem?.keywords).toEqual(expect.arrayContaining(['compare', '对比']))
+
+    docsItem?.onSelect?.()
+    compatItem?.onSelect?.()
+    compareItem?.onSelect?.()
+
+    expect(routerPushMock).toHaveBeenCalledWith('/docs')
+    expect(routerPushMock).toHaveBeenCalledWith('/compatibility')
+    expect(routerPushMock).toHaveBeenCalledWith('/model-plaza/compare')
   })
 })

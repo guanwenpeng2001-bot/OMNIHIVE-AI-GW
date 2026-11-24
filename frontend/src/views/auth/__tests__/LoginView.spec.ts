@@ -134,4 +134,24 @@ describe('LoginView registration entry', () => {
     expect(wrapper.find('[data-testid="login-settings-error"]').exists()).toBe(false)
     expect(wrapper.get('#email').attributes('disabled')).toBeUndefined()
   })
+
+  it('renders inline field errors and aria attributes for invalid email and short password [P2-4]', async () => {
+    const wrapper = mountLogin()
+    await flushPromises()
+
+    await wrapper.get('#email').setValue('not-an-email')
+    await wrapper.get('#password').setValue('123')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(wrapper.get('#email').attributes('aria-invalid')).toBe('true')
+    expect(wrapper.get('#email').attributes('aria-describedby')).toBe('email-error')
+    expect(wrapper.get('#email-error').classes()).toContain('auth-field-error')
+    expect(wrapper.get('#email-error').text()).toBe('auth.invalidEmail')
+
+    expect(wrapper.get('#password').attributes('aria-invalid')).toBe('true')
+    expect(wrapper.get('#password').attributes('aria-describedby')).toBe('password-error')
+    expect(wrapper.get('#password-error').classes()).toContain('auth-field-error')
+    expect(wrapper.get('#password-error').text()).toBe('auth.passwordMinLength')
+  })
 })

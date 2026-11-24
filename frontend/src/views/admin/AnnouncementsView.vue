@@ -30,7 +30,7 @@
 
           <!-- Right: Action buttons -->
           <div class="flex flex-1 flex-wrap items-center justify-end gap-2">
-            <button
+            <button type="button"
               @click="loadAnnouncements"
               :disabled="loading"
               class="btn btn-secondary btn-sm"
@@ -38,7 +38,7 @@
             >
               <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
             </button>
-            <button @click="openCreateDialog" class="btn btn-primary btn-sm">
+            <button type="button" @click="openCreateDialog" class="btn btn-primary btn-sm">
               <Icon name="plus" size="md" class="mr-1" />
               {{ t('admin.announcements.createAnnouncement') }}
             </button>
@@ -122,28 +122,28 @@
 
           <template #cell-actions="{ row }">
             <div class="flex items-center space-x-1">
-              <button
+              <button type="button"
                 @click="openPreview(row)"
                 class="btn btn-ghost btn-sm"
                 :title="t('admin.announcements.preview')"
               >
                 <Icon name="eye" size="sm" />
               </button>
-              <button
+              <button type="button"
                 @click="openReadStatus(row)"
                 class="btn btn-ghost btn-sm"
                 :title="t('admin.announcements.readStatus')"
               >
                 <Icon name="chartBar" size="sm" />
               </button>
-              <button
+              <button type="button"
                 @click="openEditDialog(row)"
                 class="btn btn-ghost btn-sm"
                 :title="t('common.edit')"
               >
                 <Icon name="edit" size="sm" />
               </button>
-              <button
+              <button type="button"
                 @click="handleDelete(row)"
                 class="btn btn-ghost btn-sm text-[var(--bad-text)]"
                 :title="t('common.delete')"

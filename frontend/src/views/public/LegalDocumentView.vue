@@ -1,37 +1,6 @@
 <template>
-  <div class="legal-portal min-h-screen bg-[var(--background)] text-[var(--foreground)]">
-    <header class="glass-bar sticky top-0 z-20 border-b border-[var(--border)] ">
-      <div class="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-        <RouterLink to="/home" class="flex min-w-0 items-center gap-2.5" :data-logo="Boolean(siteLogo)" :title="siteName">
-          <template v-if="settings">
-            <span class="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-amber-500/25 bg-[var(--card)] shadow-sm ">
-              <img v-if="siteLogo" :src="siteLogo" alt="Logo" class="h-full w-full object-contain" />
-              <svg v-else width="22" height="22" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-                <path d="M16 2 28.1 9v14L16 30 3.9 23V9Z" fill="var(--primary, #16161a)" />
-                <path d="M16 5.6 25 10.8v10.4L16 26.4 7 21.2V10.8Z" stroke="var(--brand, #f59e0b)" stroke-width="1.8" />
-                <path d="M16 10.2 21 13.1v5.8L16 21.8l-5-2.9v-5.8Z" fill="var(--brand, #f59e0b)" />
-                <circle cx="16" cy="16" r="2.1" fill="var(--primary, #16161a)" />
-              </svg>
-            </span>
-            <span class="truncate text-base font-semibold text-[var(--foreground)] ">
-              {{ siteName }}
-            </span>
-          </template>
-          <template v-else>
-            <span class="h-10 w-10 flex-shrink-0 animate-pulse rounded-xl bg-[var(--surface-2)] " aria-hidden="true"></span>
-            <span class="h-5 w-28 animate-pulse rounded bg-[var(--surface-2)] " aria-hidden="true"></span>
-          </template>
-        </RouterLink>
-        <RouterLink
-          :to="isAuthenticated ? dashboardPath : '/login'"
-          class="btn btn-primary flex-shrink-0"
-        >
-          {{ isAuthenticated ? t('home.dashboard') : t('home.login') }}
-        </RouterLink>
-      </div>
-    </header>
-
-    <main class="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:py-10">
+  <PublicShell>
+    <div class="legal-portal mx-auto w-full max-w-4xl">
       <nav
         v-if="!isAdminComplianceDocument"
         :aria-label="t('publicPortal.legal.documentsNavAria')"
@@ -129,22 +98,20 @@
           {{ t('legal.empty') }}
         </div>
       </article>
-    </main>
-  </div>
+    </div>
+  </PublicShell>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { getActivePinia } from 'pinia'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { useI18n } from 'vue-i18n'
+import PublicShell from '@/components/layout/PublicShell.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { getLocale } from '@/i18n'
-import { sanitizeUrl } from '@/utils/url'
 import { useAppStore } from '@/stores/app'
-import { useAuthStore } from '@/stores/auth'
 import {
   canonicalLegalDocumentId,
   DEFAULT_LEGAL_NAV_SLOTS,
@@ -161,9 +128,6 @@ type LegalDocumentIcon = 'document' | 'shield' | 'globe' | 'cog'
 const route = useRoute()
 const { t } = useI18n()
 const appStore = useAppStore()
-const authStore = getActivePinia() ? useAuthStore() : null
-const isAuthenticated = computed(() => Boolean(authStore?.isAuthenticated))
-const dashboardPath = computed(() => (authStore?.isAdmin ? '/admin/dashboard' : '/dashboard'))
 const loadedPublicSettings = ref(appStore.cachedPublicSettings)
 const settings = computed(() => loadedPublicSettings.value ?? appStore.cachedPublicSettings)
 const loading = ref(!settings.value)
@@ -177,12 +141,7 @@ marked.setOptions({
 const documentId = computed(() => String(route.params.documentId || ''))
 const isAdminComplianceDocument = computed(() => documentId.value === 'admin-compliance')
 const documents = computed(() => settings.value?.login_agreement_documents ?? [])
-const siteName = computed(() => (settings.value?.site_name || 'OmniHive').replace(/sub2api/gi, 'OmniHive'))
 const contactInfo = computed(() => (settings.value?.contact_info || '').trim())
-const siteLogo = computed(() => sanitizeUrl(settings.value?.site_logo || '', {
-  allowRelative: true,
-  allowDataUrl: true,
-}))
 const shouldShowLoadError = computed(
   () => !isAdminComplianceDocument.value && loadError.value && !settings.value
 )

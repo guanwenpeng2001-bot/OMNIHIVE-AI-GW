@@ -43,6 +43,7 @@ vi.mock('vue-i18n', () => ({
 }))
 
 vi.mock('@/api', () => ({
+  totpAPI: { stepUp: vi.fn().mockResolvedValue(undefined) },
   adminAPI: {
     settings: {
       getSettings: mockGetSettings,
@@ -65,6 +66,60 @@ describe('SettingsWorkbenchPage sync state & diagnostics section', () => {
     mockUpdateSettings.mockReset()
     mockApiGet.mockReset()
     activeLocale.value = 'en'
+  })
+
+  it.each([
+    ['security', 'audit_log_retention_days', 181],
+    ['users', 'default_balance', 12.75],
+    ['users', 'default_concurrency', 3],
+    ['users', 'default_user_rpm_limit', 0],
+    ['users', 'affiliate_rebate_rate', 12.5],
+    ['users', 'affiliate_rebate_freeze_hours', 2],
+    ['users', 'affiliate_rebate_duration_days', 365],
+    ['email', 'smtp_port', 587],
+  ] as const)('saves %s/%s as a JSON number and rejects a cleared field', async (section, field, value) => {
+    mockGetSettings.mockResolvedValue({ [field]: 1 })
+    mockUpdateSettings.mockImplementation(async patch => patch)
+    const wrapper = mount(SettingsWorkbenchPage, {
+      props: { initialSection: section },
+      global: { plugins: [createPinia()] }
+    })
+    await flushPromises()
+    const input = wrapper.get('#settings-' + field)
+    const save = wrapper.findAll('button').find(button => button.text() === 'Save Section')!
+    await input.setValue('')
+    await save.trigger('click')
+    expect(mockUpdateSettings).not.toHaveBeenCalled()
+    expect(input.attributes('aria-invalid')).toBe('true')
+    await input.setValue(String(value))
+    await save.trigger('click')
+    await flushPromises()
+    expect(mockUpdateSettings).toHaveBeenCalledTimes(1)
+    expect(mockUpdateSettings).toHaveBeenCalledWith({ [field]: value })
+    expect(save.attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it.each(['verify', 'cancel'])('handles a server step-up challenge on save (%s)', async action => {
+    mockGetSettings.mockResolvedValue({ step_up_enabled: true, passkey_rp_id: 'login.example.org' })
+    mockUpdateSettings.mockRejectedValueOnce({ status: 403, reason: 'STEP_UP_REQUIRED' })
+      .mockResolvedValueOnce({ step_up_enabled: false })
+    const wrapper = mount(SettingsWorkbenchPage, { props: { initialSection: 'security' }, global: { plugins: [createPinia()] } })
+    await flushPromises()
+    expect(wrapper.get('input[readonly]').element).toHaveProperty('value', 'login.example.org')
+    expect(wrapper.text()).toContain('deployment configuration')
+    await wrapper.get('#settings-step-up').trigger('click')
+    await wrapper.findAll('button').find(button => button.text() === 'Save Section')!.trigger('click')
+    await flushPromises()
+    const dialog = wrapper.get('[role="dialog"][aria-modal="true"]')
+    if (action === 'verify') await dialog.get('input[autocomplete="one-time-code"]').setValue('123456')
+    else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(mockUpdateSettings.mock.calls).toEqual(action === 'verify'
+      ? [[{ step_up_enabled: false }], [{ step_up_enabled: false }]]
+      : [[{ step_up_enabled: false }]])
+    wrapper.unmount()
   })
 
   it('preserves an unsaved site name across diagnostics and route-driven tab changes', async () => {

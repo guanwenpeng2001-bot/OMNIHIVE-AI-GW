@@ -1015,7 +1015,7 @@ const accountToolsDropdownStyle = computed(() => ({
   width: `${accountToolsDropdownPosition.width}px`
 }))
 const hiddenColumns = reactive<Set<string>>(new Set())
-const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'proxy', 'notes', 'scheduler_score', 'rate_multiplier', 'expires_at', 'last_used_at']
+const DEFAULT_HIDDEN_COLUMNS = ['id', 'today_stats', 'proxy', 'notes', 'scheduler_score', 'rate_multiplier', 'expires_at', 'last_used_at']
 const HIDDEN_COLUMNS_KEY = 'account-hidden-columns'
 // One-time migration: hide scheduler score for existing admins too, because showing it opt-ins to heavy backend scoring.
 const HIDDEN_COLUMNS_VERSION_KEY = 'account-hidden-columns-version'
@@ -3076,7 +3076,7 @@ onUnmounted(() => {
 }
 
 .account-table :deep(.account-column-name) {
-  max-width: 124px;
+  min-width: 165px;
 }
 
 .account-name > * {
@@ -3084,7 +3084,15 @@ onUnmounted(() => {
 }
 
 .account-table :deep(.account-column-name .account-name) {
-  max-width: 116px;
+  max-width: 165px;
+}
+
+.account-table :deep(.account-column-status) {
+  min-width: 128px;
+}
+
+.account-table :deep(.account-column-platform_type) {
+  min-width: 120px;
 }
 
 .account-table :deep(.account-column-groups),

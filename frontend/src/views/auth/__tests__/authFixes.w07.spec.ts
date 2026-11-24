@@ -1,12 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
+import { createI18n, type LocaleMessages, type VueMessageType } from 'vue-i18n'
+import { baseCompile } from '@intlify/message-compiler'
 import { resolveActiveCaptchaProvider } from '@/components/auth/captchaProvider'
 import { useAuthStore } from '@/stores/auth'
 import { authStorage } from '@/api/tokenRefresh'
 import SetupWizardView from '@/views/setup/SetupWizardView.vue'
 import ForgotPasswordView from '../ForgotPasswordView.vue'
+import ResetPasswordView from '../ResetPasswordView.vue'
+
+function prepareMessages(raw: Record<string, unknown>): LocaleMessages<VueMessageType> {
+  return Object.fromEntries(
+    Object.entries(raw).map(([key, value]) => [
+      key,
+      typeof value === 'string'
+        ? new Function(`return ${baseCompile(value).code}`)()
+        : prepareMessages(value as Record<string, unknown>)
+    ])
+  )
+}
 
 const {
   getPublicSettingsMock,
@@ -227,43 +240,181 @@ describe('W07 Auth, Captcha, SetupWizard & AuthStore fixes (P1-5, P2-8, P2-9, P2
     vi.useFakeTimers()
     const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
 
-    loginMock.mockResolvedValueOnce({
-      access_token: 'tok_simple',
-      refresh_token: 'ref_simple',
-      token_type: 'Bearer',
-      expires_in: 60 * 60 * 24 * 60, // 60 days (> 32-bit signed int ms)
-      user: {
-        id: 7,
-        email: 'simple@example.com',
-        role: 'user',
-        balance: 0,
-        concurrency: 1,
-        status: 'active',
-        allowed_groups: [],
-        created_at: '2026-11-22T00:00:00Z',
-        updated_at: '2026-11-22T00:00:00Z',
-        run_mode: 'simple'
+    try {
+      loginMock.mockResolvedValueOnce({
+        access_token: 'tok_simple',
+        refresh_token: 'ref_simple',
+        token_type: 'Bearer',
+        expires_in: 60 * 60 * 24 * 60, // 60 days (> 32-bit signed int ms)
+        user: {
+          id: 7,
+          email: 'simple@example.com',
+          role: 'user',
+          balance: 0,
+          concurrency: 1,
+          status: 'active',
+          allowed_groups: [],
+          created_at: '2026-11-22T00:00:00Z',
+          updated_at: '2026-11-22T00:00:00Z',
+          run_mode: 'simple'
+        }
+      })
+
+      const store = useAuthStore()
+      await store.login({ email: 'simple@example.com', password: 'secret-password' })
+
+      expect(store.isSimpleMode).toBe(true)
+      const persisted = JSON.parse(authStorage.user.get() || '{}')
+      expect(persisted.run_mode).toBe('simple')
+
+      // Verify scheduled timeout delay is clamped <= 2147483647 ms
+      const numericDelays = setTimeoutSpy.mock.calls
+        .map((call) => Number(call[1]))
+        .filter((delay) => Number.isFinite(delay) && delay > 0)
+      expect(numericDelays.some((delay) => delay === 2_147_483_647)).toBe(true)
+      expect(numericDelays.every((delay) => delay <= 2_147_483_647)).toBe(true)
+
+      // Simulate fresh page reload with new Pinia store
+      setActivePinia(createPinia())
+      const reloadedStore = useAuthStore()
+      reloadedStore.checkAuth()
+      expect(reloadedStore.isSimpleMode).toBe(true)
+    } finally {
+      setTimeoutSpy.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('renders inline field errors and canonical action labels on ForgotPasswordView and ResetPasswordView [P2-4, P2-6]', async () => {
+    getPublicSettingsMock.mockResolvedValueOnce({
+      password_reset_enabled: true,
+      turnstile_enabled: false,
+      tencent_captcha_enabled: false,
+      aliyun_captcha_enabled: false
+    })
+    forgotPasswordMock.mockResolvedValueOnce({})
+
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en',
+      messages: {
+        en: prepareMessages({
+          auth: {
+            forgotPasswordTitle: 'Reset Password',
+            forgotPasswordHint: 'Enter your email',
+            emailLabel: 'Email',
+            emailPlaceholder: 'Enter your email',
+            emailRequired: 'Email is required',
+            invalidEmail: 'Invalid email',
+            sendResetLink: 'Send Reset Link',
+            sendingResetLink: 'Sending...',
+            resetEmailSent: 'Reset Link Sent',
+            resetEmailSentHint: 'Check inbox',
+            sendAnotherEmail: 'Send Another Email',
+            backToLogin: 'Back to Login',
+            rememberedPassword: 'Remembered?',
+            signIn: 'Sign In',
+            forgotPassword: 'Forgot password?'
+          }
+        })
       }
     })
 
-    const store = useAuthStore()
-    await store.login({ email: 'simple@example.com', password: 'secret-password' })
+    const forgotWrapper = mount(ForgotPasswordView, {
+      global: {
+        plugins: [i18n],
+        stubs: {
+          AuthLayout: { template: '<div><slot /><slot name="footer" /></div>' },
+          RouterLink: { template: '<a><slot /></a>' },
+          Icon: true,
+          CaptchaChallenge: true
+        }
+      }
+    })
+    wrappers.push(forgotWrapper)
+    await flushPromises()
 
-    expect(store.isSimpleMode).toBe(true)
-    const persisted = JSON.parse(authStorage.user.get() || '{}')
-    expect(persisted.run_mode).toBe('simple')
+    await forgotWrapper.get('#email').setValue('bad-email')
+    await forgotWrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
 
-    // Verify scheduled timeout delay is clamped <= 2147483647 ms
-    const numericDelays = setTimeoutSpy.mock.calls
-      .map((call) => Number(call[1]))
-      .filter((delay) => Number.isFinite(delay) && delay > 0)
-    expect(numericDelays.some((delay) => delay === 2_147_483_647)).toBe(true)
-    expect(numericDelays.every((delay) => delay <= 2_147_483_647)).toBe(true)
+    expect(forgotWrapper.get('#email').attributes('aria-invalid')).toBe('true')
+    expect(forgotWrapper.get('#email').attributes('aria-describedby')).toBe('email-error')
+    expect(forgotWrapper.get('#email-error').text()).toBe('Invalid email')
 
-    // Simulate fresh page reload with new Pinia store
-    setActivePinia(createPinia())
-    const reloadedStore = useAuthStore()
-    reloadedStore.checkAuth()
-    expect(reloadedStore.isSimpleMode).toBe(true)
+    await forgotWrapper.get('#email').setValue('user@example.com')
+    await forgotWrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(forgotWrapper.text()).toContain('Send Another Email')
+    expect(forgotWrapper.text()).not.toContain('Forgot password?')
+  })
+
+  it('renders inline field errors and Request New Reset Link label on ResetPasswordView [P2-4, P2-6]', async () => {
+    const { createMemoryHistory, createRouter } = await import('vue-router')
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/reset-password', component: ResetPasswordView },
+        { path: '/forgot-password', component: { template: '<div />' } },
+        { path: '/login', component: { template: '<div />' } }
+      ]
+    })
+    await router.push('/reset-password?email=user@example.com&token=tok_123')
+    await router.isReady()
+
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en',
+      messages: {
+        en: prepareMessages({
+          auth: {
+            resetPasswordTitle: 'Set New Password',
+            resetPasswordHint: 'Enter new password',
+            emailLabel: 'Email',
+            newPassword: 'New Password',
+            newPasswordPlaceholder: 'New password',
+            confirmPassword: 'Confirm Password',
+            confirmPasswordPlaceholder: 'Confirm password',
+            passwordRequired: 'Password is required',
+            passwordMinLength: 'Password must be at least 6 characters',
+            confirmPasswordRequired: 'Confirm password required',
+            passwordsDoNotMatch: 'Passwords do not match',
+            resetPassword: 'Reset Password',
+            resettingPassword: 'Resetting...',
+            requestNewResetLink: 'Request New Reset Link',
+            forgotPassword: 'Forgot password?'
+          }
+        })
+      }
+    })
+
+    const resetWrapper = mount(ResetPasswordView, {
+      global: {
+        plugins: [router, i18n],
+        stubs: {
+          AuthLayout: { template: '<div><slot /><slot name="footer" /></div>' },
+          Icon: true
+        }
+      }
+    })
+    wrappers.push(resetWrapper)
+    await flushPromises()
+
+    expect(resetWrapper.get('a[href="/forgot-password"]').text()).toBe('Request New Reset Link')
+    expect(resetWrapper.text()).not.toContain('Forgot password?')
+
+    await resetWrapper.get('#password').setValue('123')
+    await resetWrapper.get('#confirmPassword').setValue('456')
+    await resetWrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(resetWrapper.get('#password').attributes('aria-invalid')).toBe('true')
+    expect(resetWrapper.get('#password').attributes('aria-describedby')).toBe('password-error')
+    expect(resetWrapper.get('#password-error').text()).toBe('Password must be at least 6 characters')
+
+    expect(resetWrapper.get('#confirmPassword').attributes('aria-invalid')).toBe('true')
+    expect(resetWrapper.get('#confirmPassword').attributes('aria-describedby')).toBe('confirm-password-error')
+    expect(resetWrapper.get('#confirm-password-error').text()).toBe('Passwords do not match')
   })
 })

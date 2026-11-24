@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onScopeDispose, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { authAPI } from '@/api'
 import { Button, Card, Modal } from '@/components/ui'
 import { useAuthStore } from '@/stores/auth'
@@ -7,6 +8,7 @@ import { useScopedRead } from '@/features/requests/useScopedRead'
 import { classifyAsyncError, type AsyncViewState } from '@/features/shared/asyncState'
 import OperationState from './OperationState.vue'
 
+const { t } = useI18n()
 const auth = useAuthStore()
 const key = computed(() => auth.user ? JSON.stringify([auth.user.id, auth.sessionRevision]) : '')
 const currentSession = useScopedRead(() => key.value, async () => {
@@ -60,23 +62,23 @@ async function revokeAll() {
 
 <template>
   <Card class="space-y-3" aria-labelledby="profile-sessions-title">
-    <h2 id="profile-sessions-title" class="font-semibold">登录会话</h2>
-    <p class="text-sm text-oh-secondary">此处显示当前浏览器的登录。撤销所有会话会同时退出其他设备。</p>
-    <OperationState :state="status" :message="status === 'partial-error' ? '无法验证当前会话。' : undefined" />
+    <h2 id="profile-sessions-title" class="font-semibold">{{ t('profileOverview.sessions') }}</h2>
+    <p class="text-sm text-oh-secondary">{{ t('profileSessions.description') }}</p>
+    <OperationState :state="status" :message="status === 'partial-error' ? t('profileSessions.unverified') : undefined" />
     <ul v-if="currentSession.data.value" class="border-y border-oh-subtle py-2 text-sm">
-      <li>当前浏览器 · {{ currentSession.stale.value ? '此前已验证' : '已验证' }}</li>
+      <li>{{ t('profileSessions.browser') }} · {{ currentSession.stale.value ? t('profileSessions.previous') : t('profileSessions.verified') }}</li>
     </ul>
     <div class="flex flex-wrap gap-2">
-      <Button size="sm" variant="secondary" :disabled="currentSession.loading.value || revoking" @click="currentSession.refresh">重新验证</Button>
-      <Button size="sm" variant="danger" :disabled="!currentSession.data.value || currentSession.stale.value || revoking" @click="confirming = true">撤销所有会话</Button>
+      <Button size="sm" variant="secondary" :disabled="currentSession.loading.value || revoking" @click="currentSession.refresh">{{ t('profileSessions.verify') }}</Button>
+      <Button size="sm" variant="danger" :disabled="!currentSession.data.value || currentSession.stale.value || revoking" @click="confirming = true">{{ t('profileSessions.revoke') }}</Button>
     </div>
     <OperationState v-if="!confirming" :state="revokeState" />
-    <Modal v-model:open="confirming" title="撤销所有会话" description="此操作会退出当前浏览器以及其他设备。"
+    <Modal v-model:open="confirming" :title="t('profileSessions.revoke')" :description="t('profileSessions.confirmDescription')"
       :close-on-backdrop="!revoking" :close-on-escape="!revoking" :hide-close-button="revoking">
       <OperationState :state="revokeState" />
       <template #footer>
-        <Button variant="secondary" :disabled="revoking" @click="confirming = false">取消</Button>
-        <Button variant="danger" :loading="revoking" @click="revokeAll">确认撤销</Button>
+        <Button variant="secondary" :disabled="revoking" @click="confirming = false">{{ t('common.cancel') }}</Button>
+        <Button variant="danger" :loading="revoking" @click="revokeAll">{{ t('profileSessions.confirm') }}</Button>
       </template>
     </Modal>
   </Card>

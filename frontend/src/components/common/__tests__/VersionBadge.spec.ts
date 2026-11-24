@@ -76,6 +76,18 @@ describe('VersionBadge safety and lifecycle', () => {
     vi.useRealTimers()
   })
 
+  it('dismisses the version popover with Escape', async () => {
+    const wrapper = mount(VersionBadge, { global: { stubs: { Icon: true, ConfirmDialog: true } } })
+    const trigger = wrapper.get('button')
+    expect(trigger.attributes('type')).toBe('button')
+    await trigger.trigger('click')
+    expect(trigger.attributes('aria-expanded')).toBe('true')
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await wrapper.vm.$nextTick()
+    expect(trigger.attributes('aria-expanded')).toBe('false')
+    wrapper.unmount()
+  })
+
   it.each(['http', 'envelope'])('shows unavailable release and rollback checks within the admin panel (%s)', async shape => {
     badgeState.hasUpdate = false
     badgeState.updateCheckUnavailable = true

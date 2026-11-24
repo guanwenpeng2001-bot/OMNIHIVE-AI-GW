@@ -296,6 +296,10 @@ func appendCredentialAudit(ctx context.Context, database credentialSQL, metadata
 // prepareReferencedCredentials runs under the account row lock and in the same
 // transaction as the account write. A converted account never falls back inline.
 func prepareReferencedCredentials(ctx context.Context, database credentialSQL, encryptor service.SecretEncryptor, accountID, workspaceID int64, current, incoming map[string]any) (map[string]any, error) {
+	revision := service.ExpectedCredentialRevision(ctx)
+	if revision != "" && revision != credentialRevision(current) {
+		return nil, service.ErrCredentialSecretConflict
+	}
 	reference, referenced := service.CredentialReference(current)
 	incomingReference, incomingReferenced := service.CredentialReference(incoming)
 	if !referenced {
@@ -347,10 +351,10 @@ func prepareReferencedCredentials(ctx context.Context, database credentialSQL, e
 	}
 	if len(changed) > 0 {
 		expectedVersion := service.CredentialVersion(incoming)
-		if expectedVersion == 0 && service.ExpectedCredentialRevision(ctx) != "" {
-			expectedVersion = metadata.Version
+		if expectedVersion == 0 && revision != "" {
+			expectedVersion = service.CredentialVersion(current)
 		}
-		if expectedVersion != metadata.Version {
+		if expectedVersion != metadata.Version || expectedVersion != service.CredentialVersion(current) {
 			return nil, service.ErrCredentialSecretConflict
 		}
 		candidate := *metadata

@@ -628,7 +628,7 @@ function formatOperationState(state: string): string {
   <Card
     data-testid="catalog-verification-workbench"
     :title="readOnly ? (isZh ? '模型核验记录' : 'Model Verification Records') : isZh ? '模型目录兼容性核验与发布工作台' : 'Model Catalog Verification & Publication Workbench'"
-    :subtitle="readOnly ? undefined : isZh ? '注册平台模型核验目标、管理周期探测计划、立即触发真实探测并按证据推进兼容性生命周期发布。' : 'Register verification targets, manage recurring probe schedules, trigger immediate catalog probes, and publish evidence-backed compatibility states.'"
+    :subtitle="readOnly ? (isZh ? '输入核验目标 ID 以查看该目标的探测记录。' : 'Enter a verification target ID to inspect its probe records.') : isZh ? '注册平台模型核验目标、管理周期探测计划、立即触发真实探测并按证据推进兼容性生命周期发布。' : 'Register verification targets, manage recurring probe schedules, trigger immediate catalog probes, and publish evidence-backed compatibility states.'"
   >
     <div class="space-y-4">
       <p v-if="!readOnly" class="text-sm">

@@ -36,15 +36,15 @@
                   v-model.trim="searchQuery"
                   type="search"
                   class="min-w-0 w-full bg-transparent text-xs text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)] sm:w-52"
-                  placeholder="搜索设置项 / 配置域…"
-                  aria-label="搜索设置项或配置域"
+                  :placeholder="t('adminPlatform.settings.search')"
+                  :aria-label="t('adminPlatform.settings.searchLabel')"
                   @keydown.enter.prevent="applyFirstMatchedTab"
                 />
                 <button
                   v-if="searchQuery"
                   type="button"
                   class="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-                  title="清空搜索"
+                  :title="t('adminPlatform.settings.clear')"
                   @click="searchQuery = ''"
                 >
                   ✕
@@ -58,7 +58,7 @@
                 :class="hasLocalChanges ? 'bg-[var(--accent)] text-[var(--brand-text)]' : 'text-[var(--muted-foreground)]'"
                 role="status"
               >
-                {{ loadFailed ? '加载失败' : saving ? t('admin.settings.saving') : hasLocalChanges ? '有未保存修改' : '配置已同步' }}
+                {{ loadFailed ? t('adminPlatform.settings.failed') : saving ? t('admin.settings.saving') : hasLocalChanges ? t('adminPlatform.settings.unsaved') : t('adminPlatform.settings.synced') }}
               </span>
               <button
                 v-show="activeTab !== 'backup'"
@@ -83,7 +83,7 @@
             style="border-color: var(--border)"
           >
             <span class="text-gray-500 dark:text-gray-400">
-              匹配配置域 ({{ matchedTabs.length }}/9)：
+              {{ t('adminPlatform.settings.matches', { count: matchedTabs.length }) }}
             </span>
             <template v-if="matchedTabs.length > 0">
               <span
@@ -106,7 +106,7 @@
               </span>
             </template>
             <span v-else class="text-amber-600 dark:text-amber-400">
-              未找到匹配「{{ searchQuery }}」的配置域，请尝试其他关键词
+              {{ t('adminPlatform.settings.noMatches', { query: searchQuery }) }}
             </span>
           </div>
         </div>
@@ -116,7 +116,7 @@
           <!-- 左栏：二级配置域导航 -->
           <aside class="settings-domain-rail card min-w-0 p-2.5">
             <div class="nav-group-title hidden px-2.5 pb-1.5 pt-1 md:block">
-              配置域 · DOMAINS
+              {{ t('adminPlatform.settings.domains') }}
             </div>
             <nav
               class="flex gap-1 overflow-x-auto md:block md:space-y-1 md:overflow-visible"
@@ -144,7 +144,7 @@
                 <span class="settings-tab-icon flex h-6 w-6 shrink-0 items-center justify-center rounded-md">
                   <Icon :name="tab.icon" size="sm" />
                 </span>
-                <span class="settings-tab-label flex-1 truncate">{{
+                <span class="settings-tab-label flex-1 whitespace-normal">{{
                   t(`admin.settings.tabs.${tab.key}`)
                 }}</span>
                 <span class="ml-auto font-mono text-[10px] tabular-nums opacity-45">
@@ -158,11 +158,11 @@
               style="border-color: var(--border)"
             >
               <div class="flex items-center justify-between">
-                <span>切换配置域</span>
+                <span>{{ t('adminPlatform.settings.switch') }}</span>
                 <span class="kbd">↑↓</span>
               </div>
               <div class="mt-1 flex items-center justify-between">
-                <span>全局命令</span>
+                <span>{{ t('adminPlatform.settings.commands') }}</span>
                 <span class="kbd">⌘K</span>
               </div>
             </div>
@@ -333,62 +333,10 @@ interface DomainMeta {
   keywords: string;
 }
 
-const DOMAIN_META: Record<SettingsTabKey, DomainMeta> = {
-  general: {
-    title: "通用设置",
-    badge: "站点身份",
-    summary: "配置站点名称、副标题、Logo、公开端点、首页模式与自定义导航菜单",
-    keywords: "通用 站点名称 副标题 logo 注册 自定义菜单 端点 首页 general site menu",
-  },
-  agreement: {
-    title: "登录条款",
-    badge: "合规条款",
-    summary: "管理登录与注册时的服务协议、隐私政策多文档及版本提示",
-    keywords: "协议 条款 登录 同意 隐私 法务 agreement terms legal",
-  },
-  features: {
-    title: "功能开关",
-    badge: "模块能力",
-    summary: "管理主动拨测与流量遥测、可用渠道、站点购买方式、邀请返利与模型广场开关",
-    keywords: "功能开关 渠道监控 订阅 返利 模型广场 简易模式 吞吐 features monitor billing",
-  },
-  security: {
-    title: "安全与认证",
-    badge: "登录 / 防护",
-    summary: "配置管理端密钥、面板接口限流、人机验证、OAuth 第三方登录与 IP 访问控制",
-    keywords: "安全 认证 限流 captcha turnstile 腾讯 阿里云 linuxdo 钉钉 oidc 微信 github google passkey totp ip 白名单 管理密钥 security oauth",
-  },
-  users: {
-    title: "用户默认值",
-    badge: "配额策略",
-    summary: "设置新用户初始余额、并发上限、默认分组、认证来源专属配额与 5 平台默认限额",
-    keywords: "用户默认值 默认分组 订阅组 平台配额 初始余额 并发 认证来源 anthropic openai gemini antigravity grok users quota",
-  },
-  gateway: {
-    title: "网关服务",
-    badge: "请求链路",
-    summary: "配置上游倍率自动探测、Web Search 模拟、529/429 冷却、流超时、整流器与实验调度",
-    keywords: "网关 转发 调度 fast flex 过载 冷却 流超时 整流器 beta 错误透传 websearch 上游倍率 claude code ollama gateway",
-  },
-  payment: {
-    title: "支付设置",
-    badge: "结算渠道",
-    summary: "配置支付服务商、前台可见支付方式、充值限额与取消频率限制",
-    keywords: "支付 充值 赠金 支付宝 微信 stripe airwallex 易支付 服务商 结算 payment",
-  },
-  email: {
-    title: "邮件设置",
-    badge: "通知投递",
-    summary: "配置 SMTP 发信服务、测试邮件、余额不足提醒、账号限额与订阅到期通知",
-    keywords: "邮件 smtp 模板 测试邮件 余额提醒 配额通知 订阅到期 email notify",
-  },
-  backup: {
-    title: "数据备份",
-    badge: "容灾归档",
-    summary: "管理 S3/R2 备份存储、异步生图对象存储、定时备份策略与月度归档恢复",
-    keywords: "备份 s3 r2 归档 镜像存储 生图存储 定时 保留 恢复 backup",
-  },
-};
+function domainMeta(key: SettingsTabKey): DomainMeta {
+  const prefix = `adminPlatform.settings.domainsMeta.${key}`
+  return { title: t(`${prefix}.title`), badge: t(`${prefix}.badge`), summary: t(`${prefix}.summary`), keywords: t(`${prefix}.keywords`) };
+}
 
 const searchQuery = ref("");
 
@@ -400,13 +348,13 @@ const activeTabOrder = computed(() => {
 });
 
 const activeDomainMeta = computed<DomainMeta>(() => {
-  return DOMAIN_META[activeTab.value] ?? DOMAIN_META.general;
+  return domainMeta(activeTab.value);
 });
 
 function isTabMatched(key: SettingsTabKey): boolean {
   const q = searchQuery.value.trim().toLowerCase();
   if (!q) return true;
-  const meta = DOMAIN_META[key];
+  const meta = domainMeta(key);
   const i18nLabel = String(t(`admin.settings.tabs.${key}`)).toLowerCase();
   const haystack = `${meta?.title ?? ""} ${meta?.badge ?? ""} ${meta?.summary ?? ""} ${meta?.keywords ?? ""} ${i18nLabel} ${key}`.toLowerCase();
   return haystack.includes(q);
@@ -417,7 +365,7 @@ const matchedTabs = computed(() =>
     .map((tab, index) => ({
       key: tab.key,
       order: formatTabOrder(index),
-      meta: DOMAIN_META[tab.key] ?? DOMAIN_META.general,
+      meta: domainMeta(tab.key),
     }))
     .filter((item) => isTabMatched(item.key))
 );

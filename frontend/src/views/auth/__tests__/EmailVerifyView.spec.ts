@@ -946,4 +946,47 @@ describe('EmailVerifyView', () => {
       login_agreement_revision: 'rev-email-1',
     }))
   })
+
+  it('localizes referral summary label/colon and renders inline errorMessage and code field errors [P2-3]', async () => {
+    sessionStorage.setItem('register_data', JSON.stringify({
+      email: 'verify@example.com',
+      password: 'test-pass-123',
+      aff_code: 'REF42',
+    }))
+    sendVerifyCodeMock.mockResolvedValueOnce({ countdown: 60 })
+    registerMock.mockRejectedValueOnce(new Error('Invalid verification code'))
+
+    const wrapper = mount(EmailVerifyView, {
+      global: {
+        stubs: {
+          AuthLayout: { template: '<div><slot /><slot name="footer" /></div>' },
+          Icon: true,
+          TurnstileWidget: true,
+          transition: false,
+        },
+      },
+    })
+
+    await flushPromises()
+
+    const summaryText = wrapper.get('.auth-summary').text()
+    expect(summaryText).toContain('auth.referralCodeLabel: REF42')
+    expect(summaryText).not.toContain('推荐码：')
+    expect(summaryText).not.toContain('：')
+
+    await wrapper.get('#code').setValue('12')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(wrapper.get('#code').attributes('aria-invalid')).toBe('true')
+    expect(wrapper.get('#code').attributes('aria-describedby')).toBe('code-error')
+    expect(wrapper.get('#code-error').classes()).toContain('auth-field-error')
+    expect(wrapper.get('#code-error').text()).toBe('auth.invalidCode')
+
+    await wrapper.get('#code').setValue('000000')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(wrapper.get('.auth-error[role="alert"]').text()).toContain('Invalid verification code')
+  })
 })

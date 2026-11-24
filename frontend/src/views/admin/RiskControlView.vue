@@ -29,24 +29,24 @@
             :key="item.key"
             class="card min-w-0 px-4 py-4 shadow-none"
           >
-            <div class="flex min-w-0 items-center gap-3">
+            <div class="flex min-w-0 flex-wrap items-center gap-3">
               <div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg" :class="item.iconClass">
                 <Icon :name="item.icon" size="sm" />
               </div>
               <div class="min-w-0 flex-1">
-                <div class="flex min-w-0 items-center justify-between gap-2">
-                  <p class="truncate text-xs font-medium text-[var(--muted-foreground)]">{{ item.label }}</p>
+                <div class="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                  <p class="text-xs font-medium text-[var(--muted-foreground)]">{{ item.label }}</p>
                   <span
                     v-if="item.badge"
-                    class="pill flex-shrink-0 font-medium"
+                    class="pill whitespace-nowrap flex-shrink-0 font-medium"
                     :class="item.badgeClass"
                   >
                     {{ item.badge }}
                   </span>
                 </div>
-                <div class="mt-1 flex min-w-0 items-baseline gap-2">
-                  <p class="truncate text-2xl font-semibold leading-8 tracking-tight text-[var(--foreground)]">{{ item.value }}</p>
-                  <p v-if="item.meta" class="truncate text-xs text-[var(--muted-foreground)]">{{ item.meta }}</p>
+                <div class="mt-1 flex min-w-0 flex-wrap items-baseline gap-2">
+                  <p class="break-words text-xl font-semibold leading-8 tracking-tight text-[var(--foreground)]">{{ item.value }}</p>
+                  <p v-if="item.meta" class="text-xs text-[var(--muted-foreground)]">{{ item.meta }}</p>
                 </div>
               </div>
             </div>

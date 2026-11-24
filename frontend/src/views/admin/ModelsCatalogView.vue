@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import { catalogWorkspace, resolveCatalogWorkspace } from '@/features/catalog/adminWorkspace'
+import { useAdminSettingsStore } from '@/stores/adminSettings'
 import { useAppStore } from '@/stores/app'
 import { normalizeApiError } from '@/utils/apiError'
 import {
@@ -47,6 +48,7 @@ try {
 }
 
 const appStore = useAppStore()
+const adminSettings = useAdminSettingsStore()
 
 function resolveInitialWorkspaceId(): string {
   const fromQuery = typeof routeQuery.workspace_id === 'string' ? routeQuery.workspace_id.trim() : ''
@@ -146,43 +148,10 @@ const QUICK_FILTER_OPTIONS: Array<{
   }
 ]
 
-const quickFilterCounts = computed(() => {
-  const counts: Record<AdminCatalogQuickFilter, number> = {
-    routable_but_unpriced: 0,
-    discovered_not_enabled: 0,
-    listed_unrouted: 0,
-    group_price_conflict: 0,
-    pi_only: 0,
-    stale: 0
-  }
-  for (const item of items.value) {
-    if (matchesAdminCatalogQuickFilter(item, 'routable_but_unpriced')) {
-      counts.routable_but_unpriced++
-    }
-    if (matchesAdminCatalogQuickFilter(item, 'discovered_not_enabled')) {
-      counts.discovered_not_enabled++
-    }
-    if (matchesAdminCatalogQuickFilter(item, 'listed_unrouted')) {
-      counts.listed_unrouted++
-    }
-    if (matchesAdminCatalogQuickFilter(item, 'group_price_conflict')) {
-      counts.group_price_conflict++
-    }
-    if (matchesAdminCatalogQuickFilter(item, 'pi_only')) {
-      counts.pi_only++
-    }
-    if (matchesAdminCatalogQuickFilter(item, 'stale')) {
-      counts.stale++
-    }
-  }
-  return counts
-})
+const quickFilterCounts = ref<Partial<Record<AdminCatalogQuickFilter, number>>>({})
 
 const visibleItems = computed(() => {
   return items.value.filter((item) => {
-    if (quickFilter.value && !matchesAdminCatalogQuickFilter(item, quickFilter.value)) {
-      return false
-    }
     if (providerFilter.value && item.provider !== providerFilter.value) {
       return false
     }
@@ -332,6 +301,7 @@ async function fetchCatalogModels(append = false) {
     )
     if (currentGen !== listRequestGeneration) return
 
+    quickFilterCounts.value = page.quick_filter_counts
     catalogVersion.value = page.catalog_version
     asOf.value = page.as_of
     scopeVersion.value = page.scope_version
@@ -392,8 +362,17 @@ async function openModelDetail(item: AdminCatalogModelSummary) {
 }
 
 function openVerificationWorkbenchDrawer() {
+  detailAbortController?.abort()
+  detailRequestGeneration++
+  activeDetail.value = null
+  detailError.value = ''
+  detailLoading.value = false
+  const first = visibleItems.value[0]
+  activeModelId.value = first?.id ?? null
+  void adminSettings.fetch()
   drawerInitialTab.value = 'verification'
   drawerOpen.value = true
+  if (first) void fetchModelDetail(first.id, catalogVersion.value)
 }
 
 async function fetchModelDetail(
@@ -666,7 +645,7 @@ onMounted(async () => {
           >
             <span>{{ isZh ? qf.zh : qf.en }}</span>
             <span
-              v-if="qf.id"
+              v-if="qf.id && quickFilterCounts[qf.id] !== undefined"
               class="rounded bg-black/10 px-1.5 py-0.5 font-mono text-[10px] dark:bg-white/10"
             >
               {{ quickFilterCounts[qf.id] }}
@@ -1053,6 +1032,7 @@ onMounted(async () => {
         :error="detailError"
         :snapshot-expired="detailSnapshotExpired"
         :initial-tab="drawerInitialTab"
+        :can-manage-verification="drawerInitialTab === 'verification' && adminSettings.loaded && adminSettings.opsMonitoringEnabled"
         :is-zh="isZh"
         @close="drawerOpen = false"
         @load-more-accounts="handleLoadMoreAccounts"

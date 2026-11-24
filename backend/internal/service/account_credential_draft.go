@@ -27,18 +27,22 @@ type AccountCredentialDraft struct {
 }
 
 type accountCredentialDraftState struct {
-	Egress       *OAuthEgressSelection `json:"egress,omitempty"`
-	Platform     string                `json:"platform"`
-	Type         string                `json:"type"`
-	Credentials  map[string]any        `json:"credentials,omitempty"`
-	Revision     string                `json:"revision"`
-	Submission   string                `json:"submission,omitempty"`
-	AccountID    int64                 `json:"account_id,omitempty"`
-	Cancelled    bool                  `json:"cancelled,omitempty"`
-	ReviewDigest string                `json:"review_digest,omitempty"`
+	Egress                     *OAuthEgressSelection `json:"egress,omitempty"`
+	Platform                   string                `json:"platform"`
+	Type                       string                `json:"type"`
+	Credentials                map[string]any        `json:"credentials,omitempty"`
+	Revision                   string                `json:"revision"`
+	Submission                 string                `json:"submission,omitempty"`
+	AccountID                  int64                 `json:"account_id,omitempty"`
+	Cancelled                  bool                  `json:"cancelled,omitempty"`
+	ReviewDigest               string                `json:"review_digest,omitempty"`
+	ReviewedCredentialRevision string                `json:"reviewed_credential_revision,omitempty"`
 }
 
-var ErrAccountCredentialDraftConflict = infraerrors.Conflict("ACCOUNT_CREDENTIAL_DRAFT_CONFLICT", "Credential draft changed; preview and confirm again")
+var (
+	ErrAccountCredentialDraftConflict       = infraerrors.Conflict("ACCOUNT_CREDENTIAL_DRAFT_CONFLICT", "Credential draft changed; preview and confirm again")
+	ErrAccountCredentialDraftReviewRequired = infraerrors.Conflict("ACCOUNT_CREDENTIAL_DRAFT_CONFLICT", "Credential draft has no reviewed account revision; review again before confirming")
+)
 
 // ApplyAccountCredentialDraftOptions is the final-review configuration allowlist.
 // Authentication, machine and owner identifiers can only come from the opaque
@@ -226,15 +230,18 @@ func (s *AuthPendingIdentityService) ReviewAccountCredentialDraft(ctx context.Co
 	if session.ConsumedAt != nil {
 		return nil, ErrPendingAuthSessionConsumed
 	}
-	if state.Revision != revision && state.ReviewDigest != digest {
+	credentialRevision := ExpectedCredentialRevision(ctx)
+	sameReview := state.ReviewDigest == digest && state.ReviewedCredentialRevision == credentialRevision
+	if state.Revision != revision && !sameReview {
 		return nil, ErrAccountCredentialDraftConflict
 	}
-	if state.ReviewDigest != digest {
+	if !sameReview {
 		state.Revision, err = randomOpaqueToken(24)
 		if err != nil {
 			return nil, err
 		}
 		state.ReviewDigest = digest
+		state.ReviewedCredentialRevision = credentialRevision
 		data, err := accountCredentialDraftData(*state)
 		if err != nil {
 			return nil, err
@@ -338,7 +345,11 @@ func (s *AuthPendingIdentityService) ConfirmAccountCredentialDraft(ctx context.C
 		}
 		return state.AccountID, commit()
 	}
-	accountID, err := create(transactionContext, credentialDraftAccount(state))
+	writeContext := transactionContext
+	if state.ReviewedCredentialRevision != "" {
+		writeContext = WithCredentialRevision(writeContext, state.ReviewedCredentialRevision)
+	}
+	accountID, err := create(writeContext, credentialDraftAccount(state))
 	if err != nil {
 		return 0, err
 	}

@@ -769,6 +769,11 @@ export default {
     title: 'Available Channels',
     description: 'Channels you can access, along with their supported models and pricing',
     searchPlaceholder: 'Search channels or models...',
+    statsAria: 'Available channels and billing multiplier summary',
+    statsBadge: 'Available Channels & Rates',
+    matchedChannels: 'Matched',
+    platformCoverage: 'Platforms',
+    exclusiveRates: 'Exclusive rates: {count}',
     empty: 'No available channels',
     noModels: 'No models configured',
     noPricing: 'Pricing not configured',
@@ -809,12 +814,14 @@ export default {
   // Model Plaza (public group/model pricing showcase)
   modelPlaza: {
     confirmation: {
-      title: "Plaza model confirmation",
+      groupVisible: "4. Group Visible",
+      assignGroup: "Save a Routing Group on this channel to choose the models it displays in the Model Plaza.",
+      title: "Model Plaza publication",
       description: "Controls display for the saved channel and group. Candidates come from linked account discovery and mappings; confirmation does not authorize calls or change prices.",
       empty: "No candidates. Sync linked accounts or configure concrete mappings first.",
       legacy: "Historical configuration, confirmation not recorded",
       confirmed: "Administrator {actor} · {time}",
-      save: "Confirm and save display selection",
+      save: "Save Model Plaza selection",
       loadError: "Could not load candidates. Saved configuration is unchanged.",
       saveError: "Could not save confirmation. Your draft is retained; retry.",
       conflict: "Configuration or candidates changed. Refresh and select again.",

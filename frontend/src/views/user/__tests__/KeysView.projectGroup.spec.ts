@@ -374,6 +374,28 @@ describe('KeysView project-scoped API key group binding guard', () => {
     )
   })
 
+  it('includes models.read when it is the only delegable action', async () => {
+    seedProjectScope('10', '20')
+    mocks.getProjectAccess.mockResolvedValue({
+      actions: ['keys.read', 'keys.create', 'models.read'], issuable_key_actions: ['models.read'],
+      workspace_id: '10', project_id: '20', expires_at: new Date(Date.now() + 3600000).toISOString(),
+    })
+    mocks.listProjectKeyGroups.mockResolvedValue({ items: [{ id: '12', name: 'group', status: 'active' }] })
+    mocks.createProjectKey.mockResolvedValue({ id: '17', name: 'browse', actions: ['models.read'] })
+    const wrapper = mountKeysView()
+    await flushPromises()
+    await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
+    await flushPromises()
+    const checkbox = wrapper.get<HTMLInputElement>('[data-testid="project-key-models-read-checkbox"]')
+    expect(checkbox.element.checked).toBe(true)
+    expect(checkbox.element.disabled).toBe(true)
+    await wrapper.get('[data-tour="key-form-name"]').setValue('browse')
+    await wrapper.get('#key-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(mocks.createProjectKey).toHaveBeenCalledWith('10', '20',
+      expect.objectContaining({ actions: ['models.read'] }), expect.any(String))
+  })
+
   it('keeps models.read unchecked by default and allows opting in on project keys (E2-2)', async () => {
     seedProjectScope('10', '20')
     mocks.listProjectKeyGroups.mockResolvedValue({

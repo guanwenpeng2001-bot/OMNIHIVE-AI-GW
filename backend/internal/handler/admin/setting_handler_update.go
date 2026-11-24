@@ -642,7 +642,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 
 	// SMTP 配置保护：如果请求中 smtp_host 为空但数据库中已有配置，则保留已有 SMTP 配置
 	// 防止前端加载设置失败时空表单覆盖已保存的 SMTP 配置
-	if req.SMTPHost == "" && previousSettings.SMTPHost != "" {
+	// An omitted host is a partial update, including port-only changes.
+	if _, sentHost := sentFields["smtp_host"]; sentHost && req.SMTPHost == "" && previousSettings.SMTPHost != "" {
 		req.SMTPHost = previousSettings.SMTPHost
 		req.SMTPPort = previousSettings.SMTPPort
 		req.SMTPUsername = previousSettings.SMTPUsername

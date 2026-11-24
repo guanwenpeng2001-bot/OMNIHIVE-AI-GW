@@ -215,6 +215,47 @@ describe('subscription route guard (opt-out flag)', () => {
   })
 })
 
+describe('featureFlag route guard enforcement [P1-3]', () => {
+  beforeEach(() => {
+    authStore.isAuthenticated = true
+    authStore.isAdmin = false
+    authStore.isSimpleMode = false
+    appStore.publicSettingsLoaded = true
+    appStore.fetchPublicSettings.mockReset()
+  })
+
+  it.each([
+    ['availableChannels', '/available-channels', { available_channels_enabled: false }],
+    ['availableChannels (unset)', '/available-channels', {}],
+    ['channelMonitor', '/monitor', { channel_monitor_enabled: false }],
+    ['affiliate', '/affiliate', { affiliate_enabled: false }],
+    ['affiliate (unset)', '/affiliate', {}]
+  ])('redirects disabled %s route (%s) to /dashboard', async (flagName, path, settings) => {
+    const featureFlag = flagName.split(' ')[0]
+    appStore.cachedPublicSettings = settings
+
+    const { navigation, next } = runGuard({ featureFlag }, path)
+    await navigation
+
+    expect(next).toHaveBeenCalledOnce()
+    expect(next).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it.each([
+    ['availableChannels', '/available-channels', { available_channels_enabled: true }],
+    ['channelMonitor', '/monitor', { channel_monitor_enabled: true }],
+    ['affiliate', '/affiliate', { affiliate_enabled: true }]
+  ])('allows enabled %s route (%s)', async (featureFlag, path, settings) => {
+    appStore.cachedPublicSettings = settings
+
+    const { navigation, next } = runGuard({ featureFlag }, path)
+    await navigation
+
+    expect(next).toHaveBeenCalledOnce()
+    expect(next).toHaveBeenCalledWith()
+  })
+})
+
 
 describe('mandatory compliance route gate', () => {
   beforeEach(() => {
@@ -228,6 +269,18 @@ describe('mandatory compliance route gate', () => {
     complianceStore.requireAcknowledgement.mockReset().mockImplementation(() => {
       complianceStore.status = { required: true }
     })
+  })
+
+  it.each([
+    ['/admin/orders', { requiresPayment: true }, { payment_enabled: false }],
+    ['/admin/prompt-audit', { requiresRiskControl: true }, { risk_control_enabled: false }],
+    ['/admin/affiliates/invites', { featureFlag: 'affiliate' }, { affiliate_enabled: false }]
+  ] as const)('takes the administrator to settings for disabled %s', async (path, guard, flags) => {
+    appStore.cachedPublicSettings = flags
+    appStore.publicSettingsLoaded = true
+    const { navigation, next } = runGuard({ requiresAdmin: true, ...guard }, path)
+    await navigation
+    expect(next).toHaveBeenCalledWith('/admin/settings')
   })
 
   it('waits for acknowledgement status and gates unaccepted admins', async () => {

@@ -150,7 +150,7 @@ describe('ScopedAuditView & OperationalSignals Workbench', () => {
     }))
     const wrapper = mount(OperationalSignals)
     await flushPromises()
-    await wrapper.findAll('button').find(button => button.text().includes('发布状态事件'))!.trigger('click')
+    await wrapper.findAll('button').find(button => button.text().includes('adminPlatform.ops.publishIncident'))!.trigger('click')
     await flushPromises()
     expect(mockGet).toHaveBeenCalledWith('/api/v2/public/status', expect.any(Object))
     expect(document.body.textContent + wrapper.text()).toContain('Model Inference')
@@ -642,7 +642,10 @@ describe('ScopedAuditView & OperationalSignals Workbench', () => {
         }
       })
 
-      const opsWrapper = mount(OperationalSignals)
+      const opsWrapper = mount(OperationalSignals, {
+        global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } } }
+      })
+      expect(opsWrapper.findComponent(CatalogVerificationWorkbench).exists()).toBe(false)
       await flushPromises()
       expect(
         opsWrapper.get('[data-testid="ops-relocated-catalog-workbench-link"]').attributes('href')

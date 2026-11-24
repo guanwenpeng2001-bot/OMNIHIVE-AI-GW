@@ -281,3 +281,31 @@ func TestAdminCreateCredentialDraftUsesAtomicWriterAndOrdinaryCreateIsUnchanged(
 		}
 	}
 }
+
+func TestAccountCredentialDraftBindsReviewedCredentialRevision(t *testing.T) {
+	pending, _ := newAuthPendingIdentityServiceTestClient(t)
+	ctx := t.Context()
+	draft, err := pending.IssueAccountCredentialDraft(ctx, "browser", PlatformOpenAI, AccountTypeOAuth, map[string]any{"access_token": "fixture-new-access"})
+	require.NoError(t, err)
+	review := func(revision, credentialRevision string) (*AccountCredentialDraft, error) {
+		return pending.ReviewAccountCredentialDraft(WithCredentialRevision(ctx, credentialRevision), draft.Reference, "browser", revision, "same-settings")
+	}
+	first, err := review(draft.Revision, "first-credential-revision")
+	require.NoError(t, err)
+	retry, err := review(draft.Revision, "first-credential-revision")
+	require.NoError(t, err)
+	require.Equal(t, first.Revision, retry.Revision)
+
+	_, err = review(draft.Revision, "second-credential-revision")
+	require.ErrorIs(t, err, ErrAccountCredentialDraftConflict)
+	second, err := review(first.Revision, "second-credential-revision")
+	require.NoError(t, err)
+	require.NotEqual(t, first.Revision, second.Revision)
+	_, err = pending.ConfirmAccountCredentialDraft(ctx, draft.Reference, "browser", first.Revision, "same-settings", createCredentialDraftTestAccount)
+	require.ErrorIs(t, err, ErrAccountCredentialDraftConflict)
+	_, err = pending.ConfirmAccountCredentialDraft(ctx, draft.Reference, "browser", second.Revision, "same-settings", func(txCtx context.Context, _ *Account) (int64, error) {
+		require.Equal(t, "second-credential-revision", ExpectedCredentialRevision(txCtx))
+		return 42, nil
+	})
+	require.NoError(t, err)
+}

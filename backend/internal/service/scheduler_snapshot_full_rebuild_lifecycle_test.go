@@ -7,6 +7,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
@@ -611,6 +612,46 @@ func TestSchedulerFullRebuildSimpleModePreservesRegistryWithoutLifecycleAuthorit
 		_, published := cache.counts(bucket)
 		require.Equal(t, 1, published, bucket.String())
 	}
+}
+
+func TestSchedulerGroupChangedOutboxBusyBucketBacksOffUntilPublished(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		bucket := SchedulerBucket{GroupID: 2, Platform: PlatformOpenRouter, Mode: SchedulerModeSingle}
+		cache := newFullRebuildLifecycleCache()
+		cache.lockBusyOnce[bucket.String()] = true
+		groups := &groupLifecycleTestGroupRepo{group: &Group{ID: 2, Status: StatusActive, Hydrated: true}}
+		outbox := &outboxCleanupRepo{
+			events: []SchedulerOutboxEvent{
+				{ID: 11, EventType: SchedulerOutboxEventGroupChanged, GroupID: ptrInt64(2)},
+				{ID: 12, EventType: SchedulerOutboxEventAccountLastUsed},
+			},
+			rows: []int64{11, 12}, lockAcquired: true,
+		}
+		svc := NewSchedulerSnapshotService(cache, outbox, &groupLifecycleTestAccountRepo{}, groups, nil)
+		go svc.runOutboxWorker(time.Second)
+		defer close(svc.stopCh)
+		synctest.Wait()
+
+		// Contend on two consecutive attempts. Every normal poll tick between
+		// retries must leave the batch pending without redoing the group work.
+		cache.lockBusyOnce[bucket.String()] = true
+		for attempt := 1; attempt <= 2; attempt++ {
+			time.Sleep(outboxRebuildRetryDelay(attempt) - time.Second)
+			synctest.Wait()
+			require.Equal(t, attempt, groups.callCount())
+			require.Zero(t, cache.currentWatermark())
+			require.Equal(t, []int64{11, 12}, outbox.rows)
+			_, published := cache.counts(bucket)
+			require.Zero(t, published)
+			time.Sleep(time.Second)
+			synctest.Wait()
+		}
+
+		_, published := cache.counts(bucket)
+		require.Equal(t, 1, published)
+		require.Equal(t, []int64{12}, cache.watermarkWrites)
+		require.Empty(t, outbox.rows)
+	})
 }
 
 func TestSchedulerFullRebuildFreshReopenLockBusyRetriesWithoutBlockingOrdinaryTasks(t *testing.T) {

@@ -357,6 +357,7 @@ describe('Public portal and model plaza', () => {
 
     expect(wrapper.text()).toContain('x-provider: openai')
     expect(wrapper.text()).not.toContain('x-provider: gpt-4o')
+    expect(wrapper.text()).not.toContain('BYOK credentials credentials')
   })
 
   it('sanitizes documentation_url, avoids duplicate reference_price, fixes training no-substring match, and uses dynamic siteName in PublicModelDetailView', async () => {
@@ -425,5 +426,140 @@ describe('Public portal and model plaza', () => {
 
     // Dynamic brand siteName reflected in document.title
     expect(document.title).toBe('GPT Image 1 - Acme AI')
+  })
+
+  it('constrains estimator controls, filter chips, tables, and long model IDs for 390px mobile viewports across pricing, plaza, and detail views (HF-3)', async () => {
+    const longModel = {
+      id: 'm_long_identifier_909f522e3d98067bf52f7e0bb06fdfe8',
+      provider: 'nvidia-nim-enterprise',
+      model: 'nvidia/llama-3.1-nemotron-ultra-253b-v1-instruct-fp8-dynamic',
+      display_name: 'Nemotron 3 Nano 30B A3B Reasoning Extended Preview',
+      modalities: ['text'],
+      actions: ['text.chat'],
+      protocols: ['openai_chat'],
+      availability_state: 'live',
+      route_state: 'eligible',
+      price_state: 'priced',
+      input_rate: { currency: 'USD', amount: '1.25', per: '1000000', unit: 'input_token' },
+      output_rate: { currency: 'USD', amount: '5.00', per: '1000000', unit: 'output_token' },
+      billing: {
+        state: 'priced',
+        reference_price: {
+          source: 'pi-ai',
+          input_rate: { currency: 'USD', amount: '1.50', per: '1000000', unit: 'input_token' },
+          output_rate: { currency: 'USD', amount: '6.00', per: '1000000', unit: 'output_token' }
+        }
+      },
+      reference_price: {
+        source: 'pi-ai',
+        input_rate: { currency: 'USD', amount: '1.50', per: '1000000', unit: 'input_token' },
+        output_rate: { currency: 'USD', amount: '6.00', per: '1000000', unit: 'output_token' }
+      }
+    }
+
+    apiGetMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/v2/public/models/')) {
+        return {
+          data: {
+            model: longModel,
+            aliases: ['nvidia/llama-3.1-nemotron-ultra-253b-v1-instruct-fp8-alias'],
+            capabilities: [
+              {
+                action: 'text.chat',
+                protocol: 'openai_chat',
+                state: 'fresh',
+                tools: 'supported',
+                stream: 'supported'
+              }
+            ],
+            reference_price: longModel.reference_price
+          }
+        }
+      }
+      return {
+        data: {
+          items: [longModel],
+          next_cursor: null,
+          as_of: '2026-11-23T00:00:00Z'
+        }
+      }
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/pricing', component: PublicPricingView },
+        { path: '/model-plaza', component: PublicModelsView },
+        { path: '/model-plaza/:id(.+)', name: 'PublicModelDetail', component: PublicModelDetailView },
+        { path: '/:pathMatch(.*)*', component: { template: '<div />' } }
+      ]
+    })
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    // 1. PublicPricingView
+    await router.push('/pricing')
+    await router.isReady()
+    const pricingWrapper = mount(PublicPricingView, {
+      global: { plugins: [router, i18n], stubs: { SiteICPFooter: true, LocaleSwitcher: true } }
+    })
+    wrappers.push(pricingWrapper)
+    await flushPromises()
+
+    const estimator = pricingWrapper.get('[data-testid="pricing-estimator"]')
+    expect(estimator.classes()).toEqual(expect.arrayContaining(['min-w-0', 'max-w-full']))
+    const estimatorSelect = pricingWrapper.get('[data-testid="pricing-estimator-model-select"]')
+    expect(estimatorSelect.classes()).toEqual(
+      expect.arrayContaining(['w-full', 'min-w-0', 'max-w-full', 'truncate'])
+    )
+    for (const input of estimator.findAll('input')) {
+      expect(input.classes()).toEqual(expect.arrayContaining(['w-full', 'min-w-0', 'max-w-full']))
+    }
+    expect(
+      pricingWrapper.get('[data-testid="pricing-availability-filter"]').classes()
+    ).toContain('flex-wrap')
+    expect(
+      pricingWrapper.get('[data-testid="billing-filter-pills-row"]').classes()
+    ).toEqual(expect.arrayContaining(['flex-wrap', 'min-w-0', 'max-w-full']))
+    expect(
+      pricingWrapper.get('[data-testid="modality-filter-pills-row"]').classes()
+    ).toContain('flex-wrap')
+
+    const pricingTableRegion = pricingWrapper.get('[role="region"][aria-label="Public pricing rate table"]')
+    expect(pricingTableRegion.classes()).toEqual(
+      expect.arrayContaining(['overflow-x-auto', 'min-w-0', 'max-w-full'])
+    )
+    expect(
+      pricingWrapper.get('[data-testid="pricing-reference-rate-input"]').classes()
+    ).toEqual(expect.arrayContaining(['max-w-full', 'break-words']))
+
+    // 2. PublicModelsView
+    await router.push('/model-plaza')
+    const plazaWrapper = mount(PublicModelsView, {
+      global: { plugins: [router, i18n], stubs: { SiteICPFooter: true, LocaleSwitcher: true } }
+    })
+    wrappers.push(plazaWrapper)
+    await flushPromises()
+
+    const plazaTableRegion = plazaWrapper.get('[role="region"][aria-label="Model plaza table"]')
+    expect(plazaTableRegion.classes()).toEqual(
+      expect.arrayContaining(['overflow-x-auto', 'min-w-0', 'max-w-full'])
+    )
+    expect(plazaWrapper.get('[data-testid="filter-region-group"]').classes()).toEqual(
+      expect.arrayContaining(['flex-wrap', 'min-w-0', 'max-w-full'])
+    )
+
+    // 3. PublicModelDetailView
+    await router.push(`/model-plaza/${encodeURIComponent(longModel.id)}`)
+    const detailWrapper = mount(PublicModelDetailView, {
+      global: { plugins: [router, i18n], stubs: { SiteICPFooter: true, LocaleSwitcher: true } }
+    })
+    wrappers.push(detailWrapper)
+    await flushPromises()
+
+    const slugCode = detailWrapper.get('header code')
+    expect(slugCode.classes()).toEqual(expect.arrayContaining(['min-w-0', 'max-w-full', 'break-all']))
+    expect(detailWrapper.get('[data-testid="detail-section-quickstart"]').classes()).toEqual(
+      expect.arrayContaining(['min-w-0', 'max-w-full', 'overflow-x-auto'])
+    )
   })
 })

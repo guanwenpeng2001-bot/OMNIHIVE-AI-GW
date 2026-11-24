@@ -35,13 +35,15 @@ export type AdminCatalogBillingState =
   | 'error'
   | 'unknown'
 
-export type AdminCatalogQuickFilter =
-  | 'routable_but_unpriced'
-  | 'discovered_not_enabled'
-  | 'listed_unrouted'
-  | 'group_price_conflict'
-  | 'pi_only'
-  | 'stale'
+const quickFilters = [
+  'routable_but_unpriced',
+  'discovered_not_enabled',
+  'listed_unrouted',
+  'group_price_conflict',
+  'pi_only',
+  'stale'
+] as const
+export type AdminCatalogQuickFilter = typeof quickFilters[number]
 
 export interface AdminCatalogRate {
   currency: string
@@ -111,6 +113,7 @@ export interface AdminCatalogModelSummary {
 }
 
 export interface AdminCatalogModelPage {
+  quick_filter_counts: Partial<Record<AdminCatalogQuickFilter, number>>
   catalog_version: string
   as_of: string | null
   scope_version: string | null
@@ -456,7 +459,14 @@ export function normalizeAdminCatalogModelPage(raw: unknown): AdminCatalogModelP
   const unwrapped = unwrapEnvelope<Record<string, unknown>>(raw)
   const rec = asRecord(unwrapped) ?? {}
   const itemsRaw = Array.isArray(rec.items) ? rec.items : []
+  const counts = asRecord(rec.quick_filter_counts)
+  const quickFilterCounts: AdminCatalogModelPage['quick_filter_counts'] = {}
+  for (const key of quickFilters) {
+    const value = asNullableNonNegativeInt(counts?.[key])
+    if (value !== null) quickFilterCounts[key] = value
+  }
   return {
+    quick_filter_counts: quickFilterCounts,
     catalog_version: asNonEmptyString(rec.catalog_version) ?? 'unknown',
     as_of: asNonEmptyString(rec.as_of),
     scope_version: asNonEmptyString(rec.scope_version),

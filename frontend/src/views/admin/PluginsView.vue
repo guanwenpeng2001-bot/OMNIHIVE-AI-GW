@@ -3,34 +3,28 @@
     <section class="plugins-page space-y-4">
       <header class="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 class="text-2xl font-bold tracking-tight">{{ isZh ? '插件与扩展能力管理' : 'Plugins & Extension Inventory' }}</h1>
+          <h1 class="text-2xl font-bold tracking-tight">{{ t('adminPlatform.plugins.pluginsExtensionInventory') }}</h1>
           <p class="mt-1 text-sm text-[var(--muted-foreground)]">
             {{
-              isZh
-                ? '管理宿主动态传输插件（.ohplugin、.s2plugin）及已签名的网关扩展能力包清单'
-                : 'Manage host transport plugins (.ohplugin, .s2plugin) and verified signed extension capability packages'
+              t('adminPlatform.plugins.manageHostTransportPluginsOhpluginS2pluginAnd')
             }}
           </p>
         </div>
         <button type="button" class="btn btn-secondary btn-sm" :disabled="loading || actionBusy" @click="loadPlugins">
           <Icon name="refresh" size="sm" :class="{ 'animate-spin': loading }" />
-          {{ isZh ? '刷新列表' : 'Refresh' }}
+          {{ t('adminPlatform.plugins.refresh') }}
         </button>
       </header>
 
       <div class="plugin-card space-y-2 p-4 text-sm">
         <p>
           {{
-            isZh
-              ? '现有传输能力：OpenAI OAuth 出站传输与已授权的适配器扩展动作；标准 API Key 请求路径保持隔离，停用插件后新请求立即恢复宿主原生转发路径。'
-              : 'Active host capabilities cover OpenAI OAuth outbound transport and authorized adapter actions. Standard API Key traffic remains isolated and reverts to native host routing when disabled.'
+            t('adminPlatform.plugins.activeHostCapabilitiesCoverOpenAIOAuthOutbound')
           }}
         </p>
         <p class="text-[var(--muted-foreground)]">
           {{
-            isZh
-              ? '安装、启停、卸载与配置保存等敏感操作均受宿主二次验证（TOTP Step-Up）保护。'
-              : 'Sensitive lifecycle actions including installation, activation, removal, and config writes require TOTP step-up verification.'
+            t('adminPlatform.plugins.sensitiveLifecycleActionsIncludingInstallationActivationRemoval')
           }}
         </p>
       </div>
@@ -44,12 +38,10 @@
         @dragleave.prevent="dragDepth = Math.max(0, dragDepth - 1)"
         @drop.prevent="handleDrop"
       >
-        <h2 class="font-semibold">{{ isZh ? '安装宿主插件包' : 'Install Plugin Archive' }}</h2>
+        <h2 class="font-semibold">{{ t('adminPlatform.plugins.installPluginArchive') }}</h2>
         <p class="mt-2 text-sm text-[var(--muted-foreground)]">
           {{
-            isZh
-              ? '选择或拖入单个 .ohplugin 或兼容的 .s2plugin 归档包，宿主将自动校验清单协议、版本范围、哈希摘要与发布者签名。'
-              : 'Select or drop a single .ohplugin (or legacy .s2plugin) archive. The host verifies manifest schema, protocol version, SHA-256 digest, and publisher signature.'
+            t('adminPlatform.plugins.selectOrDropASingleOhpluginOr')
           }}
         </p>
         <input
@@ -57,39 +49,39 @@
           class="hidden"
           type="file"
           accept=".ohplugin,.s2plugin"
-          :aria-label="isZh ? '选择 .ohplugin 或 .s2plugin 文件' : 'Select .ohplugin or .s2plugin archive'"
+          :aria-label="t('adminPlatform.plugins.selectOhpluginOrS2pluginArchive')"
           @change="handleFileSelected"
         />
         <button type="button" class="btn btn-primary btn-sm mt-3" :disabled="actionBusy" @click="fileInput?.click()">
           <Icon name="upload" size="sm" />
           {{
             uploading
-              ? (isZh ? '正在安装…' : 'Installing...')
-              : (isZh ? '选择 .ohplugin 或 .s2plugin 文件' : 'Select .ohplugin / .s2plugin file')
+              ? (t('adminPlatform.plugins.installing'))
+              : (t('adminPlatform.plugins.selectOhpluginS2pluginFile'))
           }}
         </button>
         <span v-if="dragDepth > 0" class="ml-3 text-sm text-[var(--brand-text)]" role="status">
-          {{ isZh ? '松开以安装插件' : 'Release to install archive' }}
+          {{ t('adminPlatform.plugins.releaseToInstallArchive') }}
         </span>
       </section>
 
       <section aria-labelledby="installed-plugins-title" :aria-busy="loading">
         <h2 id="installed-plugins-title" class="mb-3 font-semibold">
-          {{ isZh ? '已安装传输插件' : 'Installed Transport Plugins' }}
+          {{ t('adminPlatform.plugins.installedTransportPlugins') }}
         </h2>
         <div v-if="pluginLoadError" class="plugin-card flex flex-wrap items-center justify-between gap-3 p-4 text-sm text-[var(--bad-text)]" role="alert">
           <span>{{ pluginLoadError }}</span>
           <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="loadPlugins">
-            {{ isZh ? '重试加载' : 'Retry' }}
+            {{ t('adminPlatform.plugins.retry') }}
           </button>
         </div>
         <p v-else-if="loading && !plugins.length" class="plugin-card p-8 text-center text-sm text-[var(--muted-foreground)]" role="status">
-          {{ isZh ? '正在加载插件…' : 'Loading installed plugins...' }}
+          {{ t('adminPlatform.plugins.loadingInstalledPlugins') }}
         </p>
         <div v-else-if="!plugins.length" class="plugin-card p-8 text-center">
           <p class="font-semibold">{{ t('admin.plugins.empty') }}</p>
           <p class="mt-2 text-sm text-[var(--muted-foreground)]">
-            {{ isZh ? '选择或拖入本机的 .ohplugin 或 .s2plugin 文件进行安装。' : 'Upload a signed .ohplugin or .s2plugin package above to register a transport plugin.' }}
+            {{ t('adminPlatform.plugins.uploadASignedOhpluginOrS2pluginPackage') }}
           </p>
         </div>
         <div v-if="plugins.length" class="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -99,38 +91,38 @@
                 <div class="flex flex-wrap items-center gap-2">
                   <h3 class="break-words font-semibold">{{ plugin.name }}</h3>
                   <span class="plugin-status" :class="stateClass(plugin)">
-                    <span aria-hidden="true">●</span>{{ pluginState(plugin) }}
+                    <span aria-hidden="true">●</span>{{ t('adminPlatform.plugins.state.' + pluginState(plugin)) }}
                   </span>
                 </div>
-                <p class="mt-1 break-all font-mono text-xs text-[var(--muted-foreground)]">{{ plugin.plugin_key }} · 版本 {{ plugin.version }} · {{ plugin.author || '未知作者' }}</p>
+                <p class="mt-1 break-all font-mono text-xs text-[var(--muted-foreground)]">{{ plugin.plugin_key }} · {{ t('adminPlatform.plugins.version') }} {{ plugin.version }} · {{ plugin.author || t('adminPlatform.plugins.unknownAuthor') }}</p>
                 <p v-if="plugin.description" class="mt-2 break-words text-sm text-[var(--muted-foreground)]">{{ plugin.description }}</p>
               </div>
               <button type="button" class="btn btn-secondary btn-sm shrink-0" :disabled="actionBusy" @click="openConfiguration(plugin)">{{ t('admin.plugins.configure') }}</button>
             </div>
             <div class="grid gap-3 text-sm sm:grid-cols-2">
               <div>
-                <h4 class="font-semibold">版本兼容性</h4>
+                <h4 class="font-semibold">{{ t('adminPlatform.plugins.compatibility') }}</h4>
                 <p class="mt-1" :class="!plugin.compatibility.compatible ? 'text-[var(--bad-text)]' : !plugin.compatibility.tested ? 'text-[var(--warn-text)]' : 'text-[var(--ok-text)]'">{{ t(`admin.plugins.${plugin.compatibility.status}`) }}</p>
-                <p class="mt-1 break-words text-xs text-[var(--muted-foreground)]">宿主 {{ plugin.compatibility.current_omnihive_version ?? plugin.compatibility.current_sub2api_version }} · 要求 {{ plugin.compatibility.required_omnihive_version ?? plugin.compatibility.required_sub2api_version }} · 建议 {{ (plugin.compatibility.recommended_omnihive_version ?? plugin.compatibility.recommended_sub2api_version) || '未指定' }}</p>
+                <p class="mt-1 break-words text-xs text-[var(--muted-foreground)]">{{ t('adminPlatform.plugins.host') }} {{ plugin.compatibility.current_omnihive_version ?? plugin.compatibility.current_sub2api_version }} · {{ t('adminPlatform.plugins.required') }} {{ plugin.compatibility.required_omnihive_version ?? plugin.compatibility.required_sub2api_version }} · {{ t('adminPlatform.plugins.recommended') }} {{ (plugin.compatibility.recommended_omnihive_version ?? plugin.compatibility.recommended_sub2api_version) || t('adminPlatform.plugins.unspecified') }}</p>
               </div>
               <div>
-                <h4 class="font-semibold">运行状态</h4>
-                <p class="mt-1">{{ plugin.runtime_healthy ? '运行正常' : '未运行' }} · 包签名：{{ plugin.signature_status === 'trusted' ? '已受信任' : '未签名' }}</p>
+                <h4 class="font-semibold">{{ t('adminPlatform.plugins.runtime') }}</h4>
+                <p class="mt-1">{{ plugin.runtime_healthy ? t('adminPlatform.plugins.healthy') : t('adminPlatform.plugins.stopped') }} · {{ t('adminPlatform.plugins.signature') }} {{ plugin.signature_status === 'trusted' ? t('adminPlatform.plugins.trusted') : t('adminPlatform.plugins.unsigned') }}</p>
                 <p v-if="plugin.last_error" class="mt-1 break-words text-xs text-[var(--bad-text)]">{{ plugin.last_error }}</p>
-                <p v-else-if="pluginTests[plugin.id]" class="mt-1 break-words text-xs" :class="pluginTests[plugin.id].success ? 'text-[var(--ok-text)]' : 'text-[var(--bad-text)]'" role="status">{{ pluginTests[plugin.id].success ? '探活通过' : '探活失败' }} · {{ pluginTests[plugin.id].latency_ms }} ms · {{ pluginTests[plugin.id].message }}</p>
-                <p v-else class="mt-1 break-words text-xs text-[var(--muted-foreground)]">{{ plugin.runtime_message || '尚未测试' }}</p>
+                <p v-else-if="pluginTests[plugin.id]" class="mt-1 break-words text-xs" :class="pluginTests[plugin.id].success ? 'text-[var(--ok-text)]' : 'text-[var(--bad-text)]'" role="status">{{ pluginTests[plugin.id].success ? t('adminPlatform.plugins.probePassed') : t('adminPlatform.plugins.probeFailed') }} · {{ pluginTests[plugin.id].latency_ms }} ms · {{ pluginTests[plugin.id].message }}</p>
+                <p v-else class="mt-1 break-words text-xs text-[var(--muted-foreground)]">{{ plugin.runtime_message || t('adminPlatform.plugins.untested') }}</p>
               </div>
             </div>
             <div class="mt-auto">
-              <label :for="`plugin-rollout-${plugin.id}`" class="block text-sm">OAuth 流量比例 <b class="font-mono tabular-nums">{{ rolloutValues[plugin.id] ?? currentRollout(plugin) }}%</b><span v-if="hasEnabledBinding(plugin)" class="text-[var(--muted-foreground)]"> · 停用后可调整</span></label>
+              <label :for="`plugin-rollout-${plugin.id}`" class="block text-sm">{{ t('adminPlatform.plugins.traffic') }} <b class="font-mono tabular-nums">{{ rolloutValues[plugin.id] ?? currentRollout(plugin) }}%</b><span v-if="hasEnabledBinding(plugin)" class="text-[var(--muted-foreground)]"> · {{ t('adminPlatform.plugins.adjust') }}</span></label>
               <input :id="`plugin-rollout-${plugin.id}`" :value="rolloutValues[plugin.id] ?? currentRollout(plugin)" :style="{ '--rollout': `${rolloutValues[plugin.id] ?? currentRollout(plugin)}%` }" class="plugin-range mt-3" type="range" min="1" max="100" step="1" :disabled="hasEnabledBinding(plugin) || actionBusy" @input="setRollout(plugin.id, $event)" />
             </div>
             <div class="flex flex-wrap gap-2">
               <button type="button" class="btn btn-secondary btn-sm" :disabled="actionBusy" @click="testPlugin(plugin)">{{ t('admin.plugins.test') }}</button>
               <button v-if="hasEnabledBinding(plugin)" type="button" class="btn btn-secondary btn-sm" :disabled="actionBusy" @click="disablePlugin(plugin)">{{ t('admin.plugins.disable') }}</button>
               <button v-else type="button" class="btn btn-primary btn-sm" :disabled="actionBusy || plugin.state === 'starting' || !plugin.compatibility.compatible" @click="enablePlugin(plugin)">{{ t('admin.plugins.enable') }}</button>
-              <button type="button" class="btn btn-secondary btn-sm" :disabled="actionBusy || hasEnabledBinding(plugin) || plugin.state === 'starting'" :title="hasEnabledBinding(plugin) ? '请先停用插件，再执行卸载' : '卸载插件及其配置'" @click="uninstallPlugin(plugin)">{{ t('admin.plugins.uninstall') }}</button>
-              <span v-if="busyID === plugin.id" class="self-center text-xs text-[var(--muted-foreground)]" role="status">正在处理…</span>
+              <button type="button" class="btn btn-secondary btn-sm" :disabled="actionBusy || hasEnabledBinding(plugin) || plugin.state === 'starting'" :title="hasEnabledBinding(plugin) ? t('adminPlatform.plugins.disableFirst') : t('adminPlatform.plugins.uninstall')" @click="uninstallPlugin(plugin)">{{ t('admin.plugins.uninstall') }}</button>
+              <span v-if="busyID === plugin.id" class="self-center text-xs text-[var(--muted-foreground)]" role="status">{{ t('adminPlatform.plugins.busy') }}</span>
             </div>
           </article>
         </div>
@@ -140,14 +132,12 @@
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 id="gateway-extensions-title" class="font-semibold">
-              {{ isZh ? '已签名扩展能力清单' : 'Signed Extension Capability Inventory' }}
+              {{ t('adminPlatform.plugins.signedExtensionCapabilityInventory') }}
               <span class="ml-1.5 font-mono text-xs text-[var(--muted-foreground)]">({{ extensions.length }})</span>
             </h2>
             <p class="mt-1 text-sm text-[var(--muted-foreground)]">
               {{
-                isZh
-                  ? '实时读取宿主已验证的扩展包身份、SDK 协议版本、归档哈希摘要与已授权网关动作（无本地模拟回退）。'
-                  : 'Live inventory of host-verified extension packages, SDK versions, archive digests, and authorized runtime actions.'
+                t('adminPlatform.plugins.liveInventoryOfHostVerifiedExtensionPackages')
               }}
             </p>
           </div>
@@ -161,7 +151,7 @@
         >
           <span>{{ extensionLoadError }}</span>
           <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="loadPlugins">
-            {{ isZh ? '重试加载' : 'Retry' }}
+            {{ t('adminPlatform.plugins.retry') }}
           </button>
         </div>
         <p
@@ -169,7 +159,7 @@
           class="py-6 text-center text-sm text-[var(--muted-foreground)]"
           role="status"
         >
-          {{ isZh ? '正在读取扩展能力清单…' : 'Loading extension capability inventory...' }}
+          {{ t('adminPlatform.plugins.loadingExtensionCapabilityInventory') }}
         </p>
         <div
           v-else-if="!extensions.length"
@@ -177,13 +167,11 @@
           class="mt-3 rounded-lg border border-dashed border-[var(--border)] p-6 text-center"
         >
           <p class="text-sm font-medium">
-            {{ isZh ? '当前无已注册的扩展能力包' : 'No signed extension capability packages registered' }}
+            {{ t('adminPlatform.plugins.noSignedExtensionCapabilityPackagesRegistered') }}
           </p>
           <p class="mt-1 text-xs text-[var(--muted-foreground)]">
             {{
-              isZh
-                ? '安装并验证包含可信能力声明的 .ohplugin 扩展包后，其授权动作与哈希摘要将自动显示在此清单中。'
-                : 'Install and verify a signed .ohplugin archive declaring host capabilities to populate this inventory.'
+              t('adminPlatform.plugins.installAndVerifyASignedOhpluginArchive')
             }}
           </p>
         </div>
@@ -205,7 +193,7 @@
                 <p class="mt-1 break-all font-mono text-xs text-[var(--muted-foreground)]">
                   SDK v{{ extension.sdk_version }}
                   <template v-if="extension.publisher_id">
-                    · {{ isZh ? '发布者' : 'Publisher' }} {{ extension.publisher_id }}
+                    · {{ t('adminPlatform.plugins.publisher') }} {{ extension.publisher_id }}
                   </template>
                 </p>
               </div>
@@ -215,13 +203,13 @@
               <span class="truncate text-[var(--muted-foreground)]" :title="extension.digest">
                 SHA-256: {{ extension.digest }}
               </span>
-              <CopyButton :value="extension.digest" size="xs" :aria-label="isZh ? '复制包哈希摘要' : 'Copy archive digest'" />
+              <CopyButton :value="extension.digest" size="xs" :aria-label="t('adminPlatform.plugins.copyArchiveDigest')" />
             </div>
 
             <div class="grid gap-3 text-xs sm:grid-cols-2">
               <div>
                 <h4 class="font-semibold text-[var(--foreground)]">
-                  {{ isZh ? '已授权运行时动作' : 'Authorized Actions' }}
+                  {{ t('adminPlatform.plugins.authorizedActions') }}
                 </h4>
                 <div v-if="extension.authorized_actions?.length" class="mt-1.5 flex flex-wrap gap-1">
                   <span
@@ -233,13 +221,13 @@
                   </span>
                 </div>
                 <p v-else class="mt-1 text-[var(--muted-foreground)]">
-                  {{ isZh ? '无激活授权动作' : 'No active authorized actions' }}
+                  {{ t('adminPlatform.plugins.noActiveAuthorizedActions') }}
                 </p>
               </div>
 
               <div>
                 <h4 class="font-semibold text-[var(--foreground)]">
-                  {{ isZh ? '声明能力绑定' : 'Declared Capabilities' }}
+                  {{ t('adminPlatform.plugins.declaredCapabilities') }}
                 </h4>
                 <ul v-if="extension.capabilities?.length" class="mt-1.5 space-y-1 font-mono text-[11px] text-[var(--muted-foreground)]">
                   <li v-for="(cap, idx) in extension.capabilities" :key="`${cap.id}-${idx}`">
@@ -247,7 +235,7 @@
                   </li>
                 </ul>
                 <p v-else class="mt-1 text-[var(--muted-foreground)]">
-                  {{ isZh ? '未声明特定平台能力' : 'No platform capabilities declared' }}
+                  {{ t('adminPlatform.plugins.noPlatformCapabilitiesDeclared') }}
                 </p>
               </div>
             </div>
@@ -255,35 +243,35 @@
         </div>
       </section>
 
-      <BaseDialog :show="configPlugin !== null" :title="`${configPlugin?.name || ''} · ${isZh ? '配置' : 'Configure'}`" :width="configMode === 'iframe' ? 'full' : 'wide'" :close-on-escape="!configSaving" :show-close-button="!configSaving" @close="closeConfiguration">
+      <BaseDialog :show="configPlugin !== null" :title="`${configPlugin?.name || ''} · ${t('adminPlatform.plugins.configure')}`" :width="configMode === 'iframe' ? 'full' : 'wide'" :close-on-escape="!configSaving" :show-close-button="!configSaving" @close="closeConfiguration">
         <div v-if="configMode === 'iframe'" class="space-y-3">
           <div class="flex justify-end">
             <button type="button" class="btn btn-secondary btn-sm" :disabled="configSaving" @click="openJsonConfiguration">
-              {{ isZh ? '切换 JSON 编辑器' : 'Switch to JSON Editor' }}
+              {{ t('adminPlatform.plugins.switchToJSONEditor') }}
             </button>
           </div>
           <div class="relative min-h-[520px] overflow-hidden bg-[var(--surface-2)]" :style="{ height: `${iframeHeight}px` }">
             <p v-if="uiLoading" class="absolute inset-0 flex items-center justify-center text-sm text-[var(--muted-foreground)]" role="status">{{ t('admin.plugins.loadingUI') }}</p>
-            <iframe v-if="uiSession" ref="pluginFrame" :src="uiSession.url" sandbox="allow-scripts" referrerpolicy="no-referrer" class="h-full w-full border-0 bg-[var(--card)]" :title="`${configPlugin?.name || ''} 配置`" @load="handlePluginFrameLoad" @error="openJsonConfiguration" />
+            <iframe v-if="uiSession" ref="pluginFrame" :src="uiSession.url" sandbox="allow-scripts" referrerpolicy="no-referrer" class="h-full w-full border-0 bg-[var(--card)]" :title="t('adminPlatform.plugins.configTitle', { name: configPlugin?.name || '' })" @load="handlePluginFrameLoad" @error="openJsonConfiguration" />
           </div>
         </div>
         <div v-else class="space-y-3">
           <p class="text-sm text-[var(--muted-foreground)]">
-            {{ isZh ? '编辑完整 JSON 配置对象并持久化保存，参数由目标插件运行时校验。' : 'Edit the full JSON configuration object. Parameters are validated by the plugin runtime.' }}
+            {{ t('adminPlatform.plugins.editTheFullJSONConfigurationObjectParameters') }}
           </p>
-          <p v-if="jsonLoading" class="text-sm" role="status">{{ isZh ? '正在读取配置…' : 'Loading configuration...' }}</p>
-          <label for="plugin-config-json" class="block text-sm font-medium">{{ isZh ? '配置 JSON 对象' : 'JSON Configuration Object' }}</label>
+          <p v-if="jsonLoading" class="text-sm" role="status">{{ t('adminPlatform.plugins.loadingConfiguration') }}</p>
+          <label for="plugin-config-json" class="block text-sm font-medium">{{ t('adminPlatform.plugins.jsonConfigurationObject') }}</label>
           <textarea id="plugin-config-json" v-model="jsonDraft" class="input min-h-64 w-full font-mono text-sm" rows="14" spellcheck="false" :disabled="jsonLoading || configSaving || !jsonReady" :aria-invalid="!!jsonError" :aria-describedby="jsonError ? 'plugin-config-error' : undefined" />
           <p v-if="jsonError" id="plugin-config-error" class="break-words text-sm text-[var(--bad-text)]" role="alert">{{ jsonError }}</p>
           <div class="flex flex-wrap gap-2">
             <button type="button" class="btn btn-primary btn-sm" :disabled="jsonLoading || configSaving || !jsonReady" @click="saveJsonConfiguration">
-              {{ configSaving ? (isZh ? '正在保存…' : 'Saving...') : (isZh ? '保存配置' : 'Save Configuration') }}
+              {{ configSaving ? (t('adminPlatform.plugins.saving')) : (t('adminPlatform.plugins.saveConfiguration')) }}
             </button>
             <button v-if="!jsonReady && !jsonLoading" type="button" class="btn btn-secondary btn-sm" @click="openJsonConfiguration">
-              {{ isZh ? '重新读取' : 'Reload' }}
+              {{ t('adminPlatform.plugins.reload') }}
             </button>
             <button type="button" class="btn btn-secondary btn-sm" :disabled="configSaving" @click="closeConfiguration">
-              {{ isZh ? '关闭' : 'Close' }}
+              {{ t('adminPlatform.plugins.close') }}
             </button>
           </div>
         </div>
@@ -318,8 +306,7 @@ interface PluginBridgeMessage {
   message?: unknown
 }
 
-const { t, locale } = useI18n()
-const isZh = computed(() => String(locale?.value ?? 'zh').startsWith('zh'))
+const { t } = useI18n()
 const appStore = useAppStore()
 const pluginStepUp = useStepUp()
 const plugins = ref<PluginInstallation[]>([])
@@ -394,14 +381,14 @@ async function loadPlugins(): Promise<void> {
 async function installFiles(files: FileList | File[] | null | undefined): Promise<void> {
   if (actionBusy.value || !files?.length) return
   if (files.length !== 1) {
-    appStore.showError('一次只能安装一个 .ohplugin 或 .s2plugin 文件。')
+    appStore.showError(t('adminPlatform.plugins.oneFile'))
     return
   }
   const file = files[0]
   const name = file.name.toLowerCase()
   const validExtension = ['.ohplugin', '.s2plugin'].some(ext => name.endsWith(ext) && name.length > ext.length)
   if (!validExtension || file.size <= 0) {
-    appStore.showError('请选择非空的 .ohplugin 或 .s2plugin 文件。')
+    appStore.showError(t('adminPlatform.plugins.emptyFile'))
     return
   }
   uploading.value = true
@@ -462,10 +449,10 @@ async function enablePlugin(plugin: PluginInstallation): Promise<void> {
   if (actionBusy.value || !plugin.compatibility.compatible || plugin.state === 'starting') return
   const acceptUntested = !plugin.compatibility.tested
   const risks = [
-    acceptUntested ? '该插件尚未通过当前宿主版本测试。' : '',
-    plugin.signature_status !== 'trusted' ? '该插件未签名，无法验证发布者身份与包完整性。' : ''
+    acceptUntested ? t('adminPlatform.plugins.untestedRisk') : '',
+    plugin.signature_status !== 'trusted' ? t('adminPlatform.plugins.signatureRisk') : ''
   ].filter(Boolean)
-  if (risks.length && !window.confirm(`${risks.join('\n')}\n确认承担风险并启用 ${plugin.name}？`)) return
+  if (risks.length && !window.confirm(`${risks.join('\n')}\n${t('adminPlatform.plugins.confirmRisk', { name: plugin.name })}`)) return
   await runPluginAction(plugin, () => adminAPI.plugins.enable(plugin.id, rolloutValues.value[plugin.id] || 100, acceptUntested), t('admin.plugins.enableSuccess'))
 }
 
@@ -495,10 +482,10 @@ async function testPlugin(plugin: PluginInstallation): Promise<void> {
 }
 
 function extensionStateLabel(state: string): string {
-  if (state === 'enabled') return isZh.value ? '已启用' : 'Enabled'
-  if (state === 'starting') return isZh.value ? '启动中' : 'Starting'
-  if (state === 'error' || state === 'incompatible') return isZh.value ? '异常' : 'Error'
-  return isZh.value ? '已停用' : 'Disabled'
+  if (state === 'enabled') return t('adminPlatform.plugins.enabled')
+  if (state === 'starting') return t('adminPlatform.plugins.starting')
+  if (state === 'error' || state === 'incompatible') return t('adminPlatform.plugins.error')
+  return t('adminPlatform.plugins.disabled')
 }
 
 function extensionStateClass(state: string): string {
@@ -524,7 +511,7 @@ function resetConfiguration(): void {
 }
 
 function canCloseConfiguration(): boolean {
-  return !configSaving.value && (jsonDraft.value === jsonOriginal.value || window.confirm('配置尚未保存，确认放弃修改？'))
+  return !configSaving.value && (jsonDraft.value === jsonOriginal.value || window.confirm(t('adminPlatform.plugins.discard')))
 }
 
 async function openConfiguration(plugin: PluginInstallation): Promise<void> {
@@ -545,9 +532,9 @@ async function openConfiguration(plugin: PluginInstallation): Promise<void> {
   try {
     const session = await adminAPI.plugins.createUISession(plugin.id)
     if (generation !== configGeneration) return
-    if (!session.url || !session.bridge_token) throw new Error('插件配置界面不可用')
+    if (!session.url || !session.bridge_token) throw new Error(t('adminPlatform.plugins.uiUnavailable'))
     const url = new URL(session.url, window.location.href)
-    if (!['http:', 'https:'].includes(url.protocol) || url.origin !== window.location.origin) throw new Error('插件配置地址不受信任')
+    if (!['http:', 'https:'].includes(url.protocol) || url.origin !== window.location.origin) throw new Error(t('adminPlatform.plugins.untrustedUrl'))
     uiSession.value = session
   } catch {
     if (generation === configGeneration) await openJsonConfiguration()
@@ -585,10 +572,10 @@ async function saveJsonConfiguration(): Promise<void> {
   let config: Record<string, unknown>
   try {
     const parsed: unknown = JSON.parse(jsonDraft.value)
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('配置必须是 JSON 对象。')
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(t('adminPlatform.plugins.objectRequired'))
     config = parsed as Record<string, unknown>
   } catch (error: unknown) {
-    jsonError.value = error instanceof SyntaxError ? 'JSON 格式有误，请检查引号、逗号与括号。' : errorMessage(error)
+    jsonError.value = error instanceof SyntaxError ? t('adminPlatform.plugins.invalidJson') : errorMessage(error)
     return
   }
   const plugin = configPlugin.value
@@ -600,7 +587,7 @@ async function saveJsonConfiguration(): Promise<void> {
     if (generation !== configGeneration) return
     jsonDraft.value = JSON.stringify(saved, null, 2)
     jsonOriginal.value = jsonDraft.value
-    appStore.showSuccess(isZh.value ? '配置已保存' : 'Configuration saved')
+    appStore.showSuccess(t('adminPlatform.plugins.configurationSaved'))
   } catch (error: unknown) {
     if (generation === configGeneration && !isStepUpCancelled(error)) jsonError.value = errorMessage(error)
     reportSensitiveActionError(error)
@@ -673,7 +660,7 @@ async function handleBridgeMessage(event: MessageEvent): Promise<void> {
       }
       case 'config.save': {
         if (!message.config || typeof message.config !== 'object' || Array.isArray(message.config)) throw new Error(t('admin.plugins.bridgeRejected'))
-        if (actionBusy.value) throw new Error('正在处理其他操作，请稍后重试。')
+        if (actionBusy.value) throw new Error(t('adminPlatform.plugins.otherAction'))
         configSaving.value = true
         try {
           const config = await pluginStepUp.run(() => adminAPI.plugins.saveConfig(pluginID, message.config as Record<string, unknown>))
@@ -685,7 +672,7 @@ async function handleBridgeMessage(event: MessageEvent): Promise<void> {
         break
       }
       case 'config.test': {
-        if (actionBusy.value) throw new Error('正在处理其他操作，请稍后重试。')
+        if (actionBusy.value) throw new Error(t('adminPlatform.plugins.otherAction'))
         busyID.value = pluginID
         try {
           const result = await pluginStepUp.run(() => adminAPI.plugins.test(pluginID))
@@ -720,17 +707,17 @@ async function handleBridgeMessage(event: MessageEvent): Promise<void> {
 }
 
 function pluginState(plugin: PluginInstallation): string {
-  if (!plugin.compatibility.compatible || plugin.state === 'incompatible') return '不兼容'
-  if (plugin.state === 'error' || plugin.last_error) return '异常'
-  if (plugin.state === 'starting') return '启动中'
-  return hasEnabledBinding(plugin) ? '已启用' : '已停用'
+  if (!plugin.compatibility.compatible || plugin.state === 'incompatible') return 'incompatible'
+  if (plugin.state === 'error' || plugin.last_error) return 'error'
+  if (plugin.state === 'starting') return 'starting'
+  return hasEnabledBinding(plugin) ? 'enabled' : 'disabled'
 }
 
 function stateClass(plugin: PluginInstallation): string {
   const state = pluginState(plugin)
-  if (state === '不兼容' || state === '异常') return 'status-bad'
-  if (state === '已启用') return 'status-ok'
-  return state === '启动中' ? 'status-warn' : 'status-neutral'
+  if (state === 'incompatible' || state === 'error') return 'status-bad'
+  if (state === 'enabled') return 'status-ok'
+  return state === 'starting' ? 'status-warn' : 'status-neutral'
 }
 
 onMounted(() => {

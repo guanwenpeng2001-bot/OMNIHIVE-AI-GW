@@ -4,6 +4,7 @@ package admin
 
 import (
 	"net/http"
+	"strconv"
 	"testing"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
@@ -202,4 +203,34 @@ func TestUpdateSettingsSubscriptionEnabledIsWritableAndKeptWhenOmitted(t *testin
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "false", repo.values[service.SettingKeySubscriptionEnabled],
 		"a payload without subscription_enabled must not flip the stored value back to true")
+}
+
+func TestUpdateSettingsWorkbenchNumericFieldsPersist(t *testing.T) {
+	for _, tc := range []struct {
+		field string
+		value float64
+	}{
+		{"audit_log_retention_days", 181},
+		{"default_balance", 12.75},
+		{"default_concurrency", 3},
+		{"default_user_rpm_limit", 0},
+		{"affiliate_rebate_rate", 12.5},
+		{"affiliate_rebate_freeze_hours", 2},
+		{"affiliate_rebate_duration_days", 365},
+		{"smtp_port", 465},
+	} {
+		t.Run(tc.field, func(t *testing.T) {
+			h, repo := newStepUpSwitchTestHandler(t, map[string]string{
+				service.SettingKeySMTPHost:            "smtp.example.com",
+				service.SettingKeySMTPPort:            "587",
+				service.SettingKeyDefaultUserRPMLimit: "25",
+			})
+			rec := doUpdateSettings(t, h, map[string]any{tc.field: tc.value}, nil)
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			stored, err := strconv.ParseFloat(repo.values[tc.field], 64)
+			require.NoError(t, err)
+			require.Equal(t, tc.value, stored)
+			require.Equal(t, "smtp.example.com", repo.values[service.SettingKeySMTPHost])
+		})
+	}
 }

@@ -139,7 +139,7 @@ func TestCredentialDraftRepositoryTransactionOwnership(t *testing.T) {
 		require.Equal(t, replacement, current.Credentials)
 		baseline, err = repository.GetByID(ctx, candidate.ID)
 		require.NoError(t, err)
-		updated, err := pending.UpdateAccountCredentialsIfUnchanged(ctx, baseline, admin, &service.UpdateAccountInput{Credentials: map[string]any{"access_token": "fresh"}})
+		updated, err := pending.UpdateAccountCredentialsIfUnchanged(service.WithCredentialRevision(ctx, baseline.CredentialRevision), baseline, admin, &service.UpdateAccountInput{Credentials: map[string]any{"access_token": "fresh"}})
 		require.NoError(t, err)
 		require.Equal(t, "fresh", updated.GetCredential("access_token"))
 	}

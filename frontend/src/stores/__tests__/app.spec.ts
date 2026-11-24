@@ -424,6 +424,17 @@ describe('useAppStore', () => {
       consoleError.mockRestore()
     })
 
+    it('fills a blank injected version from public settings and caches the result', async () => {
+      const store = useAppStore()
+      window.__APP_CONFIG__ = createPublicSettings({ version: '' })
+      store.initFromInjectedConfig()
+      vi.mocked(getPublicSettings).mockResolvedValueOnce(createPublicSettings({ version: '0.3.5' }))
+      await store.fetchPublicSettings()
+      await store.fetchPublicSettings()
+      expect(store.siteVersion).toBe('0.3.5')
+      expect(getPublicSettings).toHaveBeenCalledTimes(1)
+    })
+
     it('从 window.__APP_CONFIG__ 初始化', () => {
       const windowAny = window as any
       windowAny.__APP_CONFIG__ = {

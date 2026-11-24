@@ -122,6 +122,19 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     keywords: ['models', 'plaza', 'catalog', 'pricing', '模型广场']
   },
   {
+    id: 'public-model-compare',
+    path: '/model-plaza/compare',
+    tier: 'public',
+    section: 'public',
+    labelKey: 'nav.modelCompare',
+    fallbackLabelEn: 'Compare Models',
+    fallbackLabelZh: '模型对比',
+    icon: 'cube',
+    featureFlag: 'modelPlaza',
+    order: 25,
+    keywords: ['compare', 'comparison', 'models', 'diff', '对比', '模型对比']
+  },
+  {
     id: 'public-pricing',
     path: '/pricing',
     tier: 'public',
@@ -155,6 +168,28 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     icon: 'shield',
     order: 50,
     keywords: ['status', 'uptime', 'health', '服务状态', '健康']
+  },
+  {
+    id: 'public-docs',
+    path: '/docs',
+    tier: 'public',
+    section: 'public',
+    fallbackLabelEn: 'Documentation',
+    fallbackLabelZh: '接入文档',
+    icon: 'book',
+    order: 60,
+    keywords: ['docs', 'documentation', 'help', 'guide', 'quickstart', 'sdk', 'api', '文档', '接入文档', '使用指南']
+  },
+  {
+    id: 'public-compatibility',
+    path: '/compatibility',
+    tier: 'public',
+    section: 'public',
+    fallbackLabelEn: 'Updates & Compatibility',
+    fallbackLabelZh: '更新与兼容性',
+    icon: 'shield',
+    order: 70,
+    keywords: ['compatibility', 'updates', 'protocol', 'plugin', 'ohplugin', 's2plugin', 'checksum', '兼容', '兼容性', '更新与兼容']
   },
 
   // ==================== User Console Tier ====================

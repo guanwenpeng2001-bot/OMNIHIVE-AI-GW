@@ -917,6 +917,7 @@
             >
               <input
                 v-model="projectKeyAllowModelsRead"
+                :disabled="modelsReadRequired"
                 type="checkbox"
                 data-testid="project-key-models-read-checkbox"
                 class="h-3.5 w-3.5 rounded border-[var(--border)]"
@@ -1927,7 +1928,7 @@ const projectGroupRawIdByLocalId = ref<Map<number, string>>(new Map())
 const canReadKeys = ref(true)
 const canWriteKeys = ref(true)
 const keysAccessNotice = ref<ConsoleAsyncNotice | null>(null)
-const projectKeyAllowModelsRead = ref(false)
+const optInModelsRead = ref(false)
 const projectModelAccessMode = ref<'inherit' | 'allow_list' | 'deny_all'>('inherit')
 const projectModelAccessIdsText = ref('')
 const modalScopePin = ref<{
@@ -1957,6 +1958,13 @@ const issuableSupportsModelsRead = computed(
     issuableActionsResult.value.status === 'allowed' &&
     issuableActionsResult.value.actions.includes('models.read')
 )
+const modelsReadRequired = computed(() =>
+  issuableSupportsModelsRead.value && availableProjectKeyBaseActions.value.length === 0
+)
+const projectKeyAllowModelsRead = computed({
+  get: () => modelsReadRequired.value || optInModelsRead.value,
+  set: (included: boolean) => { optInModelsRead.value = included }
+})
 const selectedProjectKeyActions = computed<string[]>(() => {
   if (issuableActionsResult.value.status !== 'allowed') return []
   return projectKeyAllowModelsRead.value && issuableSupportsModelsRead.value
@@ -3619,7 +3627,7 @@ const closeModals = () => {
   lastCreatePayloadSignature.value = ''
   projectModelAccessMode.value = 'inherit'
   projectModelAccessIdsText.value = ''
-  projectKeyAllowModelsRead.value = false
+  optInModelsRead.value = false
   formData.value = {
     name: '',
     group_id: null,

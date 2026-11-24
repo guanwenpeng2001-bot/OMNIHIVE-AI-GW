@@ -514,7 +514,7 @@ defineExpose({
         <div class="grid grid-cols-1 gap-3 pt-1 sm:grid-cols-2 lg:grid-cols-4">
           <Input
             :model-value="filters.q"
-            type="search"
+            type="text"
             size="sm"
             clearable
             :label="t('settingsDiagnostics.filters.searchAriaLabel')"
