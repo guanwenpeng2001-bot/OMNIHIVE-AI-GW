@@ -6,6 +6,10 @@ This project follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/
 
 ## 0.3.5 - 2026-11-24
 
+### Security
+
+- Updated `github.com/gorilla/websocket` to the upstream fix for GO-2026-6278 (weak PRNG for client mask keys).
+
 ### Fixed
 
 - **OAuth re-authorization**: Re-authorizing an existing OAuth account whose credentials are stored encrypted no longer fails with "Credential version changed". The confirmation writes against the credential revision captured at review, so a genuine concurrent rotation still returns a conflict and stale drafts must be reviewed again.
