@@ -91,6 +91,8 @@ describe('ProfileView', () => {
 
     await flushPromises()
 
+    expect(wrapper.get('h1').text()).toBe('nav.profile')
+    expect(wrapper.text()).not.toMatch(/\p{Script=Han}/u)
     expect(wrapper.findAll('.stat-card')).toHaveLength(0)
     expect(wrapper.get('[data-testid="profile-shell"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="profile-shell"]').html()).toContain('profile-info-card')

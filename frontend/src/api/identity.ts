@@ -18,10 +18,7 @@ export type IdentityWorkspacePage = Omit<components['schemas']['IdentityWorkspac
   items: IdentityWorkspace[]
 }
 
-export type IdentityProject = components['schemas']['IdentityProject'] & {
-  is_default?: boolean
-  state?: string
-}
+export type IdentityProject = components['schemas']['IdentityProject']
 
 export type IdentityProjectPage = Omit<components['schemas']['IdentityProjectPage'], 'items'> & {
   items: IdentityProject[]

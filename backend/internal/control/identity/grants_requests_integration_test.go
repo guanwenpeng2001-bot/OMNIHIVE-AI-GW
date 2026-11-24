@@ -100,8 +100,12 @@ func TestExactGrantsAndMembershipRequests(t *testing.T) {
 	rows[1].Actions = []string{"keys.read", "text.chat"}
 	require.Equal(t, rows, g.ProjectGrants)
 	require.EqualValues(t, 1, id("SELECT count(*) FROM audit_logs WHERE action='project.access_request.decision' AND actor_user_id=$1 AND NOT extra ? 'note'", admin))
-	_, err = store.ChangeProject(ctx, admin, w, x, 1, "", true)
+	current, err := store.Project(ctx, admin, w, x)
 	require.NoError(t, err)
+	require.Equal(t, "active", current.State)
+	archived, err := store.ChangeProject(ctx, admin, w, x, current.Version, "", true)
+	require.NoError(t, err)
+	require.Equal(t, "archived", archived.State)
 	_, err = store.SetExactGrants(ctx, admin, w, member, g.Version, []domain.ProjectGrant{})
 	require.NoError(t, err)
 	require.EqualValues(t, 1, id("SELECT count(*) FROM project_grants WHERE user_id=$1 AND project_id=$2", member, x))

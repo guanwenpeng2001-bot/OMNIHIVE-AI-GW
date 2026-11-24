@@ -4145,6 +4145,8 @@ export interface components {
             workspace_id: components["schemas"]["IdentityID"];
             is_default: boolean;
             name: string;
+            /** @enum {string} */
+            state: "active" | "archived";
             version: components["schemas"]["IdentityID"];
         };
         IdentityProjectGrant: {

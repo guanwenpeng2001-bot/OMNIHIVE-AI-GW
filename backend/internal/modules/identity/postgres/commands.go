@@ -92,12 +92,16 @@ func (s *Store) CreateProject(ctx context.Context, actor, w int64, name, token s
 	err = s.write(ctx, actor, w, 0, "projects.create", func(tx *sql.Tx, a identity.Access) error {
 		var err error
 		out, err = createOnce(ctx, tx, a, "POST projects", token, name, func() (identity.Project, error) {
-			var p identity.Project
+			p := identity.Project{State: "active"}
 			err := tx.QueryRowContext(ctx, `INSERT INTO projects(workspace_id,name) VALUES($1,$2) RETURNING id,workspace_id,name,version,is_default`, w, name).Scan(&p.ID, &p.WorkspaceID, &p.Name, &p.Version, &p.IsDefault)
 			return p, err
 		})
 		return err
 	})
+	// Older creation receipts predate the state field.
+	if err == nil {
+		out.State = "active"
+	}
 	return out, err
 }
 
@@ -125,7 +129,8 @@ func (s *Store) ChangeProject(ctx context.Context, actor, w, p, v int64, name st
 			return &fault.Fault{Status: 409, Reason: "DEFAULT_PROJECT", Message: "The default project is required."}
 		}
 		return tx.QueryRowContext(ctx, `UPDATE projects SET name=CASE WHEN $4 THEN name ELSE $3 END,
-  archived_at=CASE WHEN $4 THEN now() END,version=version+1 WHERE workspace_id=$1 AND id=$2 RETURNING id,workspace_id,name,version,is_default`, w, p, name, archive).Scan(&out.ID, &out.WorkspaceID, &out.Name, &out.Version, &out.IsDefault)
+  archived_at=CASE WHEN $4 THEN now() END,version=version+1 WHERE workspace_id=$1 AND id=$2 RETURNING id,workspace_id,name,version,is_default,
+  CASE WHEN archived_at IS NULL THEN 'active' ELSE 'archived' END`, w, p, name, archive).Scan(&out.ID, &out.WorkspaceID, &out.Name, &out.Version, &out.IsDefault, &out.State)
 	})
 	return out, err
 }

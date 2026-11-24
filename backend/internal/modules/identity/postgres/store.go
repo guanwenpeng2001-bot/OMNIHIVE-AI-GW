@@ -162,7 +162,7 @@ func (s *Store) Projects(ctx context.Context, actor, w int64, page identity.Page
 	defer rows.Close()
 	out := []identity.Project{}
 	for rows.Next() {
-		var p identity.Project
+		p := identity.Project{State: "active"}
 		if err := rows.Scan(&p.ID, &p.WorkspaceID, &p.Name, &p.Version, &p.IsDefault); err != nil {
 			return nil, err
 		}
@@ -172,7 +172,7 @@ func (s *Store) Projects(ctx context.Context, actor, w int64, page identity.Page
 }
 
 func (s *Store) Project(ctx context.Context, actor, w, p int64) (identity.Project, error) {
-	var row identity.Project
+	row := identity.Project{State: "active"}
 	err := s.db.QueryRowContext(ctx, `SELECT p.id,w.id,p.name,p.version,p.is_default`+membership+`JOIN projects p ON p.workspace_id=w.id
  WHERE w.id=$2 AND `+memberFilter+` AND `+visibleProject+` AND p.id=$3 AND p.archived_at IS NULL`, actor, w, p).Scan(&row.ID, &row.WorkspaceID, &row.Name, &row.Version, &row.IsDefault)
 	return row, found(err)

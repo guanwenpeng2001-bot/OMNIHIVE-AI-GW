@@ -7,13 +7,13 @@
       <!-- 界面风格「账户与安全中心」工作台概览横幅 -->
       <section
         class="card oh-profile-banner relative overflow-hidden p-5 sm:p-6"
-        aria-label="账户与安全中心概览"
+        :aria-label="t('profile.overviewTitle')"
       >
         <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div class="min-w-0 space-y-2">
             <div class="flex flex-wrap items-center gap-2.5">
               <h1 class="text-xl font-bold tracking-tight text-[var(--foreground)] sm:text-2xl">
-                账户与安全中心
+                {{ t('nav.profile') }}
               </h1>
               <span class="chip text-xs font-medium">
                 <span
@@ -21,21 +21,21 @@
                   :class="user?.status === 'active' ? 'pulse-ok' : 'pulse-warn'"
                   aria-hidden="true"
                 />
-                <span>{{ user?.status === 'active' ? '安全状态正常' : '安全防护巡检' }}</span>
+                <span>{{ user?.status === 'active' ? t('profileOverview.secure') : t('profileOverview.review') }}</span>
               </span>
               <span class="pill pill-ghost font-mono text-[11px] uppercase">
                 {{ user?.role || 'user' }}
               </span>
             </div>
             <p class="text-xs text-[var(--muted-foreground)] sm:text-sm">
-              集中管理身份资料、OAuth 绑定、账单时间线、密码凭证与多重身份验证（2FA / Passkey）
+              {{ t('profileOverview.description') }}
             </p>
 
             <!-- 安全状态徽章组 -->
             <div class="flex flex-wrap items-center gap-2 pt-1">
               <span class="chip text-xs">
                 <span class="pulse-dot pulse-ok" aria-hidden="true" />
-                <span>登录密码保护</span>
+                <span>{{ t('profileOverview.password') }}</span>
               </span>
               <span data-testid="profile-totp-summary-chip" class="chip text-xs">
                 <span
@@ -51,7 +51,7 @@
                   :class="passkeyEnabled ? 'pulse-ok' : 'pulse-warn'"
                   aria-hidden="true"
                 />
-                <span>Passkey · {{ passkeyEnabled ? '已就绪' : '按需启用' }}</span>
+                <span>Passkey · {{ passkeyEnabled ? t('profileOverview.ready') : t('profileOverview.onDemand') }}</span>
               </span>
               <span v-if="balanceLowNotifyEnabled" class="chip text-xs">
                 <span
@@ -59,7 +59,7 @@
                   :class="(user?.balance_notify_enabled ?? true) ? 'pulse-ok' : 'pulse-warn'"
                   aria-hidden="true"
                 />
-                <span>余额预警 · {{ (user?.balance_notify_enabled ?? true) ? '开启' : '关闭' }}</span>
+                <span>{{ t('profileOverview.alerts') }} · {{ (user?.balance_notify_enabled ?? true) ? t('profileOverview.enabled') : t('profileOverview.disabled') }}</span>
               </span>
             </div>
           </div>
@@ -69,16 +69,16 @@
             class="flex shrink-0 items-center gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3"
           >
             <div>
-              <div class="text-[11px] text-[var(--muted-foreground)]">当前可用余额</div>
+              <div class="text-[11px] text-[var(--muted-foreground)]">{{ t('profile.accountBalance') }}</div>
               <div class="font-mono text-lg font-bold tabular-nums text-[var(--foreground)]">
                 {{ typeof user.balance === 'number' && Number.isFinite(user.balance) ? `$${formatBalanceAmount(user.balance)}` : '—' }}
               </div>
             </div>
             <div class="h-7 w-px bg-[var(--border)]" aria-hidden="true" />
             <div>
-              <div class="text-[11px] text-[var(--muted-foreground)]">并发配额</div>
+              <div class="text-[11px] text-[var(--muted-foreground)]">{{ t('profile.concurrencyLimit') }}</div>
               <div class="font-mono text-sm font-semibold tabular-nums text-amber-700 dark:text-amber-400">
-                {{ typeof user.concurrency === 'number' && Number.isFinite(user.concurrency) ? `${user.concurrency} 路` : '—' }}
+                {{ typeof user.concurrency === 'number' && Number.isFinite(user.concurrency) ? t('profileOverview.concurrency', { count: user.concurrency }) : '—' }}
               </div>
             </div>
           </div>
@@ -87,10 +87,10 @@
         <!-- 快捷锚点导航条 -->
         <nav
           class="mt-4 flex flex-wrap items-center gap-1.5 border-t border-[var(--border)] pt-3.5"
-          aria-label="账户与安全分区快捷导航"
+          :aria-label="t('profileOverview.navigation')"
         >
           <span class="mr-1 font-mono text-[11px] uppercase tracking-wider text-[var(--muted-foreground)]">
-            JUMP TO
+            {{ t('profileOverview.jump') }}
           </span>
           <a
             v-for="anchor in sectionAnchors"
@@ -263,17 +263,17 @@ const passkeyEnabled = ref(false)
 
 const sectionAnchors = computed(() => {
   const items = [
-    { id: 'profile-section-info', label: '基本资料' },
-    { id: 'profile-section-billing', label: '账单时间线' },
-    { id: 'profile-section-password', label: '修改密码' },
+    { id: 'profile-section-info', label: t('profile.basicsTitle') },
+    { id: 'profile-section-billing', label: t('profileOverview.billing') },
+    { id: 'profile-section-password', label: t('profile.changePassword') },
   ]
   if (user.value && balanceLowNotifyEnabled.value) {
-    items.push({ id: 'profile-section-notify', label: '余额预警' })
+    items.push({ id: 'profile-section-notify', label: t('profileOverview.alerts') })
   }
   items.push(
-    { id: 'profile-section-totp', label: '两步验证 (2FA)' },
-    { id: 'profile-section-sessions', label: '登录会话' },
-    { id: 'profile-section-passkey', label: 'Passkey 通行密钥' }
+    { id: 'profile-section-totp', label: t('profile.totp.title') },
+    { id: 'profile-section-sessions', label: t('profileOverview.sessions') },
+    { id: 'profile-section-passkey', label: t('profileOverview.passkeys') }
   )
   return items
 })

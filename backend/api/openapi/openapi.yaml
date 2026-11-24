@@ -9028,6 +9028,7 @@ components:
         - name
         - is_default
         - version
+        - state
       properties:
         id:
           $ref: '#/components/schemas/IdentityID'
@@ -9036,6 +9037,7 @@ components:
         is_default: {type: boolean}
         name:
           type: string
+        state: {type: string, enum: [active, archived]}
         version:
           $ref: '#/components/schemas/IdentityID'
     IdentityProjectGrant:

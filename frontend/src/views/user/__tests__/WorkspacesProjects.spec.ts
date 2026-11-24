@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import WorkspacesView from '../WorkspacesView.vue'
+import { getConsoleScopeStore } from '@/stores/consoleScope'
+import { identityApi } from '@/api/identity'
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
@@ -72,6 +74,9 @@ describe('WorkspacesView workspace projects and scope switching', () => {
   })
 
   it('lists workspace projects, switches persisted console scope, creates/renames/archives projects, and surfaces 409 conflicts', async () => {
+    const store = getConsoleScopeStore()
+    const refreshScopes = vi.spyOn(store, 'fetchScopes')
+    vi.spyOn(identityApi, 'listScopes').mockResolvedValue({ items: [], next_cursor: null })
     mocks.createProject.mockResolvedValue({
       id: '19',
       workspace_id: '7',
@@ -116,6 +121,18 @@ describe('WorkspacesView workspace projects and scope switching', () => {
     await flushPromises()
     expect(mocks.renameProject).toHaveBeenCalledWith('7', '12', { name: 'Renamed API' }, '3')
     expect(wrapper.find('[data-testid="console-state-conflict"]').exists()).toBe(true)
+
+    mocks.archiveProject.mockResolvedValue({ id: '12', workspace_id: '7', name: 'Core API', version: '4' })
+    await wrapper.get('[data-testid="archive-project-12"]').trigger('click')
+    await flushPromises()
+    expect(mocks.archiveProject).toHaveBeenCalledWith('7', '12', '3')
+    expect(localStorage.getItem('omnihive.workspace_id.v1')).toBe('7')
+    expect(localStorage.getItem('omnihive.project_id.v1')).toBeNull()
+    expect(refreshScopes).toHaveBeenCalledWith({ force: true })
+    const archived = wrapper.get('[data-testid="project-row-12"]')
+    expect(archived.text()).toContain('Archived')
+    expect(archived.findAll('button')).toHaveLength(0)
+    expect(wrapper.get('[data-testid="console-state-confirmed"]').text()).toContain('Archived project')
 
     wrapper.unmount()
   })

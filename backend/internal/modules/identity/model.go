@@ -11,6 +11,7 @@ import (
 )
 
 type Project struct {
+	State       string `json:"state"`
 	IsDefault   bool   `json:"is_default"`
 	ID          int64  `json:"id,string"`
 	WorkspaceID int64  `json:"workspace_id,string"`
