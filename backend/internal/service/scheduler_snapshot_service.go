@@ -428,7 +428,7 @@ func (s *SchedulerSnapshotService) runFullRebuildWorker(interval time.Duration) 
 	}
 }
 
-// pollOutbox returns the ID of a catalog event deferred by bucket contention.
+// pollOutbox returns the ID of an event deferred by bucket contention.
 func (s *SchedulerSnapshotService) pollOutbox() int64 {
 	if s.outboxRepo == nil || s.cache == nil {
 		return 0
@@ -461,8 +461,8 @@ func (s *SchedulerSnapshotService) pollOutbox() int64 {
 		err := s.handleOutboxEvent(eventCtx, event, seen)
 		cancel()
 		if err != nil {
-			if event.EventType == SchedulerOutboxEventModelCatalogChanged && errors.Is(err, ErrSchedulerBucketRebuildBusy) {
-				slog.Debug("[Scheduler] catalog rebuild deferred", "event_id", event.ID, "err", err)
+			if errors.Is(err, ErrSchedulerBucketRebuildBusy) {
+				slog.Debug("[Scheduler] outbox rebuild deferred", "event_id", event.ID, "event_type", event.EventType, "err", err)
 				return event.ID
 			}
 			logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] outbox handle failed: id=%d type=%s err=%v", event.ID, event.EventType, err)

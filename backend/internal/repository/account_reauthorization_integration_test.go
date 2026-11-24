@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/pendingauthsession"
 	"github.com/gin-gonic/gin"
 	adminhandler "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
@@ -102,7 +103,7 @@ func TestReferencedAccountOAuthDraftApplyPostgres(t *testing.T) {
 			require.NotContains(t, stored, "refresh_token")
 			if test.rotateAfterReview {
 				require.Equal(t, http.StatusConflict, recorder.Code, recorder.Body.String())
-				require.Contains(t, recorder.Body.String(), "CREDENTIAL_SECRET_CONFLICT")
+				require.Contains(t, recorder.Body.String(), "ACCOUNT_CREDENTIAL_DRAFT_CONFLICT")
 				require.Equal(t, "fixture-winning-access", loaded.GetCredential("access_token"))
 				require.Equal(t, "fixture-old-refresh", loaded.GetCredential("refresh_token"))
 				require.Equal(t, "old-upstream", loaded.GetModelMapping()["old-alias"])
@@ -127,6 +128,107 @@ func TestReferencedAccountOAuthDraftApplyPostgres(t *testing.T) {
 	}
 }
 
+func TestReferencedAccountExistingAccountDraftConfirmPostgres(t *testing.T) {
+	fixture := newCredentialSecretFixture(t)
+	pending := service.NewAuthPendingIdentityService(fixture.client)
+	handler := adminhandler.NewAccountHandler(queryClearAdmin(fixture), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler.SetCredentialDraftService(pending)
+	router := gin.New()
+	router.POST("/drafts/:draft/review", handler.ReviewCredentialDraft)
+	router.POST("/accounts", handler.Create)
+
+	for _, test := range []struct {
+		name          string
+		legacyReview  bool
+		rotate        bool
+		expectedCode  int
+		expectedError string
+	}{
+		{name: "rotation-after-review", rotate: true, expectedCode: http.StatusConflict, expectedError: "ACCOUNT_CREDENTIAL_DRAFT_CONFLICT"},
+		{name: "pre-patch-review", legacyReview: true, rotate: true, expectedCode: http.StatusConflict, expectedError: "review again"},
+		{name: "unchanged-review", expectedCode: http.StatusOK},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			account := fixture.createAccount(t, fixture.ctx, uniqueName("revhf-existing"), service.PlatformOpenAI, service.AccountTypeOAuth, map[string]any{
+				"access_token": "fixture-old-access", "refresh_token": "fixture-old-refresh",
+				"model_mapping": map[string]any{"old-alias": "old-upstream"},
+			})
+			metadata, err := fixture.secrets.Convert(fixture.ctx, account.ID, fixture.accountRevision(t, account.ID))
+			require.NoError(t, err)
+			require.EqualValues(t, 1, metadata.Version)
+			browser := strings.Repeat("c", 64)
+			if test.legacyReview {
+				browser = strings.Repeat("d", 64)
+			} else if !test.rotate {
+				browser = strings.Repeat("e", 64)
+			}
+			cookie := &http.Cookie{Name: "account_authorization_browser", Value: browser}
+			binding := sha256.Sum256([]byte("admin:0:" + browser))
+			bindingKey := hex.EncodeToString(binding[:])
+			draft, err := pending.IssueAccountCredentialDraft(fixture.ctx, bindingKey, service.PlatformOpenAI, service.AccountTypeOAuth, map[string]any{
+				"access_token": "fixture-draft-access", "refresh_token": "fixture-draft-refresh",
+			})
+			require.NoError(t, err)
+			review := adminhandler.CreateAccountRequest{
+				ExistingAccountID: account.ID, Name: account.Name, Platform: account.Platform, Type: account.Type,
+				CredentialDraft: draft.Reference, CredentialDraftRevision: draft.Revision,
+				Credentials: map[string]any{"model_mapping": map[string]any{"reviewed-alias": "reviewed-upstream"}},
+			}
+			recorder := referencedAccountRequest(t, fixture.ctx, router, http.MethodPost, "/drafts/"+draft.Reference+"/review", cookie, review)
+			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+			var reviewed struct {
+				Data service.AccountCredentialDraft
+			}
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &reviewed))
+			review.CredentialDraftRevision = reviewed.Data.Revision
+
+			if test.legacyReview {
+				session, err := fixture.client.PendingAuthSession.Query().Where(pendingauthsession.BrowserSessionKeyEQ(bindingKey)).Only(fixture.ctx)
+				require.NoError(t, err)
+				encoded, ok := session.LocalFlowState["credential_draft_state"].(string)
+				require.True(t, ok)
+				state := map[string]any{}
+				require.NoError(t, json.Unmarshal([]byte(encoded), &state))
+				delete(state, "reviewed_credential_revision")
+				legacy, err := json.Marshal(state)
+				require.NoError(t, err)
+				_, err = fixture.client.PendingAuthSession.UpdateOneID(session.ID).SetLocalFlowState(map[string]any{"credential_draft_state": string(legacy)}).Save(fixture.ctx)
+				require.NoError(t, err)
+			}
+			if test.rotate {
+				_, err = fixture.secrets.Rotate(fixture.ctx, account.ID, 1, map[string]any{"access_token": "fixture-winning-access"})
+				require.NoError(t, err)
+			}
+
+			recorder = referencedAccountRequest(t, fixture.ctx, router, http.MethodPost, "/accounts", cookie, review)
+			require.Equal(t, test.expectedCode, recorder.Code, recorder.Body.String())
+			if test.expectedError != "" {
+				require.Contains(t, recorder.Body.String(), test.expectedError)
+			}
+			current, err := fixture.secrets.Metadata(fixture.ctx, account.ID)
+			require.NoError(t, err)
+			loaded, err := fixture.accounts.GetByID(fixture.ctx, account.ID)
+			require.NoError(t, err)
+			if test.expectedCode == http.StatusOK {
+				require.EqualValues(t, 2, current.Version)
+				require.Equal(t, "fixture-draft-access", loaded.GetCredential("access_token"))
+				require.Equal(t, "fixture-draft-refresh", loaded.GetCredential("refresh_token"))
+				require.Equal(t, "reviewed-upstream", loaded.GetModelMapping()["reviewed-alias"])
+				return
+			}
+			require.EqualValues(t, 2, current.Version)
+			require.Equal(t, "fixture-winning-access", loaded.GetCredential("access_token"))
+			require.Equal(t, "fixture-old-refresh", loaded.GetCredential("refresh_token"))
+			require.Equal(t, "old-upstream", loaded.GetModelMapping()["old-alias"])
+			stored := fixture.storedCredentials(t, account.ID)
+			require.Equal(t, metadata.Reference, stored[service.CredentialSecretReferenceKey])
+			session, err := fixture.client.PendingAuthSession.Query().Where(pendingauthsession.BrowserSessionKeyEQ(bindingKey)).Only(fixture.ctx)
+			require.NoError(t, err)
+			require.Nil(t, session.ConsumedAt)
+		})
+	}
+}
+
 func TestReferencedAccountGuardedRefreshPostgres(t *testing.T) {
 	fixture := newCredentialSecretFixture(t)
 	account := fixture.createAccount(t, fixture.ctx, uniqueName("hf1-refresh"), service.PlatformGrok, service.AccountTypeOAuth,
@@ -137,7 +239,7 @@ func TestReferencedAccountGuardedRefreshPostgres(t *testing.T) {
 	baseline, err := admin.GetAccount(fixture.ctx, account.ID)
 	require.NoError(t, err)
 	pending := service.NewAuthPendingIdentityService(fixture.client)
-	updated, err := pending.UpdateAccountCredentialsIfUnchanged(fixture.ctx, baseline, admin, &service.UpdateAccountInput{
+	updated, err := pending.UpdateAccountCredentialsIfUnchanged(service.WithCredentialRevision(fixture.ctx, baseline.CredentialRevision), baseline, admin, &service.UpdateAccountInput{
 		Credentials: map[string]any{"access_token": "fixture-access-after-refresh"},
 	})
 	require.NoError(t, err)

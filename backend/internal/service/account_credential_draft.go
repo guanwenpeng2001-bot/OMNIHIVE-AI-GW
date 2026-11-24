@@ -39,7 +39,10 @@ type accountCredentialDraftState struct {
 	ReviewedCredentialRevision string                `json:"reviewed_credential_revision,omitempty"`
 }
 
-var ErrAccountCredentialDraftConflict = infraerrors.Conflict("ACCOUNT_CREDENTIAL_DRAFT_CONFLICT", "Credential draft changed; preview and confirm again")
+var (
+	ErrAccountCredentialDraftConflict      = infraerrors.Conflict("ACCOUNT_CREDENTIAL_DRAFT_CONFLICT", "Credential draft changed; preview and confirm again")
+	ErrAccountCredentialDraftReviewRequired = infraerrors.Conflict("ACCOUNT_CREDENTIAL_DRAFT_CONFLICT", "Credential draft has no reviewed account revision; review again before confirming")
+)
 
 // ApplyAccountCredentialDraftOptions is the final-review configuration allowlist.
 // Authentication, machine and owner identifiers can only come from the opaque

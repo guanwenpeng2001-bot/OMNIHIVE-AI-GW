@@ -614,7 +614,7 @@ func TestSchedulerFullRebuildSimpleModePreservesRegistryWithoutLifecycleAuthorit
 	}
 }
 
-func TestSchedulerCatalogOutboxBusyBucketBacksOffUntilPublished(t *testing.T) {
+func TestSchedulerGroupChangedOutboxBusyBucketBacksOffUntilPublished(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		bucket := SchedulerBucket{GroupID: 2, Platform: PlatformOpenRouter, Mode: SchedulerModeSingle}
 		cache := newFullRebuildLifecycleCache()
@@ -622,9 +622,7 @@ func TestSchedulerCatalogOutboxBusyBucketBacksOffUntilPublished(t *testing.T) {
 		groups := &groupLifecycleTestGroupRepo{group: &Group{ID: 2, Status: StatusActive, Hydrated: true}}
 		outbox := &outboxCleanupRepo{
 			events: []SchedulerOutboxEvent{
-				{ID: 11, EventType: SchedulerOutboxEventModelCatalogChanged, Payload: map[string]any{
-					"scope": "catalog", "group_ids": []any{float64(2)},
-				}},
+				{ID: 11, EventType: SchedulerOutboxEventGroupChanged, GroupID: ptrInt64(2)},
 				{ID: 12, EventType: SchedulerOutboxEventAccountLastUsed},
 			},
 			rows: []int64{11, 12}, lockAcquired: true,

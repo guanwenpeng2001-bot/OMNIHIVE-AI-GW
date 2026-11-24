@@ -378,6 +378,9 @@ func confirmCredentialDraftWithBinding(
 			}
 		}
 		if existing != nil {
+			if _, referenced := service.CredentialReference(existing.Credentials); referenced && service.ExpectedCredentialRevision(txCtx) == "" {
+				return 0, service.ErrAccountCredentialDraftReviewRequired
+			}
 			updated, err := pending.UpdateAccountCredentialsIfUnchanged(txCtx, existing, adminService, &service.UpdateAccountInput{
 				TPMLimit: request.TPMLimit.Pointer(),
 				Name:     request.Name, Notes: request.Notes, Status: request.Status,
@@ -503,7 +506,8 @@ func (handler *AccountHandler) persistRefreshedCredentials(ctx context.Context, 
 	if err := requireCredentialDraftStore(handler.credentialDrafts); err != nil {
 		return nil, err
 	}
-	return handler.credentialDrafts.UpdateAccountCredentialsIfUnchanged(ctx, expected, handler.adminService, &service.UpdateAccountInput{
+	refreshCtx := service.WithCredentialRevision(ctx, expected.CredentialRevision)
+	return handler.credentialDrafts.UpdateAccountCredentialsIfUnchanged(refreshCtx, expected, handler.adminService, &service.UpdateAccountInput{
 		Credentials: credentials})
 }
 
