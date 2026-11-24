@@ -4,6 +4,17 @@ This project follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/
 
 ## Unreleased
 
+## 0.3.6 - 2026-11-25
+
+### Fixed
+
+- **Free lanes and Antigravity routing**: OpenCode Zen free, OpenRouter `:free` and Kilo free models resolve to an explicit zero-price free-lane tariff, and Antigravity tier variants (for example `-high`, `-low`, `-thinking`) use their base model's rate card, so these published models are routable again instead of appearing in the plaza without a usable route.
+- **Discovery after token refresh**: Routine Antigravity token renewal keeps the account's catalog identity when the project is unchanged, and post-refresh privacy writes compare against the refreshed account, so discovered models no longer go stale every refresh. Changing the project still invalidates discovery.
+- **Upgrade baseline freeze**: The v0.3.4 selection-freeze marker is no longer treated as an administrator deny-all restriction on native discovery.
+- **Catalog billing state**: Model billing is aggregated only from routable offers, so unroutable historical records no longer turn a consistently priced model into "priced by group" (conflict). Genuine price differences between groups are still reported.
+- **In-site update checks**: Release discovery uses ETag caching and falls back to the release redirect when GitHub's anonymous API limit is reached; downloads keep checksum and signature verification. `UPDATE_GITHUB_TOKEN` is still used when set.
+- **Configuration diagnostics**: Decimal money and rate settings (balances, thresholds, rates, multipliers, caps) are recognised as numbers instead of being flagged invalid.
+
 ## 0.3.5 - 2026-11-24
 
 ### Security
