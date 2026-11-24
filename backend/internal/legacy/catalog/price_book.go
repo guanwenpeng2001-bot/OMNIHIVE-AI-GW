@@ -25,6 +25,7 @@ func SaleBindings(p catalog.Perspective, bindings []catalog.ModelBinding) []pric
 func saleBinding(p catalog.Perspective, b catalog.ModelBinding) pricing.Binding {
 	binding := pricing.Binding{
 		Provider: b.BillingIdentity.Provider, Model: b.BillingIdentity.Model,
+		AccountID: b.AccountID, WireModel: b.WireModel,
 		GroupID: b.BillingGroupID, ChannelID: b.ChannelID, Funding: b.Funding,
 		Workspace: p.Workspace, Project: p.Project, RateMultiplier: b.RateMultiplier,
 		Action: b.Action, Protocol: b.Protocol,

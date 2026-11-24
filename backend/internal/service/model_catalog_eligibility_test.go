@@ -107,6 +107,48 @@ func TestModelCatalogBindingIdentityRevocationAndUnlistedEvidence(t *testing.T) 
 	require.False(t, AccountSupportsResolvedModel(context.Background(), &account, "native", AccountModelBindingOptions{}))
 }
 
+func TestModelCatalogUpgradeFreezeDoesNotSuppressNativeDiscovery(t *testing.T) {
+	fixtures := map[string]string{
+		PlatformAntigravity: "claude-opus-5-5-high",
+		PlatformOpenCodeGo:  "beam-free",
+		PlatformOpenRouter:  "baidu/ernie-5.5-flash-preview:free",
+	}
+	for _, platform := range []string{PlatformAntigravity, PlatformOpenCodeGo, PlatformOpenRouter} {
+		t.Run(platform, func(t *testing.T) {
+			model := fixtures[platform]
+			account := catalogEvidenceAccount(1, platform, model)
+			if platform == PlatformAntigravity {
+				account.Type = AccountTypeOAuth
+				account.Credentials["project_id"] = "project"
+				account.Credentials["model_mapping"] = map[string]any{"claude-opus-4-7": "claude-opus-4-7"}
+				account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot).EligibleModels[0].Endpoints = []string{"generate_content"}
+			}
+			if platform == PlatformOpenCodeGo {
+				account.Credentials["account_mode"] = AccountModeZenFree
+				free := true
+				account.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{Models: map[string]UpstreamModelMetadata{model: {ID: model, Free: &free}}})
+			}
+			account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{}, Reason: "system_upgrade_baseline_freeze"}
+			endpoint := CompositeRouteEndpointChatCompletions
+			if platform == PlatformAntigravity {
+				endpoint = CompositeRouteEndpointMessages
+			}
+			require.True(t, AccountSupportsResolvedModel(context.Background(), &account, model, AccountModelBindingOptions{Endpoint: endpoint}))
+
+			account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{}, ConfirmedBy: 42, Reason: "administrator deny-all"}
+			require.False(t, AccountSupportsResolvedModel(context.Background(), &account, model, AccountModelBindingOptions{Endpoint: endpoint}))
+		})
+	}
+}
+
+func TestModelCatalogExplicitDenyAllIsNotUpgradeFreeze(t *testing.T) {
+	account := catalogEvidenceAccount(1, PlatformOpenAI, "native")
+	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{}}
+	require.False(t, AccountSupportsResolvedModel(context.Background(), &account, "native", AccountModelBindingOptions{Endpoint: CompositeRouteEndpointChatCompletions}))
+	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{}, Reason: "system_upgrade_baseline_freeze"}
+	require.True(t, AccountSupportsResolvedModel(context.Background(), &account, "native", AccountModelBindingOptions{Endpoint: CompositeRouteEndpointChatCompletions}))
+}
+
 func TestModelCatalogPreparationDoesNotChangePublicProjection(t *testing.T) {
 	for _, models := range [][]string{{"native"}, {}} {
 		account := catalogEvidenceAccount(1, PlatformOpenAI, models...)

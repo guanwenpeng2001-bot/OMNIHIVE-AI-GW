@@ -28,6 +28,10 @@ func (a *Account) IsKiloFree() bool {
 }
 func publicModelLane(a *Account) bool { return a.IsOpenCodeZenFree() || a.IsKiloFree() }
 
+func (a *Account) IsOpenRouterFreeModel(model string) bool {
+	return a != nil && a.Platform == PlatformOpenRouter && strings.HasSuffix(strings.ToLower(strings.TrimSpace(model)), ":free")
+}
+
 // NormalizeFreeModelCredentials is shared by admin create/update and connection
 // verification. Runtime accessors also handle old rows without mutating shared
 // account snapshots. Paid OpenCode modes must carry a private credential.

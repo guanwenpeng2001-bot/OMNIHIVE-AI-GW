@@ -110,6 +110,9 @@ func (s *GatewayService) ResolvePlaygroundPrice(ctx context.Context, key *APIKey
 		}
 		price.input.Model = outbound
 		price.input.Resolved = newOfficialFreeTariff(provider)
+	} else if account.IsOpenRouterFreeModel(outbound) {
+		price.input.Model = outbound
+		price.input.Resolved = newOfficialFreeTariff(provider)
 	}
 	price.input.LongContextBillingEnabled = openAILongContextBillingGate(account)
 	if price.input.Resolved != nil {

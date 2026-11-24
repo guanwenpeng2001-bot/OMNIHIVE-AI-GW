@@ -127,6 +127,11 @@ var DefaultAntigravityModelMapping = map[string]string{
 	// Claude 白名单
 	"claude-fable-5-1":           "claude-fable-5-1",         // 官方模型
 	"claude-fable-5":             "claude-fable-5",           // 官方模型
+	"claude-opus-5-5":            "claude-opus-5-5",          // 官方模型
+	"claude-opus-5-5-high":       "claude-opus-5-5-high",     // 高档位，与基础模型同价
+	"claude-opus-5-5-medium":     "claude-opus-5-5-medium",   // 中档位，与基础模型同价
+	"claude-opus-5-5-low":        "claude-opus-5-5-low",      // 低档位，与基础模型同价
+	"claude-opus-5-5-thinking":   "claude-opus-5-5-thinking", // 思考档位，与基础模型同价
 	"claude-opus-4-8":            "claude-opus-4-8",          // 官方模型
 	"claude-opus-4-7":            "claude-opus-4-7",          // 官方模型
 	"claude-opus-4-6-thinking":   "claude-opus-4-6-thinking", // 官方模型

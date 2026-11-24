@@ -19,7 +19,7 @@ type requestLanePricing struct {
 }
 
 func publicModelPricingPlatform(platform string) bool {
-	return platform == PlatformKilo || platform == PlatformOpenCodeGo
+	return platform == PlatformKilo || platform == PlatformOpenCodeGo || platform == PlatformOpenRouter
 }
 
 func (p *GatewayRequestPlan) RequiresLanePricing() bool {
@@ -84,6 +84,14 @@ func (p *GatewayRequestPlan) admitPublicModelLane(ctx context.Context, accountID
 			return err
 		}
 		amount = &free
+	} else if account.IsOpenRouterFreeModel(model) {
+		resolved = newOfficialFreeTariff(platform)
+		free, err := money.NewMoney("USD", "0")
+		if err != nil {
+			return err
+		}
+		amount = &free
+		lane.model = model
 	} else {
 		if composite {
 			model = p.compositeLanePriceModel(ctx, resolver, estimate.Group, model)
@@ -145,7 +153,7 @@ func newOfficialFreeTariff(platform string) *ResolvedPricing {
 		"input": true, "output": true, "cache_read": true, "cache_write": true, "cache_write_1h": true,
 		"image_input": true, "image_output": true, "image_cache_read": true,
 	}}
-	return &ResolvedPricing{Mode: BillingModeToken, BasePricing: price, Source: "official_free:" + platform}
+	return &ResolvedPricing{Mode: BillingModeToken, BasePricing: price, Source: "official_free:" + platform, baseSource: "free_lane"}
 }
 
 func verifiedKiloFreeTariff(account *Account, model string) bool {

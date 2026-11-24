@@ -224,6 +224,50 @@ func TestPriceBookFreeConflictAndSnapshotReplay(t *testing.T) {
 	require.Nil(t, after)
 }
 
+func TestPriceBookProductionFreeLanesAndAntigravityVariant(t *testing.T) {
+	at := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	zen := freeAccount(PlatformOpenCodeGo, AccountModeZenFree)
+	zen.Extra = map[string]any{UpstreamModelCatalogExtraKey: &AccountModelCatalogSnapshot{Complete: true, DiscoveredModels: []string{"beam-free"}}}
+	free := true
+	zen.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{Models: map[string]UpstreamModelMetadata{"beam-free": {ID: "beam-free", Free: &free}}})
+	openRouter := &Account{ID: 16, Platform: PlatformOpenRouter, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "key"}}
+	repo := &mockAccountRepoForPlatform{accountsByID: map[int64]*Account{11: zen, 16: openRouter}}
+	prices := NewPricingService(nil, nil)
+	data, err := prices.parsePricingData([]byte(`{"claude-opus-5":{"litellm_provider":"anthropic","input_cost_per_token":0.000005,"output_cost_per_token":0.000025}}`))
+	require.NoError(t, err)
+	prices.replacePricingData(data)
+	book := NewPlatformPriceBook(NewModelPricingResolver(nil, NewBillingService(nil, prices)), repo)
+	for _, test := range []struct {
+		name, provider, model string
+		accountID             int64
+		charge                string
+	}{
+		{name: "antigravity tier uses base card", provider: PlatformAntigravity, model: "claude-opus-5-5-high", charge: "0.03000000"},
+		{name: "opencode zen free lane", provider: PlatformOpenCodeGo, model: "beam-free", accountID: 11, charge: "0.00000000"},
+		{name: "openrouter free lane", provider: PlatformOpenRouter, model: "baidu/ernie-5.5-flash-preview:free", accountID: 16, charge: "0.00000000"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input, err := money.NewQuantity("input_token", "1000")
+			require.NoError(t, err)
+			output, err := money.NewQuantity("output_token", "1000")
+			require.NoError(t, err)
+			tariff, err := book.Resolve(context.Background(), pricing.Binding{Provider: test.provider, Model: test.model, WireModel: test.model, AccountID: test.accountID, RateMultiplier: 1, At: at})
+			require.NoError(t, err)
+			description := tariff.Describe()
+			require.Equal(t, pricing.Available, description.Outcome)
+			if test.accountID != 0 {
+				require.Equal(t, "free_lane", description.BaseSource)
+			}
+			result, err := tariff.Evaluate(pricing.Scenario{Usage: pricing.Usage{Dimensions: []pricing.Dimension{
+				{Kind: "input", Quantity: input},
+				{Kind: "output", Quantity: output},
+			}}})
+			require.NoError(t, err)
+			require.Equal(t, test.charge, result.Charge.String())
+		})
+	}
+}
+
 func TestPriceBookMissingProviderDoesNotTakeUnqualifiedCard(t *testing.T) {
 	prices := &PricingService{pricingData: map[string]*LiteLLMModelPricing{"unowned-model": {InputCostPerToken: 9}}}
 	billing := NewBillingService(nil, prices)

@@ -96,7 +96,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 		wire.Bind(new(catalog.Acquisition), new(*legacycatalog.Source)),
 		modelsHandlerProvider,
 		catalogadmin.New,
-		service.NewPlatformPriceBook,
+		service.ProvidePlatformPriceBook,
 		playgroundGatewayProvider,
 		catalogVerificationStoreProvider,
 		catalogVerificationHandlerProvider,
