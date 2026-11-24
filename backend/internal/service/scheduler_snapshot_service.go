@@ -386,11 +386,26 @@ func (s *SchedulerSnapshotService) runOutboxWorker(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	s.pollOutbox()
+	var retryID int64
+	var attempts int
 	for {
+		busyID := s.pollOutbox()
+		next := ticker.C
+		if busyID != 0 {
+			if busyID != retryID {
+				attempts = 0
+			}
+			attempts++
+			delay := outboxRebuildRetryDelay(attempts)
+			if delay < interval {
+				delay = interval
+			}
+			next = time.After(delay)
+		}
+		retryID = busyID
+
 		select {
-		case <-ticker.C:
-			s.pollOutbox()
+		case <-next:
 		case <-s.stopCh:
 			return
 		}
@@ -413,9 +428,10 @@ func (s *SchedulerSnapshotService) runFullRebuildWorker(interval time.Duration) 
 	}
 }
 
-func (s *SchedulerSnapshotService) pollOutbox() {
+// pollOutbox returns the ID of a catalog event deferred by bucket contention.
+func (s *SchedulerSnapshotService) pollOutbox() int64 {
 	if s.outboxRepo == nil || s.cache == nil {
-		return
+		return 0
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -423,20 +439,20 @@ func (s *SchedulerSnapshotService) pollOutbox() {
 	watermark, err := s.cache.GetOutboxWatermark(ctx)
 	if err != nil {
 		logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] outbox watermark read failed: %v", err)
-		return
+		return 0
 	}
 
 	events, err := s.outboxRepo.ListAfterAndReleaseDedup(ctx, watermark, 200)
 	if err != nil {
 		logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] outbox poll failed: %v", err)
-		return
+		return 0
 	}
 	if len(events) == 0 {
 		// The outbox query itself proves there is no event after the watermark.
 		// Clear degraded/retry state without adding two more repository queries to
 		// the healthy one-second poll path.
 		s.clearOutboxDegradedEpisode()
-		return
+		return 0
 	}
 
 	seen := make(map[batchSeenKey]struct{})
@@ -445,8 +461,12 @@ func (s *SchedulerSnapshotService) pollOutbox() {
 		err := s.handleOutboxEvent(eventCtx, event, seen)
 		cancel()
 		if err != nil {
+			if event.EventType == SchedulerOutboxEventModelCatalogChanged && errors.Is(err, ErrSchedulerBucketRebuildBusy) {
+				slog.Debug("[Scheduler] catalog rebuild deferred", "event_id", event.ID, "err", err)
+				return event.ID
+			}
 			logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] outbox handle failed: id=%d type=%s err=%v", event.ID, event.EventType, err)
-			return
+			return 0
 		}
 	}
 
@@ -465,7 +485,7 @@ func (s *SchedulerSnapshotService) pollOutbox() {
 	}
 	if wmErr != nil {
 		logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] outbox watermark write failed: %v", wmErr)
-		return
+		return 0
 	}
 	s.cleanupConsumedOutbox(lastID)
 
@@ -474,6 +494,7 @@ func (s *SchedulerSnapshotService) pollOutbox() {
 	lagCtx, lagCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	s.checkOutboxLag(lagCtx, lastID)
 	lagCancel()
+	return 0
 }
 
 func (s *SchedulerSnapshotService) cleanupConsumedOutbox(watermark int64) {
