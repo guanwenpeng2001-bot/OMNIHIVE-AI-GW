@@ -84,7 +84,7 @@ const features = computed(() => [
     title: isZh.value ? '精确十进制计费与自带上游凭据 (BYOK)' : 'Exact billing & BYOK credentials',
     body: isZh.value
       ? '高精度十进制费率快照、逐次请求费用回执与对账总账，支持工作空间与项目级自带凭据隔离调度。'
-      : 'Decimal pricing, per-attempt receipts, BYOK credentials credentials, and a ledger you can reconcile.'
+      : 'Decimal pricing, per-attempt receipts, BYOK credentials, and a ledger you can reconcile.'
   },
   {
     title: isZh.value ? '可解释路由与诚实遥测' : 'Explainable routing & honest telemetry',

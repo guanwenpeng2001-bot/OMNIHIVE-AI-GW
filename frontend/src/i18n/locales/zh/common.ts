@@ -457,6 +457,7 @@ export default {
     resetEmailSent: '重置链接已发送',
     resetEmailSentHint:
       '如果该邮箱已注册，您将很快收到密码重置链接。请检查您的收件箱和垃圾邮件文件夹。',
+    sendAnotherEmail: '重新发送',
     backToLogin: '返回登录',
     rememberedPassword: '想起密码了？',
     // 重置密码

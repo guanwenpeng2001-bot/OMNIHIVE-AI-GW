@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 
 const dir = dirname(fileURLToPath(import.meta.url))
 const sidebarSource = readFileSync(resolve(dir, '../AppSidebar.vue'), 'utf8')
+const brandMarkSource = readFileSync(resolve(dir, '../BrandMark.vue'), 'utf8')
 const homeViewSource = readFileSync(resolve(dir, '../../../views/HomeView.vue'), 'utf8')
 const keyUsageViewSource = readFileSync(resolve(dir, '../../../views/KeyUsageView.vue'), 'utf8')
 
@@ -19,12 +20,15 @@ describe('site_logo sanitization', () => {
     expect(homeViewSource).toContain('sanitizeUrl(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo')
   })
 
-  it('KeyUsageView applies sanitizeUrl to siteLogo', () => {
-    expect(keyUsageViewSource).toContain('sanitizeUrl(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo')
+  it('KeyUsageView delegates brand logo rendering to PublicShell and BrandMark', () => {
+    expect(keyUsageViewSource).toContain('<PublicShell>')
+    expect(keyUsageViewSource).not.toContain('site_logo')
+    expect(brandMarkSource).toContain("import { sanitizeUrl } from '@/utils/url'")
+    expect(brandMarkSource).toContain('sanitizeUrl(props.siteLogo')
   })
 
-  it('all three pass allowRelative and allowDataUrl options', () => {
-    for (const src of [sidebarSource, homeViewSource, keyUsageViewSource]) {
+  it('all logo renderers pass allowRelative and allowDataUrl options', () => {
+    for (const src of [sidebarSource, homeViewSource, brandMarkSource]) {
       expect(src).toContain('allowRelative: true')
       expect(src).toContain('allowDataUrl: true')
     }

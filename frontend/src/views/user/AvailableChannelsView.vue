@@ -12,9 +12,11 @@
                 class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
               />
               <input
+                ref="searchInputRef"
                 v-model="searchQuery"
                 type="text"
                 :placeholder="t('availableChannels.searchPlaceholder')"
+                :aria-label="t('availableChannels.searchPlaceholder')"
                 class="input h-9 pl-9 pr-14 text-sm"
               />
               <button
@@ -35,26 +37,26 @@
             </div>
 
             <!-- 界面风格「可用渠道与计费倍率」统计胶囊 -->
-            <div class="flex flex-wrap items-center gap-2" aria-label="可用渠道与计费倍率统计">
+            <div class="flex flex-wrap items-center gap-2" :aria-label="t('availableChannels.statsAria')">
               <span class="chip text-xs font-medium">
                 <span class="pulse-dot pulse-ok" aria-hidden="true" />
-                <span>可用渠道与计费倍率</span>
+                <span>{{ t('availableChannels.statsBadge') }}</span>
               </span>
               <span class="chip text-xs">
-                <span class="text-[var(--muted-foreground)]">匹配渠道</span>
+                <span class="text-[var(--muted-foreground)]">{{ t('availableChannels.matchedChannels') }}</span>
                 <b class="font-mono tabular-nums text-[var(--foreground)]">
                   {{ filteredChannels.length }}<template v-if="searchQuery.trim()"> / {{ channels.length }}</template>
                 </b>
               </span>
               <span class="chip text-xs">
-                <span class="text-[var(--muted-foreground)]">平台覆盖</span>
+                <span class="text-[var(--muted-foreground)]">{{ t('availableChannels.platformCoverage') }}</span>
                 <b class="font-mono tabular-nums text-[var(--foreground)]">{{ platformCoverageCount }}</b>
               </span>
               <span
                 v-if="exclusiveRateCount > 0"
                 class="pill pill-ghost font-mono text-[11px] tabular-nums"
               >
-                专属倍率 {{ exclusiveRateCount }} 组
+                {{ t('availableChannels.exclusiveRates', { count: exclusiveRateCount }) }}
               </span>
             </div>
           </div>
@@ -64,6 +66,7 @@
               @click="loadChannels"
               :disabled="loading"
               class="btn btn-secondary"
+              :aria-label="t('common.refresh', 'Refresh')"
               :title="t('common.refresh', 'Refresh')"
             >
               <Icon name="refresh" size="md" :class="loading ? 'motion-safe:animate-spin' : ''" />
@@ -89,7 +92,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
@@ -107,6 +110,7 @@ const channels = ref<UserAvailableChannel[]>([])
 const userGroupRates = ref<Record<number, number>>({})
 const loading = ref(false)
 const searchQuery = ref('')
+const searchInputRef = ref<HTMLInputElement | null>(null)
 
 const columnLabels = computed(() => ({
   name: t('availableChannels.columns.name'),
@@ -177,5 +181,29 @@ async function loadChannels() {
   }
 }
 
-onMounted(loadChannels)
+function handleGlobalShortcut(event: KeyboardEvent): void {
+  if (event.defaultPrevented) return
+  if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key === '/') {
+    const activeEl = document.activeElement as HTMLElement | null
+    const tag = activeEl?.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || activeEl?.isContentEditable) {
+      return
+    }
+    event.preventDefault()
+    searchInputRef.value?.focus()
+  }
+}
+
+onMounted(() => {
+  void loadChannels()
+  if (typeof window !== 'undefined') {
+    window.addEventListener('keydown', handleGlobalShortcut)
+  }
+})
+
+onUnmounted(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('keydown', handleGlobalShortcut)
+  }
+})
 </script>

@@ -65,7 +65,10 @@ vi.mock('@/stores/app', async () => {
 
 vi.mock('@/stores', async () => {
   const { useAppStore } = await import('@/stores/app')
-  return { useAppStore }
+  return {
+    useAppStore,
+    useAuthStore: () => ({ isAuthenticated: false, isAdmin: false })
+  }
 })
 
 function createTestRouter() {
@@ -74,7 +77,9 @@ function createTestRouter() {
     routes: [
       { path: '/home', name: 'Home', component: { template: '<div />' } },
       { path: '/login', name: 'Login', component: { template: '<div />' } },
+      { path: '/register', name: 'Register', component: { template: '<div />' } },
       { path: '/model-plaza', name: 'ModelPlaza', component: { template: '<div />' } },
+      { path: '/key-usage', name: 'KeyUsage', component: { template: '<div />' } },
       { path: '/pricing', name: 'Pricing', component: { template: '<div />' } },
       { path: '/status', name: 'Status', component: { template: '<div />' } },
       { path: '/docs', name: 'Docs', component: { template: '<div />' } },
@@ -215,5 +220,42 @@ describe('E1-1 LegalDocumentView & PublicShell footer links', () => {
 
     expect(wrapper.find('[data-testid="legal-load-error"]').exists()).toBe(true)
     expect(wrapper.text()).toContain(enMessages.legal.loadFailed)
+  })
+
+  it('renders LegalDocumentView inside PublicShell with header navigation and footer [P2-2]', async () => {
+    routeState.params.documentId = 'terms'
+    const router = createTestRouter()
+    await router.push('/legal/terms')
+    await router.isReady()
+
+    const settings = {
+      site_name: 'OmniHive',
+      login_agreement_enabled: true,
+      login_agreement_documents: [
+        { id: 'terms', title: 'Terms of Service', content_md: 'Terms body' }
+      ]
+    }
+    fetchPublicSettingsMock.mockImplementation(async () => {
+      appStoreState.cachedPublicSettings = settings
+      return settings
+    })
+
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en',
+      messages: compiledMessages
+    })
+    const wrapper = mount(LegalDocumentView, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { Icon: true }
+      }
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="public-header"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="public-cmdk-trigger"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="public-theme-toggle"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="public-shell-footer"]').exists()).toBe(true)
   })
 })

@@ -59,9 +59,12 @@
               :disabled="authActionDisabled"
               class="input"
               :class="{ 'input-error': errors.email }"
+              :aria-invalid="Boolean(errors.email)"
+              :aria-describedby="errors.email ? 'email-error' : undefined"
               :placeholder="t('auth.emailPlaceholder')"
             />
           </div>
+          <p v-if="errors.email" id="email-error" role="alert" class="auth-field-error">{{ errors.email }}</p>
         </div>
 
         <!-- Password Input -->
@@ -79,6 +82,8 @@
               :disabled="authActionDisabled"
               class="input pr-11"
               :class="{ 'input-error': errors.password }"
+              :aria-invalid="Boolean(errors.password)"
+              :aria-describedby="errors.password ? 'password-error' : undefined"
               :placeholder="t('auth.passwordPlaceholder')"
             />
             <button
@@ -93,6 +98,7 @@
               <Icon v-else name="eye" size="md" />
             </button>
           </div>
+          <p v-if="errors.password" id="password-error" role="alert" class="auth-field-error">{{ errors.password }}</p>
         </div>
 
         <LoginAgreementPrompt

@@ -105,6 +105,8 @@
               :disabled="isLoading"
               class="input pr-11"
               :class="{ 'input-error': errors.password }"
+              :aria-invalid="Boolean(errors.password)"
+              :aria-describedby="errors.password ? 'password-error' : undefined"
               :placeholder="t('auth.newPasswordPlaceholder')"
             />
             <button
@@ -118,6 +120,7 @@
               <Icon v-else name="eye" size="md" />
             </button>
           </div>
+          <p v-if="errors.password" id="password-error" role="alert" class="auth-field-error">{{ errors.password }}</p>
         </div>
 
         <!-- Confirm Password Input -->
@@ -135,6 +138,8 @@
               :disabled="isLoading"
               class="input pr-11"
               :class="{ 'input-error': errors.confirmPassword }"
+              :aria-invalid="Boolean(errors.confirmPassword)"
+              :aria-describedby="errors.confirmPassword ? 'confirm-password-error' : undefined"
               :placeholder="t('auth.confirmPasswordPlaceholder')"
             />
             <button
@@ -148,6 +153,7 @@
               <Icon v-else name="eye" size="md" />
             </button>
           </div>
+          <p v-if="errors.confirmPassword" id="confirm-password-error" role="alert" class="auth-field-error">{{ errors.confirmPassword }}</p>
         </div>
 
         <!-- Submit Button -->
@@ -180,7 +186,7 @@
           <Icon v-else name="checkCircle" size="md" class="mr-2" />
           {{ isLoading ? t('auth.resettingPassword') : t('auth.resetPassword') }}
         </button>
-        <router-link to="/forgot-password" class="btn btn-outline">{{ t('auth.forgotPassword') }}</router-link>
+        <router-link to="/forgot-password" class="btn btn-outline">{{ t('auth.requestNewResetLink') }}</router-link>
         </div>
       </form>
     </div>

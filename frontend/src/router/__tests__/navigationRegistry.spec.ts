@@ -19,6 +19,9 @@ const paths = new Set(allNavItems.map((item) => item.path))
 
 describe('core console navigation surfaces', () => {
   it.each([
+    '/docs',
+    '/compatibility',
+    '/model-plaza/compare',
     '/byok',
     '/playground',
     '/requests',
@@ -109,5 +112,14 @@ describe('navigationRegistry <-> router consistency contract', () => {
     expect(resolveNavigationBreadcrumb('/keys').domainLabelZh).toBe('开发者台 · 访问与空间')
     expect(resolveNavigationBreadcrumb('/byok').domainLabelZh).toBe('开发者台 · 访问与空间')
     expect(resolveNavigationBreadcrumb('/workspaces').domainLabelZh).toBe('开发者台 · 访问与空间')
+  })
+
+  it('attaches featureFlag metadata and canonical titleKey on gated user routes [P1-3, P2-1]', () => {
+    const availableChannels = router.resolve('/available-channels')
+    expect(availableChannels.meta.featureFlag).toBe('availableChannels')
+    expect(availableChannels.meta.titleKey).toBe('nav.availableChannels')
+
+    expect(router.resolve('/monitor').meta.featureFlag).toBe('channelMonitor')
+    expect(router.resolve('/affiliate').meta.featureFlag).toBe('affiliate')
   })
 })

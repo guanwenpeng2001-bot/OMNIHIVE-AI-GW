@@ -78,7 +78,13 @@ function toMessageFunctions<T extends Record<string, string>>(dict: T) {
 const MOBILE_NAV_ID = 'public-mobile-nav'
 const XL_BREAKPOINT_PX = 1280
 
-const route = useRoute()
+const route = (() => {
+  try {
+    return useRoute()
+  } catch {
+    return null
+  }
+})()
 const { t, locale } = useI18n({
   useScope: 'local',
   messages: {
@@ -123,7 +129,7 @@ const isAuthenticated = computed(() => Boolean(authStore?.isAuthenticated))
 const consolePath = computed(() => (authStore?.isAdmin ? '/admin/dashboard' : '/dashboard'))
 
 const navItems = computed<PublicNavItem[]>(() => {
-  const currentPath = route.path || ''
+  const currentPath = route?.path || ''
   const items: PublicNavItem[] = []
 
   items.push(
@@ -234,7 +240,7 @@ function openSearch(): void {
 }
 
 watch(
-  () => [route.path, route.fullPath],
+  () => [route?.path, route?.fullPath],
   () => {
     closeMobileMenu()
   }
@@ -405,14 +411,14 @@ onBeforeUnmount(() => {
         </template>
         <template v-else>
           <router-link
-            v-if="route.path !== '/login'"
+            v-if="route?.path !== '/login'"
             to="/login"
             class="oh-focus-ring inline-flex h-8 shrink-0 items-center whitespace-nowrap rounded-oh-md border border-oh-default bg-oh-surface px-2.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-oh-primary transition-colors hover:bg-oh-hover"
           >
             {{ tr('signIn') }}
           </router-link>
           <router-link
-            v-if="registrationEnabled && route.path !== '/register'"
+            v-if="registrationEnabled && route?.path !== '/register'"
             to="/register"
             class="oh-focus-ring hidden h-8 shrink-0 items-center whitespace-nowrap rounded-oh-md border border-transparent bg-oh-accent px-3 font-mono text-[11px] font-semibold uppercase tracking-wider text-oh-accent-ink transition-colors hover:bg-oh-accent-hover sm:inline-flex"
           >
@@ -505,13 +511,13 @@ onBeforeUnmount(() => {
         </nav>
 
         <div
-          v-if="locale || (!isAuthenticated && registrationEnabled && route.path !== '/register')"
+          v-if="locale || (!isAuthenticated && registrationEnabled && route?.path !== '/register')"
           data-testid="public-mobile-utilities"
           class="mt-2.5 flex flex-wrap items-center justify-between gap-2 border-t border-oh-subtle pt-2.5 sm:hidden"
         >
           <LocaleSwitcher v-if="locale" />
           <router-link
-            v-if="!isAuthenticated && registrationEnabled && route.path !== '/register'"
+            v-if="!isAuthenticated && registrationEnabled && route?.path !== '/register'"
             to="/register"
             class="oh-focus-ring ml-auto inline-flex h-8 items-center whitespace-nowrap rounded-oh-md border border-transparent bg-oh-accent px-3 font-mono text-[11px] font-semibold uppercase tracking-wider text-oh-accent-ink transition-colors hover:bg-oh-accent-hover"
             @click="closeMobileMenu()"
