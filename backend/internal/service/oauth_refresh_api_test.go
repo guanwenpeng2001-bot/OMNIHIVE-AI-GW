@@ -226,6 +226,7 @@ func TestRefreshIfNeeded_Success(t *testing.T) {
 	require.NotNil(t, result.NewCredentials)
 	require.Equal(t, "new-token", result.NewCredentials["access_token"])
 	require.NotNil(t, result.NewCredentials["_token_version"]) // version stamp set
+	require.Equal(t, "new-token", result.Account.GetCredential("access_token"))
 	require.Equal(t, 1, repo.updateCalls)                      // DB updated
 	require.Equal(t, 1, repo.updateCredentialsCalls)
 	require.NotEmpty(t, cache.lockOwner)

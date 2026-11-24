@@ -180,6 +180,22 @@ func TestRuntimeOAuthRefreshCannotOverwriteReplacement(t *testing.T) {
 	require.Empty(t, repo.current.GetCredential("access_token"))
 }
 
+func TestAntigravityOAuthRefreshKeepsProjectIdentity(t *testing.T) {
+	account := &Account{ID: 92, Platform: PlatformAntigravity, Type: AccountTypeOAuth, Status: StatusActive,
+		Credentials: map[string]any{"project_id": "stable-project", "access_token": "old", "refresh_token": "old-refresh", "credential_secret_version": 1}}
+	incoming := snapshotOAuthRefreshAccount(account)
+	incoming.Credentials["access_token"] = "new"
+	incoming.Credentials["refresh_token"] = "new-refresh"
+	incoming.Credentials["credential_secret_version"] = 2
+	AdvanceAccountModelCatalogRevisionsForUpdate(account, incoming, false)
+	require.Zero(t, incoming.ModelCatalogState().IdentityRevision)
+	require.Equal(t, account.GetUpstreamModelCatalog(), incoming.GetUpstreamModelCatalog())
+
+	incoming.Credentials["project_id"] = "different-project"
+	AdvanceAccountModelCatalogRevisionsForUpdate(account, incoming, false)
+	require.EqualValues(t, 1, incoming.ModelCatalogState().IdentityRevision)
+}
+
 func TestRegistryDownloadAndDraftIsolation(t *testing.T) {
 	key := ModelRegistryDownloadKey("https://source", "http://proxy", "verified")
 	for _, other := range []string{ModelRegistryDownloadKey("https://other", "http://proxy", "verified"), ModelRegistryDownloadKey("https://source", "http://other", "verified"), ModelRegistryDownloadKey("https://source", "http://proxy", "unverified")} {

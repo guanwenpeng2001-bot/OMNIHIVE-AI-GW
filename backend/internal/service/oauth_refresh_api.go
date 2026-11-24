@@ -399,9 +399,10 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 		}
 	}
 
+	var returnErr error
 	if requestPath && freshAccount.Platform == PlatformGrok {
 		if eligibilityErr := grokOAuthRequestAccountEligibilityError(freshAccount); eligibilityErr != nil {
-			return nil, withGrokCredentialFailureSnapshot(eligibilityErr, freshAccount)
+			returnErr = withGrokCredentialFailureSnapshot(eligibilityErr, freshAccount)
 		}
 	}
 
@@ -409,7 +410,7 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 		Refreshed:      true,
 		NewCredentials: newCredentials,
 		Account:        freshAccount,
-	}, nil
+	}, returnErr
 }
 
 func (api *OAuthRefreshAPI) loadGrokDurableAccountAfterPersist(parent context.Context, cacheKey string, accountID int64) (*Account, error) {

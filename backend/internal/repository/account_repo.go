@@ -4869,7 +4869,7 @@ func accountCatalogRevisionPatchSQL(incoming, incomingExtra, proxyChanged string
 			}
 			return "(" + strings.Join(terms, " OR ") + ")"
 		}
-		stable = "CASE WHEN platform = 'workbuddy' THEN " + hasSubject(service.PlatformWorkBuddy) + " ELSE " + hasSubject("") + " END"
+		stable = "CASE WHEN platform = 'workbuddy' THEN " + hasSubject(service.PlatformWorkBuddy) + " WHEN platform = 'antigravity' THEN " + hasSubject(service.PlatformAntigravity) + " ELSE " + hasSubject("") + " END"
 	}
 	changes = append(changes, "(("+versionChanged+" OR credentials->'access_token' IS DISTINCT FROM "+incoming+"->'access_token') AND NOT ("+stable+"))")
 	identity := "(" + strings.Join(changes, " OR ") + ")"
