@@ -75,6 +75,7 @@ const SAMPLE_LIST_PAYLOAD = {
     catalog_version:
       'cat_1111111111111111111111111111111111111111111111111111111111111111',
     as_of: '2026-11-23T06:00:00Z',
+    quick_filter_counts: { routable_but_unpriced: 6, discovered_not_enabled: 13, pi_only: 21, stale: 0 },
     scope_version: '17',
     items: [
       {
@@ -464,6 +465,11 @@ describe('ModelsCatalogView (/admin/models) & inspector contract', () => {
     // Zero raw "pi-ai" in user-facing UI
     expect(wrapper.text()).not.toContain('pi-ai')
 
+    const { items, quick_filter_counts } = SAMPLE_LIST_PAYLOAD.data
+    const respondWith = (rows: typeof items) =>
+      mockGet.mockResolvedValueOnce({ data: { ...SAMPLE_LIST_PAYLOAD.data, items: rows } })
+    expect(wrapper.get('[data-testid="quick-filter-pi_only"] span:last-child').text()).toBe(String(quick_filter_counts.pi_only))
+    respondWith([items[0]])
     // Filter: routable_but_unpriced (P0)
     await wrapper.get('[data-testid="quick-filter-routable_but_unpriced"]').trigger('click')
     await flushPromises()
@@ -479,12 +485,14 @@ describe('ModelsCatalogView (/admin/models) & inspector contract', () => {
     expect(wrapper.findAll('[data-testid="admin-model-row"]')).toHaveLength(1)
     expect(wrapper.get('[data-testid="admin-model-row"]').text()).toContain('openai/gpt-4.1')
 
+    respondWith([items[0]])
     // Filter: discovered_not_enabled (discovered_accounts_count 3 > accounts_count 2)
     await wrapper.get('[data-testid="quick-filter-discovered_not_enabled"]').trigger('click')
     await flushPromises()
     expect(wrapper.findAll('[data-testid="admin-model-row"]')).toHaveLength(1)
     expect(wrapper.get('[data-testid="admin-model-row"]').text()).toContain('openai/gpt-4.1')
 
+    respondWith([items[2]])
     // Filter: pi_only
     await wrapper.get('[data-testid="quick-filter-pi_only"]').trigger('click')
     await flushPromises()
@@ -492,6 +500,13 @@ describe('ModelsCatalogView (/admin/models) & inspector contract', () => {
     expect(wrapper.get('[data-testid="admin-model-row"]').text()).toContain(
       'community/pi-community-only'
     )
+
+    respondWith([])
+    await wrapper.get('[data-testid="quick-filter-stale"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="admin-model-row"]')).toHaveLength(0)
+    expect(wrapper.get('[data-testid="quick-filter-discovered_not_enabled"] span:last-child').text()).toBe('13')
+    expect(wrapper.get('[data-testid="quick-filter-stale"] span:last-child').text()).toBe('0')
   })
 
   it('opens detail drawer with provenance conflict highlight in amber, 4-stage funnel, 4-layer price waterfall, and nested pagination', async () => {
@@ -579,7 +594,12 @@ describe('ModelsCatalogView (/admin/models) & inspector contract', () => {
     const wrapper = mountCatalogView()
     await flushPromises()
 
+    const first = SAMPLE_LIST_PAYLOAD.data.items[0]
+    mockGet.mockResolvedValueOnce({ data: { ...SAMPLE_DETAIL_PAYLOAD.data, model: first } })
     await wrapper.get('[data-testid="open-catalog-verification-workbench"]').trigger('click')
+    await flushPromises()
+    expect(mockGet).toHaveBeenLastCalledWith(`/api/v2/admin/catalog/models/${first.id}`, expect.anything())
+    expect(wrapper.get('[data-testid="admin-model-detail-drawer"] header').text()).toContain(first.display_name)
     await flushPromises()
 
     const drawer = wrapper.get('[data-testid="admin-model-detail-drawer"]')

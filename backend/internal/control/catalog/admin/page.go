@@ -75,6 +75,8 @@ func window[T any](h *Handler, rows []T, prior cursor, snapshot snapshotMeta, ma
 	return rows[:limit], &next, nil
 }
 
+var quickFilters = []string{"routable_but_unpriced", "discovered_not_enabled", "listed_unrouted", "group_price_conflict", "pi_only", "stale"}
+
 type listFilter struct {
 	Provider, Model, Search, Source, Publication, Availability, Billing, Quick string
 }
@@ -121,7 +123,7 @@ func parseList(q url.Values) (listFilter, int, error) {
 			}
 			f.Billing = v
 		case "quick_filter":
-			if !slices.Contains([]string{"routable_but_unpriced", "discovered_not_enabled", "listed_unrouted", "group_price_conflict", "pi_only", "stale"}, v) {
+			if !slices.Contains(quickFilters, v) {
 				return f, 0, fault.Invalid("/quick_filter")
 			}
 			f.Quick = v
@@ -138,9 +140,8 @@ func parseList(q url.Values) (listFilter, int, error) {
 	return f, limit, nil
 }
 
-func (f listFilter) matches(d catalog.Detail, counts bindingSummary) bool {
+func (f listFilter) matches(d catalog.Detail, source modelSource, availability availability, billing catalog.Billing) bool {
 	m := d.Model
-	source, availability, billing := projectAxes(m, counts)
 	if f.Provider != "" && !strings.EqualFold(f.Provider, m.Provider) ||
 		f.Model != "" && f.Model != m.Model ||
 		f.Source != "" && !slices.Contains(source.Kinds, f.Source) ||
@@ -156,7 +157,11 @@ func (f listFilter) matches(d catalog.Detail, counts bindingSummary) bool {
 		!slices.ContainsFunc(d.Aliases, func(alias string) bool { return catalog.MatchesText(alias, f.Search) }) {
 		return false
 	}
-	switch f.Quick {
+	return true
+}
+
+func matchesQuick(key string, d catalog.Detail, counts bindingSummary, source modelSource, availability availability, billing catalog.Billing) bool {
+	switch key {
 	case "routable_but_unpriced":
 		return availability.State == "live" && billing.State == "unpriced"
 	case "discovered_not_enabled":
@@ -170,7 +175,7 @@ func (f listFilter) matches(d catalog.Detail, counts bindingSummary) bool {
 	case "stale":
 		return counts.hasStale || slices.ContainsFunc(d.Provenance, func(p catalog.Provenance) bool { return p.State == "stale" })
 	default:
-		return true
+		return false
 	}
 }
 
@@ -196,9 +201,21 @@ func (h *Handler) list(c *gin.Context, p catalog.Perspective, q url.Values) (any
 		bindings bindingSummary
 	}
 	rows := make([]row, 0, len(snapshot.Details))
+	quickCounts := make(map[string]int, len(quickFilters))
+	for _, key := range quickFilters {
+		quickCounts[key] = 0
+	}
 	for _, d := range snapshot.Details {
 		bindings := summarizeBindings(d.Offers)
-		if filter.matches(d, bindings) {
+		source, availability, billing := projectAxes(d.Model, bindings)
+		selected := filter.Quick == ""
+		for _, key := range quickFilters {
+			if matchesQuick(key, d, bindings, source, availability, billing) {
+				quickCounts[key]++
+				selected = selected || key == filter.Quick
+			}
+		}
+		if selected && filter.matches(d, source, availability, billing) {
 			rows = append(rows, row{d, bindings})
 		}
 	}
@@ -215,7 +232,7 @@ func (h *Handler) list(c *gin.Context, p catalog.Perspective, q url.Values) (any
 	for _, row := range rows {
 		items = append(items, projectSummary(row.detail, row.bindings))
 	}
-	return listResponse{snapshotMeta: meta, Items: items, Next: next}, nil
+	return listResponse{snapshotMeta: meta, Items: items, Next: next, QuickFilterCounts: quickCounts}, nil
 }
 
 func (h *Handler) readSnapshot(c *gin.Context, p catalog.Perspective, prior cursor) (catalog.Snapshot, error) {

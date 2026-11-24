@@ -112,6 +112,7 @@ describe('admin AccountsView priority column preferences', () => {
 
     expect(wrapper.get('[data-column="priority"]').text()).toBe('sortable')
 
+    expect(wrapper.find('[data-column="id"]').exists()).toBe(false)
     await wrapper.get('[data-test="sort-priority"]').trigger('click')
     await flushPromises()
 

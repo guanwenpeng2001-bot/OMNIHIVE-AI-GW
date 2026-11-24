@@ -2799,6 +2799,10 @@ export interface components {
             billing: components["schemas"]["CatalogBilling"];
         };
         AdminCatalogPage: {
+            /** @description Diagnostic counts across the authorized snapshot before list filters and pagination. */
+            quick_filter_counts: {
+                [key: string]: number;
+            };
             items: components["schemas"]["AdminCatalogModel"][];
             next_cursor: string | null;
             catalog_version: string;

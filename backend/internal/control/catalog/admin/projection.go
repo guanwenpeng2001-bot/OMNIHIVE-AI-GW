@@ -19,8 +19,9 @@ func newSnapshotMeta(s catalog.Snapshot, p catalog.Perspective) snapshotMeta {
 
 type listResponse struct {
 	snapshotMeta
-	Items []modelSummary `json:"items"`
-	Next  *string        `json:"next_cursor"`
+	Items             []modelSummary `json:"items"`
+	Next              *string        `json:"next_cursor"`
+	QuickFilterCounts map[string]int `json:"quick_filter_counts"`
 }
 
 type modelSummary struct {
