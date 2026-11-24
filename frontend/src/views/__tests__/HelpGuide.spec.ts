@@ -356,4 +356,14 @@ describe('configuration manual', () => {
       expect(locale.helpGuide.clients.notes.antigravity).toContain('Antigravity')
     }
   })
+
+  it('uses canonical P4 glossary terms instead of banned synonyms in zh helpGuide and channelTelemetry [P2-5]', async () => {
+    const zhTelemetry = (await import('@/i18n/locales/zh/channelTelemetry')).default
+    const serializedHelp = JSON.stringify(zh.helpGuide)
+    expect(serializedHelp).not.toContain('上游账号')
+    expect(serializedHelp).not.toContain('自带密钥')
+    expect(serializedHelp).toContain('上游连接')
+    expect(serializedHelp).toContain('自带上游凭据 (BYOK)')
+    expect(zhTelemetry.channelTelemetry.errorCategories.account_pool_unavailable).toBe('上游资源池不可用')
+  })
 })

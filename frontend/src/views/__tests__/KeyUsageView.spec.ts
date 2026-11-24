@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 
+import { resetThemeDirectionForTests } from '@/composables/useThemeDirection'
 import KeyUsageView from '../KeyUsageView.vue'
 
 const { showInfo, showSuccess, showError, fetchPublicSettings, authUser, listKeys, getKeyById, getDailyUsage, getBatchUsage } = vi.hoisted(() => ({
@@ -144,10 +145,7 @@ describe('KeyUsageView daily detail', () => {
     fetchPublicSettings.mockReset()
     localStorage.clear()
 
-    Object.defineProperty(window, 'matchMedia', {
-      configurable: true,
-      value: vi.fn().mockReturnValue({ matches: false }),
-    })
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: false }))
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => window.setTimeout(() => cb(0), 0))
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
@@ -216,7 +214,7 @@ describe('KeyUsageView daily detail', () => {
       reason: 'history_before_coverage_floor_unverified'
     }
     vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => payload } as Response)
-    const wrapper = mount(KeyUsageView, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, LocaleSwitcher: true, Icon: true } } })
+    const wrapper = mount(KeyUsageView, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, LocaleSwitcher: true, Icon: true, SiteICPFooter: true } } })
     await wrapper.find('input').setValue('sk-test-key')
     await wrapper.find('input').trigger('keydown.enter')
     await flushPromises()
@@ -240,7 +238,7 @@ describe('KeyUsageView daily detail', () => {
   it('keeps pending and failed key queries separate from unknown coverage', async () => {
     let rejectQuery!: (error: Error) => void
     vi.mocked(fetch).mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectQuery = reject }))
-    const wrapper = mount(KeyUsageView, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, LocaleSwitcher: true, Icon: true } } })
+    const wrapper = mount(KeyUsageView, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, LocaleSwitcher: true, Icon: true, SiteICPFooter: true } } })
     await wrapper.find('input').setValue('sk-test-key')
     await wrapper.find('input').trigger('keydown.enter')
     expect(wrapper.find('.skeleton').exists()).toBe(true)
@@ -260,6 +258,7 @@ describe('KeyUsageView daily detail', () => {
           RouterLink: { template: '<a><slot /></a>' },
           LocaleSwitcher: true,
           Icon: true,
+          SiteICPFooter: true,
         },
       },
     })
@@ -304,6 +303,7 @@ describe('KeyUsageView daily detail', () => {
           RouterLink: { template: '<a><slot /></a>' },
           LocaleSwitcher: true,
           Icon: true,
+          SiteICPFooter: true,
         },
       },
     })
@@ -333,10 +333,7 @@ describe('KeyUsageView signed-in session query', () => {
     localStorage.clear()
     authUser.value = { id: 7, role: 'user' }
 
-    Object.defineProperty(window, 'matchMedia', {
-      configurable: true,
-      value: vi.fn().mockReturnValue({ matches: false }),
-    })
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: false }))
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => window.setTimeout(() => cb(0), 0))
     vi.stubGlobal('fetch', vi.fn())
   })
@@ -348,7 +345,7 @@ describe('KeyUsageView signed-in session query', () => {
 
   const mountView = () => mount(KeyUsageView, {
     global: {
-      stubs: { RouterLink: { template: '<a><slot /></a>' }, LocaleSwitcher: true, Icon: true },
+      stubs: { RouterLink: { template: '<a><slot /></a>' }, LocaleSwitcher: true, Icon: true, SiteICPFooter: true },
     },
   })
 
@@ -420,10 +417,9 @@ describe('KeyUsageView signed-in session query', () => {
 describe('KeyUsageView subscription feature flag', () => {
   beforeEach(() => {
     localStorage.clear()
-    Object.defineProperty(window, 'matchMedia', {
-      configurable: true,
-      value: vi.fn().mockReturnValue({ matches: false }),
-    })
+    document.documentElement.classList.remove('dark')
+    resetThemeDirectionForTests()
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: false }))
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => window.setTimeout(() => cb(0), 0))
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
@@ -445,6 +441,8 @@ describe('KeyUsageView subscription feature flag', () => {
 
   afterEach(() => {
     appStoreState.cachedPublicSettings = null
+    document.documentElement.classList.remove('dark')
+    resetThemeDirectionForTests()
     vi.unstubAllGlobals()
   })
 
@@ -455,6 +453,7 @@ describe('KeyUsageView subscription feature flag', () => {
           RouterLink: { template: '<a><slot /></a>' },
           LocaleSwitcher: true,
           Icon: true,
+          SiteICPFooter: true,
         },
       },
     })
@@ -492,6 +491,34 @@ describe('KeyUsageView subscription feature flag', () => {
       return !text && !ariaLabel && !title
     })
     expect(unnamedButtons).toHaveLength(0)
+    wrapper.unmount()
+  })
+
+  it('renders inside PublicShell with an accessible API key input label [P2-2, P3-2]', async () => {
+    const wrapper = await mountAndQuery()
+    expect(wrapper.find('[data-testid="public-header"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="public-shell-footer"]').exists()).toBe(true)
+    expect(wrapper.get('input').attributes('aria-label')).toBe('sk-test')
+    wrapper.unmount()
+  })
+
+  it('respects omnihive.theme.mode.v1 over legacy localStorage theme and syncs toggles via useThemeDirection [P1-1]', async () => {
+    localStorage.setItem('omnihive.theme.mode.v1', 'light')
+    localStorage.setItem('theme', 'dark')
+    document.documentElement.classList.add('dark')
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }))
+    resetThemeDirectionForTests()
+
+    const wrapper = await mountAndQuery()
+
+    expect(document.documentElement.classList.contains('dark')).toBe(false)
+
+    await wrapper.get('[data-testid="public-theme-toggle"]').trigger('click')
+    await nextTick()
+
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+    expect(localStorage.getItem('omnihive.theme.mode.v1')).toBe('dark')
+    expect(localStorage.getItem('theme')).toBe('dark')
     wrapper.unmount()
   })
 })

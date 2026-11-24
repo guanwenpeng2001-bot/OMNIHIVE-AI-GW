@@ -31,7 +31,7 @@
         </div>
 
         <div class="auth-actions">
-          <button type="button" class="btn btn-outline" @click="isSubmitted = false">{{ t('auth.forgotPassword') }}</button>
+          <button type="button" class="btn btn-outline" @click="isSubmitted = false">{{ t('auth.sendAnotherEmail') }}</button>
           <router-link
             to="/login"
             class="btn btn-primary"
@@ -101,9 +101,12 @@
               :disabled="isLoading"
               class="input"
               :class="{ 'input-error': errors.email }"
+              :aria-invalid="Boolean(errors.email)"
+              :aria-describedby="errors.email ? 'email-error' : undefined"
               :placeholder="t('auth.emailPlaceholder')"
             />
           </div>
+          <p v-if="errors.email" id="email-error" role="alert" class="auth-field-error">{{ errors.email }}</p>
         </div>
 
         <!-- Turnstile Widget -->

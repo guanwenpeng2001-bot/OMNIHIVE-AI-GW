@@ -357,6 +357,7 @@ describe('Public portal and model plaza', () => {
 
     expect(wrapper.text()).toContain('x-provider: openai')
     expect(wrapper.text()).not.toContain('x-provider: gpt-4o')
+    expect(wrapper.text()).not.toContain('BYOK credentials credentials')
   })
 
   it('sanitizes documentation_url, avoids duplicate reference_price, fixes training no-substring match, and uses dynamic siteName in PublicModelDetailView', async () => {

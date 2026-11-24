@@ -11,11 +11,11 @@
         </p>
       </div>
       <div v-if="hasRegisterData" class="auth-summary">
-        <p>{{ t('auth.emailLabel') }}：<strong>{{ email }}</strong></p>
-        <p v-if="username">{{ t('profile.username') }}：{{ username }}</p>
-        <p v-if="invitationCode">{{ t('auth.invitationCodeLabel') }}：{{ invitationCode }}</p>
-        <p v-if="promoCode">{{ t('auth.promoCodeLabel') }}：{{ promoCode }}</p>
-        <p v-if="affCode">推荐码：{{ affCode }}</p>
+        <p>{{ t('auth.emailLabel') }}{{ labelColon }}<strong>{{ email }}</strong></p>
+        <p v-if="username">{{ t('profile.username') }}{{ labelColon }}{{ username }}</p>
+        <p v-if="invitationCode">{{ t('auth.invitationCodeLabel') }}{{ labelColon }}{{ invitationCode }}</p>
+        <p v-if="promoCode">{{ t('auth.promoCodeLabel') }}{{ labelColon }}{{ promoCode }}</p>
+        <p v-if="affCode">{{ t('auth.referralCodeLabel') }}{{ labelColon }}{{ affCode }}</p>
       </div>
 
       <!-- No Data Warning -->
@@ -36,6 +36,7 @@
 
       <!-- Verification Form -->
       <form v-else @submit.prevent="handleVerify" class="space-y-3">
+        <p v-if="errorMessage" role="alert" class="auth-error">{{ errorMessage }}</p>
         <!-- Verification Code Input -->
         <div>
           <label for="code" class="input-label">
@@ -52,9 +53,12 @@
             :disabled="isLoading"
             class="input font-mono tabular-nums tracking-[0.3em]"
             :class="{ 'input-error': errors.code }"
+            :aria-invalid="Boolean(errors.code)"
+            :aria-describedby="errors.code ? 'code-error' : undefined"
             placeholder="000000"
           />
           <p class="input-hint">{{ t('auth.verificationCodeHint') }}</p>
+          <p v-if="errors.code" id="code-error" role="alert" class="auth-field-error">{{ errors.code }}</p>
         </div>
 
         <!-- Code Status -->
@@ -236,6 +240,9 @@ import {
 import { authStorage } from '@/api/tokenRefresh'
 
 const { t, locale } = useI18n()
+const labelColon = computed(() =>
+  String(locale?.value ?? '').toLowerCase().startsWith('zh') ? '：' : ': '
+)
 
 // ==================== Router & Stores ====================
 
