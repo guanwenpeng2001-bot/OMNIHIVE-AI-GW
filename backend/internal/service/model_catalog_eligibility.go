@@ -276,7 +276,7 @@ func (account *Account) EffectiveUpstreamModelCatalogForCredentialAccount(creden
 }
 
 func legacyUpgradeFreeze(scope AccountModelAllowlist) bool {
-	return scope.Enabled && len(scope.Models) == 0 && scope.Reason == "system_upgrade_baseline_freeze"
+	return scope.Enabled && len(scope.Models) == 0 && scope.Reason == "system_upgrade_baseline_freeze" && scope.ConfirmedBy == 0 && scope.ConfirmedAt == ""
 }
 
 func (account *Account) ModelCatalogState() AccountModelCatalogState {
@@ -307,6 +307,9 @@ func AccountCatalogIdentityCredentialFields(platform string) []string {
 	fields := []string{"api_key", "base_url", "account_mode", "api_protocol", "api_base_urls", "project_id", "organization_id", "chatgpt_account_id", "chatgpt_user_id", "sub", "account_id", "user_id", "credential_source_account_id", "credential_shadow_account_id", "header_overrides"}
 	if platform == PlatformWorkBuddy {
 		fields = append(fields, WorkBuddyCatalogIdentityFields()...)
+	}
+	if platform == PlatformAntigravity {
+		fields = append(fields, "email")
 	}
 	return fields
 }

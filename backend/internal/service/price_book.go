@@ -180,7 +180,7 @@ func (b *PlatformPriceBook) ResolveForGroup(ctx context.Context, binding pricing
 		if publicModelLane(account) && zenFreeModelAllowed(account, binding.WireModel) {
 			resolved = newOfficialFreeTariff(binding.Provider)
 			input.Model = binding.WireModel
-		} else if account.IsOpenRouterFreeModel(binding.WireModel) {
+		} else if verifiedOpenRouterFreeTariff(account, binding.WireModel) {
 			resolved = newOfficialFreeTariff(binding.Provider)
 			input.Model = binding.WireModel
 		}

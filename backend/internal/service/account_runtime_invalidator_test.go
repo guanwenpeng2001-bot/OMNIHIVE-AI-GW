@@ -182,7 +182,7 @@ func TestRuntimeOAuthRefreshCannotOverwriteReplacement(t *testing.T) {
 
 func TestAntigravityOAuthRefreshKeepsProjectIdentity(t *testing.T) {
 	account := &Account{ID: 92, Platform: PlatformAntigravity, Type: AccountTypeOAuth, Status: StatusActive,
-		Credentials: map[string]any{"project_id": "stable-project", "access_token": "old", "refresh_token": "old-refresh", "credential_secret_version": 1}}
+		Credentials: map[string]any{"project_id": "stable-project", "email": "owner@example.test", "access_token": "old", "refresh_token": "old-refresh", "credential_secret_version": 1}}
 	incoming := snapshotOAuthRefreshAccount(account)
 	incoming.Credentials["access_token"] = "new"
 	incoming.Credentials["refresh_token"] = "new-refresh"
@@ -191,6 +191,22 @@ func TestAntigravityOAuthRefreshKeepsProjectIdentity(t *testing.T) {
 	require.Zero(t, incoming.ModelCatalogState().IdentityRevision)
 	require.Equal(t, account.GetUpstreamModelCatalog(), incoming.GetUpstreamModelCatalog())
 
+	incoming.Credentials["email"] = "different-owner@example.test"
+	AdvanceAccountModelCatalogRevisionsForUpdate(account, incoming, false)
+	require.EqualValues(t, 1, incoming.ModelCatalogState().IdentityRevision)
+	require.Nil(t, incoming.EffectiveUpstreamModelCatalog())
+
+	incoming = snapshotOAuthRefreshAccount(account)
+	incoming.Credentials["access_token"] = "replacement"
+	incoming.Credentials[CredentialSecretVersionKey] = 2
+	AdvanceAccountModelCatalogRevisionsForUpdate(account, incoming, true)
+	require.EqualValues(t, 1, incoming.ModelCatalogState().IdentityRevision)
+	require.Nil(t, incoming.EffectiveUpstreamModelCatalog())
+
+	incoming = snapshotOAuthRefreshAccount(account)
+	incoming.Credentials["access_token"] = "new"
+	incoming.Credentials["refresh_token"] = "new-refresh"
+	incoming.Credentials[CredentialSecretVersionKey] = 2
 	incoming.Credentials["project_id"] = "different-project"
 	AdvanceAccountModelCatalogRevisionsForUpdate(account, incoming, false)
 	require.EqualValues(t, 1, incoming.ModelCatalogState().IdentityRevision)

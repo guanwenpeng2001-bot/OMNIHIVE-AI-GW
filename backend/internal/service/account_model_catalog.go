@@ -235,10 +235,7 @@ func AdvanceAccountModelCatalogRevisionsForUpdate(current, incoming *Account, co
 	versionChanged := CredentialVersion(current.Credentials) != CredentialVersion(incoming.Credentials)
 	identityChanged = identityChanged || (versionChanged && incoming.Type != AccountTypeOAuth)
 	legacyPolicyChanged := identityChanged || !reflect.DeepEqual(current.ProxyID, incoming.ProxyID)
-	stableSubject := false
-	for _, key := range AccountCatalogSubjectFields(current.Platform) {
-		stableSubject = stableSubject || (current.GetCredential(key) != "" && current.GetCredential(key) == incoming.GetCredential(key))
-	}
+	stableSubject := accountCatalogStableSubjectUnchanged(current, incoming)
 	if (configurationOnly || !stableSubject) && (versionChanged || !reflect.DeepEqual(current.Credentials["access_token"], incoming.Credentials["access_token"])) {
 		identityChanged = true
 	}
@@ -275,6 +272,18 @@ func AdvanceAccountModelCatalogRevisionsForUpdate(current, incoming *Account, co
 		incoming.Extra = make(map[string]any)
 	}
 	incoming.Extra[UpstreamModelCatalogStateExtraKey] = state
+}
+
+func accountCatalogStableSubjectUnchanged(current, incoming *Account) bool {
+	if current.Platform == PlatformAntigravity {
+		return current.GetCredential("email") != "" && current.GetCredential("email") == incoming.GetCredential("email") && current.GetCredential("project_id") != "" && current.GetCredential("project_id") == incoming.GetCredential("project_id")
+	}
+	for _, key := range AccountCatalogSubjectFields(current.Platform) {
+		if current.GetCredential(key) != "" && current.GetCredential(key) == incoming.GetCredential(key) {
+			return true
+		}
+	}
+	return false
 }
 
 func accountCatalogScope(account *Account) (string, string) {

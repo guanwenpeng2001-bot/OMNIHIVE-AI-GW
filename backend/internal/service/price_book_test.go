@@ -231,6 +231,8 @@ func TestPriceBookProductionFreeLanesAndAntigravityVariant(t *testing.T) {
 	free := true
 	zen.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{Models: map[string]UpstreamModelMetadata{"beam-free": {ID: "beam-free", Free: &free}}})
 	openRouter := &Account{ID: 16, Platform: PlatformOpenRouter, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "key"}}
+	openRouter.Extra = map[string]any{UpstreamModelCatalogExtraKey: &AccountModelCatalogSnapshot{Complete: true, SourceKind: "live", DiscoveredModels: []string{"baidu/ernie-5.5-flash-preview:free"}}}
+	openRouter.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{Models: map[string]UpstreamModelMetadata{"baidu/ernie-5.5-flash-preview:free": {ID: "baidu/ernie-5.5-flash-preview:free", Free: &free}}})
 	repo := &mockAccountRepoForPlatform{accountsByID: map[int64]*Account{11: zen, 16: openRouter}}
 	prices := NewPricingService(nil, nil)
 	data, err := prices.parsePricingData([]byte(`{"claude-opus-5":{"litellm_provider":"anthropic","input_cost_per_token":0.000005,"output_cost_per_token":0.000025}}`))
@@ -243,6 +245,7 @@ func TestPriceBookProductionFreeLanesAndAntigravityVariant(t *testing.T) {
 		charge                string
 	}{
 		{name: "antigravity tier uses base card", provider: PlatformAntigravity, model: "claude-opus-5-5-high", charge: "0.03000000"},
+		{name: "antigravity Gemini tier uses base card", provider: PlatformAntigravity, model: "gemini-3.6-flash-high", charge: "0.00900000"},
 		{name: "opencode zen free lane", provider: PlatformOpenCodeGo, model: "beam-free", accountID: 11, charge: "0.00000000"},
 		{name: "openrouter free lane", provider: PlatformOpenRouter, model: "baidu/ernie-5.5-flash-preview:free", accountID: 16, charge: "0.00000000"},
 	} {

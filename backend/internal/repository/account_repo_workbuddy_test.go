@@ -105,7 +105,7 @@ func TestWorkBuddyReferencedRefreshPreservesPublication(t *testing.T) {
 func TestAntigravityReferencedRefreshPreservesPublication(t *testing.T) {
 	f := newCredentialSecretFixture(t)
 	repo := f.accounts
-	current := f.createAccount(t, f.ctx, uniqueName("antigravity-refresh"), service.PlatformAntigravity, service.AccountTypeOAuth, map[string]any{"project_id": "stable-project", "access_token": "old", "refresh_token": "refresh"})
+	current := f.createAccount(t, f.ctx, uniqueName("antigravity-refresh"), service.PlatformAntigravity, service.AccountTypeOAuth, map[string]any{"project_id": "stable-project", "email": "owner@example.test", "access_token": "old", "refresh_token": "refresh"})
 	read := func() *service.Account {
 		account, err := repo.GetByID(f.ctx, current.ID)
 		require.NoError(t, err)
@@ -132,4 +132,23 @@ func TestAntigravityReferencedRefreshPreservesPublication(t *testing.T) {
 	changed := read()
 	require.Nil(t, changed.EffectiveUpstreamModelCatalog())
 	require.ErrorIs(t, repo.UpdateAccountRuntimeSnapshot(f.ctx, rotated, map[string]any{"privacy_mode": service.AntigravityPrivacySet}, nil), service.ErrAccountRuntimeIdentityChanged)
+
+	current = f.createAccount(t, f.ctx, uniqueName("antigravity-manual"), service.PlatformAntigravity, service.AccountTypeOAuth, map[string]any{"project_id": "shared-project", "email": "owner@example.test", "access_token": "old", "refresh_token": "refresh"})
+	baseline = current.ModelCatalogBaseline()
+	credentials = maps.Clone(current.Credentials)
+	credentials["access_token"], credentials["refresh_token"] = "replacement", "replacement-refresh"
+	require.NoError(t, repo.UpdateCredentials(f.ctx, current.ID, credentials))
+	changed = read()
+	require.Greater(t, changed.ModelCatalogBaseline().IdentityRevision, baseline.IdentityRevision)
+	require.Nil(t, changed.EffectiveUpstreamModelCatalog())
+
+	current = f.createAccount(t, f.ctx, uniqueName("antigravity-owner"), service.PlatformAntigravity, service.AccountTypeOAuth, map[string]any{"project_id": "shared-project", "email": "first@example.test", "access_token": "old", "refresh_token": "refresh"})
+	baseline = current.ModelCatalogBaseline()
+	credentials = maps.Clone(current.Credentials)
+	credentials["email"] = "second@example.test"
+	credentials["access_token"], credentials["refresh_token"] = "replacement", "replacement-refresh"
+	require.NoError(t, repo.UpdateCredentials(f.ctx, current.ID, credentials))
+	changed = read()
+	require.Greater(t, changed.ModelCatalogBaseline().IdentityRevision, baseline.IdentityRevision)
+	require.Nil(t, changed.EffectiveUpstreamModelCatalog())
 }

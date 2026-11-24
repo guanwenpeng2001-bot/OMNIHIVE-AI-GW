@@ -110,7 +110,7 @@ func (s *GatewayService) ResolvePlaygroundPrice(ctx context.Context, key *APIKey
 		}
 		price.input.Model = outbound
 		price.input.Resolved = newOfficialFreeTariff(provider)
-	} else if account.IsOpenRouterFreeModel(outbound) {
+	} else if verifiedOpenRouterFreeTariff(account, outbound) {
 		price.input.Model = outbound
 		price.input.Resolved = newOfficialFreeTariff(provider)
 	}

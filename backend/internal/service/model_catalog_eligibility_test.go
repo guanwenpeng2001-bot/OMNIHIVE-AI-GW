@@ -121,7 +121,9 @@ func TestModelCatalogUpgradeFreezeDoesNotSuppressNativeDiscovery(t *testing.T) {
 				account.Type = AccountTypeOAuth
 				account.Credentials["project_id"] = "project"
 				account.Credentials["model_mapping"] = map[string]any{"claude-opus-4-7": "claude-opus-4-7"}
-				account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot).EligibleModels[0].Endpoints = []string{"generate_content"}
+				snapshot, ok := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+				require.True(t, ok)
+				snapshot.EligibleModels[0].Endpoints = []string{"generate_content"}
 			}
 			if platform == PlatformOpenCodeGo {
 				account.Credentials["account_mode"] = AccountModeZenFree
@@ -136,6 +138,8 @@ func TestModelCatalogUpgradeFreezeDoesNotSuppressNativeDiscovery(t *testing.T) {
 			require.True(t, AccountSupportsResolvedModel(context.Background(), &account, model, AccountModelBindingOptions{Endpoint: endpoint}))
 
 			account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{}, ConfirmedBy: 42, Reason: "administrator deny-all"}
+			require.False(t, AccountSupportsResolvedModel(context.Background(), &account, model, AccountModelBindingOptions{Endpoint: endpoint}))
+			account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{}, ConfirmedBy: 42, ConfirmedAt: "2026-11-25T00:00:00Z", Reason: "system_upgrade_baseline_freeze"}
 			require.False(t, AccountSupportsResolvedModel(context.Background(), &account, model, AccountModelBindingOptions{Endpoint: endpoint}))
 		})
 	}

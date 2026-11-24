@@ -64,6 +64,10 @@ func (p *GatewayRequestPlan) admitPublicModelLane(ctx context.Context, accountID
 	}
 	platform = account.Platform
 	ctx = WithResolvedTargetPlatform(ctx, platform)
+	model = strings.TrimSpace(account.GetMappedModel(model))
+	if model == "" {
+		return ErrModelPricingUnavailable
+	}
 
 	estimate := *p.budgetEstimate
 	estimate.Model = model
@@ -85,6 +89,9 @@ func (p *GatewayRequestPlan) admitPublicModelLane(ctx context.Context, accountID
 		}
 		amount = &free
 	} else if account.IsOpenRouterFreeModel(model) {
+		if !verifiedOpenRouterFreeTariff(account, model) {
+			return ErrModelPricingUnavailable
+		}
 		resolved = newOfficialFreeTariff(platform)
 		free, err := money.NewMoney("USD", "0")
 		if err != nil {

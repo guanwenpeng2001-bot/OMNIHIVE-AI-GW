@@ -181,7 +181,7 @@ func stripTariffDate(model string) string {
 
 func providerTariffNames(provider, model string) []string {
 	if provider == PlatformAntigravity {
-		return []string{model, normalizeAntigravityTieredModel(model)}
+		return []string{model, normalizeAntigravityTieredModel(model), normalizeGeminiThinkingTierAlias(strings.TrimPrefix(model, "models/"))}
 	}
 	if provider == PlatformGemini || provider == PlatformAntigravity {
 		model = strings.TrimPrefix(model, "models/")
