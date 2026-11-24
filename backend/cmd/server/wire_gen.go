@@ -389,7 +389,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	openAIQuotaAutoResetService := provideOpenAIQuotaAutoResetService(supervisor, accountRepository, openAIQuotaService, rateLimitService, idempotencyCoordinator, auditLogService, settingService, leaderLockCache)
 	handlers := handler.ProvideHandlers(modelAccessHandler, workspaceHandler, authHandler, userHandler, apiKeyHandler, usageHandler, redeemHandler, subscriptionHandler, announcementHandler, channelMonitorUserHandler, channelTelemetryHandler, adminHandlers, gatewayHandler, openAIGatewayHandler, handlerSettingHandler, totpHandler, passkeyHandler, handlerPaymentHandler, paymentWebhookHandler, availableChannelHandler, modelPlazaHandler, asyncImageHandler, batchImageHandler, gatewayResourceHandler, usageSettlementService, mcpGrantStore, totpService, idempotencyCoordinator, idempotencyCleanupService, openAIQuotaAutoResetService)
 	postgresStore := postgres.New(db)
-	platformPriceBook := service.NewPlatformPriceBook(modelPricingResolver)
+	platformPriceBook := service.ProvidePlatformPriceBook(modelPricingResolver, gatewayService)
 	source := catalogSourceProvider(db, postgresStore, modelPlazaService, settingService, apiKeyService, opsService, platformPriceBook)
 	reader := catalog.NewReader(source, postgresStore)
 	store2 := postgres2.NewWithCatalog(db, reader)
