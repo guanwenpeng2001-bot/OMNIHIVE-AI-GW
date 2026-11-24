@@ -4,6 +4,18 @@ This project follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/
 
 ## Unreleased
 
+## 0.3.5 - 2026-11-24
+
+### Fixed
+
+- **OAuth re-authorization**: Re-authorizing an existing OAuth account whose credentials are stored encrypted no longer fails with "Credential version changed". The confirmation writes against the credential revision captured at review, so a genuine concurrent rotation still returns a conflict and stale drafts must be reviewed again.
+- **Scheduler catalog updates**: Busy bucket rebuilds after model catalog or group changes are retried with backoff instead of logging an error every poll; events are acknowledged only after the rebuild is applied.
+- **Admin settings**: Numeric settings (balance, concurrency, SMTP port, retention and others) save as numbers instead of failing with HTTP 400; sensitive security changes use TOTP step-up; the deployment-managed Passkey RP ID is read-only.
+- **Admin catalog and connections**: Model catalog quick-filter counts come from the full snapshot; the connection wizard keeps only discovered models and no longer shows "verified" before a probe runs; channel plaza publication uses the group-scoped flow; "Clear all" clears model mappings too.
+- **Console**: Archived projects show their archived state; duplicate scope banners, empty-date usage requests and empty project-key action submissions are removed; MCP settings show inline validation.
+- **Public pages and layout**: No horizontal overflow on mobile pricing, plaza and model detail pages; key usage and legal pages use the public shell and shared theme; Cmd+K lists docs, compatibility and compare; disabled features are not reachable by direct URL.
+- **Localization**: Remaining hard-coded Chinese strings in admin, profile and settings pages are translated in both languages.
+
 ## 0.3.4 - 2026-11-23
 
 ### Added
