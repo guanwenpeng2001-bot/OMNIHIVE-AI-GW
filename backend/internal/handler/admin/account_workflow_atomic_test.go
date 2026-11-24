@@ -138,7 +138,11 @@ func TestCredentialDraftExistingAccountConfirmationIsBoundAndDoesNotCreate(t *te
 	request := CreateAccountRequest{ExistingAccountID: existing.ID, Name: fixture, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, CredentialDraft: draft.Reference, CredentialDraftRevision: draft.Revision, Credentials: map[string]any{"model_mapping": map[string]any{"public": "native"}}}
 	digest, err := credentialDraftSubmission(request)
 	require.NoError(t, err)
-	review, err := pending.ReviewAccountCredentialDraft(ctx, draft.Reference, fixture, draft.Revision, digest)
+	// The review endpoint records the target account's credential revision; mirror it here.
+	reviewed, err := accounts.GetByID(ctx, existing.ID)
+	require.NoError(t, err)
+	reviewCtx := service.WithCredentialRevision(ctx, reviewed.CredentialRevision)
+	review, err := pending.ReviewAccountCredentialDraft(reviewCtx, draft.Reference, fixture, draft.Revision, digest)
 	require.NoError(t, err)
 	request.CredentialDraftRevision = review.Revision
 	for range 2 {
