@@ -56,6 +56,10 @@
 
 预览添加仅检查当前草稿身份、有效结果、可添加 ID 和非加载状态。完整发现且能力稀疏必须可应用；部分发现可添加选择，但不能删除旧完整快照。切换身份后旧异步响应不得回填；选择变化只更新规则 review，不毁掉发现列表；identity/rules/snapshot CAS 必须保留。没有发现接口时仍可同平台候选加手工映射保存，不强制联网或收费探测。
 
+### 模型广场的分组发布
+
+平台管理员在「渠道与定价」中按已保存的路由分组选择展示模型。`GET /api/v1/admin/channels/{id}?plaza_group_id={group_id}` 返回 `candidates`、当前 `selected` 和不透明的 `revision`。`PUT /api/v1/admin/channels/{id}?plaza_confirmation=true` 接收 `{group_id, revision, models}`，其中 `models` 是该分组的完整 `{platform, name}` 名单。空列表撤下该渠道在此分组的全部模型。收到 `409 PLAZA_CONFIRMATION_CONFLICT` 时重新读取候选与修订，再确认选择。广场依照分组可见性展示发布结果，调用资格和销售价分别由路由授权和定价配置决定。
+
 ### 授权草稿生命周期
 
 OAuth/Setup/Cursor 授权成功后必须仅交付服务端短期 opaque 草稿引用，复用现有 OAuth session/缓存设施保存授权材料；前端必须只持该引用及非敏感字段，不得持有完整 exchange secret。草稿必须绑定发起授权的会话并受 TTL 约束；其他会话不得预览或消费，取消或过期后未消费草稿必须失效且不得建号。

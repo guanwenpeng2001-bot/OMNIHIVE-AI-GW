@@ -189,8 +189,14 @@ components:
           type: 'null'
     AdminCatalogPage:
       type: object
-      required: [items, next_cursor, catalog_version, as_of, scope_version]
+      required: [items, quick_filter_counts, next_cursor, catalog_version, as_of, scope_version]
       properties:
+        quick_filter_counts:
+          description: Diagnostic counts across the authorized snapshot before list filters and pagination.
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
         items:
           type: array
           items:

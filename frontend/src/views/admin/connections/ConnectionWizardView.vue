@@ -387,6 +387,14 @@ const endpointInlineError = computed(() => {
 })
 
 const discoveredModels = computed(() => state.verification?.models ?? [])
+const selectedModelIds = computed(() =>
+  [...new Set(modelIdsText.value.split(/[,\n]/).map(id => id.trim()).filter(Boolean))]
+)
+const unverifiedModelIds = computed(() => {
+  const verified = new Set(discoveredModels.value)
+  return selectedModelIds.value.filter(id => !verified.has(id))
+})
+const canPreviewModels = computed(() => selectedModelIds.value.length > 0 && !unverifiedModelIds.value.length)
 
 const hasFailedVerificationCheck = computed(() =>
   Boolean(state.verification?.checks.some((checkItem) => checkItem.state === 'failed'))
@@ -725,10 +733,7 @@ function applyCompatibleUaPreset() {
 }
 
 function addDiscoveredModel(modelId: string) {
-  const current = modelIdsText.value
-    .split(/[,\n]/)
-    .map((m) => m.trim())
-    .filter(Boolean)
+  const current = selectedModelIds.value
   if (!current.includes(modelId)) {
     modelIdsText.value = [...current, modelId].join(', ')
     Object.assign(state, invalidatePreview(state))
@@ -774,10 +779,7 @@ async function ensureConnectionPersisted(
       state.currentStep === 'preview' ||
       state.currentStep === 'activate')
   ) {
-    state.modelIds = modelIdsText.value
-      .split(/[,\n]/)
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0)
+    state.modelIds = selectedModelIds.value
   }
   const step1Check = canProceedFromStep(state, 'provider', selectedSchema.value, Date.now(), isZh.value)
   if (!step1Check.valid) {
@@ -1059,10 +1061,6 @@ async function handleRunVerification() {
       state.verification = opVerification
     }
     state.verificationStale = state.verification ? !isVerificationFresh(state.verification) : false
-    const discoveredList = state.verification?.models ?? []
-    if (!modelIdsText.value.trim() && discoveredList.length > 0) {
-      modelIdsText.value = discoveredList.join(', ')
-    }
     void loadConnectionEvents(state.connectionId)
 
     if (hasUnavailableVerificationEvidence(state.verification)) {
@@ -1104,6 +1102,9 @@ async function handleRunVerification() {
       }
       pageAsyncState.value = 'partial_failure'
     } else {
+      const verified = new Set(discoveredModels.value)
+      const selected = selectedModelIds.value
+      modelIdsText.value = (selected.length ? selected.filter(id => verified.has(id)) : [...verified]).join(', ')
       pageAsyncState.value = 'confirmed'
     }
   } catch (err) {
@@ -1120,15 +1121,12 @@ async function handleRunVerification() {
 }
 
 async function handleRunPreview() {
-  if (busy.value) return
+  if (busy.value || !canPreviewModels.value) return
   busy.value = true
   pageAsyncState.value = 'background_refresh'
   state.asyncError = null
   try {
-    state.modelIds = modelIdsText.value
-      .split(/[,\n]/)
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0)
+    state.modelIds = selectedModelIds.value
     const ok = await ensureConnectionPersisted({ includeAssignments: false })
     if (!ok || !state.connectionId) return
     const preview = await connectionsApi.previewConnection(state.connectionId, state.version, {
@@ -2267,6 +2265,7 @@ function formatEventType(type: string): string {
                   variant="secondary"
                   size="sm"
                   :loading="busy"
+                  :disabled="!canPreviewModels"
                   @click="handleRunPreview"
                 >
                   {{ isZh ? '生成变更预览' : 'Generate Preview' }}
@@ -2326,6 +2325,11 @@ function formatEventType(type: string): string {
                 />
               </div>
 
+              <p v-if="!canPreviewModels" role="status" class="text-xs text-oh-warning">
+                {{ unverifiedModelIds.length
+                  ? (isZh ? '请移除上次探测未发现的模型：' : 'Remove models missing from the last probe: ') + unverifiedModelIds.join(', ')
+                  : (isZh ? '请选择至少一个已探测的模型。' : 'Select at least one discovered model.') }}
+              </p>
               <div v-if="discoveredModels.length > 0" class="space-y-1.5">
                 <div class="text-xs text-oh-muted">
                   {{ isZh ? '点击快速加入已探测模型：' : 'Click to add discovered models:' }}

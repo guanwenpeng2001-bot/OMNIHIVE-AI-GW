@@ -652,7 +652,7 @@
               data-testid="legacy-plaza-visibility-note"
               class="rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface-2)]/50 p-3 text-xs text-[var(--muted-foreground)]"
             >
-              4. 分组对外可见（传统分组级模型广场展示确认 · 按规范模型聚合核验请前往 /admin/models）
+              {{ t(editingChannel.group_ids.length ? 'modelPlaza.confirmation.groupVisible' : 'modelPlaza.confirmation.assignGroup') }}
             </div>
             <ModelPlazaConfirmation v-for="groupID in editingChannel.group_ids" :key="`${editingChannel.id}:${groupID}`" :channel-id="editingChannel.id" :group-id="groupID" :group-name="getGroupNameById(groupID)" />
           </template>

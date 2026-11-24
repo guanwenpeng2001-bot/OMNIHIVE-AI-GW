@@ -818,12 +818,14 @@ export default {
   // Model Plaza (public group/model pricing showcase)
   modelPlaza: {
     confirmation: {
-      title: "广场模型确认",
+      groupVisible: "4. 分组对外可见",
+      assignGroup: "请先保存此渠道的路由分组，再选择要在模型广场展示的模型。",
+      title: "模型广场发布",
       description: "仅管理当前已保存渠道及分组的广场展示。候选来自关联账号发现与映射；确认不授权调用、不修改售价。",
       empty: "暂无候选模型。请先同步关联账号或配置具体映射。",
       legacy: "历史配置，未记录确认",
       confirmed: "操作人 {actor} · {time}",
-      save: "确认并保存展示名单",
+      save: "保存模型广场展示名单",
       loadError: "候选读取失败，已保存配置保持不变。",
       saveError: "确认保存失败，请重试；草稿已保留。",
       conflict: "配置或候选已变化，请刷新后重新勾选确认。",

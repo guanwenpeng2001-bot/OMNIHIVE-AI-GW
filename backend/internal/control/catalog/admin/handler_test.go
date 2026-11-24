@@ -207,6 +207,10 @@ func TestListFilters(t *testing.T) {
 				got = append(got, row.Model)
 			}
 			require.Equal(t, tc.want, got)
+			require.Equal(t, map[string]int{
+				"routable_but_unpriced": 1, "discovered_not_enabled": 1, "listed_unrouted": 1,
+				"group_price_conflict": 1, "pi_only": 1, "stale": 1,
+			}, out.QuickFilterCounts)
 		})
 	}
 	for _, filter := range []string{"availability=oops", "source=secret", "billing=reference", "quick_filter=typo", "limit=0", "limit=101", "sort=name"} {
@@ -217,17 +221,19 @@ func TestListFilters(t *testing.T) {
 func TestListPagination(t *testing.T) {
 	f := newFixture(t)
 	for i := 105; i >= 1; i-- {
-		f.details = append(f.details, model("openai", fmt.Sprintf("test-%03d", i), "live", "published", "priced"))
+		f.details = append(f.details, model("openai", fmt.Sprintf("test-%03d", i), "live", "published", "unpriced"))
 	}
 	base := listPath + "?workspace_id=7"
 	first := payload[listResponse](t, f.get(base, "admin"))
 	require.Len(t, first.Items, 50)
+	require.Equal(t, 105, first.QuickFilterCounts["routable_but_unpriced"])
 	require.Equal(t, "test-001", first.Items[0].Model)
 	require.EqualValues(t, 17, first.ScopeVersion)
 	require.NotNil(t, first.Next)
 	cursorParam := "&cursor=" + url.QueryEscape(*first.Next)
 	second := payload[listResponse](t, f.get(base+"&limit=100"+cursorParam, "admin"))
 	require.Len(t, second.Items, 55)
+	require.Equal(t, first.QuickFilterCounts, second.QuickFilterCounts)
 	require.Equal(t, "test-051", second.Items[0].Model)
 	require.Equal(t, "test-105", second.Items[54].Model)
 	require.Equal(t, first.Version, second.Version)
