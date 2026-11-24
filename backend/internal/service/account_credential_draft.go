@@ -40,7 +40,7 @@ type accountCredentialDraftState struct {
 }
 
 var (
-	ErrAccountCredentialDraftConflict      = infraerrors.Conflict("ACCOUNT_CREDENTIAL_DRAFT_CONFLICT", "Credential draft changed; preview and confirm again")
+	ErrAccountCredentialDraftConflict       = infraerrors.Conflict("ACCOUNT_CREDENTIAL_DRAFT_CONFLICT", "Credential draft changed; preview and confirm again")
 	ErrAccountCredentialDraftReviewRequired = infraerrors.Conflict("ACCOUNT_CREDENTIAL_DRAFT_CONFLICT", "Credential draft has no reviewed account revision; review again before confirming")
 )
 
