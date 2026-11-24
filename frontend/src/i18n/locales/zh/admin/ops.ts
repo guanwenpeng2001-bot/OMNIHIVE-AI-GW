@@ -389,7 +389,7 @@ export default {
         compareA: '对比 A',
         compareB: '对比 B',
         suggestion: '处理建议',
-        suggestUpstream: '⚠️ 上游服务不稳定，建议：检查上游账号状态 / 考虑切换账号',
+        suggestUpstream: '⚠️ 上游服务不稳定，建议：检查上游连接状态 / 考虑切换连接',
         suggestRequest: '⚠️ 客户端请求错误，建议：联系客户修正请求参数 / 手动标记已解决',
         suggestAuth: '⚠️ 认证失败，建议：检查 API Key 是否有效 / 联系客户更新凭证',
         suggestPlatform: '🚨 平台错误，建议立即排查修复',

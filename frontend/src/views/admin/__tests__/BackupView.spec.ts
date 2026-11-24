@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 
+import { adminAPI } from '@/api'
 import BackupView from '../BackupView.vue'
+
+enableAutoUnmount(afterEach)
 
 const {
   getS3Config,
@@ -81,6 +84,7 @@ function mountBackupView() {
     global: {
       stubs: {
         TotpStepUpDialog: true,
+        Transition: { template: '<slot />' },
       },
     },
   })
@@ -101,7 +105,15 @@ describe('admin BackupView 分卷备份', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
-    document.body.innerHTML = ''
+  })
+
+  it('rejects an invalid S3 endpoint before contacting the API', async () => {
+    const wrapper = mountBackupView()
+    await flushPromises()
+    await wrapper.get('#backup-s3-endpoint').setValue('not-a-valid-endpoint')
+    await wrapper.findAll('button').find(button => button.text() === 'admin.backup.s3.testConnection')!.trigger('click')
+    expect(adminAPI.backup.testS3Connection).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it('显示分卷数并在下载时列出每个分卷链接', async () => {
@@ -130,6 +142,13 @@ describe('admin BackupView 分卷备份', () => {
     expect(document.body.textContent).toContain('admin.backup.actions.partLabel:1')
     expect(document.body.textContent).toContain('admin.backup.actions.partLabel:3')
     expect(document.body.querySelector('a[href="https://example.test/part-2"]')).not.toBeNull()
+    expect(document.body.querySelector('[role="dialog"][aria-modal="true"]')).not.toBeNull()
+    const link = document.body.querySelector<HTMLAnchorElement>('a[href="https://example.test/part-2"]')!
+    link.focus()
+    link.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    await flushPromises()
+    expect(link.isConnected).toBe(false)
+    wrapper.unmount()
   })
 
   it('旧单文件记录仍使用单个下载地址', async () => {

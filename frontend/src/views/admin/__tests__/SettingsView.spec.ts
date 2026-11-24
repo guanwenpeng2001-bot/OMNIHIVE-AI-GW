@@ -629,6 +629,15 @@ describe("admin SettingsView email domain quota copy", () => {
 });
 
 describe("admin SettingsView payment visible method controls", () => {
+  it("uses translated domain labels, search controls and sync status", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    expect(wrapper.get("h1").text()).toBe("adminPlatform.settings.domainsMeta.general.title");
+    expect(wrapper.get("input[type=search]").attributes("placeholder")).toBe("adminPlatform.settings.search");
+    expect(wrapper.get(".settings-toolbar [role=status]").text()).toBe("adminPlatform.settings.synced");
+    wrapper.unmount();
+  });
+
   it("associates the active settings panel with keyboard-selected tabs", async () => {
     const wrapper = mountView();
     document.body.appendChild(wrapper.element);

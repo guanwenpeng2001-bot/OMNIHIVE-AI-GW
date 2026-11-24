@@ -7,6 +7,7 @@
       >
         <div
           class="w-full max-w-[640px] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] shadow-2xl"
+          ref="panel" role="dialog" aria-modal="true" :aria-label="displayedAnnouncement.title"
           @click.stop
         >
           <!-- Header with warm gradient -->
@@ -57,6 +58,7 @@
           <div class="border-t border-[var(--border)] bg-[var(--surface-2)]/50 px-6 py-4">
             <div class="flex items-center justify-end">
               <button
+                type="button"
                 @click="handleDismiss"
                 data-testid="announcement-popup-dismiss"
                 class="btn btn-primary"
@@ -80,7 +82,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, watch } from 'vue'
+import { useOverlayDialog } from '@/components/ui/utils'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -129,24 +132,8 @@ function handleDismiss() {
   announcementStore.dismissPopup()
 }
 
-// Manage body overflow — only set, never unset (bell component handles restore)
-watch(
-  displayedAnnouncement,
-  (popup) => {
-    if (popup) {
-      document.body.style.overflow = 'hidden'
-    } else if (props.preview) {
-      document.body.style.overflow = ''
-    }
-  },
-  { immediate: true },
-)
-
-onBeforeUnmount(() => {
-  if (props.preview) {
-    document.body.style.overflow = ''
-  }
-})
+const panel = ref<HTMLElement | null>(null)
+useOverlayDialog({ open: computed(() => Boolean(displayedAnnouncement.value)), panelRef: panel, onClose: handleDismiss })
 </script>
 
 <style scoped>

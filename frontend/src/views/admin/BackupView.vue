@@ -24,7 +24,7 @@
             CRON: {{ scheduleForm.enabled ? scheduleForm.cron_expr : 'OFF' }}
           </span>
           <span class="pill pill-ghost font-mono text-xs tabular-nums">
-            {{ backups.length }} snapshots
+            {{ t('adminPlatform.backup.snapshots', { count: backups.length }) }}
           </span>
         </div>
         <button
@@ -325,7 +325,7 @@
                       v-if="record.status !== 'running'"
                       type="button"
                       class="btn btn-danger btn-sm px-2.5 py-1 text-xs"
-                      @click="removeBackup(record.id)"
+                      @click="deleteId = record.id"
                     >
                       {{ t('common.delete') }}
                     </button>
@@ -344,130 +344,100 @@
     </div>
 
     <!-- Cloudflare R2 Setup Guide Modal -->
-    <teleport to="body">
-      <transition name="modal">
-        <div v-if="showR2Guide" class="fixed inset-0 z-50 flex items-center justify-center p-4" @mousedown.self="showR2Guide = false">
-          <div class="fixed inset-0 bg-black/50" @click="showR2Guide = false"></div>
-          <div class="relative max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-2xl">
-            <button type="button" class="absolute right-4 top-4 text-[var(--muted-foreground)] hover:text-[var(--muted-foreground)]" @click="showR2Guide = false">
-              <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
+    <BaseDialog :show="showR2Guide" :title="t('admin.backup.r2Guide.title')" width="wide" close-on-click-outside @close="showR2Guide = false">
+      <p class="mb-4 text-sm text-[var(--muted-foreground)]">{{ t('admin.backup.r2Guide.intro') }}</p>
 
-            <h2 class="mb-4 text-lg font-bold text-[var(--foreground)]">{{ t('admin.backup.r2Guide.title') }}</h2>
-            <p class="mb-4 text-sm text-[var(--muted-foreground)]">{{ t('admin.backup.r2Guide.intro') }}</p>
+      <!-- Step 1 -->
+      <div class="mb-5">
+        <h3 class="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
+          <span class="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent)] text-xs font-bold text-[var(--brand-text)]">1</span>
+          {{ t('admin.backup.r2Guide.step1.title') }}
+        </h3>
+        <ol class="ml-8 list-decimal space-y-1 text-sm text-[var(--muted-foreground)]">
+          <li>{{ t('admin.backup.r2Guide.step1.line1') }}</li>
+          <li>{{ t('admin.backup.r2Guide.step1.line2') }}</li>
+          <li>{{ t('admin.backup.r2Guide.step1.line3') }}</li>
+        </ol>
+      </div>
 
-            <!-- Step 1 -->
-            <div class="mb-5">
-              <h3 class="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
-                <span class="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent)] text-xs font-bold text-[var(--brand-text)]">1</span>
-                {{ t('admin.backup.r2Guide.step1.title') }}
-              </h3>
-              <ol class="ml-8 list-decimal space-y-1 text-sm text-[var(--muted-foreground)]">
-                <li>{{ t('admin.backup.r2Guide.step1.line1') }}</li>
-                <li>{{ t('admin.backup.r2Guide.step1.line2') }}</li>
-                <li>{{ t('admin.backup.r2Guide.step1.line3') }}</li>
-              </ol>
-            </div>
-
-            <!-- Step 2 -->
-            <div class="mb-5">
-              <h3 class="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
-                <span class="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent)] text-xs font-bold text-[var(--brand-text)]">2</span>
-                {{ t('admin.backup.r2Guide.step2.title') }}
-              </h3>
-              <ol class="ml-8 list-decimal space-y-1 text-sm text-[var(--muted-foreground)]">
-                <li>{{ t('admin.backup.r2Guide.step2.line1') }}</li>
-                <li>{{ t('admin.backup.r2Guide.step2.line2') }}</li>
-                <li>{{ t('admin.backup.r2Guide.step2.line3') }}</li>
-                <li>{{ t('admin.backup.r2Guide.step2.line4') }}</li>
-              </ol>
-              <div class="mt-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
-                {{ t('admin.backup.r2Guide.step2.warning') }}
-              </div>
-            </div>
-
-            <!-- Step 3 -->
-            <div class="mb-5">
-              <h3 class="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
-                <span class="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent)] text-xs font-bold text-[var(--brand-text)]">3</span>
-                {{ t('admin.backup.r2Guide.step3.title') }}
-              </h3>
-              <p class="ml-8 text-sm text-[var(--muted-foreground)]">{{ t('admin.backup.r2Guide.step3.desc') }}</p>
-              <code class="ml-8 mt-1 block break-all rounded bg-[var(--surface-2)] px-3 py-2 text-xs text-[var(--foreground)]">https://&lt;{{ t('admin.backup.r2Guide.step3.accountId') }}&gt;.r2.cloudflarestorage.com</code>
-            </div>
-
-            <!-- Step 4: Fill form -->
-            <div class="mb-5">
-              <h3 class="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
-                <span class="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent)] text-xs font-bold text-[var(--brand-text)]">4</span>
-                {{ t('admin.backup.r2Guide.step4.title') }}
-              </h3>
-              <div class="ml-8 overflow-hidden rounded-lg border border-[var(--border)]">
-                <table class="w-full text-sm">
-                  <tbody>
-                    <tr v-for="(row, i) in r2ConfigRows" :key="i" class="border-b border-[var(--border)] last:border-0">
-                      <td class="whitespace-nowrap bg-[var(--surface-2)] px-3 py-2 font-medium text-[var(--foreground)]">{{ row.field }}</td>
-                      <td class="px-3 py-2 text-[var(--muted-foreground)]"><code class="text-xs">{{ row.value }}</code></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <!-- Free tier note -->
-            <div class="rounded-lg bg-green-50 p-3 text-xs text-green-700 dark:bg-green-900/20 dark:text-green-300">
-              {{ t('admin.backup.r2Guide.freeTier') }}
-            </div>
-
-            <div class="mt-4 text-right">
-              <button type="button" class="btn btn-primary btn-sm" @click="showR2Guide = false">{{ t('common.close') }}</button>
-            </div>
-          </div>
+      <!-- Step 2 -->
+      <div class="mb-5">
+        <h3 class="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
+          <span class="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent)] text-xs font-bold text-[var(--brand-text)]">2</span>
+          {{ t('admin.backup.r2Guide.step2.title') }}
+        </h3>
+        <ol class="ml-8 list-decimal space-y-1 text-sm text-[var(--muted-foreground)]">
+          <li>{{ t('admin.backup.r2Guide.step2.line1') }}</li>
+          <li>{{ t('admin.backup.r2Guide.step2.line2') }}</li>
+          <li>{{ t('admin.backup.r2Guide.step2.line3') }}</li>
+          <li>{{ t('admin.backup.r2Guide.step2.line4') }}</li>
+        </ol>
+        <div class="mt-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+          {{ t('admin.backup.r2Guide.step2.warning') }}
         </div>
-      </transition>
-    </teleport>
+      </div>
+
+      <!-- Step 3 -->
+      <div class="mb-5">
+        <h3 class="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
+          <span class="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent)] text-xs font-bold text-[var(--brand-text)]">3</span>
+          {{ t('admin.backup.r2Guide.step3.title') }}
+        </h3>
+        <p class="ml-8 text-sm text-[var(--muted-foreground)]">{{ t('admin.backup.r2Guide.step3.desc') }}</p>
+        <code class="ml-8 mt-1 block break-all rounded bg-[var(--surface-2)] px-3 py-2 text-xs text-[var(--foreground)]">https://&lt;{{ t('admin.backup.r2Guide.step3.accountId') }}&gt;.r2.cloudflarestorage.com</code>
+      </div>
+
+      <!-- Step 4: Fill form -->
+      <div class="mb-5">
+        <h3 class="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
+          <span class="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent)] text-xs font-bold text-[var(--brand-text)]">4</span>
+          {{ t('admin.backup.r2Guide.step4.title') }}
+        </h3>
+        <div class="ml-8 overflow-hidden rounded-lg border border-[var(--border)]">
+          <table class="w-full text-sm">
+            <tbody>
+              <tr v-for="(row, i) in r2ConfigRows" :key="i" class="border-b border-[var(--border)] last:border-0">
+                <td class="whitespace-nowrap bg-[var(--surface-2)] px-3 py-2 font-medium text-[var(--foreground)]">{{ row.field }}</td>
+                <td class="px-3 py-2 text-[var(--muted-foreground)]"><code class="text-xs">{{ row.value }}</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Free tier note -->
+      <div class="rounded-lg bg-green-50 p-3 text-xs text-green-700 dark:bg-green-900/20 dark:text-green-300">
+        {{ t('admin.backup.r2Guide.freeTier') }}
+      </div>
+
+      <div class="mt-4 text-right">
+        <button type="button" class="btn btn-primary btn-sm" @click="showR2Guide = false">{{ t('common.close') }}</button>
+      </div>
+    </BaseDialog>
     <!-- 分卷下载链接 -->
-    <teleport to="body">
-      <transition name="modal">
+    <BaseDialog :show="downloadPartsModalOpen" :title="t('admin.backup.actions.downloadParts')" width="normal" close-on-click-outside @close="closeDownloadParts">
+      <p class="mb-4 text-sm text-[var(--muted-foreground)]">{{ t('admin.backup.actions.downloadPartsHint') }}</p>
+      <div class="space-y-2">
         <div
-          v-if="downloadPartsModalOpen"
-          class="fixed inset-0 z-50 flex items-center justify-center p-4"
-          @mousedown.self="closeDownloadParts"
+          v-for="part in downloadParts"
+          :key="part.index"
+          class="flex items-center justify-between gap-3 rounded-lg border border-[var(--border)] px-3 py-2"
         >
-          <div class="fixed inset-0 bg-black/50" @click="closeDownloadParts"></div>
-          <div class="relative max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-2xl">
-            <button
-              type="button"
-              class="absolute right-4 top-4 text-[var(--muted-foreground)] hover:text-[var(--muted-foreground)]"
-              :aria-label="t('common.close')"
-              @click="closeDownloadParts"
-            >
-              <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
-            <h2 class="mb-1 text-lg font-bold text-[var(--foreground)]">{{ t('admin.backup.actions.downloadParts') }}</h2>
-            <p class="mb-4 text-sm text-[var(--muted-foreground)]">{{ t('admin.backup.actions.downloadPartsHint') }}</p>
-            <div class="space-y-2">
-              <div
-                v-for="part in downloadParts"
-                :key="part.index"
-                class="flex items-center justify-between gap-3 rounded-lg border border-[var(--border)] px-3 py-2"
-              >
-                <span class="text-sm text-[var(--foreground)]">
-                  {{ t('admin.backup.actions.partLabel', { index: part.index }) }}
-                  <span class="ml-2 text-xs text-[var(--muted-foreground)]">{{ formatSize(part.size_bytes) }}</span>
-                </span>
-                <a :href="part.url" class="btn btn-secondary btn-xs" rel="noopener">
-                  {{ t('admin.backup.actions.download') }}
-                </a>
-              </div>
-            </div>
-            <div class="mt-4 text-right">
-              <button type="button" class="btn btn-primary btn-sm" @click="closeDownloadParts">{{ t('common.close') }}</button>
-            </div>
-          </div>
+          <span class="text-sm text-[var(--foreground)]">
+            {{ t('admin.backup.actions.partLabel', { index: part.index }) }}
+            <span class="ml-2 text-xs text-[var(--muted-foreground)]">{{ formatSize(part.size_bytes) }}</span>
+          </span>
+          <a :href="part.url" class="btn btn-secondary btn-xs" rel="noopener">
+            {{ t('admin.backup.actions.download') }}
+          </a>
         </div>
-      </transition>
-    </teleport>
+      </div>
+      <div class="mt-4 text-right">
+        <button type="button" class="btn btn-primary btn-sm" @click="closeDownloadParts">{{ t('common.close') }}</button>
+      </div>
+    </BaseDialog>
+    <ConfirmDialog :show="Boolean(deleteId)" :title="t('common.delete')" :message="t('admin.backup.actions.deleteConfirm')"
+      danger @cancel="deleteId = ''" @confirm="removeBackup" />
     <TotpStepUpDialog :controller="backupStepUp" />
   </component>
 </template>
@@ -475,6 +445,8 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import BaseDialog from '@/components/common/BaseDialog.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { adminAPI } from '@/api'
 import { useAppStore } from '@/stores'
 import type {
@@ -690,7 +662,17 @@ async function loadS3Config() {
   }
 }
 
+function validEndpoint(endpoint: string): boolean {
+  if (!endpoint.trim()) return true // The SDK can resolve a regional S3 endpoint.
+  try {
+    if (/^https?:\/\//i.test(endpoint.trim()) && new URL(endpoint).hostname) return true
+  } catch { /* Show the same field error for malformed and unsupported URLs. */ }
+  appStore.showError(t('adminPlatform.backup.endpoint'))
+  return false
+}
+
 async function saveS3Config() {
+  if (!validEndpoint(s3Form.value.endpoint)) return
   savingS3.value = true
   try {
     await backupStepUp.run(() => adminAPI.backup.updateS3Config(s3Form.value))
@@ -725,6 +707,7 @@ async function loadImageStorageConfig() {
 }
 
 async function saveImageStorageConfig() {
+  if (!validEndpoint(imageStorageForm.value.endpoint)) return
   savingImageStorage.value = true
   try {
     await backupStepUp.run(() => adminAPI.backup.updateImageStorageConfig(imageStorageForm.value))
@@ -742,6 +725,7 @@ async function saveImageStorageConfig() {
 }
 
 async function testImageStorage() {
+  if (!validEndpoint(imageStorageForm.value.endpoint)) return
   testingImageStorage.value = true
   try {
     const result = await adminAPI.backup.testImageStorageConnection(imageStorageForm.value)
@@ -758,6 +742,7 @@ async function testImageStorage() {
 }
 
 async function testS3() {
+  if (!validEndpoint(s3Form.value.endpoint)) return
   testingS3.value = true
   try {
     const result = await adminAPI.backup.testS3Connection(s3Form.value)
@@ -877,8 +862,11 @@ async function selectRestoreBackup(id: string) {
   document.getElementById('restore-workflow-title')?.focus()
 }
 
-async function removeBackup(id: string) {
-  if (!window.confirm(t('admin.backup.actions.deleteConfirm'))) return
+const deleteId = ref('')
+async function removeBackup() {
+  const id = deleteId.value
+  if (!id) return
+  deleteId.value = ''
   try {
     await adminAPI.backup.deleteBackup(id)
     appStore.showSuccess(t('admin.backup.actions.deleted'))

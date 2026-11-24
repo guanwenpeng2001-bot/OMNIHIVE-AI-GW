@@ -271,6 +271,18 @@ describe('mandatory compliance route gate', () => {
     })
   })
 
+  it.each([
+    ['/admin/orders', { requiresPayment: true }, { payment_enabled: false }],
+    ['/admin/prompt-audit', { requiresRiskControl: true }, { risk_control_enabled: false }],
+    ['/admin/affiliates/invites', { featureFlag: 'affiliate' }, { affiliate_enabled: false }]
+  ] as const)('takes the administrator to settings for disabled %s', async (path, guard, flags) => {
+    appStore.cachedPublicSettings = flags
+    appStore.publicSettingsLoaded = true
+    const { navigation, next } = runGuard({ requiresAdmin: true, ...guard }, path)
+    await navigation
+    expect(next).toHaveBeenCalledWith('/admin/settings')
+  })
+
   it('waits for acknowledgement status and gates unaccepted admins', async () => {
     const pending = createDeferred<void>()
     complianceStore.fetchStatus.mockReturnValue(pending.promise)

@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import { catalogWorkspace, resolveCatalogWorkspace } from '@/features/catalog/adminWorkspace'
+import { useAdminSettingsStore } from '@/stores/adminSettings'
 import { useAppStore } from '@/stores/app'
 import { normalizeApiError } from '@/utils/apiError'
 import {
@@ -47,6 +48,7 @@ try {
 }
 
 const appStore = useAppStore()
+const adminSettings = useAdminSettingsStore()
 
 function resolveInitialWorkspaceId(): string {
   const fromQuery = typeof routeQuery.workspace_id === 'string' ? routeQuery.workspace_id.trim() : ''
@@ -392,6 +394,7 @@ async function openModelDetail(item: AdminCatalogModelSummary) {
 }
 
 function openVerificationWorkbenchDrawer() {
+  void adminSettings.fetch()
   drawerInitialTab.value = 'verification'
   drawerOpen.value = true
 }
@@ -1053,6 +1056,7 @@ onMounted(async () => {
         :error="detailError"
         :snapshot-expired="detailSnapshotExpired"
         :initial-tab="drawerInitialTab"
+        :can-manage-verification="drawerInitialTab === 'verification' && adminSettings.loaded && adminSettings.opsMonitoringEnabled"
         :is-zh="isZh"
         @close="drawerOpen = false"
         @load-more-accounts="handleLoadMoreAccounts"

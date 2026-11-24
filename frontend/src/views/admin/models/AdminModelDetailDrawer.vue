@@ -20,6 +20,7 @@ const props = withDefaults(
     error?: string
     snapshotExpired?: boolean
     initialTab?: 'inspector' | 'verification'
+    canManageVerification?: boolean
     isZh?: boolean
   }>(),
   {
@@ -659,7 +660,7 @@ useOverlayDialog({
           v-show="activeTab === 'verification'"
           data-testid="drawer-verification-workbench-panel"
         >
-          <CatalogVerificationWorkbench :is-zh="isZh" read-only />
+          <CatalogVerificationWorkbench :is-zh="isZh" :read-only="!canManageVerification" />
         </div>
       </div>
     </div>

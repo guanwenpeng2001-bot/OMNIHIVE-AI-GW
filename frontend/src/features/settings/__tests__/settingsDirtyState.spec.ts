@@ -74,13 +74,13 @@ describe('settings dirty-state & validation', () => {
 
   it('validates section fields with clear error messages', () => {
     expect(validateSettingsSection('general', { frontend_url: 'not-a-url' })).toHaveProperty('frontend_url')
-    expect(validateSettingsSection('security', { audit_log_retention_days: 0 })).toHaveProperty(
+    expect(validateSettingsSection('security', { audit_log_retention_days: -1 })).toHaveProperty(
       'audit_log_retention_days'
     )
-    expect(validateSettingsSection('users', { default_balance: -1, default_concurrency: 0, affiliate_rebate_rate: 2 })).toEqual({
-      default_balance: 'Default balance cannot be negative',
-      default_concurrency: 'Default concurrency must be at least 1',
-      affiliate_rebate_rate: 'Rebate rate must be between 0 and 1'
+    expect(validateSettingsSection('users', { default_balance: -1, default_concurrency: 0, affiliate_rebate_rate: 101 })).toEqual({
+      default_balance: 'adminPlatform.settings.default_balance',
+      default_concurrency: 'adminPlatform.settings.default_concurrency',
+      affiliate_rebate_rate: 'adminPlatform.settings.affiliate_rebate_rate'
     })
     expect(validateSettingsSection('email', { smtp_host: 'smtp.example.com', smtp_port: 70000 })).toHaveProperty(
       'smtp_port'

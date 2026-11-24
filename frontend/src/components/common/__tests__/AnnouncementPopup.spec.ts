@@ -81,6 +81,15 @@ describe('AnnouncementPopup', () => {
     },
   )
 
+  it('dismisses the named preview dialog on Escape', async () => {
+    const wrapper = mount(AnnouncementPopup, { props: { announcement, preview: true } })
+    await wrapper.vm.$nextTick()
+    expect(document.querySelector('[role="dialog"][aria-modal="true"]')?.getAttribute('aria-label')).toBe(announcement.title)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
   it('previews an admin announcement without marking it as read', async () => {
     const store = useAnnouncementStore()
     const dismissPopup = vi.spyOn(store, 'dismissPopup')

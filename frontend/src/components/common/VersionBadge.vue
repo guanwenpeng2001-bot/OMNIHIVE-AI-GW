@@ -2,7 +2,8 @@
   <div class="relative">
     <!-- Admin: Full version badge with dropdown -->
     <template v-if="isAdmin">
-      <button
+      <button type="button"
+        ref="triggerRef"
         @click="toggleDropdown"
         :aria-expanded="dropdownOpen"
         class="flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[11px] transition-colors"
@@ -61,7 +62,7 @@
                 {{ buildTypeLabel }}
               </span>
             </div>
-            <button
+            <button type="button"
               @click="refreshVersion(true)"
               class="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-50"
               :disabled="loading || updating || rollingBack || restarting"
@@ -169,7 +170,7 @@
                 </div>
 
                 <!-- Retry button -->
-                <button
+                <button type="button"
                   @click="requestUpdateConfirm"
                   :disabled="updating"
                   class="flex w-full items-center justify-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
@@ -219,7 +220,7 @@
                 >
                   {{ restartError }}
                 </p>
-                <button
+                <button type="button"
                   @click="handleRestart"
                   :disabled="restarting"
                   class="flex w-full items-center justify-center gap-2 rounded-lg bg-green-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-50"
@@ -386,7 +387,7 @@
                 </div>
 
                 <!-- Update button -->
-                <button
+                <button type="button"
                   @click="requestUpdateConfirm"
                   :disabled="updating"
                   data-testid="version-update-now-btn"
@@ -443,7 +444,7 @@
 
                 <!-- Version rollback entry -->
                 <div class="border-t border-[var(--border)] pt-2">
-                  <button
+                  <button type="button"
                     @click="toggleRollbackPanel"
                     class="group flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
                   >
@@ -554,7 +555,7 @@
                         >
                           {{ rollbackRemoteUnavailable ? t('version.rollbackCheckUnavailable') : rollbackVersionsError }}
                         </p>
-                        <button
+                        <button type="button"
                           @click="loadRollbackVersions"
                           class="w-full rounded-lg border border-[var(--border)] py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
                         >
@@ -576,7 +577,7 @@
                           {{ t('version.rollbackSelectVersion') }}
                         </p>
 
-                        <button
+                        <button type="button"
                           v-for="item in rollbackVersions"
                           :key="item.version"
                           @click="selectRollbackVersion(item.version)"
@@ -634,7 +635,7 @@
                                 <div
                                   class="flex items-center gap-0.5 rounded-md bg-[var(--surface-2)] p-0.5"
                                 >
-                                  <button
+                                  <button type="button"
                                     v-for="tab in manualTabs"
                                     :key="tab.key"
                                     @click="manualTab = tab.key"
@@ -648,7 +649,7 @@
                                     {{ tab.label }}
                                   </button>
                                 </div>
-                                <button
+                                <button type="button"
                                   @click="copyToClipboard(activeManualCommand)"
                                   class="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
                                 >
@@ -686,7 +687,7 @@
                               {{ rollbackError }}
                             </p>
 
-                            <button
+                            <button type="button"
                               @click="requestRollbackConfirm"
                               :disabled="rollingBack"
                               data-testid="version-rollback-btn"
@@ -1187,6 +1188,14 @@ async function checkServiceAndReload() {
   }
 }
 
+const triggerRef = ref<HTMLButtonElement | null>(null)
+function handleEscape(event: KeyboardEvent) {
+  if (event.key === 'Escape' && dropdownOpen.value && confirmAction.value === null && !event.defaultPrevented) {
+    closeDropdown()
+    triggerRef.value?.focus()
+  }
+}
+
 function handleClickOutside(event: MouseEvent) {
   if (confirmAction.value !== null) return
   const target = event.target as Node
@@ -1197,12 +1206,14 @@ function handleClickOutside(event: MouseEvent) {
 }
 
 onMounted(() => {
+  document.addEventListener('keydown', handleEscape)
   document.addEventListener('click', handleClickOutside)
 })
 
 onBeforeUnmount(() => {
   isUnmounted = true
   clearRestartTimers()
+  document.removeEventListener('keydown', handleEscape)
   document.removeEventListener('click', handleClickOutside)
 })
 </script>

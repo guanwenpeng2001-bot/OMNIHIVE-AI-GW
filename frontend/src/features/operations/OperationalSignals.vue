@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import CatalogVerificationWorkbench from './components/CatalogVerificationWorkbench.vue'
 import { computed, onMounted, onScopeDispose, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Button, Card, Input, Modal, Select, pushUiToast } from '@/components/ui'
@@ -19,13 +18,8 @@ import {
 } from './components/operationsApi'
 import { formatDateTimeDisplay } from './components/operationsHelpers'
 
-let i18nContext: { locale?: { value?: string } } | null = null
-try {
-  i18nContext = useI18n()
-} catch {
-  i18nContext = { locale: { value: 'zh-CN' } }
-}
-const isZh = computed(() => String(i18nContext?.locale?.value || '').toLowerCase().startsWith('zh'))
+const { t, locale } = useI18n()
+const isZh = computed(() => String(locale?.value || '').toLowerCase().startsWith('zh'))
 const auth = useAuthStore()
 const isAdmin = computed(() => auth.user?.role === 'admin')
 const key = () => auth.user ? String(auth.sessionRevision) : ''
@@ -60,19 +54,7 @@ function panelState(read: typeof live | typeof queue | typeof traffic, hasData =
 function localizePanelMessage(viewState: AsyncViewState, override?: string): string | undefined {
   if (override) return override
   if (viewState === 'ready') return undefined
-  const map: Record<Exclude<AsyncViewState, 'ready'>, { zh: string; en: string }> = {
-    skeleton: { zh: '正在加载运行指标…', en: 'Loading operational signals…' },
-    refreshing: { zh: '正在刷新…', en: 'Refreshing…' },
-    empty: { zh: '暂无指标数据', en: 'No signal data available' },
-    'zero-filter': { zh: '无匹配记录', en: 'No matching records' },
-    'partial-error': { zh: '部分信号暂不可用', en: 'Signal temporarily unavailable' },
-    forbidden: { zh: '当前账号无权读取该信号', en: 'Permission denied' },
-    stale: { zh: '显示上次成功读取的指标快照', en: 'Showing last known snapshot' },
-    conflict: { zh: '状态冲突，请刷新核对', en: 'State conflict, please refresh' },
-    confirmed: { zh: '操作已确认', en: 'Confirmed' },
-    unknown: { zh: '结果待确认', en: 'Outcome pending verification' }
-  }
-  return isZh.value ? map[viewState].zh : map[viewState].en
+  return t(`adminPlatform.ops.state.${viewState}`)
 }
 
 const platforms = computed(() => queue.data.value?.enabled ? Object.values(queue.data.value.platform ?? {}) : [])
@@ -132,11 +114,11 @@ function toggleIncidentComponent(id: string) {
 async function submitIncident() {
   if (incidentSubmitting.value) return
   if (!incidentTitle.value.trim() || !incidentMessage.value.trim()) {
-    incidentError.value = isZh.value ? '请填写事件标题与说明内容。' : 'Title and message are required.'
+    incidentError.value = t('adminPlatform.ops.titleAndMessageAreRequired')
     return
   }
   if (incidentSelectedComponents.value.length === 0) {
-    incidentError.value = isZh.value ? '请至少选择一个受影响组件。' : 'Select at least one affected component.'
+    incidentError.value = t('adminPlatform.ops.selectAtLeastOneAffectedComponent')
     return
   }
   incidentSubmitting.value = true
@@ -157,11 +139,11 @@ async function submitIncident() {
     incidentMessage.value = ''
     pushUiToast({
       tone: 'success',
-      title: isZh.value ? '状态事件已发布' : 'Incident published',
-      description: isZh.value ? '公开服务状态页已同步更新。' : 'The public status page has been updated.'
+      title: t('adminPlatform.ops.incidentPublished'),
+      description: t('adminPlatform.ops.thePublicStatusPageHasBeenUpdated')
     })
   } catch (cause) {
-    const issue = classifyAsyncError(cause, isZh.value ? '发布状态事件失败' : 'Failed to publish incident')
+    const issue = classifyAsyncError(cause, t('adminPlatform.ops.failedToPublishIncident'))
     incidentError.value = issue.message
   } finally {
     incidentSubmitting.value = false
@@ -172,89 +154,88 @@ async function submitIncident() {
 <template>
   <section aria-labelledby="operational-signals-title" class="space-y-4">
     <div class="flex flex-wrap items-center justify-between gap-3">
-      <h2 id="operational-signals-title" class="font-semibold">{{ isZh ? '运行信号' : 'Operational Signals' }}</h2>
+      <h2 id="operational-signals-title" class="font-semibold">{{ t('adminPlatform.ops.operationalSignals') }}</h2>
       <div class="flex flex-wrap items-center gap-2">
         <Button v-if="isAdmin" variant="secondary" size="sm" @click="openIncidentModal">
-          {{ isZh ? '发布状态事件' : 'Publish Incident' }}
+          {{ t('adminPlatform.ops.publishIncident') }}
         </Button>
         <Button variant="secondary" size="sm" :disabled="refreshing" @click="refresh">
-          {{ isZh ? '刷新运行信号' : 'Refresh Signals' }}
+          {{ t('adminPlatform.ops.refreshSignals') }}
         </Button>
       </div>
     </div>
     <div class="grid gap-3 lg:grid-cols-3">
       <Card class="space-y-2">
-        <h3 class="font-semibold">{{ isZh ? '服务健康' : 'Service Health' }}</h3>
-        <div class="text-sm">{{ isZh ? '进程存活' : 'Liveness' }}
-          <span v-if="live.data.value"> · {{ isZh ? '正常' : 'OK' }}</span>
+        <h3 class="font-semibold">{{ t('adminPlatform.ops.serviceHealth') }}</h3>
+        <div class="text-sm">{{ t('adminPlatform.ops.liveness') }}
+          <span v-if="live.data.value"> · {{ t('adminPlatform.ops.ok') }}</span>
           <OperationState
             :state="panelState(live)"
-            :message="localizePanelMessage(panelState(live), panelState(live) === 'partial-error' ? (isZh ? '无法读取存活探针。' : 'Unable to read liveness probe.') : undefined)"
+            :message="localizePanelMessage(panelState(live), panelState(live) === 'partial-error' ? (t('adminPlatform.ops.unableToReadLivenessProbe')) : undefined)"
           />
         </div>
-        <div class="text-sm">{{ isZh ? '依赖就绪' : 'Readiness' }}
-          <span v-if="readiness.data.value"> · {{ readiness.data.value === 'ok' ? (isZh ? '就绪' : 'Ready') : (isZh ? '未就绪（503）' : 'Not Ready (503)') }}</span>
+        <div class="text-sm">{{ t('adminPlatform.ops.readiness') }}
+          <span v-if="readiness.data.value"> · {{ readiness.data.value === 'ok' ? (t('adminPlatform.ops.ready')) : (t('adminPlatform.ops.notReady503')) }}</span>
           <OperationState
             :state="panelState(readiness)"
-            :message="localizePanelMessage(panelState(readiness), panelState(readiness) === 'partial-error' ? (isZh ? '无法读取就绪探针。' : 'Unable to read readiness probe.') : undefined)"
+            :message="localizePanelMessage(panelState(readiness), panelState(readiness) === 'partial-error' ? (t('adminPlatform.ops.unableToReadReadinessProbe')) : undefined)"
           />
         </div>
       </Card>
       <Card class="space-y-2">
-        <h3 class="font-semibold">{{ isZh ? '并发队列' : 'Concurrency Queue' }}</h3>
+        <h3 class="font-semibold">{{ t('adminPlatform.ops.concurrencyQueue') }}</h3>
         <OperationState
           :state="panelState(queue, platforms.length > 0)"
-          :message="localizePanelMessage(panelState(queue, platforms.length > 0), queue.error.value?.reason === 'OPS_DISABLED' || queue.data.value?.enabled === false ? (isZh ? '运维并发监控已关闭。' : 'Concurrency monitoring is disabled.') : undefined)"
+          :message="localizePanelMessage(panelState(queue, platforms.length > 0), queue.error.value?.reason === 'OPS_DISABLED' || queue.data.value?.enabled === false ? (t('adminPlatform.ops.concurrencyMonitoringIsDisabled')) : undefined)"
         />
         <dl v-if="platforms.length" class="grid grid-cols-[1fr_auto] gap-x-2 gap-y-1 text-sm">
           <template v-for="platform in platforms" :key="platform.platform">
-            <dt>{{ platform.platform }}</dt><dd>{{ isZh ? `${platform.waiting_in_queue} 个等待` : `${platform.waiting_in_queue} waiting` }}</dd>
+            <dt>{{ platform.platform }}</dt><dd>{{ t('adminPlatform.ops.waiting', { count: platform.waiting_in_queue }) }}</dd>
           </template>
         </dl>
       </Card>
       <Card class="space-y-2">
-        <h3 class="font-semibold">{{ isZh ? '实时流量' : 'Realtime Traffic' }}</h3>
+        <h3 class="font-semibold">{{ t('adminPlatform.ops.realtimeTraffic') }}</h3>
         <OperationState
           :state="panelState(traffic, !!summary)"
-          :message="localizePanelMessage(panelState(traffic, !!summary), traffic.error.value?.reason === 'OPS_DISABLED' || traffic.data.value?.enabled === false ? (isZh ? '实时监控已关闭。' : 'Realtime monitoring is disabled.') : undefined)"
+          :message="localizePanelMessage(panelState(traffic, !!summary), traffic.error.value?.reason === 'OPS_DISABLED' || traffic.data.value?.enabled === false ? (t('adminPlatform.ops.realtimeMonitoringIsDisabled')) : undefined)"
         />
         <dl v-if="summary" class="grid grid-cols-[1fr_auto] gap-x-2 gap-y-1 text-sm">
-          <dt>{{ isZh ? '当前 QPS' : 'Current QPS' }}</dt><dd class="font-mono tabular-nums">{{ summary.qps?.current ?? '—' }}</dd>
-          <dt>{{ isZh ? '当前 TPS' : 'Current TPS' }}</dt><dd class="font-mono tabular-nums">{{ summary.tps?.current ?? '—' }}</dd>
-          <dt>{{ isZh ? '统计结束时间' : 'Window End' }}</dt><dd class="font-mono text-xs tabular-nums">{{ formatDateTimeDisplay(summary.end_time) }}</dd>
+          <dt>{{ t('adminPlatform.ops.currentQPS') }}</dt><dd class="font-mono tabular-nums">{{ summary.qps?.current ?? '—' }}</dd>
+          <dt>{{ t('adminPlatform.ops.currentTPS') }}</dt><dd class="font-mono tabular-nums">{{ summary.tps?.current ?? '—' }}</dd>
+          <dt>{{ t('adminPlatform.ops.windowEnd') }}</dt><dd class="font-mono text-xs tabular-nums">{{ formatDateTimeDisplay(summary.end_time) }}</dd>
         </dl>
       </Card>
     </div>
 
     <WorkspaceTelemetryPanel :is-zh="isZh" />
 
-    <CatalogVerificationWorkbench v-if="isAdmin" :is-zh="isZh" />
-    <a href="/admin/models" data-testid="ops-relocated-catalog-workbench-link" class="text-xs underline">
-      {{ isZh ? '查看模型目录' : 'View Model Catalog' }}
-    </a>
+    <RouterLink to="/admin/models" data-testid="ops-relocated-catalog-workbench-link" class="text-xs underline">
+      {{ t('adminPlatform.ops.viewModelCatalog') }}
+    </RouterLink>
 
     <Modal
       v-model:open="incidentModalOpen"
-      :title="isZh ? '发布服务状态事件' : 'Publish Status Incident'"
-      :description="isZh ? '发布的事件标题与说明将以纯文本形式展示在公开服务状态页。' : 'Title and message will be published as plain text on the public status page.'"
+      :title="t('adminPlatform.ops.publishStatusIncident')"
+      :description="t('adminPlatform.ops.titleAndMessageWillBePublishedAs')"
     >
       <div class="space-y-3 text-sm">
         <Input
           v-model="incidentTitle"
-          :label="isZh ? '事件标题' : 'Incident Title'"
-          :placeholder="isZh ? '例如：上游推理通道延迟升高' : 'e.g. Elevated upstream latency'"
+          :label="t('adminPlatform.ops.incidentTitle')"
+          :placeholder="t('adminPlatform.ops.eGElevatedUpstreamLatency')"
         />
         <Select
           v-model="incidentSeverity"
-          :label="isZh ? '影响等级' : 'Severity'"
+          :label="t('adminPlatform.ops.severity')"
           :options="[
-            { value: 'degraded', label: isZh ? '性能降级 (degraded)' : 'Degraded' },
-            { value: 'outage', label: isZh ? '服务中断 (outage)' : 'Outage' },
-            { value: 'maintenance', label: isZh ? '计划维护 (maintenance)' : 'Maintenance' }
+            { value: 'degraded', label: t('adminPlatform.ops.degraded') },
+            { value: 'outage', label: t('adminPlatform.ops.outage') },
+            { value: 'maintenance', label: t('adminPlatform.ops.maintenance') }
           ]"
         />
         <div class="space-y-1.5">
-          <p class="text-xs font-medium text-oh-secondary">{{ isZh ? '受影响组件' : 'Affected Components' }}</p>
+          <p class="text-xs font-medium text-oh-secondary">{{ t('adminPlatform.ops.affectedComponents') }}</p>
           <div v-if="incidentComponents.length" class="flex flex-wrap gap-2">
             <button
               v-for="comp in incidentComponents"
@@ -272,15 +253,15 @@ async function submitIncident() {
             </button>
           </div>
           <p v-else class="text-xs text-oh-muted">
-            {{ isZh ? '暂未加载到状态组件列表。' : 'No status components available.' }}
+            {{ t('adminPlatform.ops.noStatusComponentsAvailable') }}
           </p>
         </div>
         <label class="grid gap-1 text-xs font-medium text-oh-secondary">
-          <span>{{ isZh ? '初始进展说明' : 'Initial Update Message' }}</span>
+          <span>{{ t('adminPlatform.ops.initialUpdateMessage') }}</span>
           <textarea
             v-model="incidentMessage"
             rows="3"
-            :placeholder="isZh ? '描述当前排查进展与预计恢复时间…' : 'Describe current investigation and impact…'"
+            :placeholder="t('adminPlatform.ops.describeCurrentInvestigationAndImpact')"
             class="w-full rounded-oh-md border border-oh-default bg-oh-surface px-3 py-2 text-sm text-oh-primary focus:border-oh-accent focus:outline-none"
           />
         </label>
@@ -290,10 +271,10 @@ async function submitIncident() {
       </div>
       <template #footer>
         <Button size="sm" variant="ghost" :disabled="incidentSubmitting" @click="incidentModalOpen = false">
-          {{ isZh ? '取消' : 'Cancel' }}
+          {{ t('adminPlatform.ops.cancel') }}
         </Button>
         <Button size="sm" variant="primary" :loading="incidentSubmitting" @click="submitIncident">
-          {{ isZh ? '发布事件' : 'Publish' }}
+          {{ t('adminPlatform.ops.publish') }}
         </Button>
       </template>
     </Modal>

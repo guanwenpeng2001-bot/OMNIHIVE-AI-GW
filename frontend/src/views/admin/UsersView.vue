@@ -3,24 +3,24 @@
     <TablePageLayout class="users-workbench">
       <!-- Single Row: Search, Filters, and Actions -->
       <template #filters>
-        <section class="user-overview mb-3" aria-label="用户管理工作台">
+        <section class="user-overview mb-3" :aria-label="t('adminPlatform.users.title')">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h1 class="text-sm font-semibold">用户管理工作台</h1>
-              <p class="mt-1 text-xs text-[var(--muted-foreground)]">授权、余额与配额集中管理</p>
+              <h1 class="text-sm font-semibold">{{ t('adminPlatform.users.title') }}</h1>
+              <p class="mt-1 text-xs text-[var(--muted-foreground)]">{{ t('adminPlatform.users.subtitle') }}</p>
             </div>
             <div class="flex flex-wrap gap-x-5 gap-y-2 text-xs">
-              <span>当前页 / 筛选结果总用户 <b class="font-mono tabular-nums">{{ loading ? '—' : `${users.length} / ${pagination.total}` }}</b></span>
-              <span>本页活跃 <b class="font-mono tabular-nums">{{ loading ? '—' : userOverview.active }}</b></span>
-              <span>本页管理员 <b class="font-mono tabular-nums">{{ loading ? '—' : userOverview.admins }}</b></span>
+              <span>{{ t('adminPlatform.users.pageTotal') }} <b class="font-mono tabular-nums">{{ loading ? '—' : `${users.length} / ${pagination.total}` }}</b></span>
+              <span>{{ t('adminPlatform.users.active') }} <b class="font-mono tabular-nums">{{ loading ? '—' : userOverview.active }}</b></span>
+              <span>{{ t('adminPlatform.users.admins') }} <b class="font-mono tabular-nums">{{ loading ? '—' : userOverview.admins }}</b></span>
             </div>
           </div>
-          <div class="mt-3 flex flex-wrap items-center gap-2" aria-label="用户快捷筛选">
-            <span class="text-xs text-[var(--muted-foreground)]">快捷筛选</span>
-            <button type="button" class="user-filter-pill" :aria-pressed="!filters.role && !filters.status" @click="applyQuickUserFilter('all')">不限角色 / 状态</button>
-            <button type="button" class="user-filter-pill" :aria-pressed="filters.status === 'active'" @click="applyQuickUserFilter('active')">活跃用户</button>
-            <button type="button" class="user-filter-pill" :aria-pressed="filters.role === 'admin'" @click="applyQuickUserFilter('admin')">管理员</button>
-            <span class="text-xs text-[var(--muted-foreground)]">保留搜索与分组条件</span>
+          <div class="mt-3 flex flex-wrap items-center gap-2" :aria-label="t('adminPlatform.users.filters')">
+            <span class="text-xs text-[var(--muted-foreground)]">{{ t('adminPlatform.users.quickFilter') }}</span>
+            <button type="button" class="user-filter-pill" :aria-pressed="!filters.role && !filters.status" @click="applyQuickUserFilter('all')">{{ t('adminPlatform.users.all') }}</button>
+            <button type="button" class="user-filter-pill" :aria-pressed="filters.status === 'active'" @click="applyQuickUserFilter('active')">{{ t('adminPlatform.users.activeUsers') }}</button>
+            <button type="button" class="user-filter-pill" :aria-pressed="filters.role === 'admin'" @click="applyQuickUserFilter('admin')">{{ t('adminPlatform.users.admin') }}</button>
+            <span class="text-xs text-[var(--muted-foreground)]">{{ t('adminPlatform.users.keepFilters') }}</span>
           </div>
         </section>
         <div class="flex flex-wrap items-center gap-3">
@@ -148,7 +148,7 @@
             <!-- Mobile: Secondary buttons (icon only) -->
             <div class="flex items-center gap-2 md:contents">
               <!-- Refresh Button -->
-              <button
+              <button type="button"
                 @click="loadUsers"
                 :disabled="loading"
                 class="btn btn-secondary px-2 md:px-3"
@@ -158,7 +158,7 @@
               </button>
               <!-- Filter Settings Dropdown -->
               <div class="relative" ref="filterDropdownRef">
-                <button
+                <button type="button"
                   @click="showFilterDropdown = !showFilterDropdown"
                   class="btn btn-secondary px-2 md:px-3"
                   :title="t('admin.users.filterSettings')"
@@ -172,7 +172,7 @@
                   class="absolute right-0 top-full z-50 mt-1 w-48 rounded-lg border border-[var(--border)] bg-[var(--card)] py-1 shadow-lg"
                 >
                   <!-- Built-in filters -->
-                  <button
+                  <button type="button"
                     v-for="filter in builtInFilters"
                     :key="filter.key"
                     @click="toggleBuiltInFilter(filter.key)"
@@ -193,7 +193,7 @@
                     class="my-1 border-t border-[var(--border)]"
                   ></div>
                   <!-- Custom attribute filters -->
-                  <button
+                  <button type="button"
                     v-for="attr in filterableAttributes"
                     :key="attr.id"
                     @click="toggleAttributeFilter(attr)"
@@ -212,7 +212,7 @@
               </div>
               <!-- Column Settings Dropdown -->
               <div class="relative" ref="columnDropdownRef">
-                <button
+                <button type="button"
                   @click="showColumnDropdown = !showColumnDropdown"
                   class="btn btn-secondary px-2 md:px-3"
                   :title="t('admin.users.columnSettings')"
@@ -227,7 +227,7 @@
                   v-if="showColumnDropdown"
                   class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--card)] py-1 shadow-lg"
                 >
-                  <button
+                  <button type="button"
                     v-for="col in toggleableColumns"
                     :key="col.key"
                     :disabled="isForcedVisibleColumn(col.key)"
@@ -252,7 +252,7 @@
                 </div>
               </div>
               <!-- Attributes Config Button -->
-              <button
+              <button type="button"
                 @click="showAttributesModal = true"
                 class="btn btn-secondary px-2 md:px-3"
                 :title="t('admin.users.attributes.configButton')"
@@ -263,7 +263,7 @@
             </div>
 
             <!-- Create User Button (full width on mobile, auto width on desktop) -->
-            <button @click="showCreateModal = true" class="btn btn-primary flex-1 md:flex-initial">
+            <button type="button" @click="showCreateModal = true" class="btn btn-primary flex-1 md:flex-initial">
               <Icon name="plus" size="md" class="mr-2" />
               {{ t('admin.users.createUser') }}
             </button>
@@ -273,9 +273,9 @@
 
       <!-- Users Table -->
       <template #table>
-        <div v-if="selectedCount > 0" class="bulk-bar-real" aria-label="用户批量操作">
-          <span class="text-xs">已选择 <b class="font-mono tabular-nums">{{ selectedCount }}</b> 位用户</span>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="bulkDeleting" @click="clearSelection">清除选择</button>
+        <div v-if="selectedCount > 0" class="bulk-bar-real" :aria-label="t('adminPlatform.users.bulk')">
+          <span class="text-xs">{{ t('adminPlatform.users.selected', { count: selectedCount }) }}</span>
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="bulkDeleting" @click="clearSelection">{{ t('adminPlatform.users.clear') }}</button>
           <div class="flex flex-1 flex-wrap justify-end gap-2">
             <button
               type="button"
@@ -459,7 +459,7 @@
           <template #cell-balance="{ value, row }">
             <div class="flex items-center gap-2">
               <div class="group relative">
-                <button
+                <button type="button"
                   class="font-mono font-medium tabular-nums text-[var(--foreground)] underline decoration-dashed decoration-[var(--border-strong)] underline-offset-4 transition-colors hover:text-[var(--brand-text)]"
                   @click="handleBalanceHistory(row)"
                 >
@@ -471,7 +471,7 @@
                   <div class="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-zinc-700"></div>
                 </div>
               </div>
-              <button
+              <button type="button"
                 @click.stop="handleDeposit(row)"
                 class="rounded px-2 py-0.5 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-900/20"
                 :title="t('admin.users.deposit')"
@@ -692,7 +692,7 @@
           <template #cell-actions="{ row }">
             <div class="flex items-center gap-1">
               <!-- Edit Button -->
-              <button
+              <button type="button"
                 @click="handleEdit(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--brand-text)]"
               >
@@ -701,7 +701,7 @@
               </button>
 
               <!-- Toggle Status Button (not for admin) -->
-              <button
+              <button type="button"
                 v-if="row.role !== 'admin'"
                 @click="handleToggleStatus(row)"
                 :class="[
@@ -717,7 +717,9 @@
               </button>
 
               <!-- More Actions Menu Trigger -->
-              <button
+              <button type="button"
+                aria-haspopup="menu"
+                :aria-expanded="activeMenuId === row.id"
                 @click="openActionMenu(row, $event)"
                 class="action-menu-trigger flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
                 :class="{ 'bg-[var(--surface-2)] text-[var(--foreground)]': activeMenuId === row.id }"
@@ -756,6 +758,7 @@
     <Teleport to="body">
       <div
         v-if="activeMenuId !== null && menuPosition"
+        role="menu"
         class="action-menu-content fixed z-[9999] w-48 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-lg"
         :style="{ top: menuPosition.top + 'px', left: menuPosition.left + 'px' }"
       >
@@ -763,7 +766,7 @@
           <template v-for="user in users" :key="user.id">
             <template v-if="user.id === activeMenuId">
               <!-- View API Keys -->
-              <button
+              <button role="menuitem" type="button"
                 @click="handleViewApiKeys(user); closeActionMenu()"
                 class="flex w-full items-center gap-2 px-4 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--surface-2)]"
               >
@@ -772,7 +775,7 @@
               </button>
 
               <!-- Allowed Groups -->
-              <button
+              <button role="menuitem" type="button"
                 @click="handleAllowedGroups(user); closeActionMenu()"
                 class="flex w-full items-center gap-2 px-4 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--surface-2)]"
               >
@@ -783,7 +786,7 @@
               <div class="my-1 border-t border-[var(--border)]"></div>
 
               <!-- Deposit -->
-              <button
+              <button role="menuitem" type="button"
                 @click="handleDeposit(user); closeActionMenu()"
                 class="flex w-full items-center gap-2 px-4 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--surface-2)]"
               >
@@ -792,7 +795,7 @@
               </button>
 
               <!-- Withdraw -->
-              <button
+              <button role="menuitem" type="button"
                 @click="handleWithdraw(user); closeActionMenu()"
                 class="flex w-full items-center gap-2 px-4 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--surface-2)]"
               >
@@ -803,7 +806,7 @@
               </button>
 
               <!-- Platform Quotas -->
-              <button
+              <button role="menuitem" type="button"
                 @click="handlePlatformQuota(user); closeActionMenu()"
                 class="flex w-full items-center gap-2 px-4 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--surface-2)]"
               >
@@ -812,7 +815,7 @@
               </button>
 
               <!-- Balance History -->
-              <button
+              <button role="menuitem" type="button"
                 @click="handleBalanceHistory(user); closeActionMenu()"
                 class="flex w-full items-center gap-2 px-4 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--surface-2)]"
               >
@@ -823,7 +826,7 @@
               <div class="my-1 border-t border-[var(--border)]"></div>
 
               <!-- Delete (not for admin) -->
-              <button
+              <button role="menuitem" type="button"
                 v-if="user.role !== 'admin'"
                 @click="handleDelete(user); closeActionMenu()"
                 class="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"

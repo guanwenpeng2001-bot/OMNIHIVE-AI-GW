@@ -2,24 +2,24 @@
   <AppLayout>
     <header class="dashboard-controls mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] pb-3">
       <div>
-        <h1 class="text-xl font-semibold tracking-tight">{{ isZh ? '运行总览' : 'Operations Overview' }}</h1>
-        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ isZh ? '请求、费用和趋势与用量记录联动，运行脉搏来自运维监控' : 'Requests, spend, and trends linked with usage logs; live pulse powered by Ops monitoring' }}</p>
+        <h1 class="text-xl font-semibold tracking-tight">{{ t('adminPlatform.dashboard.operationsOverview') }}</h1>
+        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('adminPlatform.dashboard.requestsSpendAndTrendsLinkedWithUsage') }}</p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <label class="refresh-switch flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs">
           <input v-model="autoRefreshEnabled" type="checkbox" @change="refreshCountdown = 30" />
-          {{ isZh ? '自动刷新 30s' : 'Auto Refresh 30s' }}
+          {{ t('adminPlatform.dashboard.autoRefresh30s') }}
         </label>
         <span class="min-w-14 font-mono text-xs tabular-nums text-gray-500 dark:text-gray-400" role="status">
-          {{ refreshing ? (isZh ? '刷新中…' : 'Refreshing…') : autoRefreshEnabled ? `${refreshCountdown}s` : (isZh ? '已关闭' : 'Off') }}
+          {{ refreshing ? (t('adminPlatform.dashboard.refreshing')) : autoRefreshEnabled ? `${refreshCountdown}s` : (t('adminPlatform.dashboard.off')) }}
         </span>
         <button type="button" class="btn btn-secondary btn-sm" :disabled="dashboardBusy" @click="refreshDashboard">
-          ↻ {{ isZh ? '刷新' : 'Refresh' }}
+          ↻ {{ t('adminPlatform.dashboard.refresh') }}
         </button>
       </div>
     </header>
     <ReportTimeContext :time-zone="reportTimeZone" class="mb-3" />
-    <div class="space-y-4">
+    <div class="min-w-0 space-y-4">
       <!-- Loading State -->
       <div v-if="loading" class="flex items-center justify-center py-12">
         <LoadingSpinner />
@@ -56,7 +56,7 @@
                 :class="stats.error_accounts + stats.ratelimit_accounts + stats.overload_accounts > 0 ? 'pulse-warn' : 'pulse-ok'"
               ></span>
               <b class="text-sm font-semibold tracking-tight text-gray-900 dark:text-white">
-                {{ isZh ? '运行脉搏' : 'Runtime Pulse' }}
+                {{ t('adminPlatform.dashboard.runtimePulse') }}
               </b>
               <span class="pill pill-ghost font-mono text-[11px] tabular-nums">
                 {{ stats.normal_accounts }}/{{ stats.total_accounts }} {{ t('common.active') }}
@@ -67,7 +67,7 @@
                 class="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5"
                 style="color: var(--brand-text)"
               >
-                <span>{{ isZh ? '查看诊断抽屉' : 'View Diagnostics' }}</span>
+                <span>{{ t('adminPlatform.dashboard.viewDiagnostics') }}</span>
                 <span aria-hidden="true">›</span>
               </span>
             </div>
@@ -79,7 +79,7 @@
               style="border-color: var(--border); background: color-mix(in srgb, var(--card) 86%, transparent)"
             >
               <div class="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-                <span>{{ isZh ? '当前活跃账号率' : 'Active Account Ratio' }}</span>
+                <span>{{ t('adminPlatform.dashboard.activeAccountRatio') }}</span>
                 <span class="font-mono text-[11px] tabular-nums">{{ stats.normal_accounts }}/{{ stats.total_accounts }}</span>
               </div>
               <b class="mt-1 block font-mono text-xl font-bold tabular-nums text-gray-900 dark:text-white">
@@ -110,7 +110,7 @@
               style="border-color: var(--border); background: color-mix(in srgb, var(--card) 86%, transparent)"
             >
               <div class="text-xs text-gray-500 dark:text-gray-400">
-                {{ isZh ? '当前 RPM / TPM' : 'Current RPM / TPM' }}
+                {{ t('adminPlatform.dashboard.currentRPMTPM') }}
               </div>
               <b class="mt-1 block font-mono text-xl font-bold tabular-nums text-gray-900 dark:text-white">
                 {{ formatTokens(stats.rpm) }}
@@ -132,7 +132,7 @@
                 {{ summaryScope === 'unknown' ? '—' : formatDuration(stats.average_duration_ms) }}
               </b>
               <span class="mt-1 block text-[11px] text-gray-500 dark:text-gray-400">
-                {{ isZh ? '点击查看实时诊断与监控入口' : 'Click to inspect live diagnostics & monitoring' }}
+                {{ t('adminPlatform.dashboard.clickToInspectLiveDiagnosticsMonitoring') }}
               </span>
             </div>
           </div>
@@ -146,7 +146,8 @@
             role="button"
             tabindex="0"
             @click="router.push('/admin/users')"
-            @keydown.enter="router.push('/admin/users')"
+            @keydown.enter.prevent="router.push('/admin/users')"
+            @keydown.space.prevent="router.push('/admin/users')"
           >
             <div class="flex items-start justify-between gap-2">
               <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -170,7 +171,8 @@
             role="button"
             tabindex="0"
             @click="router.push('/admin/accounts')"
-            @keydown.enter="router.push('/admin/accounts')"
+            @keydown.enter.prevent="router.push('/admin/accounts')"
+            @keydown.space.prevent="router.push('/admin/accounts')"
           >
             <div class="flex items-start justify-between gap-2">
               <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -199,7 +201,8 @@
             role="button"
             tabindex="0"
             @click="router.push('/admin/usage')"
-            @keydown.enter="router.push('/admin/usage')"
+            @keydown.enter.prevent="router.push('/admin/usage')"
+            @keydown.space.prevent="router.push('/admin/usage')"
           >
             <div class="flex items-start justify-between gap-2">
               <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -223,7 +226,8 @@
             role="button"
             tabindex="0"
             @click="router.push('/admin/users')"
-            @keydown.enter="router.push('/admin/users')"
+            @keydown.enter.prevent="router.push('/admin/users')"
+            @keydown.space.prevent="router.push('/admin/users')"
           >
             <div class="flex items-start justify-between gap-2">
               <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -250,7 +254,8 @@
             role="button"
             tabindex="0"
             @click="router.push('/admin/usage')"
-            @keydown.enter="router.push('/admin/usage')"
+            @keydown.enter.prevent="router.push('/admin/usage')"
+            @keydown.space.prevent="router.push('/admin/usage')"
           >
             <div class="flex items-start justify-between gap-2">
               <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -290,11 +295,12 @@
             role="button"
             tabindex="0"
             @click="router.push('/admin/usage')"
-            @keydown.enter="router.push('/admin/usage')"
+            @keydown.enter.prevent="router.push('/admin/usage')"
+            @keydown.space.prevent="router.push('/admin/usage')"
           >
             <div class="flex items-start justify-between gap-2">
               <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                {{ summaryScope === 'all_time' ? t('admin.dashboard.totalTokens') : summaryLabel + (isZh ? ' · 总 Token' : ' · Tokens') }}
+                {{ summaryScope === 'all_time' ? t('admin.dashboard.totalTokens') : summaryLabel + (t('adminPlatform.dashboard.tokens')) }}
               </p>
               <span class="text-xs opacity-35" aria-hidden="true">›</span>
             </div>
@@ -330,7 +336,8 @@
             role="button"
             tabindex="0"
             @click="router.push('/admin/ops')"
-            @keydown.enter="router.push('/admin/ops')"
+            @keydown.enter.prevent="router.push('/admin/ops')"
+            @keydown.space.prevent="router.push('/admin/ops')"
           >
             <div class="flex items-start justify-between gap-2">
               <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -360,7 +367,8 @@
             role="button"
             tabindex="0"
             @click="router.push('/admin/ops')"
-            @keydown.enter="router.push('/admin/ops')"
+            @keydown.enter.prevent="router.push('/admin/ops')"
+            @keydown.space.prevent="router.push('/admin/ops')"
           >
             <div class="flex items-start justify-between gap-2">
               <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -381,7 +389,7 @@
         </div>
 
         <!-- Quick Actions -->
-        <div class="card p-4">
+        <div class="card min-w-0 p-4">
           <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
             <h2 class="text-sm font-semibold text-gray-900 dark:text-white">
               {{ t('admin.dashboard.quickActions') }}
@@ -442,9 +450,9 @@
         </div>
 
         <!-- Charts Section -->
-        <div class="space-y-6">
+        <div class="min-w-0 space-y-6">
           <!-- Date Range Filter -->
-          <div class="card p-4">
+          <div class="card min-w-0 p-4">
             <div class="flex flex-wrap items-center gap-4">
               <div class="flex items-center gap-2">
                 <span class="text-sm font-medium text-gray-700 dark:text-gray-300"
@@ -498,7 +506,7 @@
           </div>
 
           <!-- User Usage Trend (Full Width) -->
-          <div class="card p-4">
+          <div class="card min-w-0 p-4">
             <h3 class="mb-4 text-sm font-semibold text-gray-900 dark:text-white">
               {{ t('admin.dashboard.recentUsage') }} (Top 12)
             </h3>
@@ -515,9 +523,9 @@
                 {{ t('admin.dashboard.noDataAvailable') }}
               </div>
             </div>
-            <div v-if="!userTrendLoading && userTrendChartData" class="mt-4 overflow-x-auto">
-              <table class="w-full whitespace-nowrap text-right text-xs" data-testid="user-trend-table">
-                <caption>{{ isZh ? '总 Token' : t('admin.dashboard.tokens') }} · {{ reportTimeZone }} · Top 12</caption>
+            <div v-if="!userTrendLoading && userTrendChartData" class="mt-4 max-w-full overflow-x-auto">
+              <table class="w-max min-w-full whitespace-nowrap text-right text-xs" data-testid="user-trend-table">
+                <caption>{{ t('admin.dashboard.tokens') }} · {{ reportTimeZone }} · Top 12</caption>
                 <thead><tr><th scope="col" class="p-2 text-left">{{ t('usage.time') }}</th><th v-for="(dataset, index) in userTrendChartData.datasets" :key="index" scope="col" class="p-2">{{ dataset.label }}</th></tr></thead>
                 <tbody><tr v-for="(date, dateIndex) in userTrendChartData.labels" :key="date"><th scope="row" class="p-2 text-left font-normal">{{ date }}</th><td v-for="(dataset, index) in userTrendChartData.datasets" :key="index" class="p-2">{{ Number.isFinite(dataset.data[dateIndex]) ? dataset.data[dateIndex] : '-' }}</td></tr></tbody>
               </table>
@@ -549,15 +557,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 
-const i18n = useI18n()
-const { t } = i18n
-const isZh = computed(() => {
-  const rawLocale = typeof i18n.locale === 'string' ? i18n.locale : i18n.locale?.value
-  if (rawLocale) return String(rawLocale).toLowerCase().startsWith('zh')
-  const probe = t('common.active')
-  if (probe && probe !== 'common.active') return /[\u4e00-\u9fa5]/.test(probe)
-  return true
-})
+const { t } = useI18n()
 import type { DashboardStats } from '@/types'
 import { adminAPI } from '@/api/admin'
 import type {
@@ -616,8 +616,8 @@ const activeAccountRate = computed(() => {
 })
 
 const workbenchShortcuts = computed(() => [
-  { path: '/admin/ops', label: isZh.value ? '运维实时监控' : 'Ops Live Monitor', icon: 'bolt' as const },
-  { path: '/admin/channels/monitor', label: isZh.value ? '渠道监控' : 'Channel Monitor', icon: 'chart' as const },
+  { path: '/admin/ops', label: t('adminPlatform.dashboard.opsLiveMonitor'), icon: 'bolt' as const },
+  { path: '/admin/channels/monitor', label: t('nav.channelMonitor'), icon: 'chart' as const },
   { path: '/admin/accounts', label: t('admin.dashboard.manageAccounts'), icon: 'server' as const },
   { path: '/admin/groups', label: t('admin.dashboard.groupPricing'), icon: 'grid' as const },
   { path: '/admin/users', label: t('admin.dashboard.manageUsers'), icon: 'users' as const },
@@ -649,23 +649,23 @@ function openPulseDiagnosisDrawer() {
   const current = stats.value
   if (!current) return
   const metrics = [
-    [isZh.value ? '当前活跃账号率' : 'Active Account Ratio', activeAccountRate.value],
-    [isZh.value ? '正常 / 总账号' : 'Active / Total Accounts', `${current.normal_accounts} / ${current.total_accounts}`],
-    [isZh.value ? '异常账号' : 'Error Accounts', formatNumber(current.error_accounts)],
-    [isZh.value ? '限流账号' : 'Rate-Limited Accounts', formatNumber(current.ratelimit_accounts)],
-    [isZh.value ? '过载账号' : 'Overloaded Accounts', formatNumber(current.overload_accounts)],
-    [isZh.value ? '今日请求' : 'Today Requests', formatNumber(current.today_requests)],
-    [isZh.value ? '当前 RPM / TPM' : 'Current RPM / TPM', `${formatTokens(current.rpm)} / ${formatTokens(current.tpm)}`],
-    [isZh.value ? '平均延迟' : 'Average Latency', summaryScope.value === 'unknown' ? '—' : formatDuration(current.average_duration_ms)]
+    [t('adminPlatform.dashboard.activeAccountRatio'), activeAccountRate.value],
+    [t('adminPlatform.dashboard.activeTotalAccounts'), `${current.normal_accounts} / ${current.total_accounts}`],
+    [t('adminPlatform.dashboard.errorAccounts'), formatNumber(current.error_accounts)],
+    [t('adminPlatform.dashboard.rateLimitedAccounts'), formatNumber(current.ratelimit_accounts)],
+    [t('adminPlatform.dashboard.overloadedAccounts'), formatNumber(current.overload_accounts)],
+    [t('adminPlatform.dashboard.todayRequests'), formatNumber(current.today_requests)],
+    [t('adminPlatform.dashboard.currentRPMTPM'), `${formatTokens(current.rpm)} / ${formatTokens(current.tpm)}`],
+    [t('adminPlatform.dashboard.averageLatency'), summaryScope.value === 'unknown' ? '—' : formatDuration(current.average_duration_ms)]
   ]
   const escapeHtml = (value: string) => value.replace(/[&<>"']/g, character => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   }[character] || character))
   openDrawer(
-    isZh.value ? '蜂巢运行脉搏 · 实时诊断' : 'OmniHive Runtime Pulse · Live Diagnostics',
-    `<p class="mb-4 text-xs opacity-60">${isZh.value ? '当前总览快照；平均延迟沿用总览统计范围，实时链路状态请进入运维监控。' : 'Current overview snapshot; average latency follows the overview window. Open Ops Monitor for live link telemetry.'}</p>
+    t('adminPlatform.dashboard.omnihiveRuntimePulseLiveDiagnostics'),
+    `<p class="mb-4 text-xs opacity-60">${t('adminPlatform.dashboard.currentOverviewSnapshotAverageLatencyFollowsThe')}</p>
     <dl class="space-y-3">${metrics.map(([label, value]) => `<div class="flex items-center justify-between gap-4 border-b pb-2" style="border-color:var(--border)"><dt>${label}</dt><dd class="font-mono font-semibold tabular-nums">${escapeHtml(value)}</dd></div>`).join('')}</dl>`,
-    `<div class="flex flex-wrap gap-2"><button type="button" class="btn btn-primary btn-sm" data-drawer-nav="/admin/ops">${isZh.value ? '运维实时监控' : 'Ops Monitor'}</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-nav="/admin/accounts">${isZh.value ? '上游连接' : 'Upstream Connections'}</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-nav="/admin/channels/monitor">${isZh.value ? '渠道监控' : 'Channel Monitor'}</button></div>`
+    `<div class="flex flex-wrap gap-2"><button type="button" class="btn btn-primary btn-sm" data-drawer-nav="/admin/ops">${t('adminPlatform.dashboard.opsMonitor')}</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-nav="/admin/accounts">${t('admin.dashboard.manageAccounts')}</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-nav="/admin/channels/monitor">${t('nav.channelMonitor')}</button></div>`
   )
 }
 const rankingError = ref(false)

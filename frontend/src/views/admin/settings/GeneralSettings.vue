@@ -72,7 +72,7 @@
           <label for="site-icp" class="mb-2 block text-sm font-medium text-[var(--foreground)]">
             {{ t("admin.settings.site.siteICP") }}
           </label>
-          <input id="site-icp" v-model="form.site_icp" type="text" class="input" placeholder="蒙ICP备2026xxxx号" />
+          <input id="site-icp" v-model="form.site_icp" type="text" class="input" :placeholder="t('adminPlatform.settings.icp')" />
         </div>
 
         <!-- API Base URL -->
