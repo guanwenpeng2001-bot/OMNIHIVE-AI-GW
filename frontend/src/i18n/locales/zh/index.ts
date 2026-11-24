@@ -16,7 +16,10 @@ import settingsDiagnostics from './settingsDiagnostics'
 import consoleWorkbench from './consoleWorkbench'
 import publicPortal from './publicPortal'
 
+import adminPlatform from './adminPlatform'
+
 export default {
+  adminPlatform,
   workspaces,
   modelAccess,
   routing,

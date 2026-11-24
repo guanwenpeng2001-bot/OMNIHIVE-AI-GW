@@ -141,7 +141,7 @@ export function evaluateFeatureFlagPolicy(
     | 'adminPaymentEnabled'
     | 'isAdmin'
     | 'isAuthenticated'
-  >
+  > & Partial<Pick<RoutePolicyContext, 'path'>>
 ): RoutePolicyEvaluation {
   const settings = context.publicSettings
   const defaultDashboard = context.isAdmin ? '/admin/dashboard' : '/dashboard'
@@ -164,7 +164,7 @@ export function evaluateFeatureFlagPolicy(
           state: 'disabled',
           reason: 'feature_disabled',
           flag,
-          redirectTo: '/admin/dashboard'
+          redirectTo: '/admin/settings'
         }
       }
       if (!context.publicSettingsLoaded && settings?.payment_enabled === undefined) {
@@ -175,7 +175,7 @@ export function evaluateFeatureFlagPolicy(
           state: 'disabled',
           reason: 'feature_disabled',
           flag,
-          redirectTo: '/admin/dashboard'
+          redirectTo: '/admin/settings'
         }
       }
       return { state: 'enabled', reason: 'ok', flag }
@@ -275,7 +275,7 @@ export function evaluateFeatureFlagPolicy(
         state: 'disabled',
         reason: 'feature_disabled',
         flag,
-        redirectTo: defaultDashboard
+        redirectTo: context.path?.startsWith('/admin/') ? '/admin/settings' : defaultDashboard
       }
     }
     case 'pluginManagement': {
@@ -387,7 +387,7 @@ export function evaluateRoutePolicy(
   }
 
   if (spec.requiresPayment) {
-    const evalPayment = evaluateFeatureFlagPolicy('payment', context)
+    const evalPayment = evaluateFeatureFlagPolicy(spec.requiresAdmin ? 'adminPayment' : 'payment', context)
     if (evalPayment.state !== 'enabled') return evalPayment
   }
 

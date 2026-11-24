@@ -62,6 +62,7 @@ export const useAppStore = defineStore('app', () => {
   const apiBaseUrl = ref<string>('')
   const docUrl = ref<string>('')
   const cachedPublicSettings = ref<PublicSettings | null>(null)
+  let injectedVersionMissing = false
   let publicSettingsRequest: Promise<PublicSettings | null> | null = null
 
   // Version cache state
@@ -466,11 +467,11 @@ export const useAppStore = defineStore('app', () => {
     // Check for injected config from server (eliminates flash)
     if (!publicSettingsLoaded.value && !force && window.__APP_CONFIG__) {
       applySettings(window.__APP_CONFIG__)
-      return Promise.resolve(window.__APP_CONFIG__)
+      injectedVersionMissing = !siteVersion.value
     }
 
     // Return cached data if available and not forcing refresh
-    if (publicSettingsLoaded.value && !force) {
+    if (publicSettingsLoaded.value && !force && !injectedVersionMissing) {
       if (cachedPublicSettings.value) {
         return Promise.resolve({ ...cachedPublicSettings.value })
       }
@@ -544,6 +545,7 @@ export const useAppStore = defineStore('app', () => {
 
     const request = apiRequest
       .then((data) => {
+        injectedVersionMissing = false
         applySettings(data)
         return data
       })
@@ -581,6 +583,7 @@ export const useAppStore = defineStore('app', () => {
   function initFromInjectedConfig(): boolean {
     if (window.__APP_CONFIG__) {
       applySettings(window.__APP_CONFIG__)
+      injectedVersionMissing = !siteVersion.value
       return true
     }
     return false

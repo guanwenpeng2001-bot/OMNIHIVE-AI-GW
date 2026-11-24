@@ -1050,7 +1050,8 @@ const routes: RouteRecordRaw[] = [
       requiresAdmin: true,
       title: 'Affiliate Invite Records',
       titleKey: 'nav.affiliateInviteRecords',
-      descriptionKey: 'admin.affiliates.invitesDescription'
+      descriptionKey: 'admin.affiliates.invitesDescription',
+      featureFlag: 'affiliate'
     }
   },
   {
@@ -1062,7 +1063,8 @@ const routes: RouteRecordRaw[] = [
       requiresAdmin: true,
       title: 'Affiliate Rebate Records',
       titleKey: 'nav.affiliateRebateRecords',
-      descriptionKey: 'admin.affiliates.rebatesDescription'
+      descriptionKey: 'admin.affiliates.rebatesDescription',
+      featureFlag: 'affiliate'
     }
   },
   {
@@ -1074,7 +1076,8 @@ const routes: RouteRecordRaw[] = [
       requiresAdmin: true,
       title: 'Affiliate Transfer Records',
       titleKey: 'nav.affiliateTransferRecords',
-      descriptionKey: 'admin.affiliates.transfersDescription'
+      descriptionKey: 'admin.affiliates.transfersDescription',
+      featureFlag: 'affiliate'
     }
   },
 

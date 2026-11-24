@@ -8,7 +8,7 @@ const { list, get, writeText, showError } = vi.hoisted(() => ({
 }))
 vi.mock('@/api/admin', () => ({ adminAPI: { audit: { list, get } } }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError, showSuccess: vi.fn() }) }))
-vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
+vi.mock('vue-i18n', () => ({ useI18n: () => ({ te: () => false, t: (key: string) => key }) }))
 vi.mock('@/i18n', () => ({ i18n: { global: { t: (key: string) => key } } }))
 
 const row = { id: 1, action: 'PUT /accounts/:id', method: 'PATCH',

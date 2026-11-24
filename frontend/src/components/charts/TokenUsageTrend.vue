@@ -19,8 +19,8 @@
       <span class="self-start rounded-full border border-[var(--border)] px-2.5 py-1 text-xs">{{ t('admin.dashboard.noDataAvailable') }}</span>
     </div>
     <div v-if="!loading && chartData" class="mt-4 overflow-x-auto">
-      <table class="w-full whitespace-nowrap text-right text-xs" data-testid="trend-data-table">
-        <caption class="mb-2 text-left text-[var(--muted-foreground)]">{{ tableDescription }}</caption>
+      <table class="w-max min-w-full whitespace-nowrap text-right text-xs" data-testid="trend-data-table">
+        <caption class="mb-2 whitespace-normal text-left text-[var(--muted-foreground)]">{{ tableDescription }}</caption>
         <thead><tr>
           <th scope="col" class="p-2 text-left">{{ t('usage.time') }} ({{ timeZone || getBrowserTimeZone() }})</th>
           <th v-for="dataset in chartData.datasets" :key="dataset.label" scope="col" class="p-2">{{ formatDatasetHeader(dataset.label) }}</th>

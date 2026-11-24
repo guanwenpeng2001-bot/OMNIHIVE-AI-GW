@@ -57,7 +57,7 @@
     </form>
     <div v-if="error" role="alert" class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">{{ error }}</div>
     <div class="mt-5 overflow-x-auto rounded-xl border border-[var(--border)]">
-      <table class="min-w-[1120px] w-full text-left text-sm">
+      <table class="min-w-[52rem] w-full text-left text-sm">
         <thead class="border-b border-[var(--border)] bg-[var(--surface-2)] text-xs text-[var(--muted-foreground)]">
           <tr>
             <th class="w-10 px-3 py-3"><input type="checkbox" :checked="allSelected" :aria-label="t('admin.promptAudit.events.selectAll')" @change="toggleAll" /></th>

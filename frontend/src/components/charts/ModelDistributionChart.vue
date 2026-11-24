@@ -111,7 +111,7 @@
         <Doughnut :data="chartData" :options="doughnutOptions" />
       </div>
       <div class="w-full min-w-0 flex-1 overflow-x-auto">
-        <table class="w-full text-xs">
+        <table class="w-max min-w-full whitespace-nowrap text-xs">
           <thead>
             <tr class="text-[var(--muted-foreground)]">
               <th class="pb-2 text-left">{{ t('admin.dashboard.model') }}</th>
@@ -204,7 +204,7 @@
         <Doughnut :data="rankingChartData" :options="rankingDoughnutOptions" />
       </div>
       <div class="w-full min-w-0 flex-1 overflow-x-auto">
-        <table class="w-full text-xs">
+        <table class="w-max min-w-full whitespace-nowrap text-xs">
           <thead>
             <tr class="text-[var(--muted-foreground)]">
               <th class="pb-2 text-left">{{ t('admin.dashboard.spendingRankingUser') }}</th>

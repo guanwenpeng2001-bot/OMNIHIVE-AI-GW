@@ -64,6 +64,10 @@ vi.mock('vue-router', () => ({
   })
 }))
 
+vi.mock('@/stores/adminSettings', () => ({
+  useAdminSettingsStore: () => ({ loaded: true, opsMonitoringEnabled: mockAppStore.opsMonitoringEnabled, fetch: vi.fn() })
+}))
+
 vi.mock('@/stores/app', () => ({
   useAppStore: () => mockAppStore
 }))
@@ -606,6 +610,16 @@ describe('ModelsCatalogView (/admin/models) & inspector contract', () => {
     const verification = drawer.get('[data-testid="catalog-verification-workbench"]')
     expect(verification.findAll('form')).toHaveLength(1)
     expect(verification.find('#catalog-target-model').exists()).toBe(false)
+  })
+
+  it('keeps verification actions accessible from the catalog when Ops is enabled', async () => {
+    mockAppStore.opsMonitoringEnabled = true
+    const wrapper = mountCatalogView()
+    await flushPromises()
+    await wrapper.get('[data-testid="open-catalog-verification-workbench"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="catalog-verification-workbench"]').find('#catalog-target-model').exists()).toBe(true)
+    wrapper.unmount()
   })
 
   it('recovers from 410 SNAPSHOT_EXPIRED by prompting a fresh snapshot load', async () => {

@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, toRaw, onMounted, ref, watch } from 'vue'
+import { computed, toRaw, onScopeDispose, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import TotpStepUpDialog from '@/components/auth/TotpStepUpDialog.vue'
+import { isStepUpCancelled, useStepUp } from '@/composables/useStepUp'
 import { adminAPI } from '@/api'
 import type { SystemSettings } from '@/api/admin/settings'
 import {
@@ -38,11 +40,12 @@ const props = withDefaults(
   { initialSection: 'general' }
 )
 
-const { t, locale } = useI18n()
-const isZh = computed(() => String(locale?.value || 'zh').toLowerCase().startsWith('zh'))
+const { t } = useI18n()
 
 const emit = defineEmits<{ 'select-section': [section: string] }>()
 const activeSection = computed(() => props.initialSection)
+const stepUp = useStepUp()
+onScopeDispose(stepUp.onCancel)
 const sectionFilter = ref('')
 
 const hasLoadedSettings = ref(false)
@@ -82,10 +85,8 @@ const visibleSections = computed(() => {
   if (!query) return SETTINGS_SECTIONS
   return SETTINGS_SECTIONS.filter(
     (sec) =>
-      sec.label.toLowerCase().includes(query) ||
-      sec.labelZh.toLowerCase().includes(query) ||
-      sec.description.toLowerCase().includes(query) ||
-      sec.descriptionZh.toLowerCase().includes(query) ||
+      t(`adminPlatform.workbench.sections.${sec.id}.title`).toLowerCase().includes(query) ||
+      t(`adminPlatform.workbench.sections.${sec.id}.description`).toLowerCase().includes(query) ||
       sec.fields.some((f) => String(f).toLowerCase().includes(query))
   )
 })
@@ -93,8 +94,8 @@ const visibleSections = computed(() => {
 const tabItems = computed<UiTabItem[]>(() =>
   visibleSections.value.map((sec) => ({
     value: sec.id,
-    label: isZh.value ? sec.labelZh : sec.label,
-    badge: dirtySections.value.includes(sec.id) ? (isZh.value ? '未保存' : 'Unsaved') : undefined
+    label: t(`adminPlatform.workbench.sections.${sec.id}.title`),
+    badge: dirtySections.value.includes(sec.id) ? t('adminPlatform.workbench.unsaved') : undefined
   }))
 )
 
@@ -127,7 +128,7 @@ async function loadSettings(isRefresh = false): Promise<void> {
     hasLoadedSettings.value = true
     lastSyncedAt.value = new Date().toLocaleTimeString()
   } catch (error) {
-    const err = classifyAsyncError(error, isZh.value ? '加载系统设置失败' : 'Failed to load system settings')
+    const err = classifyAsyncError(error, t('adminPlatform.workbench.failedToLoadSystemSettings'))
     if (hasLoadedSettings.value) {
       refreshError.value = {
         message: err.message,
@@ -155,19 +156,21 @@ function handleResetSection(): void {
 }
 
 async function handleSaveSection(): Promise<void> {
-  fieldErrors.value = validateSettingsSection(activeSection.value, draft.value)
+  const section = activeSection.value
+  const activeLabel = t(`adminPlatform.workbench.sections.${activeMeta.value.id}.title`)
+  fieldErrors.value = validateSettingsSection(section, draft.value, baseline.value)
   if (Object.keys(fieldErrors.value).length > 0) {
     pushUiToast({
       tone: 'warning',
-      title: isZh.value ? '校验未通过' : 'Validation failed',
-      description: isZh.value ? '请先修正标红字段后再保存。' : 'Fix highlighted fields before saving.'
+      title: t('adminPlatform.workbench.validationFailed'),
+      description: t('adminPlatform.workbench.fixHighlightedFieldsBeforeSaving')
     })
     return
   }
 
   const patch = buildSectionPatch(activeSection.value, baseline.value, draft.value)
   if (Object.keys(patch).length === 0) {
-    confirmedMessage.value = isZh.value ? '当前分组没有待保存的更改。' : 'No changes to save in this section.'
+    confirmedMessage.value = t('adminPlatform.workbench.noChangesToSaveInThisSection')
     return
   }
 
@@ -178,7 +181,7 @@ async function handleSaveSection(): Promise<void> {
   confirmedMessage.value = null
 
   try {
-    const updated = await adminAPI.settings.updateSettings(patch)
+    const updated = await stepUp.run(() => adminAPI.settings.updateSettings(patch))
     const nextBaseline: SettingsDraft = {
       ...toRaw(baseline.value),
       ...updated,
@@ -186,24 +189,24 @@ async function handleSaveSection(): Promise<void> {
       turnstile_secret_key: ''
     }
     baseline.value = structuredClone(nextBaseline)
-    draft.value = resetSectionDraft(activeSection.value, nextBaseline, draft.value)
+    draft.value = resetSectionDraft(section, nextBaseline, draft.value)
     lastSyncedAt.value = new Date().toLocaleTimeString()
-    const activeLabel = isZh.value ? activeMeta.value.labelZh : activeMeta.value.label
-    confirmedMessage.value = isZh.value ? `已保存「${activeLabel}」配置。` : `${activeLabel} saved.`
+    confirmedMessage.value = t('adminPlatform.workbench.saved', { section: activeLabel })
     pushUiToast({
       tone: 'success',
-      title: isZh.value ? '设置已保存' : 'Settings saved',
+      title: t('adminPlatform.workbench.settingsSaved'),
       description: activeLabel
     })
   } catch (error) {
-    const err = classifyAsyncError(error, isZh.value ? '保存设置失败' : 'Failed to save settings')
+    if (isStepUpCancelled(error)) return
+    const err = classifyAsyncError(error, t('adminPlatform.workbench.failedToSaveSettings'))
     if (err.state === 'conflict') {
       mutationConflict.value = { message: err.message, requestId: err.requestId }
     } else if (err.state === 'unknown') {
       mutationUnknown.value = { message: err.message, requestId: err.requestId }
     } else {
       saveError.value = { message: err.message, requestId: err.requestId }
-      pushUiToast({ tone: 'danger', title: isZh.value ? '保存失败' : 'Save failed', description: err.message })
+      pushUiToast({ tone: 'danger', title: t('adminPlatform.workbench.saveFailed'), description: err.message })
     }
   } finally {
     saving.value = false
@@ -220,10 +223,10 @@ async function handleTestSmtp(): Promise<void> {
       smtp_password: String(draft.value.smtp_password ?? ''),
       smtp_use_tls: Boolean(draft.value.smtp_use_tls)
     })
-    pushUiToast({ tone: 'success', title: isZh.value ? 'SMTP 连接测试成功' : 'SMTP connection OK', description: res.message })
+    pushUiToast({ tone: 'success', title: t('adminPlatform.workbench.smtpConnectionOK'), description: res.message })
   } catch (error) {
-    const err = classifyAsyncError(error, isZh.value ? 'SMTP 测试失败' : 'SMTP test failed')
-    pushUiToast({ tone: 'danger', title: isZh.value ? 'SMTP 测试失败' : 'SMTP test failed', description: err.message })
+    const err = classifyAsyncError(error, t('adminPlatform.workbench.smtpTestFailed'))
+    pushUiToast({ tone: 'danger', title: t('adminPlatform.workbench.smtpTestFailed'), description: err.message })
   } finally {
     testingSmtp.value = false
   }
@@ -277,9 +280,9 @@ onMounted(() => {
 <template>
   <div class="space-y-5">
     <PageHeader
-      :eyebrow="isZh ? '系统配置' : 'SYSTEM CONFIGURATION'"
-      :title="isZh ? '系统设置' : 'System Settings'"
-      :description="isZh ? '按功能分区管理平台配置，支持分区域未保存提醒、字段校验与独立保存。' : 'Sectioned platform configuration with per-section dirty tracking, validation, and scoped saves.'"
+      :eyebrow="t('adminPlatform.workbench.systemCONFIGURATION')"
+      :title="t('adminPlatform.workbench.systemSettings')"
+      :description="t('adminPlatform.workbench.sectionedPlatformConfigurationWithPerSectionDirty')"
     >
       <template #badges>
         <template v-if="activeSection === 'diagnostics'">
@@ -357,7 +360,7 @@ onMounted(() => {
             mono
             data-testid="workbench-sync-badge"
           >
-            {{ isZh ? `${dirtySections.length} 项未保存` : `${dirtySections.length} dirty` }}
+            {{ t('adminPlatform.workbench.dirty', { count: dirtySections.length }) }}
           </Badge>
           <Badge
             v-else-if="hasLoadedSettings"
@@ -365,14 +368,14 @@ onMounted(() => {
             variant="subtle"
             data-testid="workbench-sync-badge"
           >
-            {{ isZh ? '已同步' : 'Synced' }}
+            {{ t('adminPlatform.workbench.synced') }}
           </Badge>
         </template>
       </template>
 
       <template #actions>
         <div v-if="activeSection !== 'diagnostics'" class="w-full sm:w-56">
-          <Input v-model="sectionFilter" type="search" :placeholder="isZh ? '搜索配置分组或字段…' : 'Filter sections or keys…'" size="sm" clearable />
+          <Input v-model="sectionFilter" type="search" :placeholder="t('adminPlatform.workbench.filterSectionsOrKeys')" size="sm" clearable />
         </div>
         <Button
           size="sm"
@@ -380,7 +383,7 @@ onMounted(() => {
           :loading="activeSection === 'diagnostics' ? diagnosticsSync.refreshing : refreshing"
           @click="handleHeaderRefresh"
         >
-          {{ isZh ? '刷新' : 'Refresh' }}
+          {{ t('adminPlatform.workbench.refresh') }}
         </Button>
       </template>
 
@@ -405,7 +408,7 @@ onMounted(() => {
     <ErrorState
       v-else-if="loadError"
       :variant="loadError.state === 'forbidden' ? 'permission' : 'error'"
-      :title="loadError.state === 'forbidden' ? (isZh ? '需要管理员权限 (403)' : 'Admin Permission Required (403)') : (isZh ? '加载系统设置失败' : 'Failed to load settings')"
+      :title="loadError.state === 'forbidden' ? (t('adminPlatform.workbench.adminPermissionRequired403')) : (t('adminPlatform.workbench.failedToLoadSettings'))"
       :message="loadError.message"
       :request-id="loadError.requestId"
       @retry="loadSettings(false)"
@@ -436,20 +439,20 @@ onMounted(() => {
       <ErrorState
         v-if="mutationConflict"
         variant="stale"
-        :title="isZh ? '配置版本冲突 (409)' : '409 Settings Conflict'"
+        :title="t('adminPlatform.workbench.409SettingsConflict')"
         :message="mutationConflict.message"
         :request-id="mutationConflict.requestId"
-        :retry-label="isZh ? '重新加载最新配置' : 'Reload Latest Settings'"
+        :retry-label="t('adminPlatform.workbench.reloadLatestSettings')"
         @retry="loadSettings(true)"
       />
 
       <ErrorState
         v-if="mutationUnknown"
         variant="stale"
-        :title="isZh ? '保存状态待确认' : 'Unknown Save Outcome'"
+        :title="t('adminPlatform.workbench.unknownSaveOutcome')"
         :message="mutationUnknown.message"
         :request-id="mutationUnknown.requestId"
-        :retry-label="isZh ? '刷新确认最新配置' : 'Verify Latest Settings'"
+        :retry-label="t('adminPlatform.workbench.verifyLatestSettings')"
         @retry="loadSettings(true)"
       />
 
@@ -465,37 +468,37 @@ onMounted(() => {
       <Card padding="md">
         <div class="mb-5 flex flex-wrap items-start justify-between gap-3 border-b border-oh-subtle pb-4">
           <div>
-            <h2 class="text-base font-semibold text-oh-primary">{{ isZh ? activeMeta.labelZh : activeMeta.label }}</h2>
-            <p class="mt-0.5 text-xs text-oh-secondary">{{ isZh ? activeMeta.descriptionZh : activeMeta.description }}</p>
+            <h2 class="text-base font-semibold text-oh-primary">{{ t(`adminPlatform.workbench.sections.${activeMeta.id}.title`) }}</h2>
+            <p class="mt-0.5 text-xs text-oh-secondary">{{ t(`adminPlatform.workbench.sections.${activeMeta.id}.description`) }}</p>
           </div>
           <div class="flex items-center gap-2">
             <Button size="sm" variant="ghost" :disabled="!activeSectionDirty || saving" @click="handleResetSection">
-              {{ isZh ? '重置本组' : 'Reset Section' }}
+              {{ t('adminPlatform.workbench.resetSection') }}
             </Button>
             <Button size="sm" variant="primary" :loading="saving" :disabled="!activeSectionDirty" @click="handleSaveSection">
-              {{ isZh ? '保存本组' : 'Save Section' }}
+              {{ t('adminPlatform.workbench.saveSection') }}
             </Button>
           </div>
         </div>
 
         <div v-if="activeSection === 'general'" class="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <Input v-model="(draft.site_name as string)" :label="isZh ? '站点名称' : 'Site Name'" />
-          <Input v-model="(draft.site_subtitle as string)" :label="isZh ? '站点副标题' : 'Site Subtitle'" />
+          <Input v-model="(draft.site_name as string)" :label="t('adminPlatform.workbench.siteName')" />
+          <Input v-model="(draft.site_subtitle as string)" :label="t('adminPlatform.workbench.siteSubtitle')" />
           <Input
             v-model="(draft.frontend_url as string)"
-            :label="isZh ? '前端访问地址' : 'Frontend URL'"
-            :error="fieldErrors.frontend_url"
+            :label="t('adminPlatform.workbench.frontendURL')"
+            :error="fieldErrors.frontend_url && t(fieldErrors.frontend_url)"
             mono
           />
           <div class="space-y-3 pt-1">
             <Switch
               :model-value="Boolean(draft.registration_enabled)"
-              :label="isZh ? '开放公开注册' : 'Public Registration Enabled'"
+              :label="t('adminPlatform.workbench.publicRegistrationEnabled')"
               @update:model-value="(v) => (draft.registration_enabled = v)"
             />
             <Switch
               :model-value="Boolean(draft.invitation_code_enabled)"
-              :label="isZh ? '注册需填写邀请码' : 'Require Invitation Code'"
+              :label="t('adminPlatform.workbench.requireInvitationCode')"
               @update:model-value="(v) => (draft.invitation_code_enabled = v)"
             />
           </div>
@@ -504,85 +507,96 @@ onMounted(() => {
         <div v-else-if="activeSection === 'security'" class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Switch
             :model-value="Boolean(draft.totp_enabled)"
-            :label="isZh ? '启用 TOTP 两步验证' : 'TOTP 2FA Enabled'"
+            :label="t('adminPlatform.workbench.totp2FAEnabled')"
             @update:model-value="(v) => (draft.totp_enabled = v)"
           />
           <Switch
             :model-value="Boolean(draft.passkey_enabled)"
-            :label="isZh ? '启用 Passkey 通行密钥' : 'Passkey Authentication Enabled'"
+            :label="t('adminPlatform.workbench.passkeyAuthenticationEnabled')"
             @update:model-value="(v) => (draft.passkey_enabled = v)"
           />
           <Switch
             :model-value="Boolean(draft.session_binding_enabled)"
-            :label="isZh ? '会话 IP/UA 绑定' : 'Session IP/UA Binding'"
+            :label="t('adminPlatform.workbench.sessionIPUABinding')"
             @update:model-value="(v) => (draft.session_binding_enabled = v)"
           />
           <Switch
+            id="settings-step-up"
             :model-value="Boolean(draft.step_up_enabled)"
-            :label="isZh ? '敏感操作二次验证' : 'Step-Up 2FA for Sensitive Actions'"
+            :label="t('adminPlatform.workbench.stepUp2FAForSensitiveActions')"
             @update:model-value="(v) => (draft.step_up_enabled = v)"
           />
-          <Input v-model="(draft.passkey_rp_id as string)" :label="isZh ? 'Passkey RP ID' : 'Passkey RP ID'" mono />
+          <Input :model-value="draft.passkey_rp_id as string" readonly label="Passkey RP ID" :hint="t('adminPlatform.settings.rpHint')" mono />
           <Input
-            v-model="(draft.audit_log_retention_days as number)"
+            v-model.number="(draft.audit_log_retention_days as number)"
+            id="settings-audit_log_retention_days"
             type="number"
-            :label="isZh ? '审计日志保留天数' : 'Audit Log Retention (days)'"
-            :error="fieldErrors.audit_log_retention_days"
+            :label="t('adminPlatform.workbench.auditLogRetentionDays')"
+            :error="fieldErrors.audit_log_retention_days && t(fieldErrors.audit_log_retention_days)"
             mono
           />
           <Switch
             :model-value="Boolean(draft.turnstile_enabled)"
-            :label="isZh ? '启用 Cloudflare Turnstile' : 'Cloudflare Turnstile Enabled'"
+            :label="t('adminPlatform.workbench.cloudflareTurnstileEnabled')"
             @update:model-value="(v) => (draft.turnstile_enabled = v)"
           />
-          <Input v-model="(draft.turnstile_site_key as string)" :label="isZh ? 'Turnstile Site Key' : 'Turnstile Site Key'" mono />
+          <Input v-model="(draft.turnstile_site_key as string)" :label="t('adminPlatform.workbench.turnstileSiteKey')" mono />
           <Input
             v-model="(draft.turnstile_secret_key as string)"
             type="password"
-            :label="isZh ? 'Turnstile Secret Key' : 'Turnstile Secret Key'"
-            :placeholder="isZh ? '已配置（留空则保持不变）' : 'Configured (leave blank to keep existing)'"
+            :label="t('adminPlatform.workbench.turnstileSecretKey')"
+            :placeholder="t('adminPlatform.workbench.configuredLeaveBlankToKeepExisting')"
             mono
           />
         </div>
 
         <div v-else-if="activeSection === 'users'" class="grid grid-cols-1 gap-4 md:grid-cols-3">
           <Input
-            v-model="(draft.default_balance as number)"
+            v-model.number="(draft.default_balance as number)"
+            id="settings-default_balance"
             type="number"
-            :label="isZh ? '默认初始余额 (USD)' : 'Default Balance (USD)'"
-            :error="fieldErrors.default_balance"
+            :label="t('adminPlatform.workbench.defaultBalanceUSD')"
+            :error="fieldErrors.default_balance && t(fieldErrors.default_balance)"
             mono
           />
           <Input
-            v-model="(draft.default_concurrency as number)"
+            v-model.number="(draft.default_concurrency as number)"
+            id="settings-default_concurrency"
             type="number"
-            :label="isZh ? '默认并发上限' : 'Default Concurrency'"
-            :error="fieldErrors.default_concurrency"
+            :label="t('adminPlatform.workbench.defaultConcurrency')"
+            :error="fieldErrors.default_concurrency && t(fieldErrors.default_concurrency)"
             mono
           />
           <Input
-            v-model="(draft.default_user_rpm_limit as number)"
+            v-model.number="(draft.default_user_rpm_limit as number)"
+            id="settings-default_user_rpm_limit"
+            :error="fieldErrors.default_user_rpm_limit && t(fieldErrors.default_user_rpm_limit)"
             type="number"
-            :label="isZh ? '默认用户 RPM 上限' : 'Default User RPM Limit'"
+            :label="t('adminPlatform.workbench.defaultUserRPMLimit')"
             mono
           />
           <Input
-            v-model="(draft.affiliate_rebate_rate as number)"
+            v-model.number="(draft.affiliate_rebate_rate as number)"
+            id="settings-affiliate_rebate_rate"
             type="number"
-            :label="isZh ? '联盟返利比例 (0–1)' : 'Affiliate Rebate Rate (0–1)'"
-            :error="fieldErrors.affiliate_rebate_rate"
+            :label="t('adminPlatform.workbench.affiliateRebateRate0100')"
+            :error="fieldErrors.affiliate_rebate_rate && t(fieldErrors.affiliate_rebate_rate)"
             mono
           />
           <Input
-            v-model="(draft.affiliate_rebate_freeze_hours as number)"
+            v-model.number="(draft.affiliate_rebate_freeze_hours as number)"
+            id="settings-affiliate_rebate_freeze_hours"
+            :error="fieldErrors.affiliate_rebate_freeze_hours && t(fieldErrors.affiliate_rebate_freeze_hours)"
             type="number"
-            :label="isZh ? '返利冻结小时数' : 'Rebate Freeze Hours'"
+            :label="t('adminPlatform.workbench.rebateFreezeHours')"
             mono
           />
           <Input
-            v-model="(draft.affiliate_rebate_duration_days as number)"
+            v-model.number="(draft.affiliate_rebate_duration_days as number)"
+            id="settings-affiliate_rebate_duration_days"
+            :error="fieldErrors.affiliate_rebate_duration_days && t(fieldErrors.affiliate_rebate_duration_days)"
             type="number"
-            :label="isZh ? '返利有效天数' : 'Rebate Duration (days)'"
+            :label="t('adminPlatform.workbench.rebateDurationDays')"
             mono
           />
         </div>
@@ -590,16 +604,16 @@ onMounted(() => {
         <div v-else-if="activeSection === 'gateway'" class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Input
             v-model="(draft.api_base_url as string)"
-            :label="isZh ? '网关 API 基础地址' : 'Gateway API Base URL'"
-            :error="fieldErrors.api_base_url"
+            :label="t('adminPlatform.workbench.gatewayAPIBaseURL')"
+            :error="fieldErrors.api_base_url && t(fieldErrors.api_base_url)"
             mono
           />
-          <Input v-model="(draft.doc_url as string)" :label="isZh ? '文档链接' : 'Documentation URL'" mono />
-          <Input v-model="(draft.contact_info as string)" :label="isZh ? '运营联系方式' : 'Operator Contact Info'" />
+          <Input v-model="(draft.doc_url as string)" :label="t('adminPlatform.workbench.documentationURL')" mono />
+          <Input v-model="(draft.contact_info as string)" :label="t('adminPlatform.workbench.operatorContactInfo')" />
           <div class="pt-5">
             <Switch
               :model-value="Boolean(draft.hide_ccs_import_button)"
-              :label="isZh ? '隐藏 CCS 导入按钮' : 'Hide CCS Import Button'"
+              :label="t('adminPlatform.workbench.hideCCSImportButton')"
               @update:model-value="(v) => (draft.hide_ccs_import_button = v)"
             />
           </div>
@@ -608,12 +622,12 @@ onMounted(() => {
         <div v-else-if="activeSection === 'payment'" class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Switch
             :model-value="Boolean(draft.payment_enabled)"
-            :label="isZh ? '启用在线支付' : 'Enable Online Payments'"
+            :label="t('adminPlatform.workbench.enableOnlinePayments')"
             @update:model-value="(v) => (draft.payment_enabled = v)"
           />
           <Switch
             :model-value="Boolean(draft.promo_code_enabled)"
-            :label="isZh ? '启用优惠码' : 'Enable Promo Codes'"
+            :label="t('adminPlatform.workbench.enablePromoCodes')"
             @update:model-value="(v) => (draft.promo_code_enabled = v)"
           />
         </div>
@@ -622,41 +636,42 @@ onMounted(() => {
           <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
             <Switch
               :model-value="Boolean(draft.email_verify_enabled)"
-              :label="isZh ? '要求邮箱验证' : 'Require Email Verification'"
+              :label="t('adminPlatform.workbench.requireEmailVerification')"
               @update:model-value="(v) => (draft.email_verify_enabled = v)"
             />
             <Switch
               :model-value="Boolean(draft.password_reset_enabled)"
-              :label="isZh ? '允许邮箱找回密码' : 'Allow Password Reset'"
+              :label="t('adminPlatform.workbench.allowPasswordReset')"
               @update:model-value="(v) => (draft.password_reset_enabled = v)"
             />
-            <Input v-model="(draft.smtp_host as string)" :label="isZh ? 'SMTP 主机' : 'SMTP Host'" mono />
+            <Input v-model="(draft.smtp_host as string)" :label="t('adminPlatform.workbench.smtpHost')" mono />
             <Input
-              v-model="(draft.smtp_port as number)"
+              v-model.number="(draft.smtp_port as number)"
+              id="settings-smtp_port"
               type="number"
-              :label="isZh ? 'SMTP 端口' : 'SMTP Port'"
-              :error="fieldErrors.smtp_port"
+              :label="t('adminPlatform.workbench.smtpPort')"
+              :error="fieldErrors.smtp_port && t(fieldErrors.smtp_port)"
               mono
             />
-            <Input v-model="(draft.smtp_username as string)" :label="isZh ? 'SMTP 用户名' : 'SMTP Username'" mono />
+            <Input v-model="(draft.smtp_username as string)" :label="t('adminPlatform.workbench.smtpUsername')" mono />
             <Input
               v-model="(draft.smtp_password as string)"
               type="password"
-              :label="isZh ? 'SMTP 密码' : 'SMTP Password'"
-              :placeholder="isZh ? '已配置（留空则保持不变）' : 'Configured (leave blank to keep existing)'"
+              :label="t('adminPlatform.workbench.smtpPassword')"
+              :placeholder="t('adminPlatform.workbench.configuredLeaveBlankToKeepExisting')"
               mono
             />
-            <Input v-model="(draft.smtp_from_email as string)" :label="isZh ? '发件人邮箱' : 'From Email'" mono />
-            <Input v-model="(draft.smtp_from_name as string)" :label="isZh ? '发件人名称' : 'From Name'" />
+            <Input v-model="(draft.smtp_from_email as string)" :label="t('adminPlatform.workbench.fromEmail')" mono />
+            <Input v-model="(draft.smtp_from_name as string)" :label="t('adminPlatform.workbench.fromName')" />
             <Switch
               :model-value="Boolean(draft.smtp_use_tls)"
-              :label="isZh ? '启用 TLS 加密' : 'Use TLS'"
+              :label="t('adminPlatform.workbench.useTLS')"
               @update:model-value="(v) => (draft.smtp_use_tls = v)"
             />
           </div>
           <div>
             <Button size="sm" variant="secondary" :loading="testingSmtp" @click="handleTestSmtp">
-              {{ isZh ? '测试 SMTP 连接' : 'Test SMTP Connection' }}
+              {{ t('adminPlatform.workbench.testSMTPConnection') }}
             </Button>
           </div>
         </div>
@@ -664,12 +679,12 @@ onMounted(() => {
         <div v-else-if="activeSection === 'features'" class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Switch
             :model-value="Boolean(draft.registration_email_domain_quota_enabled)"
-            :label="isZh ? '启用注册邮箱域名配额限制' : 'Email Domain Quota Enforcement'"
+            :label="t('adminPlatform.workbench.emailDomainQuotaEnforcement')"
             @update:model-value="(v) => (draft.registration_email_domain_quota_enabled = v)"
           />
           <Switch
             :model-value="Boolean(draft.user_custom_key_enabled)"
-            :label="isZh ? '允许用户自定义 API 密钥' : 'Allow User Custom API Keys'"
+            :label="t('adminPlatform.workbench.allowUserCustomAPIKeys')"
             @update:model-value="(v) => (draft.user_custom_key_enabled = v)"
           />
         </div>
@@ -677,19 +692,20 @@ onMounted(() => {
         <div v-else-if="activeSection === 'agreement'" class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Switch
             :model-value="Boolean(draft.login_agreement_enabled)"
-            :label="isZh ? '登录需同意服务协议' : 'Require Login Agreement'"
+            :label="t('adminPlatform.workbench.requireLoginAgreement')"
             @update:model-value="(v) => (draft.login_agreement_enabled = v)"
           />
           <Select
             v-model="(draft.login_agreement_mode as string)"
-            :label="isZh ? '协议展示方式' : 'Agreement Presentation Mode'"
+            :label="t('adminPlatform.workbench.agreementPresentationMode')"
             :options="[
-              { value: 'checkbox', label: isZh ? '勾选框确认' : 'Checkbox' },
-              { value: 'modal', label: isZh ? '弹窗确认' : 'Modal' }
+              { value: 'checkbox', label: t('adminPlatform.workbench.checkbox') },
+              { value: 'modal', label: t('adminPlatform.workbench.modal') }
             ]"
           />
         </div>
       </Card>
     </template>
   </div>
+  <TotpStepUpDialog :controller="stepUp" />
 </template>

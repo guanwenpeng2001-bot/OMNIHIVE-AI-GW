@@ -59,6 +59,14 @@ function mountView() {
 }
 
 describe('PromptAuditView', () => {
+  it('renders an unset configuration update time as a dash', async () => {
+    mocks.getConfig.mockResolvedValue({ ...baseConfig(), updated_at: '0001-01-01T00:00:00Z' })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.get('header p.mt-1').text()).toBe('—')
+    wrapper.unmount()
+  })
+
   it('links tabs to panels and supports arrow, Home and End navigation', async () => {
     const wrapper = mountView()
     document.body.appendChild(wrapper.element)

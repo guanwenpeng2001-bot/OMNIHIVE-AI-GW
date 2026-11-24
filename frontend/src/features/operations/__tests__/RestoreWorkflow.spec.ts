@@ -1,5 +1,9 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { baseCompile } from '@intlify/message-compiler'
+import { createI18n } from 'vue-i18n'
+import en from '@/i18n/locales/en/adminPlatform'
+import zh from '@/i18n/locales/zh/adminPlatform'
 import RestoreWorkflow from '../RestoreWorkflow.vue'
 
 const { mockControlGet, mockControlPost } = vi.hoisted(() => ({
@@ -37,6 +41,16 @@ vi.mock('@/components/auth/TotpStepUpDialog.vue', () => ({
   default: { name: 'TotpStepUpDialog', template: '<div />' }
 }))
 
+function mountRestore(locale: 'en' | 'zh', backupId = 'bkp-1') {
+  const i18n = createI18n({
+    legacy: false,
+    locale,
+    messageCompiler: message => new Function('return ' + baseCompile(message as string).code)(),
+    messages: { en: { adminPlatform: en }, zh: { adminPlatform: zh } }
+  })
+  return mount(RestoreWorkflow, { props: { backupId }, global: { plugins: [i18n] } })
+}
+
 describe('RestoreWorkflow resilience', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -47,6 +61,16 @@ describe('RestoreWorkflow resilience', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('renders the restore form and validation feedback in English', async () => {
+    const wrapper = mountRestore('en')
+    expect(wrapper.get('h3').text()).toBe('Restore backup')
+    await wrapper.get('input').setValue('invalid')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.text()).toContain('64 lowercase hexadecimal characters')
+    expect(wrapper.text()).not.toMatch(/\p{Script=Han}/u)
+    wrapper.unmount()
   })
 
   it('keeps polling with friendly status during 503 RESTORE_MAINTENANCE until confirmed', async () => {
@@ -76,9 +100,7 @@ describe('RestoreWorkflow resilience', () => {
         report: { source_digest: 'sha256:abc', counts: { users: 1 } }
       })
 
-    const wrapper = mount(RestoreWorkflow, {
-      props: { backupId: 'bkp-1' }
-    })
+    const wrapper = mountRestore('zh')
     await flushPromises()
     expect(mockControlGet).toHaveBeenCalledTimes(1)
 
@@ -113,9 +135,7 @@ describe('RestoreWorkflow resilience', () => {
         report: { source_digest: 'sha256:def', counts: { users: 2 } }
       })
 
-    const wrapper = mount(RestoreWorkflow, {
-      props: { backupId: 'bkp-2' }
-    })
+    const wrapper = mountRestore('zh', 'bkp-2')
     await flushPromises()
     await vi.advanceTimersByTimeAsync(2500)
     await flushPromises()

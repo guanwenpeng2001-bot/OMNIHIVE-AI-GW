@@ -185,6 +185,16 @@ const getToggleStatusButton = (wrapper: ReturnType<typeof mountBulkDeleteView>, 
 }
 
 describe('admin UsersView', () => {
+  it('localizes the overview and quick filters', async () => {
+    const wrapper = mountBulkDeleteView()
+    await flushPromises()
+    const overview = wrapper.get('.user-overview')
+    expect(overview.get('h1').text()).toBe('adminPlatform.users.title')
+    expect(overview.get('.user-filter-pill').text()).toBe('adminPlatform.users.all')
+    expect(overview.text()).not.toMatch(/\p{Script=Han}/u)
+    wrapper.unmount()
+  })
+
   beforeEach(() => {
     vi.useRealTimers()
     localStorage.clear()

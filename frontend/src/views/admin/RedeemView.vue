@@ -287,6 +287,7 @@
       <div v-if="showGenerateDialog" class="fixed inset-0 z-50 flex items-center justify-center">
         <div class="fixed inset-0 bg-black/50" @click="showGenerateDialog = false"></div>
         <div
+          ref="generateDialogPanel" role="dialog" aria-modal="true" :aria-label="t('admin.redeem.generateCodesTitle')"
           class="relative z-10 w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
         >
           <h2 class="mb-4 text-lg font-semibold text-[var(--foreground)]">
@@ -427,6 +428,7 @@
       >
         <div class="fixed inset-0 bg-black/50" @click="closeBatchUpdateDialog"></div>
         <div
+          ref="batchUpdateDialogPanel" role="dialog" aria-modal="true" :aria-label="t('admin.redeem.batchUpdateTitle')"
           class="relative z-10 w-full max-w-lg rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
         >
           <h2 class="mb-1 text-lg font-semibold text-[var(--foreground)]">
@@ -537,7 +539,8 @@
     <Teleport to="body">
       <div v-if="showResultDialog" class="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div class="fixed inset-0 bg-black/50" @click="closeResultDialog"></div>
-        <div class="relative z-10 w-full max-w-lg rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-xl">
+        <div ref="resultDialogPanel" role="dialog" aria-modal="true" :aria-label="t('admin.redeem.generatedSuccessfully')"
+          class="relative z-10 w-full max-w-lg rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-xl">
           <!-- Header -->
           <div
             class="flex items-center justify-between border-b border-[var(--border)] px-5 py-4"
@@ -621,6 +624,7 @@
 </template>
 
 <script setup lang="ts">
+import { useOverlayDialog } from '@/components/ui/utils'
 import { extractApiErrorMessage } from '@/utils/apiError'
 
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
@@ -1206,6 +1210,13 @@ onUnmounted(() => {
   clearTimeout(searchTimeout)
   abortController?.abort()
 })
+
+const generateDialogPanel = ref<HTMLElement | null>(null)
+useOverlayDialog({ open: showGenerateDialog, panelRef: generateDialogPanel, onClose: () => { showGenerateDialog.value = false } })
+const batchUpdateDialogPanel = ref<HTMLElement | null>(null)
+useOverlayDialog({ open: showBatchUpdateDialog, panelRef: batchUpdateDialogPanel, onClose: closeBatchUpdateDialog })
+const resultDialogPanel = ref<HTMLElement | null>(null)
+useOverlayDialog({ open: showResultDialog, panelRef: resultDialogPanel, onClose: closeResultDialog })
 </script>
 
 <style scoped>
