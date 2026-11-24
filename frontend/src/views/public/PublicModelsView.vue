@@ -147,7 +147,7 @@ onBeforeUnmount(() => {
 <template>
   <PublicShell>
     <section class="flex flex-wrap items-end justify-between gap-4 border-b border-oh-default pb-6">
-      <div>
+      <div class="min-w-0">
         <p class="font-mono text-xs uppercase tracking-[0.18em] text-oh-muted">
           {{ isZh ? '模型广场 · MODEL PLAZA' : 'MODEL PLAZA' }}
         </p>
@@ -334,7 +334,7 @@ onBeforeUnmount(() => {
     <template v-else>
       <div
         v-if="viewMode === 'table'"
-        class="oh-focus-ring overflow-x-auto rounded-oh-md border border-oh-default bg-oh-surface"
+        class="oh-focus-ring min-w-0 max-w-full overflow-x-auto rounded-oh-md border border-oh-default bg-oh-surface"
         tabindex="0"
         role="region"
         :aria-label="isZh ? '模型广场目录表格' : 'Model plaza table'"
@@ -371,15 +371,15 @@ onBeforeUnmount(() => {
                   </button>
                   <RouterLink
                     :to="`/model-plaza/${encodeURIComponent(vm.id)}`"
-                    class="oh-focus-ring rounded-oh-xs font-medium text-oh-primary hover:text-oh-accent-text"
+                    class="oh-focus-ring break-all rounded-oh-xs font-medium text-oh-primary hover:text-oh-accent-text"
                   >
                     {{ vm.displayName }}
                   </RouterLink>
                   <ModelStatusBadge :badge="vm.availability.badge" />
                   <ModelOriginBadge v-if="authStore.isAuthenticated" :badge="vm.origin.primaryBadge" />
                 </div>
-                <div class="mt-0.5 flex items-center gap-1.5 font-mono text-[11px] text-oh-muted">
-                  <span class="truncate">{{ vm.model }}</span>
+                <div class="mt-0.5 flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-oh-muted">
+                  <span class="min-w-0 truncate">{{ vm.model }}</span>
                   <CopyButton :value="vm.model" size="xs" :aria-label="isZh ? '复制模型名称' : 'Copy model name'" />
                 </div>
               </td>
@@ -453,13 +453,13 @@ onBeforeUnmount(() => {
         </table>
       </div>
 
-      <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <div
           v-for="vm in displayedViewModels"
           :key="vm.id"
-          class="flex flex-col justify-between rounded-oh-md border border-oh-default bg-oh-surface p-4 transition-colors hover:border-oh-strong"
+          class="flex min-w-0 flex-col justify-between rounded-oh-md border border-oh-default bg-oh-surface p-4 transition-colors hover:border-oh-strong"
         >
-          <div>
+          <div class="min-w-0">
             <div class="flex items-start justify-between gap-2">
               <div class="min-w-0">
                 <RouterLink
@@ -504,7 +504,7 @@ onBeforeUnmount(() => {
               </Badge>
             </div>
           </div>
-          <div class="mt-4 flex items-end justify-between gap-2 border-t border-oh-subtle pt-3">
+          <div class="mt-4 flex min-w-0 flex-wrap items-end justify-between gap-2 border-t border-oh-subtle pt-3">
             <ModelPriceCell
               :billing="vm.billing"
               kind="pair"

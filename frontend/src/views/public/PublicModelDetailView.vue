@@ -689,9 +689,9 @@ onBeforeUnmount(() => {
     <template v-else-if="model && modelVm">
       <!-- 1. Header + Plain-Language Availability Summary -->
       <header class="flex flex-wrap items-start justify-between gap-4 border-b border-oh-default pb-6">
-        <div class="min-w-0 space-y-2">
+        <div class="min-w-0 max-w-full space-y-2">
           <div class="flex flex-wrap items-center gap-2">
-            <span class="font-mono text-xs uppercase tracking-[0.18em] text-oh-muted">
+            <span class="break-all font-mono text-xs uppercase tracking-[0.18em] text-oh-muted">
               {{ publicValue(model.provider, isZh ? '未声明供应商' : 'Undeclared Provider') }}
             </span>
             <ModelStatusBadge
@@ -718,7 +718,7 @@ onBeforeUnmount(() => {
               {{ modalityLabel(mod, isZh) }}
             </Badge>
           </div>
-          <h1 class="break-words text-3xl font-semibold tracking-tight text-oh-primary">
+          <h1 class="max-w-full break-words [overflow-wrap:anywhere] text-3xl font-semibold tracking-tight text-oh-primary">
             {{ modelVm.displayName }}
           </h1>
           <p data-testid="detail-availability-summary" class="max-w-[68ch] text-sm text-oh-secondary">
@@ -727,7 +727,7 @@ onBeforeUnmount(() => {
           <div class="flex flex-wrap items-center gap-2">
             <code
               v-if="model.display_name && model.display_name !== model.model"
-              class="rounded-oh-xs border border-oh-subtle bg-oh-subtle px-2 py-0.5 font-mono text-xs text-oh-primary"
+              class="min-w-0 max-w-full break-all rounded-oh-xs border border-oh-subtle bg-oh-subtle px-2 py-0.5 font-mono text-xs text-oh-primary"
             >
               {{ model.model }}
             </code>
@@ -775,13 +775,13 @@ onBeforeUnmount(() => {
             </span>
           </div>
         </div>
-        <div class="grid gap-4 sm:grid-cols-2">
-          <div class="flex items-start justify-between gap-4 rounded-oh-md border border-oh-default bg-oh-surface p-4">
-            <div>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div class="flex min-w-0 flex-wrap items-start justify-between gap-4 rounded-oh-md border border-oh-default bg-oh-surface p-4">
+            <div class="min-w-0">
               <p class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
                 {{ isZh ? '输入单价 / 1M Tokens' : 'Input / 1M' }}
               </p>
-              <p v-if="modelVm.billing.reasonLabel" class="mt-1.5 text-xs text-oh-muted">
+              <p v-if="modelVm.billing.reasonLabel" class="mt-1.5 break-words text-xs text-oh-muted">
                 {{ modelVm.billing.reasonLabel }}
               </p>
             </div>
@@ -792,12 +792,12 @@ onBeforeUnmount(() => {
               @retry="load()"
             />
           </div>
-          <div class="flex items-start justify-between gap-4 rounded-oh-md border border-oh-default bg-oh-surface p-4">
-            <div>
+          <div class="flex min-w-0 flex-wrap items-start justify-between gap-4 rounded-oh-md border border-oh-default bg-oh-surface p-4">
+            <div class="min-w-0">
               <p class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
                 {{ isZh ? '输出单价 / 1M Tokens' : 'Output / 1M' }}
               </p>
-              <p v-if="modelVm.billing.state === 'unpriced' && !modelVm.billing.reasonLabel" class="mt-1.5 text-xs text-oh-muted">
+              <p v-if="modelVm.billing.state === 'unpriced' && !modelVm.billing.reasonLabel" class="mt-1.5 break-words text-xs text-oh-muted">
                 {{ copy.billing.unpricedHint }}
               </p>
             </div>
@@ -845,7 +845,7 @@ onBeforeUnmount(() => {
       </section>
 
       <!-- 3. Capabilities & Specs Section -->
-      <section data-testid="detail-section-capabilities" class="grid gap-6 py-2 lg:grid-cols-2">
+      <section data-testid="detail-section-capabilities" class="grid grid-cols-1 gap-6 py-2 lg:grid-cols-2">
         <div class="min-w-0">
           <div class="flex items-center justify-between gap-2">
             <h2 class="text-sm font-semibold text-oh-primary">
@@ -930,10 +930,10 @@ onBeforeUnmount(() => {
                 class="space-y-1.5 px-4 py-3"
               >
                 <div class="flex flex-wrap items-center justify-between gap-2">
-                  <div class="flex items-center gap-2 font-mono text-xs">
-                    <span class="font-semibold text-oh-primary">{{ publicValue(cap.action) }}</span>
+                  <div class="flex min-w-0 flex-wrap items-center gap-2 font-mono text-xs">
+                    <span class="break-all font-semibold text-oh-primary">{{ publicValue(cap.action) }}</span>
                     <span class="text-oh-muted">·</span>
-                    <span class="text-oh-secondary">{{ publicValue(cap.protocol) }}</span>
+                    <span class="break-all text-oh-secondary">{{ publicValue(cap.protocol) }}</span>
                   </div>
                   <div class="flex items-center gap-1.5">
                     <Badge v-if="cap.mode && cap.mode !== 'unknown'" tone="info" size="xs" variant="subtle">
@@ -975,7 +975,7 @@ onBeforeUnmount(() => {
             <div class="mt-3 divide-y divide-oh-subtle rounded-oh-md border border-oh-default bg-oh-surface">
               <div v-for="ep in detail.endpoints" :key="ep.id" class="space-y-1 px-4 py-3 text-xs">
                 <div class="flex flex-wrap items-center justify-between gap-2">
-                  <span class="font-mono font-semibold text-oh-primary">{{ ep.provider }}</span>
+                  <span class="break-all font-mono font-semibold text-oh-primary">{{ ep.provider }}</span>
                   <span v-if="ep.regions?.length" class="font-mono text-[11px] text-oh-muted">
                     {{ ep.regions.join(', ') }}
                   </span>
@@ -1006,8 +1006,8 @@ onBeforeUnmount(() => {
                 :key="bm.benchmark_id"
                 class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-xs"
               >
-                <div>
-                  <span class="font-mono font-medium text-oh-primary">{{ bm.benchmark_id }}</span>
+                <div class="min-w-0">
+                  <span class="break-all font-mono font-medium text-oh-primary">{{ bm.benchmark_id }}</span>
                   <span class="ml-2 text-[11px] text-oh-muted">{{ formatCatalogOriginLabel(bm.source, isZh) }}</span>
                 </div>
                 <span class="font-mono font-semibold tabular-nums text-oh-primary">
@@ -1101,8 +1101,8 @@ onBeforeUnmount(() => {
         <h2 class="text-sm font-semibold text-oh-primary">
           {{ isZh ? '生命周期与别名映射' : 'Lifecycle & Aliases' }}
         </h2>
-        <dl class="mt-3 grid gap-4 text-xs sm:grid-cols-3">
-          <div>
+        <dl class="mt-3 grid grid-cols-1 gap-4 text-xs sm:grid-cols-3">
+          <div class="min-w-0">
             <dt class="font-mono text-[11px] uppercase text-oh-muted">{{ isZh ? '成熟度 / 状态' : 'Maturity' }}</dt>
             <dd class="mt-1">
               <Badge :tone="maturityTone(model.maturity)" size="xs" variant="outline">
@@ -1110,17 +1110,17 @@ onBeforeUnmount(() => {
               </Badge>
             </dd>
           </div>
-          <div>
+          <div class="min-w-0">
             <dt class="font-mono text-[11px] uppercase text-oh-muted">{{ isZh ? '规范模型 ID' : 'Canonical ID' }}</dt>
             <dd class="mt-1 break-all font-mono text-oh-primary">{{ modelVm.canonicalId || modelVm.id }}</dd>
           </div>
-          <div>
+          <div class="min-w-0">
             <dt class="font-mono text-[11px] uppercase text-oh-muted">{{ isZh ? '支持别名' : 'Aliases' }}</dt>
             <dd v-if="detail?.aliases?.length" class="mt-1 flex flex-wrap gap-1">
               <span
                 v-for="alias in detail.aliases"
                 :key="alias"
-                class="rounded-oh-xs border border-oh-subtle px-1.5 py-0.5 font-mono text-[11px] text-oh-secondary"
+                class="max-w-full break-all rounded-oh-xs border border-oh-subtle px-1.5 py-0.5 font-mono text-[11px] text-oh-secondary"
               >
                 {{ alias }}
               </span>
@@ -1140,8 +1140,8 @@ onBeforeUnmount(() => {
             {{ formatMetricsWindow(detail?.metrics, isZh) }} · {{ formatMetricsSource(detail?.metrics?.source, isZh) }}
           </span>
         </div>
-        <div class="mt-4 grid gap-4 sm:grid-cols-3">
-          <div>
+        <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div class="min-w-0">
             <p class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
               {{ isZh ? '实测中位首字延迟 (P50 TTFT)' : 'Observed TTFT (P50)' }}
             </p>
@@ -1166,7 +1166,7 @@ onBeforeUnmount(() => {
               }}
             </p>
           </div>
-          <div>
+          <div class="min-w-0">
             <p class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
               {{ isZh ? '输出吞吐速率' : 'Output Throughput' }}
             </p>
@@ -1189,7 +1189,7 @@ onBeforeUnmount(() => {
               }}
             </p>
           </div>
-          <div>
+          <div class="min-w-0">
             <p class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
               {{ isZh ? '窗口成功率与请求量' : 'Success Rate & Volume' }}
             </p>
