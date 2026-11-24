@@ -75,6 +75,40 @@ func TestCatalogBillingDistinguishesMissingPartialConflictAndFree(t *testing.T) 
 	}
 }
 
+func TestCatalogBillingIgnoresIneligibleChannelZeroDiscoveries(t *testing.T) {
+	input, err := money.NewRate("USD", "0.00001", "input_token", "1")
+	require.NoError(t, err)
+	output, err := money.NewRate("USD", "0.00002", "output_token", "1")
+	require.NoError(t, err)
+	price := Price{State: "priced", Source: "group", Input: &input, Output: &output}
+	offers := []Offer{
+		{ChannelID: 0, Eligible: false, CatalogOnly: true, Price: Price{State: "unpriced", Reason: "no_applicable_offer"}},
+		{GroupID: 1, ChannelID: 1, Eligible: true, Published: true, Price: price},
+		{GroupID: 2, ChannelID: 2, Eligible: true, Published: true, Price: price},
+	}
+	for _, public := range []bool{false, true} {
+		offers[1].Access = !public
+		offers[2].Access = !public
+		billing, legacy := offerBilling(offers, public)
+		require.Equal(t, "priced", billing.State)
+		require.Empty(t, billing.Reason)
+		require.Equal(t, "priced", legacy.State)
+		perspective := Perspective{}
+		if !public {
+			perspective = Perspective{Workspace: 1, Project: 2}
+		}
+		detail := projectModel(perspective, Candidate{Provider: "openrouter", Model: "vendor/model", Offers: offers}, nil, Window{}, Metrics{})
+		require.Equal(t, "priced", detail.Model.Billing.State)
+	}
+
+	higher, err := money.NewRate("USD", "0.000024", "output_token", "1")
+	require.NoError(t, err)
+	offers[2].Price.Output = &higher
+	billing, _ := offerBilling(offers, true)
+	require.Equal(t, "conflict", billing.State)
+	require.Equal(t, "offers_disagree", billing.Reason)
+}
+
 func TestCatalogIdentityProvenanceAndVersionAreProviderScoped(t *testing.T) {
 	id := NewModelIdentity(" OPENAI ", "Owner/Case")
 	other := NewModelIdentity("openrouter", "Owner/Case")

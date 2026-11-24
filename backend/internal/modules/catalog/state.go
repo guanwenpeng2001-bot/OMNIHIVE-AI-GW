@@ -223,7 +223,7 @@ func offerBilling(offers []Offer, public bool) (Billing, Price) {
 		return strings.Compare(Digest(a.Price), Digest(b.Price))
 	})
 	for _, o := range offers {
-		if o.CatalogOnly || !o.Eligible || !public && !o.Access {
+		if !o.Eligible || !public && !o.Access {
 			continue
 		}
 		price := normalizedPrice(o.Price)

@@ -53,6 +53,23 @@ func TestCatalogPricePortUsesAdmittedProviderAndBillingModel(t *testing.T) {
 	require.Equal(t, now, price.At)
 }
 
+func TestCatalogOffersKeepIneligibleDiscoveryOutOfBilling(t *testing.T) {
+	prices := &captureCatalogPrices{}
+	source := Source{prices: prices}
+	model := service.PlazaModel{Platform: "openrouter", Name: "vendor/free",
+		CatalogOffers: []service.PlazaCatalogOffer{
+			{ChannelID: 0, Eligible: false},
+			{ChannelID: 1, Eligible: true, Bindings: []service.PlazaCatalogBinding{{Identity: domain.ActionIdentity{Platform: "openrouter"}}}},
+			{ChannelID: 2, Eligible: true, Bindings: []service.PlazaCatalogBinding{{Identity: domain.ActionIdentity{Platform: "openrouter"}}}},
+		}}
+	offers := source.modelOffers(context.Background(), catalog.Perspective{}, model, service.PlazaGroup{ID: 2, RateMultiplier: 1}, true, nil, nil, nil, time.Now(), nil)
+	require.NotEmpty(t, prices.inputs)
+	require.False(t, offers[0].Eligible)
+	require.True(t, offers[0].CatalogOnly)
+	require.True(t, offers[1].Eligible)
+	require.True(t, offers[2].Eligible)
+}
+
 func TestCatalogEndpointVerificationAndModelEvidence(t *testing.T) {
 	now := time.Now().UTC()
 	observed := now.Add(-time.Hour)
