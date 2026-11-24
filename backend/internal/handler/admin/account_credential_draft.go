@@ -472,6 +472,9 @@ func (handler *AccountHandler) applyCredentialDraft(ctx context.Context, ginCtx 
 		if err := applyCredentialDraftOptions(draft, review); err != nil {
 			return 0, err
 		}
+		if _, referenced := service.CredentialReference(existing.Credentials); referenced && service.ExpectedCredentialRevision(txCtx) == "" {
+			return 0, service.ErrAccountCredentialDraftConflict
+		}
 		account, err := handler.credentialDrafts.UpdateAccountCredentialsIfUnchanged(txCtx, existing, handler.adminService, &service.UpdateAccountInput{
 			Type:        request.Type,
 			Credentials: draft.Credentials,
@@ -568,7 +571,27 @@ func (handler *AccountHandler) ReviewCredentialDraft(ctx *gin.Context) {
 		response.ErrorFrom(ctx, err)
 		return
 	}
-	draft, err := handler.credentialDrafts.ReviewAccountCredentialDraft(ctx.Request.Context(), request.CredentialDraft, binding, revision, digest)
+	reviewCtx := ctx.Request.Context()
+	targetID := request.ExistingAccountID
+	if targetID == 0 {
+		// The OAuth apply endpoint uses this name to bind the reviewed payload
+		// to the account in its URL.
+		if suffix, ok := strings.CutPrefix(request.Name, "account:"); ok {
+			if id, err := strconv.ParseInt(suffix, 10, 64); err == nil && id > 0 && strconv.FormatInt(id, 10) == suffix {
+				targetID = id
+			}
+		}
+	}
+	if targetID > 0 {
+		target, err := handler.adminService.GetAccount(reviewCtx, targetID)
+		if err == nil && target.Platform == request.Platform {
+			reviewCtx = service.WithCredentialRevision(reviewCtx, target.CredentialRevision)
+		} else if err != nil && (request.ExistingAccountID > 0 || !errors.Is(err, service.ErrAccountNotFound)) {
+			response.ErrorFrom(ctx, err)
+			return
+		}
+	}
+	draft, err := handler.credentialDrafts.ReviewAccountCredentialDraft(reviewCtx, request.CredentialDraft, binding, revision, digest)
 	if err != nil {
 		response.ErrorFrom(ctx, err)
 		return

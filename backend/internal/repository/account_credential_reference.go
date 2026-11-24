@@ -76,10 +76,6 @@ func (r *accountRepository) prepareCredentialUpdate(ctx context.Context, client 
 	if err != nil {
 		return nil, err
 	}
-	if revision := service.ExpectedCredentialRevision(ctx); revision != "" && revision != credentialRevision(current) {
-		slog.WarnContext(ctx, "credential_update_cas_conflict", "account_id", accountID)
-		return nil, service.ErrCredentialSecretConflict
-	}
 	prepared, err := prepareReferencedCredentials(ctx, client, r.credentialEncryptor, accountID, workspaceID, current, credentials)
 	if errors.Is(err, service.ErrCredentialSecretConflict) {
 		slog.WarnContext(ctx, "credential_update_cas_conflict", "account_id", accountID)

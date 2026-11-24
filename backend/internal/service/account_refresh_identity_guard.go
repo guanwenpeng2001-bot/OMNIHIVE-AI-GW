@@ -53,6 +53,11 @@ func (s *AuthPendingIdentityService) UpdateAccountCredentialsIfUnchanged(ctx con
 			return nil, ErrAccountCredentialDraftConflict
 		}
 	}
+	// A draft carries its reviewed revision. Refreshes carry the account
+	// revision read before calling the upstream provider.
+	if _, referenced := CredentialReference(stored.Credentials); referenced && ExpectedCredentialRevision(ctx) == "" {
+		ctx = WithCredentialRevision(ctx, expected.CredentialRevision)
+	}
 	updated, err := admin.UpdateAccount(ctx, expected.ID, input)
 	if err != nil || !owned {
 		return updated, err
