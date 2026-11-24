@@ -81,7 +81,7 @@ const resolvedReferenceTestId = computed(
 </script>
 
 <template>
-  <div class="inline-flex flex-col items-end gap-0.5 text-right">
+  <div class="inline-flex min-w-0 max-w-full flex-col items-end gap-0.5 text-right">
     <div v-if="billing.isError" class="inline-flex flex-wrap items-center justify-end gap-1.5">
       <Tooltip :content="copy.billing.errorFull" placement="left">
         <Badge data-testid="price-cell-error" tone="warning" size="xs" variant="subtle">
@@ -181,7 +181,7 @@ const resolvedReferenceTestId = computed(
     <p
       v-if="referenceLineText"
       :data-testid="resolvedReferenceTestId"
-      class="max-w-[22rem] text-[11px] leading-tight text-oh-muted"
+      class="max-w-full break-words text-[11px] leading-tight text-oh-muted sm:max-w-[22rem]"
     >
       {{ referenceLineText }}
     </p>

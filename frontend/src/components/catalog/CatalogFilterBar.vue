@@ -148,9 +148,9 @@ const retentionChips = computed(() => [
 </script>
 
 <template>
-  <section class="space-y-3 py-5">
+  <section class="min-w-0 max-w-full space-y-3 py-5">
     <div class="flex flex-wrap items-center gap-3">
-      <div ref="searchContainerRef" class="min-w-[16rem] flex-1">
+      <div ref="searchContainerRef" class="min-w-0 basis-full sm:min-w-[16rem] sm:basis-auto sm:flex-1">
         <Input
           :model-value="query"
           :placeholder="copy.filters.searchPlaceholder"
@@ -163,7 +163,7 @@ const retentionChips = computed(() => [
       <select
         :value="sort"
         :aria-label="isZh ? '排序方式' : 'Sort models'"
-        class="oh-focus-ring h-9 rounded-oh-md border border-oh-default bg-oh-surface px-3 text-sm text-oh-primary hover:border-oh-strong"
+        class="oh-focus-ring h-9 min-w-0 max-w-full truncate rounded-oh-md border border-oh-default bg-oh-surface px-3 text-sm text-oh-primary hover:border-oh-strong"
         @change="emit('update:sort', ($event.target as HTMLSelectElement).value as CatalogSortKey)"
       >
         <option value="availability">{{ isZh ? '按可用性优先' : 'Sort: Availability' }}</option>
@@ -222,7 +222,7 @@ const retentionChips = computed(() => [
       <span class="ml-3 mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
         {{ copy.filters.billingLabel }}
       </span>
-      <div class="inline-flex flex-wrap items-center gap-1.5" data-testid="billing-filter-pills-row">
+      <div class="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1.5" data-testid="billing-filter-pills-row">
         <button
           v-for="pill in billingPills"
           :key="pill.key"
@@ -334,13 +334,13 @@ const retentionChips = computed(() => [
       <span class="mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
         {{ copy.filters.regionLabel }}
       </span>
-      <div class="inline-flex flex-wrap items-center gap-1.5" data-testid="filter-region-group">
+      <div class="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1.5" data-testid="filter-region-group">
         <button
           v-for="chip in regionChips"
           :key="chip.value"
           type="button"
           :data-testid="`filter-region-${chip.value}`"
-          class="oh-focus-ring rounded-full border px-2.5 py-1 font-mono text-xs transition-colors"
+          class="oh-focus-ring max-w-full break-all rounded-full border px-2.5 py-1 font-mono text-xs transition-colors"
           :class="
             selectedRegions.includes(chip.value)
               ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
@@ -356,7 +356,7 @@ const retentionChips = computed(() => [
       <span class="ml-2 mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
         {{ copy.filters.retentionLabel }}
       </span>
-      <div class="inline-flex flex-wrap items-center gap-1.5" data-testid="filter-retention-group">
+      <div class="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1.5" data-testid="filter-retention-group">
         <button
           v-for="chip in retentionChips"
           :key="chip.value"

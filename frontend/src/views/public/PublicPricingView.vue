@@ -361,7 +361,7 @@ onBeforeUnmount(() => {
 <template>
   <PublicShell>
     <header class="flex flex-wrap items-end justify-between gap-4 border-b border-oh-default pb-6">
-      <div>
+      <div class="min-w-0">
         <p class="font-mono text-xs uppercase tracking-[0.18em] text-oh-muted">
           {{ isZh ? '透明计费 · PRICING' : 'TRANSPARENT PRICING' }}
         </p>
@@ -410,7 +410,7 @@ onBeforeUnmount(() => {
       <article
         v-for="card in billingModeCards"
         :key="card.id"
-        class="flex flex-col justify-between rounded-oh-md border border-oh-default bg-oh-surface p-5"
+        class="flex min-w-0 flex-col justify-between rounded-oh-md border border-oh-default bg-oh-surface p-5"
       >
         <div>
           <Badge :tone="card.tone" size="xs" variant="subtle">{{ card.badge }}</Badge>
@@ -427,7 +427,7 @@ onBeforeUnmount(() => {
     </section>
 
     <section
-      class="rounded-oh-md border border-oh-default bg-oh-surface p-5"
+      class="min-w-0 max-w-full rounded-oh-md border border-oh-default bg-oh-surface p-5"
       data-testid="pricing-estimator"
       :aria-label="isZh ? '月度 Token 成本估算器' : 'Monthly Token Cost Estimator'"
     >
@@ -456,15 +456,16 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div v-if="estimatableModels.length > 0" class="mt-4 grid gap-6 lg:grid-cols-12">
-        <div class="grid gap-4 sm:grid-cols-2 lg:col-span-7">
-          <label class="flex flex-col gap-1.5 sm:col-span-2">
+      <div v-if="estimatableModels.length > 0" class="mt-4 grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-12">
+        <div class="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:col-span-7">
+          <label class="flex min-w-0 flex-col gap-1.5 sm:col-span-2">
             <span class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
               {{ isZh ? '选择估算模型（仅含已定价或免费销售模型）' : 'Target Model (Priced or Free Sale Rate)' }}
             </span>
             <select
               v-model="estimatorModelId"
-              class="oh-focus-ring h-9 rounded-oh-md border border-oh-default bg-oh-canvas px-3 text-sm text-oh-primary hover:border-oh-strong"
+              data-testid="pricing-estimator-model-select"
+              class="oh-focus-ring h-9 w-full min-w-0 max-w-full truncate rounded-oh-md border border-oh-default bg-oh-canvas px-3 text-sm text-oh-primary hover:border-oh-strong"
             >
               <option v-for="item in estimatableModels" :key="item.id" :value="item.id">
                 {{ item.displayName }} ({{ item.provider }})
@@ -472,7 +473,7 @@ onBeforeUnmount(() => {
             </select>
           </label>
 
-          <label class="flex flex-col gap-1.5">
+          <label class="flex min-w-0 flex-col gap-1.5">
             <span class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
               {{ isZh ? '单次 / 单日输入 (百万 Tokens)' : 'Input Volume (Million Tokens)' }}
             </span>
@@ -481,11 +482,11 @@ onBeforeUnmount(() => {
               type="number"
               min="0"
               step="0.5"
-              class="oh-focus-ring h-9 rounded-oh-md border border-oh-default bg-oh-canvas px-3 font-mono text-sm tabular-nums text-oh-primary"
+              class="oh-focus-ring h-9 w-full min-w-0 max-w-full rounded-oh-md border border-oh-default bg-oh-canvas px-3 font-mono text-sm tabular-nums text-oh-primary"
             />
           </label>
 
-          <label class="flex flex-col gap-1.5">
+          <label class="flex min-w-0 flex-col gap-1.5">
             <span class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
               {{ isZh ? '单次 / 单日输出 (百万 Tokens)' : 'Output Volume (Million Tokens)' }}
             </span>
@@ -494,12 +495,12 @@ onBeforeUnmount(() => {
               type="number"
               min="0"
               step="0.5"
-              class="oh-focus-ring h-9 rounded-oh-md border border-oh-default bg-oh-canvas px-3 font-mono text-sm tabular-nums text-oh-primary"
+              class="oh-focus-ring h-9 w-full min-w-0 max-w-full rounded-oh-md border border-oh-default bg-oh-canvas px-3 font-mono text-sm tabular-nums text-oh-primary"
             />
           </label>
 
-          <label class="flex flex-col gap-1.5 sm:col-span-2">
-            <div class="flex items-center justify-between">
+          <label class="flex min-w-0 flex-col gap-1.5 sm:col-span-2">
+            <div class="flex flex-wrap items-center justify-between gap-2">
               <span class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
                 {{ isZh ? '每月计费周期 / 天数倍率' : 'Cycles / Days per Month' }}
               </span>
@@ -512,14 +513,14 @@ onBeforeUnmount(() => {
               type="range"
               min="1"
               max="31"
-              class="accent-[var(--oh-accent,#f59e0b)]"
+              class="w-full min-w-0 max-w-full accent-[var(--oh-accent,#f59e0b)]"
             />
           </label>
         </div>
 
-        <div class="flex flex-col justify-between rounded-oh-md border border-oh-default bg-oh-subtle p-4 lg:col-span-5">
+        <div class="flex min-w-0 flex-col justify-between rounded-oh-md border border-oh-default bg-oh-subtle p-4 lg:col-span-5">
           <div class="space-y-3">
-            <div class="flex items-center justify-between gap-2">
+            <div class="flex flex-wrap items-center justify-between gap-2">
               <span class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
                 {{ isZh ? '估算结果摘要' : 'Estimated Spend' }}
               </span>
@@ -535,30 +536,30 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="grid grid-cols-2 gap-3">
-              <div class="rounded-oh-sm border border-oh-subtle bg-oh-surface p-3">
+              <div class="min-w-0 rounded-oh-sm border border-oh-subtle bg-oh-surface p-3">
                 <p class="font-mono text-[10px] uppercase text-oh-muted">
                   {{ isZh ? '单次 / 单日预估成本' : 'Single-Cycle Estimate' }}
                 </p>
-                <p class="mt-1 font-mono text-xl font-semibold tabular-nums text-oh-primary">
+                <p class="mt-1 break-words font-mono text-xl font-semibold tabular-nums text-oh-primary">
                   {{ estimatorBreakdown.state === 'unpriced' ? '—' : formatMoneyAmount(estimatorBreakdown.singleTotal) }}
                 </p>
               </div>
-              <div class="rounded-oh-sm border border-oh-accent/40 bg-oh-accent-subtle/40 p-3">
+              <div class="min-w-0 rounded-oh-sm border border-oh-accent/40 bg-oh-accent-subtle/40 p-3">
                 <p class="font-mono text-[10px] uppercase text-oh-accent-text">
                   {{ isZh ? `月度预估 (×${sanitizedRunsPerMonth})` : `Monthly Est. (×${sanitizedRunsPerMonth})` }}
                 </p>
-                <p class="mt-1 font-mono text-xl font-semibold tabular-nums text-oh-primary">
+                <p class="mt-1 break-words font-mono text-xl font-semibold tabular-nums text-oh-primary">
                   {{ estimatorBreakdown.state === 'unpriced' ? '—' : formatMoneyAmount(estimatorBreakdown.monthlyTotal) }}
                 </p>
               </div>
             </div>
 
             <dl class="space-y-1.5 border-t border-oh-subtle pt-3 font-mono text-xs tabular-nums">
-              <div class="flex items-center justify-between gap-2">
+              <div class="flex flex-wrap items-center justify-between gap-2">
                 <dt class="text-oh-secondary">{{ isZh ? '输入 Token 费用' : 'Input token subtotal' }}</dt>
                 <dd class="text-oh-primary">{{ estimatorBreakdown.state === 'unpriced' ? '—' : formatMoneyAmount(estimatorBreakdown.inputCost) }}</dd>
               </div>
-              <div class="flex items-center justify-between gap-2">
+              <div class="flex flex-wrap items-center justify-between gap-2">
                 <dt class="text-oh-secondary">{{ isZh ? '输出 Token 费用' : 'Output token subtotal' }}</dt>
                 <dd class="text-oh-primary">{{ estimatorBreakdown.state === 'unpriced' ? '—' : formatMoneyAmount(estimatorBreakdown.outputCost) }}</dd>
               </div>
@@ -680,7 +681,7 @@ onBeforeUnmount(() => {
     <template v-else>
       <div
         v-if="viewMode === 'table'"
-        class="oh-focus-ring overflow-x-auto rounded-oh-md border border-oh-default bg-oh-surface"
+        class="oh-focus-ring min-w-0 max-w-full overflow-x-auto rounded-oh-md border border-oh-default bg-oh-surface"
         tabindex="0"
         role="region"
         :aria-label="isZh ? '公开模型费率表' : 'Public pricing rate table'"
@@ -702,7 +703,7 @@ onBeforeUnmount(() => {
                 <div class="flex flex-wrap items-center gap-2">
                   <RouterLink
                     :to="`/model-plaza/${encodeURIComponent(vm.id)}`"
-                    class="oh-focus-ring rounded-oh-xs font-medium text-oh-primary hover:text-oh-accent-text"
+                    class="oh-focus-ring break-all rounded-oh-xs font-medium text-oh-primary hover:text-oh-accent-text"
                   >
                     {{ vm.displayName }}
                   </RouterLink>
@@ -769,13 +770,13 @@ onBeforeUnmount(() => {
         </table>
       </div>
 
-      <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <div
           v-for="vm in displayedViewModels"
           :key="vm.id"
-          class="flex flex-col justify-between rounded-oh-md border border-oh-default bg-oh-surface p-4 transition-colors hover:border-oh-strong"
+          class="flex min-w-0 flex-col justify-between rounded-oh-md border border-oh-default bg-oh-surface p-4 transition-colors hover:border-oh-strong"
         >
-          <div class="flex flex-col gap-2">
+          <div class="flex min-w-0 flex-col gap-2">
             <div class="min-w-0">
               <RouterLink
                 :to="`/model-plaza/${encodeURIComponent(vm.id)}`"
@@ -799,9 +800,9 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="mt-4 grid grid-cols-2 gap-3 border-t border-oh-subtle pt-3">
-            <div>
+            <div class="min-w-0">
               <p class="font-mono text-[10px] uppercase text-oh-muted">{{ isZh ? '输入 / 1M' : 'Input / 1M' }}</p>
-              <div class="mt-1 flex justify-start">
+              <div class="mt-1 flex min-w-0 justify-start">
                 <ModelPriceCell
                   :billing="vm.billing"
                   kind="input"
@@ -811,9 +812,9 @@ onBeforeUnmount(() => {
                 />
               </div>
             </div>
-            <div>
+            <div class="min-w-0">
               <p class="font-mono text-[10px] uppercase text-oh-muted">{{ isZh ? '输出 / 1M' : 'Output / 1M' }}</p>
-              <div class="mt-1 flex justify-start">
+              <div class="mt-1 flex min-w-0 justify-start">
                 <ModelPriceCell
                   :billing="vm.billing"
                   kind="output"
