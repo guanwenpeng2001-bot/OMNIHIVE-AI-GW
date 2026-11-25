@@ -25,7 +25,9 @@ func TestAccountModelSelectionRepairPostgres(t *testing.T) {
 	require.NoError(t, migrated.Close())
 	db := testresources.OpenSchema(t, dsn)
 	ctx := context.Background()
-	_, err = db.ExecContext(ctx, `CREATE TABLE accounts (LIKE public.accounts INCLUDING ALL); CREATE TABLE scheduler_outbox (LIKE public.scheduler_outbox INCLUDING ALL)`)
+	_, err = db.ExecContext(ctx, `CREATE TABLE accounts (LIKE public.accounts INCLUDING ALL);
+		CREATE TABLE scheduler_outbox (LIKE public.scheduler_outbox INCLUDING ALL);
+		CREATE TABLE provider_connections (LIKE public.provider_connections INCLUDING ALL)`)
 	require.NoError(t, err)
 	insert := func(scope map[string]any, frozen any, mapping any) int64 {
 		t.Helper()
@@ -45,6 +47,11 @@ func TestAccountModelSelectionRepairPostgres(t *testing.T) {
 	withoutMapping := insert(map[string]any{"enabled": true, "models": []string{}}, true, map[string]string{})
 	admin := insert(map[string]any{"enabled": true, "models": []string{}, "reason": "maintenance", "confirmed_by": 1}, true, map[string]string{"a": "target-a"})
 	invalid := insert(map[string]any{"enabled": true, "models": []string{}, "reason": "system_upgrade_baseline_freeze"}, nil, map[string]string{"bad": "bad*"})
+	managed := insert(map[string]any{"enabled": true, "models": []string{}}, true, map[string]string{"target": "target"})
+	mismatched := insert(map[string]any{"enabled": true, "models": []string{}}, true, map[string]string{"legacy-target": "legacy-target"})
+	_, err = db.ExecContext(ctx, `INSERT INTO provider_connections (account_id,workspace_id,provider,auth_type,name,concurrency,state,model_ids) VALUES
+		($1,1,'openai','api_key','consistent',1,'active','{target}'), ($2,1,'openai','api_key','mismatch',1,'active','{other-target}')`, managed, mismatched)
+	require.NoError(t, err)
 	require.NoError(t, RepairAccountModelSelections(ctx, db))
 	read := func(id int64) (service.AccountModelAllowlist, map[string]any, int) {
 		t.Helper()
@@ -75,6 +82,14 @@ func TestAccountModelSelectionRepairPostgres(t *testing.T) {
 	require.Zero(t, adminOutbox)
 	_, invalidExtra, _ := read(invalid)
 	require.NotContains(t, invalidExtra, service.ModelSelectionRepairBackupExtraKey)
+	scope, _, outbox = read(managed)
+	require.Equal(t, []string{"target"}, scope.Models)
+	require.Equal(t, 1, outbox)
+	scope, extra, outbox = read(mismatched)
+	require.True(t, scope.Enabled)
+	require.Empty(t, scope.Models)
+	require.NotContains(t, extra, service.ModelSelectionRepairBackupExtraKey)
+	require.Zero(t, outbox)
 	var beforeUpdated string
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT updated_at::text FROM accounts WHERE id=$1`, withMapping).Scan(&beforeUpdated))
 	require.NoError(t, RepairAccountModelSelections(ctx, db))
@@ -107,7 +122,9 @@ func TestAccountModelSelectionRepairRollbackSkipsBusinessEditPostgres(t *testing
 	require.NoError(t, migrated.Close())
 	db := testresources.OpenSchema(t, dsn)
 	ctx := context.Background()
-	_, err = db.ExecContext(ctx, `CREATE TABLE accounts (LIKE public.accounts INCLUDING ALL); CREATE TABLE scheduler_outbox (LIKE public.scheduler_outbox INCLUDING ALL)`)
+	_, err = db.ExecContext(ctx, `CREATE TABLE accounts (LIKE public.accounts INCLUDING ALL);
+		CREATE TABLE scheduler_outbox (LIKE public.scheduler_outbox INCLUDING ALL);
+		CREATE TABLE provider_connections (LIKE public.provider_connections INCLUDING ALL)`)
 	require.NoError(t, err)
 	var id int64
 	require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO accounts(workspace_id,name,platform,type,status,schedulable,extra) VALUES(1,'repair','openai','apikey','active',true,'{"upstream_model_allowlist":{"enabled":true,"models":[]},"model_selection_baseline_frozen":true}') RETURNING id`).Scan(&id))

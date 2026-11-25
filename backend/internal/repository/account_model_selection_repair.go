@@ -11,6 +11,7 @@ import (
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/lib/pq"
 )
 
 const (
@@ -128,6 +129,32 @@ func classifyModelSelectionRepair(account *service.Account, rawExtra map[string]
 		return "invalid_mapping", service.ModelSelectionCommand{}, nil
 	}
 	return classification, command, nil
+}
+
+func modelSelectionRepairMatchesConnection(ctx context.Context, tx *sql.Tx, account *service.Account) (bool, error) {
+	var workspaceID int64
+	var models []string
+	// Activation locks the connection before the account. Read its committed
+	// projection without acquiring the connection lock in reverse order.
+	err := tx.QueryRowContext(ctx, `SELECT workspace_id,model_ids FROM provider_connections WHERE account_id=$1 AND NOT legacy_dirty`, account.ID).Scan(&workspaceID, pq.Array(&models))
+	if errors.Is(err, sql.ErrNoRows) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	mapping := service.AccountModelSelectionView(account).ModelMapping
+	if workspaceID != account.WorkspaceID || len(mapping) != len(models) {
+		return false, nil
+	}
+	for _, model := range models {
+		target, exists := mapping[model]
+		if !exists || target != model {
+			return false, nil
+		}
+		delete(mapping, model)
+	}
+	return true, nil
 }
 
 func newModelSelectionRepairBackup(account *service.Account, rawExtra map[string]any, classification string, result service.ModelSelectionResult, now time.Time) (map[string]any, error) {
@@ -281,6 +308,16 @@ func repairNextAccountModelSelection(ctx context.Context, connection *sql.Conn, 
 	classification, command, err := classifyModelSelectionRepair(account, extra)
 	if err != nil {
 		return false, err
+	}
+	if command.Mode != "" {
+		match, err := modelSelectionRepairMatchesConnection(ctx, transaction, account)
+		if err != nil {
+			return false, err
+		}
+		if !match {
+			classification = "managed_projection_mismatch"
+			command.Mode = ""
+		}
 	}
 	if command.Mode == "" {
 		skipped[accountID] = true
