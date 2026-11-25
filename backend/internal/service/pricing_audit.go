@@ -73,3 +73,49 @@ func pricingEvaluationIdentity(resolved *ResolvedPricing, input CostInput) (stri
 	digest := sha256.Sum256(data)
 	return source, "sha256:" + hex.EncodeToString(digest[:])
 }
+
+func pricingTermsIdentity(resolved *ResolvedPricing, input CostInput) (string, string) {
+	if resolved == nil || resolved.Source == "" {
+		return "", ""
+	}
+	var config *ChannelModelPricing
+	if resolved.channelPricing != nil {
+		cloned := resolved.channelPricing.Clone()
+		cloned.ID, cloned.ChannelID = 0, 0
+		cloned.Models = nil
+		cloned.CreatedAt, cloned.UpdatedAt = time.Time{}, time.Time{}
+		for index := range cloned.Intervals {
+			cloned.Intervals[index].ID = 0
+			cloned.Intervals[index].PricingID = 0
+			cloned.Intervals[index].SortOrder = 0
+			cloned.Intervals[index].CreatedAt = time.Time{}
+			cloned.Intervals[index].UpdatedAt = time.Time{}
+		}
+		config = &cloned
+	}
+	var descriptor *ModelPricingDescriptor
+	if resolved.descriptor != nil {
+		cloned := *resolved.descriptor
+		cloned.PricingAt = time.Time{}
+		descriptor = &cloned
+	}
+	longContext := resolved.longContextPricingEnabled || input.LongContextBillingEnabled != nil && *input.LongContextBillingEnabled
+	longContext = longContext && len(resolved.Intervals) == 0 && resolved.BasePricing != nil &&
+		resolved.BasePricing.LongContextInputThreshold > 0 &&
+		(resolved.BasePricing.LongContextInputMultiplier > 1 || resolved.BasePricing.LongContextOutputMultiplier > 1)
+	data, err := json.Marshal(struct {
+		Resolved    *ResolvedPricing
+		Config      *ChannelModelPricing
+		Descriptor  *ModelPricingDescriptor
+		BaseSource  string
+		Provider    string
+		Model       string
+		Rate        float64
+		LongContext bool
+	}{resolved, config, descriptor, resolved.baseSource, input.Provider, saleModel(input.Model), input.RateMultiplier, longContext})
+	if err != nil {
+		return resolved.Source, ""
+	}
+	digest := sha256.Sum256(data)
+	return resolved.Source, "sha256:" + hex.EncodeToString(digest[:])
+}

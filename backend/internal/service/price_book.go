@@ -296,7 +296,7 @@ func describePlatformTariff(input CostInput) pricing.Description {
 	d.Source, d.VersionID = pricingEvaluationIdentity(resolved, input)
 	terms := input
 	terms.Group, terms.GroupID = nil, nil
-	_, d.TermsID = pricingEvaluationIdentity(resolved, terms)
+	_, d.TermsID = pricingTermsIdentity(resolved, terms)
 	d.Outcome = pricing.Available
 	appendRate := func(kind, source, value string, unit money.Unit) {
 		if rate, err := money.NewRate("USD", value, unit, "1"); err == nil {
