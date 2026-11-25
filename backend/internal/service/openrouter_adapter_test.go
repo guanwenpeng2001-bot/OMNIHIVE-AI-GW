@@ -129,6 +129,14 @@ func TestOpenRouterDiscoveryComputesFreeMetadata(t *testing.T) {
 		require.NotNil(t, metadata[model].Free, model)
 		require.False(t, *metadata[model].Free, model)
 	}
+
+	_, metadata, err = extractUpstreamModelCatalog([]byte(`{"data":[{"id":"vendor/missing:free"},{"id":"vendor/null:free","pricing":null},{"id":"vendor/empty:free","pricing":{}},{"id":"vendor/null-fields:free","pricing":{"prompt":null,"completion":null}},{"id":"vendor/nested-empty:free","pricing":{"prompt":{}}},{"id":"vendor/malformed:free","pricing":"free"},{"id":"vendor/bool:free","pricing":{"prompt":false}}]}`), false, PlatformOpenRouter)
+	require.NoError(t, err)
+	for _, model := range []string{"vendor/missing:free", "vendor/null:free", "vendor/empty:free", "vendor/null-fields:free", "vendor/nested-empty:free", "vendor/malformed:free", "vendor/bool:free"} {
+		if metadata[model].Free != nil {
+			require.False(t, *metadata[model].Free, model)
+		}
+	}
 }
 
 func TestOpenRouterPaginationAndUsageTransport(t *testing.T) {
