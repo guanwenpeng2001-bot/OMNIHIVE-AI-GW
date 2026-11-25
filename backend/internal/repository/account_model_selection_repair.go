@@ -19,19 +19,19 @@ const (
 )
 
 type modelSelectionRepairBackup struct {
-	Scope             json.RawMessage          `json:"scope"`
-	ScopeExists       bool                     `json:"scope_exists"`
-	Frozen            json.RawMessage          `json:"frozen"`
-	FrozenExists      bool                     `json:"frozen_exists"`
-	Baseline          json.RawMessage          `json:"baseline"`
-	MappingFingerprint string                  `json:"mapping_fingerprint"`
-	Classification    string                   `json:"classification"`
-	AfterFingerprint  string                   `json:"after_fingerprint"`
-	AfterRevision     int64                    `json:"after_rules_revision"`
-	AfterIdentity     int64                    `json:"after_identity_revision"`
-	RepairedAt        string                   `json:"repaired_at"`
-	RollbackAt        string                   `json:"rolled_back_at,omitempty"`
-	RollbackCheckedAt string                   `json:"rollback_checked_at,omitempty"`
+	Scope              json.RawMessage `json:"scope"`
+	ScopeExists        bool            `json:"scope_exists"`
+	Frozen             json.RawMessage `json:"frozen"`
+	FrozenExists       bool            `json:"frozen_exists"`
+	Baseline           json.RawMessage `json:"baseline"`
+	MappingFingerprint string          `json:"mapping_fingerprint"`
+	Classification     string          `json:"classification"`
+	AfterFingerprint   string          `json:"after_fingerprint"`
+	AfterRevision      int64           `json:"after_rules_revision"`
+	AfterIdentity      int64           `json:"after_identity_revision"`
+	RepairedAt         string          `json:"repaired_at"`
+	RollbackAt         string          `json:"rolled_back_at,omitempty"`
+	RollbackCheckedAt  string          `json:"rollback_checked_at,omitempty"`
 }
 
 func selectionRepairJSON(raw map[string]any, key string) (json.RawMessage, bool, error) {
@@ -71,12 +71,12 @@ func modelSelectionFingerprint(account *service.Account, result *service.ModelSe
 		frozen, frozenExists = account.Extra[service.ModelSelectionBaselineFrozenExtraKey]
 	}
 	fingerprint, err := json.Marshal(struct {
-		Scope        service.AccountModelAllowlist `json:"scope"`
-		Mapping      map[string]string             `json:"mapping"`
-		FrozenExists bool                          `json:"frozen_exists"`
-		Frozen       any                           `json:"frozen"`
-		IdentityRevision int64                     `json:"identity_revision"`
-		RulesRevision int64                        `json:"rules_revision"`
+		Scope            service.AccountModelAllowlist `json:"scope"`
+		Mapping          map[string]string             `json:"mapping"`
+		FrozenExists     bool                          `json:"frozen_exists"`
+		Frozen           any                           `json:"frozen"`
+		IdentityRevision int64                         `json:"identity_revision"`
+		RulesRevision    int64                         `json:"rules_revision"`
 	}{scope, mapping, frozenExists, frozen, baseline.IdentityRevision, baseline.RulesRevision})
 	return string(fingerprint), err
 }
@@ -200,7 +200,7 @@ func reportSkippedModelSelections(ctx context.Context, connection *sql.Conn) err
 		AND COALESCE(extra->'upstream_model_allowlist'->'models','[]'::jsonb) IN ('[]'::jsonb,'null'::jsonb)
 		AND NOT extra ? 'model_selection_v039_repair_backup' AND NOT (
 			COALESCE(extra->'upstream_model_allowlist'->>'confirmed_by','0')='0' AND COALESCE(extra->'upstream_model_allowlist'->>'confirmed_at','')='' AND
-			(extra->'upstream_model_allowlist'->>'reason'='system_upgrade_baseline_freeze' OR
+			(COALESCE(extra->'upstream_model_allowlist'->>'reason','')='system_upgrade_baseline_freeze' OR
 			 (COALESCE(extra->>'model_selection_baseline_frozen','false')='true' AND COALESCE(extra->'upstream_model_allowlist'->>'reason','')=''))
 		) ORDER BY workspace_id,id`)
 	if err != nil {
