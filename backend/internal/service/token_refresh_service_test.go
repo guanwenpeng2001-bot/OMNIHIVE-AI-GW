@@ -419,6 +419,7 @@ func TestTokenRefreshService_RefreshWithRetry_InvalidatesCache(t *testing.T) {
 		},
 	}
 
+	repo.accountsByID = map[int64]*Account{account.ID: account}
 	err := service.refreshWithRetry(context.Background(), account, refresher, refresher, time.Hour)
 	require.NoError(t, err)
 	require.Equal(t, 1, repo.updateCalls)
@@ -449,6 +450,7 @@ func TestTokenRefreshService_RefreshWithRetry_InvalidatorErrorIgnored(t *testing
 		},
 	}
 
+	repo.accountsByID = map[int64]*Account{account.ID: account}
 	err := service.refreshWithRetry(context.Background(), account, refresher, refresher, time.Hour)
 	require.NoError(t, err)
 	require.Equal(t, 1, repo.updateCalls)
@@ -475,6 +477,7 @@ func TestTokenRefreshService_RefreshWithRetry_NilInvalidator(t *testing.T) {
 		},
 	}
 
+	repo.accountsByID = map[int64]*Account{account.ID: account}
 	err := service.refreshWithRetry(context.Background(), account, refresher, refresher, time.Hour)
 	require.NoError(t, err)
 	require.Equal(t, 1, repo.updateCalls)
@@ -502,6 +505,7 @@ func TestTokenRefreshService_RefreshWithRetry_Antigravity(t *testing.T) {
 		},
 	}
 
+	repo.accountsByID = map[int64]*Account{account.ID: account}
 	err := service.refreshWithRetry(context.Background(), account, refresher, refresher, time.Hour)
 	require.NoError(t, err)
 	require.Equal(t, 1, repo.updateCalls)
@@ -582,6 +586,7 @@ func TestTokenRefreshService_RefreshWithRetry_AntigravityClearsForceRefreshOnSuc
 		},
 	}
 
+	repo.accountsByID = map[int64]*Account{account.ID: account}
 	err := service.refreshWithRetry(context.Background(), account, refresher, refresher, time.Hour)
 	require.NoError(t, err)
 	require.Equal(t, 1, repo.updateCredentialsCalls)
@@ -645,6 +650,7 @@ func TestTokenRefreshService_RefreshWithRetry_NonOAuthAccount(t *testing.T) {
 		},
 	}
 
+	repo.accountsByID = map[int64]*Account{account.ID: account}
 	err := service.refreshWithRetry(context.Background(), account, refresher, refresher, time.Hour)
 	require.NoError(t, err)
 	require.Equal(t, 1, repo.updateCalls)
@@ -673,6 +679,7 @@ func TestTokenRefreshService_RefreshWithRetry_OtherPlatformOAuth(t *testing.T) {
 		},
 	}
 
+	repo.accountsByID = map[int64]*Account{account.ID: account}
 	err := service.refreshWithRetry(context.Background(), account, refresher, refresher, time.Hour)
 	require.NoError(t, err)
 	require.Equal(t, 1, repo.updateCalls)
@@ -705,6 +712,7 @@ func TestTokenRefreshService_RefreshWithRetry_UsesCredentialsUpdater(t *testing.
 		},
 	}
 
+	repo.accountsByID = map[int64]*Account{account.ID: account}
 	err := service.refreshWithRetry(context.Background(), account, refresher, refresher, time.Hour)
 	require.NoError(t, err)
 	require.Equal(t, 1, repo.updateCredentialsCalls)
@@ -848,6 +856,7 @@ func TestTokenRefreshService_RefreshWithRetry_ClearsTempUnschedulable(t *testing
 		},
 	}
 
+	repo.accountsByID = map[int64]*Account{account.ID: account}
 	err := service.refreshWithRetry(context.Background(), account, refresher, refresher, time.Hour)
 	require.NoError(t, err)
 	require.Equal(t, 1, repo.updateCalls)
