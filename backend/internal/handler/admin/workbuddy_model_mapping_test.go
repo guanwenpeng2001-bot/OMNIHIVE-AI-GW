@@ -5,6 +5,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -68,7 +69,8 @@ func TestAccountModelMappingSaveReread(t *testing.T) {
 			require.Equal(t, mapping, rereadMapping(t, router)["model_mapping"])
 
 			// The independent selection endpoint also echoes via fresh account GET.
-			saved = selectionHTTPRequest(router, "/accounts/42/models/allowlist", `{"enabled":true,"models":["chosen"],"expected_rules_revision":"4","model_mapping":{"chosen":"chosen","Alias":"chosen"}}`)
+			revision := repo.account.ModelCatalogState().RulesRevision
+			saved = selectionHTTPRequest(router, "/accounts/42/models/allowlist", fmt.Sprintf(`{"enabled":true,"models":["chosen"],"expected_rules_revision":"%d","model_mapping":{"chosen":"chosen","Alias":"chosen"}}`, revision))
 			require.Equal(t, 200, saved.Code, saved.Body.String())
 			require.Equal(t, map[string]any{"chosen": "chosen", "Alias": "chosen"}, rereadMapping(t, router)["model_mapping"])
 			// Legacy explicit clear remains valid when the preservation flag is absent.
