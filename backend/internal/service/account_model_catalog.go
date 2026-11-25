@@ -276,7 +276,7 @@ func AdvanceAccountModelCatalogRevisionsForUpdate(current, incoming *Account, co
 
 func accountCatalogStableSubjectUnchanged(current, incoming *Account) bool {
 	if current.Platform == PlatformAntigravity {
-		return current.GetCredential("email") != "" && current.GetCredential("email") == incoming.GetCredential("email") && current.GetCredential("project_id") != "" && current.GetCredential("project_id") == incoming.GetCredential("project_id")
+		return current.GetCredential("email") == incoming.GetCredential("email") && current.GetCredential("project_id") != "" && current.GetCredential("project_id") == incoming.GetCredential("project_id")
 	}
 	for _, key := range AccountCatalogSubjectFields(current.Platform) {
 		if current.GetCredential(key) != "" && current.GetCredential(key) == incoming.GetCredential(key) {

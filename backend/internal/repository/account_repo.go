@@ -4871,7 +4871,7 @@ func accountCatalogRevisionPatchSQL(incoming, incomingExtra, proxyChanged string
 			}
 			return "(" + strings.Join(terms, " OR ") + ")"
 		}
-		antigravityStable := "(COALESCE(credentials->>'email','') <> '' AND COALESCE(credentials->>'project_id','') <> '')"
+		antigravityStable := "(COALESCE(credentials->>'project_id','') <> '')"
 		stable = "CASE WHEN platform = 'workbuddy' THEN " + hasSubject(service.PlatformWorkBuddy) + " WHEN platform = 'antigravity' THEN " + antigravityStable + " ELSE " + hasSubject("") + " END"
 	}
 	changes = append(changes, "(("+versionChanged+" OR credentials->'access_token' IS DISTINCT FROM "+incoming+"->'access_token') AND NOT ("+stable+"))")

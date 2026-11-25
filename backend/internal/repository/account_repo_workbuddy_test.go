@@ -152,3 +152,21 @@ func TestAntigravityReferencedRefreshPreservesPublication(t *testing.T) {
 	require.Greater(t, changed.ModelCatalogBaseline().IdentityRevision, baseline.IdentityRevision)
 	require.Nil(t, changed.EffectiveUpstreamModelCatalog())
 }
+
+func TestAntigravityReferencedRefreshWithoutEmailPreservesPublication(t *testing.T) {
+	f := newCredentialSecretFixture(t)
+	repo := f.accounts
+	current := f.createAccount(t, f.ctx, uniqueName("antigravity-no-email"), service.PlatformAntigravity, service.AccountTypeOAuth, map[string]any{"project_id": "stable-project", "access_token": "old", "refresh_token": "refresh"})
+	baseline := current.ModelCatalogBaseline()
+	snapshot := &service.AccountModelCatalogSnapshot{Revision: baseline.SnapshotRevision + 1, IdentityRevision: baseline.IdentityRevision, Complete: true, SourceKind: "live", DiscoveredModels: []string{"native"}, EligibleModels: []service.AccountCatalogModel{{ID: "native"}}}
+	require.NoError(t, repo.CommitAccountModelCatalog(f.ctx, current.ID, baseline, snapshot, current.ModelCatalogState(), nil, false))
+	current, err := repo.GetByID(f.ctx, current.ID)
+	require.NoError(t, err)
+	credentials := maps.Clone(current.Credentials)
+	credentials["access_token"], credentials["refresh_token"] = "rotated", "renewed"
+	require.NoError(t, repo.UpdateAccountRuntimeCredentials(f.ctx, current, credentials))
+	rotated, err := repo.GetByID(f.ctx, current.ID)
+	require.NoError(t, err)
+	require.Equal(t, current.ModelCatalogBaseline().IdentityRevision, rotated.ModelCatalogBaseline().IdentityRevision)
+	require.NotNil(t, rotated.EffectiveUpstreamModelCatalog())
+}

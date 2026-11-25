@@ -28,7 +28,7 @@ func TestCatalogSaleBindingCarriesAuthorizedProviderAndWireModel(t *testing.T) {
 	offer.BillingModelSource = service.BillingModelSourceResponse
 	binding = saleBinding(catalog.Perspective{}, bindingFor(identity, 3, offer, account))
 	require.Empty(t, binding.Model)
-	require.Empty(t, binding.WireModel)
+	require.Equal(t, "wire-model", binding.WireModel)
 }
 
 func TestPriceBookDisplayUsesEffectiveRatesAndExactVersion(t *testing.T) {
