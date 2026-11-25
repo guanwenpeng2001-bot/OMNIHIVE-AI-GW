@@ -115,59 +115,61 @@
     <p v-if="denyAll" role="status" data-testid="deny-all">{{ t('admin.accounts.modelSync.denyAll') }}</p>
     <p v-if="autoAddedNotice" role="status" data-testid="auto-added-notice" class="mb-2 text-sm text-secondary">{{ autoAddedNotice }}</p>
     <p v-if="selectionWarning" role="status" data-testid="selection-warning">{{ selectionWarning }}</p>
-    <div
-      v-if="confirmClear"
-      data-testid="confirm-deny-all-dialog"
-      class="mb-4 space-y-3 rounded-lg border border-red-200 bg-red-50/70 p-3 dark:border-red-900/50 dark:bg-red-950/30"
+    <BaseDialog
+      :show="confirmClear"
+      :title="t('admin.accounts.modelSync.confirmDenyAllTitle')"
+      width="narrow"
+      @close="cancelDenyAll"
     >
-      <p class="text-xs font-medium text-red-700 dark:text-red-300">
-        {{ t('admin.accounts.modelSync.confirmDenyAllMessage') }}
-      </p>
-      <div class="space-y-2" data-testid="confirm-deny-all-body">
-        <label class="input-label text-xs">
-          {{ t('admin.accounts.modelSync.denyAllReasonLabel') }}
+      <div class="space-y-3" data-testid="confirm-deny-all-dialog">
+        <p class="text-sm leading-relaxed text-[var(--muted-foreground)]">
+          {{ t('admin.accounts.modelSync.confirmDenyAllMessage') }}
+        </p>
+        <div class="space-y-2" data-testid="confirm-deny-all-body">
+          <label class="input-label block text-xs" :for="denyAllReasonInputId">
+            {{ t('admin.accounts.modelSync.denyAllReasonLabel') }}
+          </label>
           <input
+            :id="denyAllReasonInputId"
             ref="denyAllReasonInput"
             v-model="denyAllReasonDraft"
             type="text"
-            class="input mt-1 w-full"
+            class="input w-full text-sm"
             data-testid="deny-all-reason-input"
+            :aria-invalid="Boolean(denyAllReasonValidationMessage)"
+            :aria-describedby="denyAllReasonValidationMessage ? denyAllReasonErrorId : undefined"
             :placeholder="t('admin.accounts.modelSync.denyAllReasonPlaceholder')"
             @input="denyAllReasonError = ''"
+            @keydown.enter.prevent="clearAll"
           />
-        </label>
-        <p
-          v-if="denyAllReasonError"
-          role="alert"
-          data-testid="deny-all-reason-error"
-          class="text-xs text-red-600"
-        >
-          {{ denyAllReasonError }}
-        </p>
-        <div class="flex justify-end gap-2">
-          <button type="button" class="btn btn-secondary btn-sm" @click="cancelDenyAll">
+          <p
+            v-if="denyAllReasonValidationMessage"
+            :id="denyAllReasonErrorId"
+            role="alert"
+            data-testid="deny-all-reason-error"
+            class="text-xs text-red-600 dark:text-red-400"
+          >
+            {{ denyAllReasonValidationMessage }}
+          </p>
+        </div>
+      </div>
+      <template #footer>
+        <div class="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:justify-end">
+          <button type="button" data-testid="confirm-deny-all-cancel" class="btn btn-secondary w-full sm:w-auto" @click="cancelDenyAll">
             {{ t('common.cancel') }}
           </button>
           <button
             type="button"
             data-testid="confirm-deny-all-submit"
-            class="btn btn-danger btn-sm"
+            class="btn btn-danger w-full sm:w-auto"
+            :disabled="isDenyAllConfirmDisabled"
             @click="clearAll"
           >
             {{ t('admin.accounts.modelSync.confirmDenyAllSubmit') }}
           </button>
         </div>
-      </div>
-    </div>
-    <ConfirmDialog
-      :show="confirmClear"
-      :title="t('admin.accounts.modelSync.confirmDenyAllTitle')"
-      :message="t('admin.accounts.modelSync.confirmDenyAllMessage')"
-      :confirm-text="t('admin.accounts.modelSync.confirmDenyAllSubmit')"
-      danger
-      @confirm="clearAll"
-      @cancel="cancelDenyAll"
-    />
+      </template>
+    </BaseDialog>
 
     <details v-if="!catalogOnly" ref="selectionDetails" open class="mb-4 space-y-3" data-testid="model-selection">
       <summary class="cursor-pointer rounded-lg py-2 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">{{ t('admin.accounts.editSections.selection') }}</summary>
@@ -280,7 +282,7 @@
     <!-- Custom Model Input -->
     <div v-if="!catalogOnly" class="mb-3">
       <label :for="customModelId" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.accounts.customModelName') }}</label>
-      <div class="flex gap-2">
+      <div class="flex flex-col gap-2 sm:flex-row">
         <input
           :id="customModelId"
           ref="customModelInput"
@@ -296,7 +298,7 @@
         <button
           type="button"
           @click="addCustom"
-          class="btn btn-secondary"
+          class="btn btn-secondary w-full shrink-0 sm:w-auto"
         >
           {{ t('admin.accounts.addModel') }}
         </button>
@@ -345,7 +347,7 @@
           :key="`target-alias-${targetModel}`"
           type="button"
           data-testid="add-target-alias"
-          class="btn btn-secondary text-xs"
+          class="btn btn-secondary max-w-full break-all text-left text-xs"
           @click="addMapping({ from: '', to: targetModel })"
         >
           {{ t('admin.accounts.modelSync.addInlineAlias') }}: {{ targetModel }}
@@ -381,7 +383,7 @@
     <div v-if="!catalogOnly && allowDenyAll !== false" class="mt-4 flex justify-end border-t pt-4 border-[var(--border)]">
       <button type="button" @click="openClearConfirmation"
         data-testid="clear-model-selection" :disabled="selectionBusy || !active || (!!accountId && (configurationDirty || !catalogSummary))"
-        class="btn btn-secondary border-red-200 text-red-600 dark:border-red-800 dark:text-red-400">
+        class="btn btn-secondary w-full border-red-200 text-red-600 sm:w-auto dark:border-red-800 dark:text-red-400">
         {{ t('admin.accounts.clearAllModels') }}
       </button>
     </div>
@@ -400,7 +402,7 @@ import { accountsAPI } from '@/api/admin/accounts'
 import { usePlatformModelPresets } from '@/composables/usePlatformModelPresets'
 import type { Account, ModelAllowlist, AccountModelCatalogDetails } from '@/types'
 import ModelCatalogDetails from './ModelCatalogDetails.vue'
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import BaseDialog from '@/components/common/BaseDialog.vue'
 import type { SyncUpstreamModelsResult, SyncUpstreamPreviewParams } from '@/api/admin/accounts'
 import { useClipboard } from '@/composables/useClipboard'
 import ModelIcon from '@/components/common/ModelIcon.vue'
@@ -476,6 +478,8 @@ const dropdownId = useId()
 const customModelId = useId()
 const previewReasonId = useId()
 const dirtyReasonId = useId()
+const denyAllReasonInputId = useId()
+const denyAllReasonErrorId = useId()
 const trigger = ref<HTMLButtonElement>()
 const selectionDetails = ref<HTMLDetailsElement>()
 const mappingDetails = ref<HTMLDetailsElement>()
@@ -561,7 +565,6 @@ const catalogSummary = ref<AccountModelCatalogDetails | null>(null)
 const syncError = ref('')
 const needsPreview = ref(false)
 const confirmClear = ref(false)
-const denyAllDialogMode = ref<'explicit_deny' | 'clear'>('clear')
 const denyAllReasonDraft = ref('')
 const denyAllReasonError = ref('')
 const selectionBusy = ref(false)
@@ -597,8 +600,8 @@ const currentMode = computed<AccountModelSelectionMode>(() => {
     if (props.mode === 'inherit' && hasConfiguredModelsOrMappings.value) return 'restricted'
     return props.mode
   }
-  if (hasConfiguredModelsOrMappings.value) return 'restricted'
   if (isPersistedDenyAll.value) return 'deny_all'
+  if (hasConfiguredModelsOrMappings.value) return 'restricted'
   if (savedAllowlist.value?.enabled === true && (savedAllowlist.value.models?.length ?? 0) > 0) {
     return 'restricted'
   }
@@ -614,6 +617,12 @@ const canSubmitCurrentMode = computed(() => {
   if (currentMode.value === 'inherit') return true
   return hasConfiguredModelsOrMappings.value
 })
+const isDenyAllConfirmDisabled = computed(
+  () => !denyAllReasonDraft.value.trim() || selectionBusy.value
+)
+const denyAllReasonValidationMessage = computed(
+  () => denyAllReasonError.value || (!denyAllReasonDraft.value.trim() ? t('admin.accounts.modelValidation.denyAllReasonRequired') : '')
+)
 const currentRulesRevision = computed(
   () => catalogSummary.value?.rules_revision ?? catalogSummary.value?.state?.rules_revision
 )
@@ -709,12 +718,16 @@ const persistSelection = async (requestBody: Parameters<typeof accountsAPI.updat
     const result = await accountsAPI.updateModelAllowlist(accountId, requestBody)
     if (disposed || request !== generation) return false
     draftChanged = selectionContext.value !== savedDraftContext
-    if (requestBody.model_mapping !== undefined && !draftChanged && requestBody.mode !== 'inherit') {
+    if (!draftChanged && requestBody.mode === 'restricted') {
       const selection = splitModelMappingObject(requestBody.model_mapping)
-      const immediateModels =
-        selection.allowedModels.length > 0 || selection.modelMappings.length > 0
-          ? [...new Set([...selection.allowedModels, ...(result.auto_added ?? [])])]
-          : [...new Set([...(result.models ?? []), ...requestBody.models])]
+      const immediateModels = [
+        ...new Set([
+          ...requestBody.models,
+          ...(result.models ?? []),
+          ...selection.allowedModels,
+          ...(result.auto_added ?? [])
+        ])
+      ]
       emit('update:modelValue', immediateModels)
       emit('update:modelMappings', selection.modelMappings)
     }
@@ -743,7 +756,7 @@ const persistSelection = async (requestBody: Parameters<typeof accountsAPI.updat
       savedAllowlist.value = accountAllowlist ?? { enabled: false, models: [] }
     } else if (effectiveMode === 'deny_all') {
       persistedModels = []
-      persistedMappings = []
+      persistedMappings = persisted.modelMappings
       savedAllowlist.value = accountAllowlist ?? {
         enabled: true,
         models: [],
@@ -751,19 +764,15 @@ const persistSelection = async (requestBody: Parameters<typeof accountsAPI.updat
       }
     } else {
       persistedMappings = persisted.modelMappings
-      if (persisted.allowedModels.length > 0) {
-        persistedModels = [...new Set([...persisted.allowedModels, ...(result.auto_added ?? [])])]
-      } else if (persisted.modelMappings.length > 0) {
-        persistedModels = result.auto_added?.length ? [...new Set(result.auto_added)] : []
-      } else {
-        persistedModels = [
-          ...new Set([
-            ...(accountAllowlist?.models ?? []),
-            ...(result.models ?? []),
-            ...requestBody.models
-          ])
-        ]
-      }
+      persistedModels = [
+        ...new Set([
+          ...(accountAllowlist?.enabled ? accountAllowlist.models : []),
+          ...(result.models ?? []),
+          ...persisted.allowedModels,
+          ...(result.auto_added ?? []),
+          ...requestBody.models
+        ])
+      ]
       savedAllowlist.value =
         accountAllowlist && (accountAllowlist.enabled || persisted.allowedModels.length > 0 || persisted.modelMappings.length > 0)
           ? accountAllowlist
@@ -779,9 +788,13 @@ const persistSelection = async (requestBody: Parameters<typeof accountsAPI.updat
     selectionSaved.value = true
     if (result.not_discovered?.length) selectionWarning.value = t('admin.accounts.modelSync.notDiscoveredWarning', { models: result.not_discovered.join(', ') })
     if (result.auto_added?.length) autoAddedNotice.value = t('admin.accounts.modelSync.autoAddedNotice', { models: result.auto_added.join(', ') })
-    if (requestBody.model_mapping !== undefined && !draftChanged && selectionContext.value === savedDraftContext) {
+    if (!draftChanged && selectionContext.value === savedDraftContext) {
       emit('update:modelValue', persistedModels)
       emit('update:modelMappings', persistedMappings)
+      if (effectiveMode === 'deny_all') {
+        localReason.value = accountAllowlist?.reason ?? requestBody.reason ?? ''
+        emit('update:reason', localReason.value)
+      }
       emit('selection-saved', account)
     }
     emit('catalog-applied')
@@ -789,7 +802,7 @@ const persistSelection = async (requestBody: Parameters<typeof accountsAPI.updat
     return !draftChanged && selectionContext.value === savedDraftContext
   } catch (error) {
     if (disposed || request !== generation) return false
-    selectionSaveFailed.value = requestBody.model_mapping !== undefined
+    selectionSaveFailed.value = true
     const errorKey = modelSyncErrorKey(error)
     syncError.value = t(
       `admin.accounts.${
@@ -852,18 +865,10 @@ const saveSelection = async (clear: boolean, explicitReason?: string): Promise<b
       })
     )
   }
-  const scopeModels = [
-    ...new Set([
-      ...props.modelValue.map(model => model.trim()).filter(Boolean),
-      ...(savedAllowlist.value?.enabled && !isPersistedDenyAll.value
-        ? (savedAllowlist.value.models ?? []).map(model => model.trim()).filter(Boolean)
-        : [])
-    ])
-  ]
   return await persistSelection(
     buildUpdateModelAllowlistRequest({
       mode: 'restricted',
-      models: scopeModels,
+      models: props.modelValue,
       mappings: props.modelMappings ?? [],
       reason: localReason.value,
       expectedRulesRevision: revision
@@ -1030,7 +1035,6 @@ const selectMode = (nextMode: AccountModelSelectionMode) => {
   if (!props.active || selectionBusy.value) return
   syncError.value = ''
   if (nextMode === 'deny_all') {
-    denyAllDialogMode.value = 'explicit_deny'
     denyAllReasonDraft.value = localReason.value.trim()
     denyAllReasonError.value = ''
     confirmClear.value = true
@@ -1059,10 +1063,10 @@ const selectMode = (nextMode: AccountModelSelectionMode) => {
 }
 
 const openClearConfirmation = () => {
-  denyAllDialogMode.value = 'clear'
-  denyAllReasonDraft.value = localReason.value.trim()
+  denyAllReasonDraft.value = localReason.value.trim() || t('admin.accounts.modelSync.defaultDenyAllReason')
   denyAllReasonError.value = ''
   confirmClear.value = true
+  void nextTick(() => denyAllReasonInput.value?.focus())
 }
 
 const cancelDenyAll = () => {
@@ -1217,34 +1221,23 @@ defineExpose({ requestClear: openClearConfirmation, revealSelection, revealValid
 const clearAll = async () => {
   if (!confirmClear.value || !props.active || selectionBusy.value) return
   const trimmedReason = denyAllReasonDraft.value.trim()
-  if (denyAllDialogMode.value === 'explicit_deny' && !trimmedReason) {
+  if (!trimmedReason) {
     denyAllReasonError.value = t('admin.accounts.modelValidation.denyAllReasonRequired')
     syncError.value = denyAllReasonError.value
     void nextTick(() => denyAllReasonInput.value?.focus())
     return
   }
-  const effectiveReason =
-    trimmedReason ||
-    localReason.value.trim() ||
-    t('admin.accounts.modelSync.defaultDenyAllReason')
   confirmClear.value = false
   denyAllReasonError.value = ''
   if (props.accountId) {
-    localReason.value = effectiveReason
-    localModeOverride.value = 'deny_all'
-    emit('update:reason', effectiveReason)
-    emit('update:mode', 'deny_all')
-    await saveSelection(true, effectiveReason)
-  } else {
-    if (denyAllDialogMode.value === 'explicit_deny') {
-      localReason.value = effectiveReason
-      localModeOverride.value = 'deny_all'
-      emit('update:reason', effectiveReason)
-      emit('update:mode', 'deny_all')
-    }
-    emit('update:modelValue', [])
-    emit('update:modelMappings', [])
+    await saveSelection(true, trimmedReason)
+    return
   }
+  localReason.value = trimmedReason
+  localModeOverride.value = 'deny_all'
+  emit('update:reason', trimmedReason)
+  emit('update:mode', 'deny_all')
+  emit('update:modelValue', [])
 }
 
 </script>

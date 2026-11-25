@@ -225,7 +225,7 @@ describe('v0.3.9 unified account model selection helpers', () => {
   it('normalizes explicit admin deny_all with reason and distinguishes it from inherit', () => {
     const deniedAccount = {
       platform: 'anthropic',
-      credentials: { model_mapping: {} },
+      credentials: { model_mapping: { 'alias-a': 'vendor/model-a' } },
       extra: {
         upstream_model_allowlist: {
           enabled: true,
@@ -239,7 +239,7 @@ describe('v0.3.9 unified account model selection helpers', () => {
     expect(normalizeAccountModelSelection({ account: deniedAccount })).toEqual({
       mode: 'deny_all',
       models: [],
-      mappings: [],
+      mappings: [{ from: 'alias-a', to: 'vendor/model-a' }],
       reason: '上游额度耗尽暂停'
     })
     expect(normalizeAccountModelSelection({ account: { credentials: {}, extra: {} } })).toEqual({
@@ -253,7 +253,8 @@ describe('v0.3.9 unified account model selection helpers', () => {
   it('merges mapping targets into models and builds explicit mapping objects without identity entries', () => {
     const mappings = [
       { from: 'public-alias', to: 'vendor/model-b' },
-      { from: 'claude-*', to: 'vendor/model-c' }
+      { from: 'claude-*', to: 'vendor/model-c' },
+      { from: 'vendor/model-a', to: 'vendor/model-a' }
     ]
     expect(mergeMappingTargetsIntoModels(['vendor/model-a'], mappings)).toEqual([
       'vendor/model-a',
@@ -297,26 +298,44 @@ describe('v0.3.9 unified account model selection helpers', () => {
       models: ['openrouter/free'],
       reason: '免费模型',
       expected_rules_revision: '13',
-      model_mapping: { 'openrouter/free': 'openrouter/free' }
+      model_mapping: {}
     })
 
     expect(
       buildUpdateModelAllowlistRequest({
-        mode: 'deny_all',
-        models: ['ignored'],
-        mappings: [{ from: 'a', to: 'b' }],
-        reason: ' 维护停用 ',
-        expectedRulesRevision: '14'
+        mode: 'restricted',
+        models: ['vendor/model-a'],
+        mappings: [
+          { from: 'alias-b', to: 'vendor/model-b' },
+          { from: ' vendor/model-c ', to: 'vendor/model-c' }
+        ],
+        expectedRulesRevision: '13'
       })
     ).toEqual({
+      mode: 'restricted',
+      enabled: true,
+      models: ['vendor/model-a', 'vendor/model-c'],
+      reason: '',
+      expected_rules_revision: '13',
+      model_mapping: { 'alias-b': 'vendor/model-b' }
+    })
+
+    const denyAllReq = buildUpdateModelAllowlistRequest({
+      mode: 'deny_all',
+      models: ['ignored'],
+      mappings: [{ from: 'a', to: 'b' }],
+      reason: ' 维护停用 ',
+      expectedRulesRevision: '14'
+    })
+    expect(denyAllReq).toEqual({
       mode: 'deny_all',
       enabled: true,
       models: [],
       reason: '维护停用',
       confirm_deny_all: true,
-      expected_rules_revision: '14',
-      model_mapping: {}
+      expected_rules_revision: '14'
     })
+    expect(denyAllReq).not.toHaveProperty('model_mapping')
   })
 
   it('builds workflow model payloads without sending empty model_mapping on inherit by default', () => {
@@ -346,16 +365,37 @@ describe('v0.3.9 unified account model selection helpers', () => {
       buildAccountWorkflowModelPayload({
         mode: 'restricted',
         models: ['model-a'],
+        mappings: []
+      })
+    ).toEqual({
+      mode: 'restricted',
+      models: ['model-a']
+    })
+    expect(
+      buildAccountWorkflowModelPayload({
+        mode: 'restricted',
+        models: ['model-a'],
         mappings: [{ from: 'alias-b', to: 'model-b' }]
       })
     ).toEqual({
       mode: 'restricted',
       models: ['model-a', 'model-b'],
       model_mapping: {
-        'model-a': 'model-a',
         'alias-b': 'model-b'
       }
     })
+    const denyWorkflow = buildAccountWorkflowModelPayload({
+      mode: 'deny_all',
+      models: ['ignored'],
+      mappings: [{ from: 'a', to: 'b' }],
+      reason: '维护停用'
+    })
+    expect(denyWorkflow).toEqual({
+      mode: 'deny_all',
+      models: [],
+      reason: '维护停用'
+    })
+    expect(denyWorkflow).not.toHaveProperty('model_mapping')
   })
 
   it('validates emptyRestrictedSelection, denyAllReasonRequired and new error keys', () => {

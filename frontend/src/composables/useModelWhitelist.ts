@@ -221,11 +221,19 @@ export function buildExplicitModelMappingObject(
   for (const entry of modelMappings) {
     const from = entry.from.trim()
     const to = entry.to.trim()
-    if (!from || !to) continue
+    if (!from || !to || from === to) continue
     if (!isValidWildcardPattern(from) || to.includes('*')) continue
     mapping[from] = to
   }
   return mapping
+}
+
+export function mergeIdentityMappingsIntoModels(
+  models: string[],
+  mappings: ModelMappingEntry[]
+): string[] {
+  const identities = mappings.filter(entry => entry.from.trim() === entry.to.trim())
+  return [...new Set([...models, ...identities.map(entry => entry.to)].map(model => model.trim()).filter(Boolean))]
 }
 
 export function mergeMappingTargetsIntoModels(
@@ -312,7 +320,7 @@ export function normalizeAccountModelSelection(input?: {
     return {
       mode: 'deny_all',
       models: [],
-      mappings: [],
+      mappings: modelMappings,
       reason
     }
   }
@@ -383,19 +391,17 @@ export function buildUpdateModelAllowlistRequest(input: {
       models: [],
       reason,
       confirm_deny_all: true,
-      expected_rules_revision: input.expectedRulesRevision,
-      model_mapping: {}
+      expected_rules_revision: input.expectedRulesRevision
     }
   }
-  const directModels = [...new Set(input.models.map(model => model.trim()).filter(Boolean))]
-  const mapping = buildModelMappingObject('combined', directModels, input.mappings ?? []) ?? {}
+  const mappings = input.mappings ?? []
   return {
     mode: 'restricted',
     enabled: true,
-    models: directModels,
+    models: mergeIdentityMappingsIntoModels(input.models, mappings),
     reason,
     expected_rules_revision: input.expectedRulesRevision,
-    model_mapping: mapping
+    model_mapping: buildExplicitModelMappingObject(mappings)
   }
 }
 
@@ -416,7 +422,6 @@ export function buildAccountWorkflowModelPayload(input: {
     return {
       mode: 'deny_all',
       models: [],
-      model_mapping: {},
       reason
     }
   }
@@ -425,11 +430,11 @@ export function buildAccountWorkflowModelPayload(input: {
     (input.mappings ?? []).some(entry => entry.from.trim().length > 0 && entry.to.trim().length > 0)
   if (input.mode === 'restricted' || (input.mode === undefined && hasSelection)) {
     const mergedModels = mergeMappingTargetsIntoModels(input.models, input.mappings ?? [])
-    const mapping = buildModelMappingObject('combined', input.models, input.mappings ?? []) ?? {}
+    const mapping = buildExplicitModelMappingObject(input.mappings ?? [])
     return {
       mode: 'restricted',
       models: mergedModels,
-      model_mapping: mapping,
+      ...(Object.keys(mapping).length > 0 ? { model_mapping: mapping } : {}),
       ...(reason ? { reason } : {})
     }
   }

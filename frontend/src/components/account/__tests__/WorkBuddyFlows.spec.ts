@@ -492,7 +492,12 @@ describe('WorkBuddy ConnectionWizardView & ReAuthAccountModal flows', () => {
       91,
       expect.objectContaining({
         expected_rules_revision: '11',
-        model_mapping: savedMapping
+        mode: 'restricted',
+        models: ['hunyuan-t1', 'hunyuan-turbos'],
+        model_mapping: {
+          'wb-alias': 'hunyuan-t1',
+          'claude-*': 'hunyuan-t1'
+        }
       })
     )
     expect(wrapper.emitted('updated')?.[0]).toEqual([persistedAfterSelection])
