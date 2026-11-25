@@ -213,7 +213,7 @@ func TestAccountExtraSQLPostgresBulkCredentialCleanup(t *testing.T) {
 				require.NoError(t, err)
 			}
 		})
-		_, err = db.Exec("UPDATE accounts SET extra=$2 WHERE id=$1", account.ID, initialExtra)
+		_, err = db.Exec("UPDATE accounts SET extra=COALESCE(extra,'{}'::jsonb) || $2::jsonb WHERE id=$1", account.ID, initialExtra)
 		require.NoError(t, err)
 	}
 	count, err := repo.BulkUpdate(ctx, ids, service.AccountBulkUpdate{
@@ -228,8 +228,11 @@ func TestAccountExtraSQLPostgresBulkCredentialCleanup(t *testing.T) {
 		require.Equal(t, "keep", extra["note"])
 		require.NotContains(t, extra, "upstream_billing_probe")
 		require.NotContains(t, extra, "codex_fingerprint_seed", "non-OpenAI-OAuth rows must not receive seeds")
-		require.Equal(t, true, extra["model_selection_baseline_frozen"])
-		require.Equal(t, map[string]any{"enabled": true, "models": []any{}}, extra["upstream_model_allowlist"])
+		require.NotContains(t, extra, service.ModelSelectionBaselineFrozenExtraKey)
+		scope, ok := extra[service.UpstreamModelAllowlistExtraKey].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, true, scope["enabled"])
+		require.Equal(t, []any{"target"}, scope["models"])
 		if i == 1 {
 			require.NotContains(t, extra, "ollama_cloud_usage_session")
 			require.NotContains(t, extra, "ollama_cloud_usage_auto_refresh")
@@ -244,8 +247,7 @@ func TestAccountExtraSQLPostgresBulkCredentialCleanup(t *testing.T) {
 		require.NoError(t, json.Unmarshal(raw, &credentials))
 		require.Equal(t, "credential", credentials["keep"])
 		require.NotContains(t, credentials, "billing_plan")
-		require.Contains(t, credentials, "model_mapping")
-		require.Nil(t, credentials["model_mapping"])
+		require.Equal(t, map[string]any{"alias": "target"}, credentials["model_mapping"])
 	}
 	proxy, err := f.client.Proxy.Create().SetName("bulk-credential-cleanup").SetHost("fixture.invalid").SetPort(8080).SetProtocol("http").SetStatus(service.StatusActive).Save(ctx)
 	require.NoError(t, err)
