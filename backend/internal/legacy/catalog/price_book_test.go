@@ -3,6 +3,7 @@
 package legacy
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -29,6 +30,55 @@ func TestCatalogSaleBindingCarriesAuthorizedProviderAndWireModel(t *testing.T) {
 	binding = saleBinding(catalog.Perspective{}, bindingFor(identity, 3, offer, account))
 	require.Empty(t, binding.Model)
 	require.Equal(t, "wire-model", binding.WireModel)
+}
+
+func TestPriceBookCatalogConflictUsesEffectiveMonetaryTerms(t *testing.T) {
+	at := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
+	port := PriceBookPort{PlatformPriceBook: service.NewPlatformPriceBook(service.NewModelPricingResolver(nil, service.NewBillingService(nil, nil)))}
+	ctx := context.Background()
+	for _, test := range []struct {
+		name, model string
+		input       float64
+		conflict    bool
+	}{
+		{name: "long context flag without tier", model: "gpt-5.5", input: 1e-6},
+		{name: "applicable long context tier", model: "gpt-6-astra", input: 10e-6, conflict: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input, output := test.input, 2e-6
+			group := func(id, channelID int64, longContext bool, rate float64) *service.Group {
+				return &service.Group{ID: id, Platform: service.PlatformOpenAI, RateMultiplier: rate, LongContextPricingEnabled: longContext,
+					ModelPricing: []service.ChannelModelPricing{{ID: id * 10, ChannelID: channelID, Models: []string{test.model}, InputPrice: &input, OutputPrice: &output}}}
+			}
+			price := func(group *service.Group) catalog.Price {
+				binding := catalog.ModelBinding{BillingGroupID: group.ID, RateMultiplier: group.RateMultiplier,
+					BillingIdentity: catalog.NewModelIdentity(service.PlatformOpenAI, test.model)}
+				result, err := port.DescribeForGroup(ctx, catalog.PriceInput{Binding: binding, Multiplier: group.RateMultiplier, At: at}, group)
+				require.NoError(t, err)
+				return result
+			}
+			billingState := func(first, second catalog.Price) string {
+				projected := catalog.Project(catalog.Perspective{}, catalog.Input{Models: []catalog.Candidate{{
+					Provider: service.PlatformOpenAI, Model: test.model,
+					Offers: []catalog.Offer{{Eligible: true, Published: true, Price: first}, {Eligible: true, Published: true, Price: second}},
+				}}}, catalog.Window{}, at)
+				return projected.Details[0].Model.Billing.State
+			}
+
+			withoutLongContext := group(1, 7, false, 1)
+			withLongContext := group(2, 2, true, 1)
+			first, second := price(withoutLongContext), price(withLongContext)
+			require.NotEqual(t, *first.Version, *second.Version)
+			if test.conflict {
+				require.NotEqual(t, first.Semantics, second.Semantics)
+				require.Equal(t, "conflict", billingState(first, second))
+			} else {
+				require.Equal(t, first.Semantics, second.Semantics)
+				require.Equal(t, "priced", billingState(first, second))
+			}
+			require.Equal(t, "conflict", billingState(first, price(group(3, 3, false, 1.2))))
+		})
+	}
 }
 
 func TestPriceBookDisplayUsesEffectiveRatesAndExactVersion(t *testing.T) {

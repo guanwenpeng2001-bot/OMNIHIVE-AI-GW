@@ -21,6 +21,14 @@ func (repo *tokenRefreshAccountRepo) UpdateAccountRuntimeCredentials(ctx context
 	return repo.UpdateCredentials(ctx, expected.ID, credentials)
 }
 
+func (repo *tokenRefreshAccountRepo) UpdateAccountRuntimeSnapshot(ctx context.Context, expected *Account, updates map[string]any, _ *time.Time) error {
+	current := repo.accountsByID[expected.ID]
+	if current == nil || AccountRuntimeIdentityKey(current) != AccountRuntimeIdentityKey(expected) {
+		return ErrAccountRuntimeIdentityChanged
+	}
+	return repo.UpdateExtra(ctx, expected.ID, updates)
+}
+
 func (repo *grokQuotaAccountRepo) UpdateAccountRuntimeSnapshot(ctx context.Context, expected *Account, updates map[string]any, _ *time.Time) error {
 	if repo.mockAccountRepoForPlatform != nil {
 		if current := repo.accountsByID[expected.ID]; current != nil && AccountRuntimeIdentityKey(current) != AccountRuntimeIdentityKey(expected) {

@@ -5,7 +5,10 @@ package service
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -510,6 +513,50 @@ func TestTokenRefreshService_RefreshWithRetry_Antigravity(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, repo.updateCalls)
 	require.Equal(t, 1, invalidator.calls) // Antigravity 也应触发缓存失效
+}
+
+func TestTokenRefreshService_AntigravityUnifiedRefreshPersistsPrivacy(t *testing.T) {
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+	http.DefaultTransport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"userSettings":{}}`)), Request: request}, nil
+	})
+
+	account := &Account{
+		ID:       81,
+		Platform: PlatformAntigravity,
+		Type:     AccountTypeOAuth,
+		Status:   StatusActive,
+		Credentials: map[string]any{
+			"access_token":  "old-access",
+			"refresh_token": "old-refresh",
+			"email":         "person@example.com",
+			"project_id":    "stable-project",
+			"expires_at":    time.Now().Add(-time.Hour).Format(time.RFC3339),
+		},
+		Extra: map[string]any{UpstreamModelCatalogStateExtraKey: AccountModelCatalogState{IdentityRevision: 7}},
+	}
+	repo := &tokenRefreshAccountRepo{snapshotReads: true}
+	repo.accountsByID = map[int64]*Account{account.ID: account}
+	cfg := &config.Config{TokenRefresh: config.TokenRefreshConfig{MaxRetries: 1}}
+	service := NewTokenRefreshService(repo, nil, nil, nil, nil, nil, nil, cfg, nil)
+	service.SetRefreshAPI(NewOAuthRefreshAPI(repo, nil))
+	refresher := &tokenRefresherStub{credentials: map[string]any{
+		"access_token":  "new-access",
+		"refresh_token": "new-refresh",
+		"email":         "person@example.com",
+		"project_id":    "stable-project",
+		"expires_at":    time.Now().Add(time.Hour).Format(time.RFC3339),
+	}}
+
+	require.NoError(t, service.refreshWithRetry(context.Background(), account, refresher, refresher, time.Hour))
+	require.Equal(t, AntigravityPrivacySet, repo.accountsByID[account.ID].Extra["privacy_mode"])
+	require.Equal(t, int64(7), repo.accountsByID[account.ID].ModelCatalogState().IdentityRevision)
+	require.Equal(t, 1, repo.updateExtraCalls)
+
+	stale := snapshotOAuthRefreshAccount(repo.accountsByID[account.ID])
+	repo.accountsByID[account.ID].Credentials["project_id"] = "different-project"
+	require.ErrorIs(t, repo.UpdateAccountRuntimeSnapshot(context.Background(), stale, map[string]any{"privacy_mode": AntigravityPrivacySet}, nil), ErrAccountRuntimeIdentityChanged)
 }
 
 func TestAntigravityTokenRefresher_NeedsRefresh_ForceRefreshMarker(t *testing.T) {

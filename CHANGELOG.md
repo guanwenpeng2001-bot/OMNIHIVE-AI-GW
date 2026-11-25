@@ -4,6 +4,13 @@ This project follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/
 
 ## Unreleased
 
+## 0.3.7 - 2026-11-25
+
+### Fixed
+
+- **Group price conflicts**: Catalog price comparison now uses only the effective billing terms (rates, multipliers, time-of-day and conditional prices, and long-context tiers that actually apply). Record IDs, channel bindings and interval ordering no longer make identically priced models appear as "priced by group". Genuine price differences are still reported.
+- **Antigravity privacy after refresh**: The shared OAuth refresh path rereads the persisted account after saving refreshed credentials, so the follow-up privacy-mode write is checked against the current identity and is saved instead of being retried on every refresh. Re-authorizing to a different project or email is still rejected.
+
 ## 0.3.6 - 2026-11-25
 
 ### Fixed
