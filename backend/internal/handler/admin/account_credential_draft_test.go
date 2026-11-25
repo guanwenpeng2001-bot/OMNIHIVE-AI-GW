@@ -19,6 +19,16 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func TestExistingAccountDraftMappingIntent(t *testing.T) {
+	draft := map[string]any{"access_token": "fixture", "model_mapping": map[string]any{"stale": "target"}}
+	require.NotContains(t, existingAccountDraftCredentials(draft, nil), "model_mapping")
+	require.NotContains(t, existingAccountDraftCredentials(draft, map[string]any{"model_mapping": nil}), "model_mapping")
+	clear := existingAccountDraftCredentials(draft, map[string]any{"model_mapping": map[string]any{}})
+	require.Equal(t, map[string]any{}, clear["model_mapping"])
+	require.Equal(t, "fixture", clear["access_token"])
+	require.Equal(t, map[string]any{"stale": "target"}, draft["model_mapping"])
+}
+
 func credentialDraftTestStore(t *testing.T) *service.AuthPendingIdentityService {
 	pending, _ := credentialDraftTestClient(t)
 	return pending

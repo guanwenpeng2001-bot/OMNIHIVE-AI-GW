@@ -415,6 +415,7 @@ type UpdateGroupInput struct {
 }
 
 type CreateAccountInput struct {
+	ModelSelection     *ModelSelectionCommand
 	Status             string
 	TPMLimit           int64
 	Name               string
@@ -450,6 +451,7 @@ type ShadowOptions struct {
 }
 
 type UpdateAccountInput struct {
+	ModelSelection         *ModelSelectionCommand
 	PreserveModelSelection bool
 	PatchCredentials       bool
 	ModelSelectionActorID  int64

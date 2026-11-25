@@ -4,6 +4,19 @@ info:
   title: OmniHive API
   version: 2.0.0
 paths:
+  /api/v1/admin/accounts:
+    post:
+      operationId: createAdminAccount
+      description: Creates an account or confirms its reviewed OAuth credential draft.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AdminAccountCreate'}
+      responses:
+        '200': {description: Saved account}
+        '400': {description: Invalid account or model selection}
+        '409': {description: Credential draft or account configuration changed}
   /api/v1/admin/accounts/{id}:
     parameters:
       - name: id
@@ -44,6 +57,33 @@ paths:
           description: Invalid update, including conflicting model selection intent
         '409':
           description: Account model selection conflict, mapping change on deny_all, or a Connections-managed account
+  /api/v1/admin/accounts/{id}/apply-oauth-credentials:
+    post:
+      operationId: applyAdminAccountOAuthCredentials
+      description: Confirms a reviewed draft. Submit the same model selection used at review.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer, format: int64, minimum: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, credential_draft, credential_draft_revision]
+              properties:
+                type: {type: string, enum: [oauth, setup-token]}
+                credential_draft: {type: string}
+                credential_draft_revision: {type: string}
+                credentials: {$ref: '#/components/schemas/AdminAccountUpdateCredentials'}
+                extra: {type: object, additionalProperties: true}
+                model_selection: {$ref: '#/components/schemas/AdminAccountWorkflowModelSelection'}
+      responses:
+        '200': {description: Re-authorized account}
+        '400': {description: Invalid confirmation or model selection}
+        '409': {description: The confirmation differs from the reviewed credential draft or the account changed}
   /api/v1/admin/accounts/{id}/models/allowlist:
     parameters:
       - $ref: '#/components/parameters/AdminModelSelectionAccountID'
@@ -113,6 +153,26 @@ paths:
           description: Account not found in the current workspace
     parameters:
       - $ref: '#/components/parameters/AdminModelSelectionAccountID'
+  /api/v1/admin/accounts/batch:
+    post:
+      operationId: batchCreateAdminAccounts
+      description: Creates accounts or confirms reviewed OAuth credential drafts in a batch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [accounts]
+              properties:
+                accounts:
+                  type: array
+                  minItems: 1
+                  items: {$ref: '#/components/schemas/AdminAccountCreate'}
+      responses:
+        '200': {description: Batch result}
+        '400': {description: Invalid batch or model selection}
+        '409': {description: Credential draft or account configuration changed}
   /api/v1/admin/accounts/bulk-update:
     post:
       operationId: bulkUpdateAdminAccounts
@@ -140,6 +200,24 @@ paths:
               schema: {$ref: '#/components/schemas/AdminModelSelectionError'}
         '409':
           description: Account model selection conflict, mapping change on deny_all, or a Connections-managed account
+  /api/v1/admin/accounts/credential-drafts/{draft}/review:
+    post:
+      operationId: reviewAdminAccountCredentialDraft
+      description: Binds the reviewed account request, including model selection, to the credential draft.
+      parameters:
+        - name: draft
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AdminAccountCreate'}
+      responses:
+        '200': {description: Reviewed credential draft}
+        '400': {description: Invalid review or model selection}
+        '409': {description: Credential draft changed}
   /api/v1/admin/backups/schedule:
     get:
       operationId: getAdminBackupSchedule
@@ -5681,6 +5759,19 @@ components:
                 items: {type: string}
                 description: Upstream targets added to this account's scope during a selection or mapping write. An empty array is returned when no targets were added.
               rules_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
+    AdminAccountCreate:
+      type: object
+      additionalProperties: true
+      required: [name, platform, type, credentials]
+      properties:
+        name: {type: string}
+        platform: {type: string}
+        type: {type: string, enum: [oauth, setup-token, apikey, upstream, bedrock, service_account]}
+        existing_account_id: {type: integer, format: int64, minimum: 1}
+        credential_draft: {type: string}
+        credential_draft_revision: {type: string}
+        credentials: {$ref: '#/components/schemas/AdminAccountUpdateCredentials'}
+        model_selection: {$ref: '#/components/schemas/AdminAccountWorkflowModelSelection'}
     AdminAccountModelAllowlistScope:
       type: object
       required: [enabled, models, identity_revision, confirmed_at, confirmed_by, reason]
@@ -5844,6 +5935,16 @@ components:
             - type: 'null'
           description: >-
             Replaces the account's entire explicit alias map and adds its targets to the saved scope. Omit or use null to keep the existing selection. An empty object clears the map and keeps the existing scope. On a deny_all account, choose a mode through the allowlist endpoint before changing the mapping.
+    AdminAccountWorkflowModelSelection:
+      type: object
+      required: [mode]
+      description: Set the upstream scope without creating identity aliases. Omit this object on existing accounts to keep the current scope unless explicitly editing the mapping.
+      properties:
+        mode: {type: string, enum: [inherit, restricted]}
+        models:
+          type: array
+          items: {type: string}
+          description: Restricted requires at least one concrete upstream model ID. The server adds stored mapping targets. Inherit requires an empty or omitted list.
     AdminBackupSchedule:
       type: object
       properties:

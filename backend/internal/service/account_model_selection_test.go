@@ -149,6 +149,25 @@ func TestInitializeAccountModelSelection(t *testing.T) {
 	require.EqualValues(t, 0, mapped.ModelSelectionResult.RulesRevision)
 }
 
+func TestModelSelectionDenyAllPreservesOmittedMapping(t *testing.T) {
+	mapping := map[string]string{"public-alias": "vendor/model-a"}
+	current := AccountModelAllowlist{Enabled: true, Models: []string{"vendor/model-a"}}
+	denied, err := NormalizeModelSelection(current, mapping, ModelSelectionCommand{
+		Mode: ModelSelectionDenyAll, ActorID: 7, Reason: "upstream maintenance",
+	})
+	require.NoError(t, err)
+	require.Equal(t, ModelSelectionDenyAll, denied.Mode)
+	require.Empty(t, denied.Models)
+	require.Equal(t, mapping, denied.ModelMapping)
+	require.False(t, denied.MappingChanged)
+	reopened, err := NormalizeModelSelection(denied.Scope, denied.ModelMapping, ModelSelectionCommand{
+		Mode: ModelSelectionRestricted, Models: []string{"vendor/model-b"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, mapping, reopened.ModelMapping)
+	require.Equal(t, []string{"vendor/model-a"}, reopened.AutoAdded)
+}
+
 func TestModelSelectionDenyAllAppliesWithPassthrough(t *testing.T) {
 	account := catalogEvidenceAccount(7, PlatformOpenAI, "native")
 	account.Extra["openai_passthrough"] = true

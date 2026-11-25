@@ -17,10 +17,34 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/response"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 const credentialDraftBrowserCookie = "account_authorization_browser"
+
+type accountWorkflowModelSelection struct {
+	Mode   service.ModelSelectionMode `json:"mode"`
+	Models []string                   `json:"models,omitempty"`
+}
+
+func (selection *accountWorkflowModelSelection) command(credentials map[string]any, actorID int64) (*service.ModelSelectionCommand, error) {
+	if selection == nil {
+		return nil, nil
+	}
+	if selection.Mode != service.ModelSelectionInherit && selection.Mode != service.ModelSelectionRestricted {
+		return nil, service.ErrModelSelectionInvalid
+	}
+	return validatedModelSelectionCommand(selection.Mode, selection.Models, "", credentials, actorID)
+}
+
+func accountWorkflowActorID(ctx *gin.Context) int64 {
+	if ctx == nil {
+		return 0
+	}
+	subject, _ := middleware.GetAuthSubjectFromContext(ctx)
+	return subject.UserID
+}
 
 // IssueCursorCredentialDraft validates manually supplied Cursor credentials
 // without creating an account or returning the credentials to the browser.
@@ -272,11 +296,15 @@ func applyCredentialDraftOptions(account *service.Account, request CreateAccount
 // Existing-account confirmation applies only the mapping bound to the reviewed
 // request. A provider draft or refresh can carry a stale copy of the mapping.
 func existingAccountDraftCredentials(draft, reviewedOptions map[string]any) map[string]any {
-	if reviewedOptions["model_mapping"] != nil {
-		return draft
-	}
 	credentials := maps.Clone(draft)
-	delete(credentials, "model_mapping")
+	if mapping := reviewedOptions["model_mapping"]; mapping != nil {
+		if credentials == nil {
+			credentials = make(map[string]any)
+		}
+		credentials["model_mapping"] = mapping
+	} else {
+		delete(credentials, "model_mapping")
+	}
 	return credentials
 }
 
@@ -307,21 +335,26 @@ func (handler *AccountHandler) createAccountFromRequest(ctx context.Context, gin
 		}
 		return handler.confirmCredentialDraftAccount(ctx, ginCtx, request, extra, skipMixedChannelCheck, bindCapabilities)
 	}
+	selection, err := request.ModelSelection.command(request.Credentials, accountWorkflowActorID(ginCtx))
+	if err != nil {
+		return nil, err
+	}
 	if bindCapabilities {
 		if err := bindModelCapabilityDefaults(&service.Account{Platform: request.Platform, Type: request.Type, Credentials: service.SanitizeStoredCredentials(request.Platform, request.Credentials)}, extra, adminActorScope(ginCtx)); err != nil {
 			return nil, infraerrors.BadRequest("INVALID_MODEL_CAPABILITY_DEFAULTS", err.Error())
 		}
 	}
 	return handler.adminService.CreateAccount(ctx, &service.CreateAccountInput{
-		TPMLimit:    request.TPMLimit.Value,
-		Name:        request.Name,
-		Status:      request.Status,
-		Notes:       request.Notes,
-		Platform:    request.Platform,
-		Type:        request.Type,
-		Credentials: request.Credentials,
-		Extra:       extra,
-		ProxyID:     request.ProxyID, ProxyGroupID: request.ProxyGroupID,
+		ModelSelection: selection,
+		TPMLimit:       request.TPMLimit.Value,
+		Name:           request.Name,
+		Status:         request.Status,
+		Notes:          request.Notes,
+		Platform:       request.Platform,
+		Type:           request.Type,
+		Credentials:    request.Credentials,
+		Extra:          extra,
+		ProxyID:        request.ProxyID, ProxyGroupID: request.ProxyGroupID,
 		Concurrency:           request.Concurrency,
 		Priority:              request.Priority,
 		RateMultiplier:        request.RateMultiplier,
@@ -342,7 +375,7 @@ func (handler *AccountHandler) confirmCredentialDraftAccount(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	return confirmCredentialDraftWithBinding(ctx, handler.credentialDrafts, handler.adminService, binding, request, extra, skipMixedChannelCheck, bindCapabilities, adminActorScope(ginCtx), false)
+	return confirmCredentialDraftWithBinding(ctx, handler.credentialDrafts, handler.adminService, binding, request, extra, skipMixedChannelCheck, bindCapabilities, adminActorScope(ginCtx), accountWorkflowActorID(ginCtx), false)
 }
 
 func confirmCredentialDraftWithBinding(
@@ -354,9 +387,14 @@ func confirmCredentialDraftWithBinding(
 	extra map[string]any,
 	skipMixedChannelCheck, bindCapabilities bool,
 	actorScope string,
+	actorID int64,
 	skipDefaultGroupBind bool,
 ) (*service.Account, error) {
 	if err := requireCredentialDraftStore(pending); err != nil {
+		return nil, err
+	}
+	selection, err := request.ModelSelection.command(request.Credentials, actorID)
+	if err != nil {
 		return nil, err
 	}
 	submission, err := credentialDraftSubmission(request)
@@ -394,6 +432,7 @@ func confirmCredentialDraftWithBinding(
 				return 0, service.ErrAccountCredentialDraftReviewRequired
 			}
 			updated, err := pending.UpdateAccountCredentialsIfUnchanged(txCtx, existing, adminService, &service.UpdateAccountInput{
+				ModelSelection: selection, ModelSelectionActorID: actorID,
 				TPMLimit: request.TPMLimit.Pointer(),
 				Name:     request.Name, Notes: request.Notes, Status: request.Status,
 				Credentials: existingAccountDraftCredentials(draft.Credentials, request.Credentials), Extra: extra,
@@ -409,16 +448,21 @@ func confirmCredentialDraftWithBinding(
 			created = updated
 			return existing.ID, nil
 		}
+		credentials := draft.Credentials
+		if selection != nil {
+			credentials = existingAccountDraftCredentials(credentials, request.Credentials)
+		}
 		account, err := adminService.CreateAccount(txCtx, &service.CreateAccountInput{
-			TPMLimit:    request.TPMLimit.Value,
-			Name:        request.Name,
-			Status:      request.Status,
-			Notes:       request.Notes,
-			Platform:    draft.Platform,
-			Type:        draft.Type,
-			Credentials: draft.Credentials,
-			Extra:       extra,
-			ProxyID:     request.ProxyID, ProxyGroupID: request.ProxyGroupID,
+			ModelSelection: selection,
+			TPMLimit:       request.TPMLimit.Value,
+			Name:           request.Name,
+			Status:         request.Status,
+			Notes:          request.Notes,
+			Platform:       draft.Platform,
+			Type:           draft.Type,
+			Credentials:    credentials,
+			Extra:          extra,
+			ProxyID:        request.ProxyID, ProxyGroupID: request.ProxyGroupID,
 			Concurrency:           request.Concurrency,
 			Priority:              request.Priority,
 			RateMultiplier:        request.RateMultiplier,
@@ -468,6 +512,7 @@ func (handler *AccountHandler) applyCredentialDraft(ctx context.Context, ginCtx 
 		return nil, err
 	}
 	review := CreateAccountRequest{
+		ModelSelection:          request.ModelSelection,
 		Name:                    "account:" + strconv.FormatInt(accountID, 10),
 		CredentialDraft:         request.CredentialDraft,
 		CredentialDraftRevision: request.CredentialDraftRevision,
@@ -475,6 +520,11 @@ func (handler *AccountHandler) applyCredentialDraft(ctx context.Context, ginCtx 
 		Type:                    request.Type,
 		Credentials:             request.Credentials,
 		Extra:                   request.Extra,
+	}
+	actorID := accountWorkflowActorID(ginCtx)
+	selection, err := review.ModelSelection.command(review.Credentials, actorID)
+	if err != nil {
+		return nil, err
 	}
 	submission, err := credentialDraftSubmission(review)
 	if err != nil {
@@ -491,6 +541,7 @@ func (handler *AccountHandler) applyCredentialDraft(ctx context.Context, ginCtx 
 			return 0, service.ErrAccountCredentialDraftConflict
 		}
 		account, err := handler.credentialDrafts.UpdateAccountCredentialsIfUnchanged(txCtx, existing, handler.adminService, &service.UpdateAccountInput{
+			ModelSelection: selection, ModelSelectionActorID: actorID,
 			Type:        request.Type,
 			Credentials: existingAccountDraftCredentials(draft.Credentials, request.Credentials),
 		})
@@ -576,6 +627,10 @@ func (handler *AccountHandler) ReviewCredentialDraft(ctx *gin.Context) {
 		return
 	}
 	if err := applyCredentialDraftOptions(account, request); err != nil {
+		response.ErrorFrom(ctx, err)
+		return
+	}
+	if _, err := request.ModelSelection.command(request.Credentials, accountWorkflowActorID(ctx)); err != nil {
 		response.ErrorFrom(ctx, err)
 		return
 	}

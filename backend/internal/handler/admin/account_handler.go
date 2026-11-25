@@ -287,28 +287,29 @@ func NewAccountHandler(
 
 // CreateAccountRequest represents create account request
 type CreateAccountRequest struct {
-	TPMLimit                service.OptionalTPMLimit `json:"tpm_limit,omitzero"`
-	Status                  string                   `json:"status,omitempty" binding:"omitempty,oneof=active inactive error"`
-	ExistingAccountID       int64                    `json:"existing_account_id,omitempty"`
-	CredentialDraft         string                   `json:"credential_draft,omitempty"`
-	CredentialDraftRevision string                   `json:"credential_draft_revision,omitempty"`
-	Name                    string                   `json:"name" binding:"required"`
-	Notes                   *string                  `json:"notes"`
-	Platform                string                   `json:"platform" binding:"required,concrete_platform"`
-	Type                    string                   `json:"type" binding:"required,oneof=oauth setup-token apikey upstream bedrock service_account"`
-	Credentials             map[string]any           `json:"credentials" binding:"required"`
-	Extra                   map[string]any           `json:"extra"`
-	ProxyID                 *int64                   `json:"proxy_id"`
-	ProxyGroupID            *int64                   `json:"proxy_group_id"`
-	Concurrency             int                      `json:"concurrency"`
-	Priority                int                      `json:"priority"`
-	RateMultiplier          *float64                 `json:"rate_multiplier"`
-	LoadFactor              *int                     `json:"load_factor"`
-	GroupIDs                []int64                  `json:"group_ids"`
-	ExpiresAt               *int64                   `json:"expires_at"`
-	AutoPauseOnExpired      *bool                    `json:"auto_pause_on_expired"`
-	ProbeEnabled            *bool                    `json:"upstream_billing_probe_enabled"`
-	ConfirmMixedChannelRisk *bool                    `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
+	ModelSelection          *accountWorkflowModelSelection `json:"model_selection,omitempty"`
+	TPMLimit                service.OptionalTPMLimit       `json:"tpm_limit,omitzero"`
+	Status                  string                         `json:"status,omitempty" binding:"omitempty,oneof=active inactive error"`
+	ExistingAccountID       int64                          `json:"existing_account_id,omitempty"`
+	CredentialDraft         string                         `json:"credential_draft,omitempty"`
+	CredentialDraftRevision string                         `json:"credential_draft_revision,omitempty"`
+	Name                    string                         `json:"name" binding:"required"`
+	Notes                   *string                        `json:"notes"`
+	Platform                string                         `json:"platform" binding:"required,concrete_platform"`
+	Type                    string                         `json:"type" binding:"required,oneof=oauth setup-token apikey upstream bedrock service_account"`
+	Credentials             map[string]any                 `json:"credentials" binding:"required"`
+	Extra                   map[string]any                 `json:"extra"`
+	ProxyID                 *int64                         `json:"proxy_id"`
+	ProxyGroupID            *int64                         `json:"proxy_group_id"`
+	Concurrency             int                            `json:"concurrency"`
+	Priority                int                            `json:"priority"`
+	RateMultiplier          *float64                       `json:"rate_multiplier"`
+	LoadFactor              *int                           `json:"load_factor"`
+	GroupIDs                []int64                        `json:"group_ids"`
+	ExpiresAt               *int64                         `json:"expires_at"`
+	AutoPauseOnExpired      *bool                          `json:"auto_pause_on_expired"`
+	ProbeEnabled            *bool                          `json:"upstream_billing_probe_enabled"`
+	ConfirmMixedChannelRisk *bool                          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
 }
 
 // UpdateAccountRequest represents update account request
@@ -366,14 +367,18 @@ type bulkAccountModelSelection struct {
 }
 
 func (selection bulkAccountModelSelection) command(credentials map[string]any, actorID int64) (*service.ModelSelectionCommand, error) {
-	if selection.Mode == "" || (selection.Mode == service.ModelSelectionRestricted && len(selection.Models) == 0) {
-		return nil, service.ErrModelSelectionInvalid
-	}
 	if selection.Mode == service.ModelSelectionDenyAll && !selection.ConfirmDenyAll {
 		return nil, service.ErrModelSelectionConfirmationRequired
 	}
+	return validatedModelSelectionCommand(selection.Mode, selection.Models, selection.Reason, credentials, actorID)
+}
+
+func validatedModelSelectionCommand(mode service.ModelSelectionMode, models []string, reason string, credentials map[string]any, actorID int64) (*service.ModelSelectionCommand, error) {
+	if mode == "" || (mode == service.ModelSelectionRestricted && len(models) == 0) {
+		return nil, service.ErrModelSelectionInvalid
+	}
 	command := &service.ModelSelectionCommand{
-		Mode: selection.Mode, Models: selection.Models, Reason: selection.Reason,
+		Mode: mode, Models: models, Reason: reason,
 		ActorID: actorID, Source: service.ModelSelectionAccountWrite,
 	}
 	mapping, err := service.ModelSelectionCommandFromCredentials(credentials, actorID)
@@ -1876,18 +1881,19 @@ func (h *AccountHandler) Refresh(c *gin.Context) {
 
 // ApplyOAuthCredentialsRequest is the payload for persisting re-authorized OAuth credentials.
 type ApplyOAuthCredentialsRequest struct {
-	CredentialDraft         string         `json:"credential_draft"`
-	CredentialDraftRevision string         `json:"credential_draft_revision"`
-	Type                    string         `json:"type" binding:"required,oneof=oauth setup-token"`
-	Credentials             map[string]any `json:"credentials"`
-	Extra                   map[string]any `json:"extra"`
+	ModelSelection          *accountWorkflowModelSelection `json:"model_selection,omitempty"`
+	CredentialDraft         string                         `json:"credential_draft"`
+	CredentialDraftRevision string                         `json:"credential_draft_revision"`
+	Type                    string                         `json:"type" binding:"required,oneof=oauth setup-token"`
+	Credentials             map[string]any                 `json:"credentials"`
+	Extra                   map[string]any                 `json:"extra"`
 }
 
 // ApplyOAuthCredentials 将"重新授权"得到的新凭据原子落库。
 // POST /api/v1/admin/accounts/:id/apply-oauth-credentials
 //
 // 与通用 PUT /:id (Update) 接口的关键区别：
-//   - 仅接收 type / credentials / extra 三个字段（不接受 concurrency / rpm / quota_* 等可能误传的字段）
+//   - 接收 type / credentials / extra 及已复核的 model_selection
 //   - Extra 走 UpdateAccountExtra(JSONB key 级合并)，**绝不**全量覆盖；
 //     避免 base_rpm / window_cost_limit / max_sessions / quota_* / privacy_mode
 //     等持久化配置在重新授权后丢失

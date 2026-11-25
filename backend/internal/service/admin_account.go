@@ -453,19 +453,20 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 	delete(accountExtra, OllamaCloudUsageSnapshotExtraKey)
 	accountExtra = prepareCodexFingerprintExtraForCreate(input.Platform, input.Type, accountExtra)
 	account := &Account{
-		Name:         input.Name,
-		Notes:        normalizeAccountNotes(input.Notes),
-		Platform:     input.Platform,
-		Type:         input.Type,
-		Credentials:  input.Credentials,
-		Extra:        accountExtra,
-		ProxyID:      normalizedProxyID(input.ProxyID),
-		ProxyGroupID: normalizedProxyID(input.ProxyGroupID),
-		TPMLimit:     input.TPMLimit,
-		Concurrency:  normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
-		Priority:     input.Priority,
-		Status:       status,
-		Schedulable:  true,
+		ModelSelectionCommand: input.ModelSelection,
+		Name:                  input.Name,
+		Notes:                 normalizeAccountNotes(input.Notes),
+		Platform:              input.Platform,
+		Type:                  input.Type,
+		Credentials:           input.Credentials,
+		Extra:                 accountExtra,
+		ProxyID:               normalizedProxyID(input.ProxyID),
+		ProxyGroupID:          normalizedProxyID(input.ProxyGroupID),
+		TPMLimit:              input.TPMLimit,
+		Concurrency:           normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
+		Priority:              input.Priority,
+		Status:                status,
+		Schedulable:           true,
 	}
 	if err := validateExpandedPlatformAccount(account); err != nil {
 		return nil, err
@@ -661,9 +662,12 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		return s.updateAccountGroupsOnly(ctx, account, input)
 	}
 	previousCredentials := account.Credentials
-	selectionCommand, err := ModelSelectionCommandFromCredentials(input.Credentials, input.ModelSelectionActorID)
-	if err != nil {
-		return nil, err
+	selectionCommand := input.ModelSelection
+	if selectionCommand == nil {
+		selectionCommand, err = ModelSelectionCommandFromCredentials(input.Credentials, input.ModelSelectionActorID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	account.ModelSelectionCommand = selectionCommand
 	if err := validateCompatibleSpecialAuthTransition(account, input.Credentials); err != nil {

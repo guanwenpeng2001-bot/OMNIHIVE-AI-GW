@@ -3,6 +3,7 @@ package admin_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -133,6 +135,8 @@ func TestAccountModelSelectionHTTPPostgres(t *testing.T) {
 	defer close(discoveryDone)
 	syncer := service.NewAccountTestService(repo, nil, nil, nil, nil, selectionPausedDiscovery{done: discoveryDone}, cfg, nil)
 	accountHandler := admin.NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, syncer, nil, nil, nil, nil, nil)
+	credentialDrafts := service.NewAuthPendingIdentityService(client)
+	accountHandler.SetCredentialDraftService(credentialDrafts)
 	router := gin.New()
 	testAuth := func(c *gin.Context) {
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 7})
@@ -179,18 +183,19 @@ func TestAccountModelSelectionHTTPPostgres(t *testing.T) {
 
 	fixturePrefix := "model-selection-http-" + uuid.NewString()
 	responsesName := fixturePrefix + "-responses"
+	directName, oauthName := fixturePrefix+"-selection-direct", fixturePrefix+"-selection-oauth"
 	t.Cleanup(func() {
 		cleanupCtx := context.Background()
 		tx, err := db.BeginTx(cleanupCtx, nil)
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback() }()
 		_, err = tx.ExecContext(cleanupCtx, `DELETE FROM credential_secrets WHERE account_id IN (
-			SELECT id FROM accounts WHERE name IN ($1, $2, $3))`, fixturePrefix+"-router", fixturePrefix+"-code", responsesName)
+			SELECT id FROM accounts WHERE name IN ($1, $2, $3, $4, $5))`, fixturePrefix+"-router", fixturePrefix+"-code", responsesName, directName, oauthName)
 		require.NoError(t, err)
 		_, err = tx.ExecContext(cleanupCtx, `WITH removed AS (
-			DELETE FROM accounts WHERE name IN ($1, $2, $3) RETURNING id
+			DELETE FROM accounts WHERE name IN ($1, $2, $3, $4, $5) RETURNING id
 		) DELETE FROM scheduler_outbox WHERE account_id IN (SELECT id FROM removed)
-			OR payload->>'account_id' IN (SELECT id::text FROM removed)`, fixturePrefix+"-router", fixturePrefix+"-code", responsesName)
+			OR payload->>'account_id' IN (SELECT id::text FROM removed)`, fixturePrefix+"-router", fixturePrefix+"-code", responsesName, directName, oauthName)
 		require.NoError(t, err)
 		require.NoError(t, tx.Commit())
 	})
@@ -457,6 +462,58 @@ func TestAccountModelSelectionHTTPPostgres(t *testing.T) {
 		apply(inherit, clearMapping, false, []string{}, []string{}, map[string]string{})
 	})
 
+	t.Run("create and reauthorize with an alias-free scope", func(t *testing.T) {
+		type writtenAccount struct{ ID int64 }
+		restrictedA := map[string]any{"mode": "restricted", "models": []string{"vendor/model-a"}}
+		restrictedB := map[string]any{"mode": "restricted", "models": []string{"vendor/model-b"}}
+		direct := decodeSelectionHTTP[writtenAccount](t, request(t, http.MethodPost, selectionAccountsPath, map[string]any{
+			"name": directName, "platform": service.PlatformOpenRouter, "type": "apikey", "concurrency": 1,
+			"credentials": map[string]any{"api_key": token, "base_url": fixtures[0].baseURL}, "model_selection": restrictedA,
+		}, 200))
+		assertSelectionDatabase(t, ctx, db, direct.ID, 0, true, []string{"vendor/model-a"}, nil)
+
+		browser := strings.ReplaceAll(uuid.NewString()+uuid.NewString(), "-", "")
+		binding := fmt.Sprintf("%x", sha256.Sum256([]byte(domain.WorkspaceActorScope(ctx, "admin:7")+":"+browser)))
+		cookie := &http.Cookie{Name: "account_authorization_browser", Value: browser}
+		t.Cleanup(func() {
+			_, err := db.ExecContext(context.Background(), "DELETE FROM pending_auth_sessions WHERE browser_session_key=$1", binding)
+			require.NoError(t, err)
+		})
+		post := func(t *testing.T, path string, payload any, status int) json.RawMessage {
+			t.Helper()
+			return requestAccountSelectionHTTP(t, router, http.MethodPost, path, payload, status, false, cookie)
+		}
+		review := func(t *testing.T, name, token string, scope, options map[string]any) map[string]any {
+			t.Helper()
+			draft, err := credentialDrafts.IssueAccountCredentialDraft(ctx, binding, service.PlatformAnthropic, service.AccountTypeOAuth, map[string]any{
+				"access_token": token, "model_mapping": map[string]string{"draft-copy": "stale"},
+			})
+			require.NoError(t, err)
+			payload := map[string]any{"name": name, "platform": service.PlatformAnthropic, "type": service.AccountTypeOAuth, "credential_draft": draft.Reference,
+				"credential_draft_revision": draft.Revision, "credentials": options, "model_selection": scope}
+			reviewed := decodeSelectionHTTP[service.AccountCredentialDraft](t, post(t, selectionAccountsPath+"/credential-drafts/"+draft.Reference+"/review", payload, 200))
+			payload["credential_draft_revision"] = reviewed.Revision
+			return payload
+		}
+		creation := review(t, oauthName, "draft-token", restrictedA, map[string]any{})
+		creation["model_selection"] = restrictedB
+		assertSelectionHTTPReason(t, post(t, selectionAccountsPath, creation, 409), "ACCOUNT_CREDENTIAL_DRAFT_CONFLICT")
+		creation["model_selection"] = restrictedA
+		oauth := decodeSelectionHTTP[writtenAccount](t, post(t, selectionAccountsPath, creation, 200))
+		assertSelectionDatabase(t, ctx, db, oauth.ID, 0, true, []string{"vendor/model-a"}, nil)
+
+		updated := decodeSelectionHTTP[accountSelectionEditReply](t, request(t, http.MethodPut, selectionAccountPath(oauth.ID), map[string]any{
+			"credentials": map[string]any{"model_mapping": map[string]string{"custom": "alias-target"}},
+		}, 200))
+		options := map[string]any{"model_mapping": map[string]string{}}
+		reauth := review(t, "account:"+strconv.FormatInt(oauth.ID, 10), "new-draft-token", restrictedB, options)
+		post(t, selectionAccountPath(oauth.ID)+"/apply-oauth-credentials", reauth, 200)
+		assertSelectionDatabase(t, ctx, db, oauth.ID, updated.RulesRevision+1, true, []string{"vendor/model-b"}, map[string]string{})
+		fresh, err := repo.GetByID(ctx, oauth.ID)
+		require.NoError(t, err)
+		require.Equal(t, "new-draft-token", fresh.GetCredential("access_token"))
+	})
+
 	t.Run("responses passthrough and compact eligibility", func(t *testing.T) {
 		const ordinary, compact = "gpt-4.1-mini", "compact-private"
 		mapping := map[string]string{ordinary: ordinary}
@@ -546,13 +603,16 @@ func forwardSelectionChat(ctx context.Context, gateway *service.OpenAIGatewaySer
 	return recorder, err
 }
 
-func requestAccountSelectionHTTP(t *testing.T, router http.Handler, method, path string, body any, status int, otherWorkspace bool) json.RawMessage {
+func requestAccountSelectionHTTP(t *testing.T, router http.Handler, method, path string, body any, status int, otherWorkspace bool, cookies ...*http.Cookie) json.RawMessage {
 	t.Helper()
 	raw, err := json.Marshal(body)
 	require.NoError(t, err)
 	request := httptest.NewRequest(method, path, bytes.NewReader(raw))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Idempotency-Key", uuid.NewString())
+	for _, cookie := range cookies {
+		request.AddCookie(cookie)
+	}
 	if otherWorkspace {
 		request.Header.Set("X-Test-Other-Workspace", "1")
 	}

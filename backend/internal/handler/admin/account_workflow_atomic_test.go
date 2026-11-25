@@ -146,7 +146,7 @@ func TestCredentialDraftExistingAccountConfirmationIsBoundAndDoesNotCreate(t *te
 	require.NoError(t, err)
 	request.CredentialDraftRevision = review.Revision
 	for range 2 {
-		account, err := confirmCredentialDraftWithBinding(ctx, pending, admin, fixture, request, nil, false, false, "admin", false)
+		account, err := confirmCredentialDraftWithBinding(ctx, pending, admin, fixture, request, nil, false, false, "admin", 7, false)
 		require.NoError(t, err)
 		require.Equal(t, existing.ID, account.ID)
 	}
@@ -155,7 +155,7 @@ func TestCredentialDraftExistingAccountConfirmationIsBoundAndDoesNotCreate(t *te
 	require.NoError(t, err)
 	require.Equal(t, "new", updated.GetCredential("access_token"))
 	request.Name = fixture + "-changed"
-	_, err = confirmCredentialDraftWithBinding(ctx, pending, admin, fixture, request, nil, false, false, "admin", false)
+	_, err = confirmCredentialDraftWithBinding(ctx, pending, admin, fixture, request, nil, false, false, "admin", 7, false)
 	require.ErrorIs(t, err, service.ErrAccountCredentialDraftConflict)
 	require.Equal(t, 1, client.Account.Query().Where(account.NameIn(fixture, request.Name)).CountX(ctx))
 }

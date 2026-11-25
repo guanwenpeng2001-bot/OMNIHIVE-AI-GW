@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/v1/admin/accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Creates an account or confirms its reviewed OAuth credential draft. */
+        post: operations["createAdminAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/accounts/{id}": {
         parameters: {
             query?: never;
@@ -16,6 +33,23 @@ export interface paths {
         get?: never;
         put: operations["updateAdminAccount"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/accounts/{id}/apply-oauth-credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Confirms a reviewed draft. Submit the same model selection used at review. */
+        post: operations["applyAdminAccountOAuthCredentials"];
         delete?: never;
         options?: never;
         head?: never;
@@ -60,6 +94,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/accounts/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Creates accounts or confirms reviewed OAuth credential drafts in a batch. */
+        post: operations["batchCreateAdminAccounts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/accounts/bulk-update": {
         parameters: {
             query?: never;
@@ -70,6 +121,23 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["bulkUpdateAdminAccounts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/accounts/credential-drafts/{draft}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Binds the reviewed account request, including model selection, to the credential draft. */
+        post: operations["reviewAdminAccountCredentialDraft"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2758,6 +2826,20 @@ export interface components {
                 rules_revision?: components["schemas"]["AdminModelSelectionRevision"];
             }[];
         };
+        AdminAccountCreate: {
+            name: string;
+            platform: string;
+            /** @enum {string} */
+            type: "oauth" | "setup-token" | "apikey" | "upstream" | "bedrock" | "service_account";
+            /** Format: int64 */
+            existing_account_id?: number;
+            credential_draft?: string;
+            credential_draft_revision?: string;
+            credentials: components["schemas"]["AdminAccountUpdateCredentials"];
+            model_selection?: components["schemas"]["AdminAccountWorkflowModelSelection"];
+        } & {
+            [key: string]: unknown;
+        };
         AdminAccountModelAllowlistScope: {
             enabled: boolean;
             models: string[];
@@ -2878,6 +2960,13 @@ export interface components {
             model_mapping?: components["schemas"]["AdminModelSelectionMapping"] | null;
         } & {
             [key: string]: unknown;
+        };
+        /** @description Set the upstream scope without creating identity aliases. Omit this object on existing accounts to keep the current scope unless explicitly editing the mapping. */
+        AdminAccountWorkflowModelSelection: {
+            /** @enum {string} */
+            mode: "inherit" | "restricted";
+            /** @description Restricted requires at least one concrete upstream model ID. The server adds stored mapping targets. Inherit requires an empty or omitted list. */
+            models?: string[];
         };
         AdminBackupSchedule: {
             enabled?: boolean;
@@ -5947,6 +6036,42 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    createAdminAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminAccountCreate"];
+            };
+        };
+        responses: {
+            /** @description Saved account */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid account or model selection */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Credential draft or account configuration changed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     updateAdminAccount: {
         parameters: {
             query?: never;
@@ -5992,6 +6117,54 @@ export interface operations {
                 content?: never;
             };
             /** @description Account model selection conflict, mapping change on deny_all, or a Connections-managed account */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    applyAdminAccountOAuthCredentials: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    type: "oauth" | "setup-token";
+                    credential_draft: string;
+                    credential_draft_revision: string;
+                    credentials?: components["schemas"]["AdminAccountUpdateCredentials"];
+                    extra?: {
+                        [key: string]: unknown;
+                    };
+                    model_selection?: components["schemas"]["AdminAccountWorkflowModelSelection"];
+                };
+            };
+        };
+        responses: {
+            /** @description Re-authorized account */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid confirmation or model selection */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The confirmation differs from the reviewed credential draft or the account changed */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6103,6 +6276,44 @@ export interface operations {
             };
         };
     };
+    batchCreateAdminAccounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    accounts: components["schemas"]["AdminAccountCreate"][];
+                };
+            };
+        };
+        responses: {
+            /** @description Batch result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid batch or model selection */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Credential draft or account configuration changed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     bulkUpdateAdminAccounts: {
         parameters: {
             query?: never;
@@ -6140,6 +6351,44 @@ export interface operations {
                 };
             };
             /** @description Account model selection conflict, mapping change on deny_all, or a Connections-managed account */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reviewAdminAccountCredentialDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminAccountCreate"];
+            };
+        };
+        responses: {
+            /** @description Reviewed credential draft */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid review or model selection */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Credential draft changed */
             409: {
                 headers: {
                     [name: string]: unknown;

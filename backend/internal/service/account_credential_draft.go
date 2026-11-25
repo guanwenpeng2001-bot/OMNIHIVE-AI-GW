@@ -54,7 +54,12 @@ func ApplyAccountCredentialDraftOptions(account *Account, options map[string]any
 	}
 	for key, value := range options {
 		switch key {
-		case "model_mapping", "compact_model_mapping":
+		case "model_mapping":
+			if value == nil {
+				continue
+			}
+			fallthrough
+		case "compact_model_mapping":
 			switch mapping := value.(type) {
 			case map[string]string:
 			case map[string]any:
