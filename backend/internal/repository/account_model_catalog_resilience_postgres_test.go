@@ -37,7 +37,6 @@ func TestLegacyCatalogResiliencePostgres(test *testing.T) {
 	CREATE TABLE groups (LIKE public.groups INCLUDING ALL);
 	CREATE TABLE credential_secrets (LIKE public.credential_secrets INCLUDING ALL);
 	CREATE TABLE provider_connections (LIKE public.provider_connections INCLUDING ALL);
-	CREATE TABLE provider_connections (LIKE public.provider_connections INCLUDING ALL);
 	CREATE TABLE audit_logs (LIKE public.audit_logs INCLUDING ALL);
 	CREATE TABLE proxies (LIKE public.proxies INCLUDING ALL);`)
 	require.NoError(test, err)
