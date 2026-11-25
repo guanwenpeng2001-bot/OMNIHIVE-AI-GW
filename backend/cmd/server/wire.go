@@ -67,6 +67,7 @@ type Application struct {
 	Supervisor *process.Supervisor
 	Admission  *process.Admission
 	Audit      *audithttp.Handler
+	Database   *sql.DB
 
 	Status          *statushttp.Handler
 	AsyncImages     *handler.AsyncImageHandler
@@ -135,7 +136,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 		process.NewAdmission,
 
 		// Application struct
-		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup", "UpstreamJobs", "OpsMetrics", "Restores", "ImageTaskCenter", "AsyncImages", "Status", "Audit", "Supervisor", "Admission"),
+		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup", "UpstreamJobs", "OpsMetrics", "Restores", "ImageTaskCenter", "AsyncImages", "Status", "Audit", "Supervisor", "Admission", "Database"),
 	)
 	return nil, nil
 }

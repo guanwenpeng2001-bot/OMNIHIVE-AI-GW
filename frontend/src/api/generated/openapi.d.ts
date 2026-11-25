@@ -22,6 +22,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/accounts/{id}/models/allowlist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AdminModelSelectionAccountID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Save the account's model scope and optional mapping */
+        put: operations["updateAdminAccountModelAllowlist"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/accounts/{id}/models/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AdminModelSelectionAccountID"];
+            };
+            cookie?: never;
+        };
+        /** Read the account's saved model selection and catalog evidence */
+        get: operations["getAdminAccountModelCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/accounts/bulk-update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["bulkUpdateAdminAccounts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/backups/schedule": {
         parameters: {
             query?: never;
@@ -2644,6 +2698,139 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AdminAccountBulkUpdate: {
+            account_ids?: number[];
+            filters?: {
+                platform?: string;
+                type?: string;
+                status?: string;
+                group?: string;
+                search?: string;
+                privacy_mode?: string;
+            };
+            name?: string;
+            /** Format: int64 */
+            proxy_id?: number | null;
+            /** Format: int64 */
+            proxy_group_id?: number | null;
+            concurrency?: number;
+            priority?: number;
+            rate_multiplier?: number;
+            load_factor?: number;
+            /** @enum {string} */
+            status?: "active" | "inactive" | "error";
+            schedulable?: boolean;
+            group_ids?: number[];
+            /** @description Each explicit mapping replaces the map on every target account and adds its targets to that account's current scope. */
+            credentials?: components["schemas"]["AdminAccountUpdateCredentials"];
+            extra?: {
+                [key: string]: unknown;
+            };
+            upstream_billing_probe_enabled?: boolean;
+            confirm_mixed_channel_risk?: boolean;
+            /** Format: int64 */
+            tpm_limit?: number | null;
+        } | unknown | unknown;
+        AdminAccountBulkUpdateResult: {
+            success: number;
+            failed: number;
+            success_ids: number[];
+            failed_ids: number[];
+            long_context_inherited_count?: number;
+            results: {
+                /** Format: int64 */
+                account_id: number;
+                success: boolean;
+                error?: string;
+                /** @description Upstream targets added to this account's scope during a mapping write */
+                auto_added?: string[];
+                rules_revision?: components["schemas"]["AdminModelSelectionRevision"];
+            }[];
+        };
+        AdminAccountModelAllowlistScope: {
+            enabled: boolean;
+            models: string[];
+            /** Format: int64 */
+            identity_revision: number;
+            confirmed_at: string;
+            /** Format: int64 */
+            confirmed_by: number;
+            reason: string;
+        };
+        AdminAccountModelCatalog: components["schemas"]["AdminAccountModelSelection"] & {
+            state: {
+                identity_revision: components["schemas"]["AdminModelSelectionRevision"];
+                rules_revision: components["schemas"]["AdminModelSelectionRevision"];
+            } & {
+                [key: string]: unknown;
+            };
+            baseline: {
+                identity_revision: components["schemas"]["AdminModelSelectionRevision"];
+                rules_revision: components["schemas"]["AdminModelSelectionRevision"];
+                snapshot_revision: components["schemas"]["AdminModelSelectionRevision"];
+            };
+            snapshot: components["schemas"]["AdminAccountModelCatalogSnapshot"];
+            effective_snapshot: components["schemas"]["AdminAccountModelCatalogSnapshot"];
+            synced: boolean;
+            complete?: boolean;
+            observed_at?: string | null;
+            snapshot_revision?: components["schemas"]["AdminModelSelectionRevision"] | null;
+            discovered_count?: number;
+            eligible_count?: number;
+            excluded_count?: number;
+            last_error?: string | null;
+            warnings?: string[];
+            staleness?: string;
+            last_success_at?: string | null;
+            last_attempt_at?: string | null;
+            eligible_models: components["schemas"]["AdminAccountModelCatalogModel"][] | null;
+        };
+        AdminAccountModelCatalogModel: {
+            id: string;
+            endpoints: string[] | null;
+            category?: string;
+            evidence_kind: string;
+            evidence_observed_at: string;
+        };
+        AdminAccountModelCatalogSnapshot: ({
+            revision?: components["schemas"]["AdminModelSelectionRevision"];
+            identity_revision?: components["schemas"]["AdminModelSelectionRevision"];
+            rules_revision?: components["schemas"]["AdminModelSelectionRevision"];
+            eligible_models?: components["schemas"]["AdminAccountModelCatalogModel"][] | null;
+            discovered_models?: string[] | null;
+        } & {
+            [key: string]: unknown;
+        }) | null;
+        AdminAccountModelSelection: {
+            mode: components["schemas"]["AdminModelSelectionMode"];
+            /** @description Saved concrete upstream IDs, in stable order for newly saved selections */
+            models: string[];
+            model_mapping: components["schemas"]["AdminModelSelectionMapping"];
+            rules_revision: components["schemas"]["AdminModelSelectionRevision"];
+        };
+        AdminAccountModelSelectionSaved: components["schemas"]["AdminAccountModelSelection"] & {
+            scope: components["schemas"]["AdminAccountModelAllowlistScope"];
+            /** @description IDs in the final restricted scope that lack current discovery evidence */
+            not_discovered: string[];
+            /** @description Mapping targets added to the requested scope */
+            auto_added: string[];
+        };
+        /** @description With mode omitted, a nonempty models array means restricted regardless of enabled. An empty or omitted models array means inherit when enabled is omitted or false. An empty or omitted models array with enabled true requires confirm_deny_all true and a nonblank reason. When mode is supplied, it must agree with any supplied enabled value. */
+        AdminAccountModelSelectionUpdate: {
+            mode?: components["schemas"]["AdminModelSelectionMode"];
+            /** @description Compatibility field. Inherit corresponds to false. Restricted and deny_all correspond to true. */
+            enabled?: boolean;
+            /** @description Concrete upstream IDs. The restricted scope is the union of these IDs and all explicit mapping targets. That union must be nonempty. Inherit and deny_all require an empty or omitted array. */
+            models?: string[];
+            /** @description Omit or use null to retain the current mapping. An empty object clears it. Deny_all rejects a nonempty mapping. */
+            model_mapping?: components["schemas"]["AdminModelSelectionMapping"] | null;
+            /** @description A nonblank reason is required for explicit or inferred deny_all. */
+            reason?: string;
+            /** @description Required for the compatibility request with enabled true, an empty scope, and mode omitted. */
+            confirm_deny_all?: boolean;
+            /** @description Rules revision from the last read or save. Prefer a decimal string for full precision. */
+            expected_rules_revision: components["schemas"]["AdminModelSelectionRevision"] | number;
+        };
         AdminAccountUpdate: {
             /** @description Preserve the current model selection during metadata edits. Defaults to false. When true, omit credentials.model_mapping, credentials.model_whitelist, and extra.upstream_model_allowlist. Supplying any of these fields returns CONFLICTING_MODEL_SELECTION_INTENT. An explicit credentials.compact_model_mapping can still be edited or cleared. */
             preserve_model_selection?: boolean;
@@ -2651,9 +2838,7 @@ export interface components {
             notes?: string | null;
             /** @enum {string} */
             type?: "oauth" | "setup-token" | "apikey" | "upstream" | "bedrock" | "service_account";
-            credentials?: {
-                [key: string]: unknown;
-            };
+            credentials?: components["schemas"]["AdminAccountUpdateCredentials"];
             extra?: {
                 [key: string]: unknown;
             };
@@ -2676,6 +2861,12 @@ export interface components {
             confirm_mixed_channel_risk?: boolean;
             /** Format: int64 */
             tpm_limit?: number | null;
+        };
+        AdminAccountUpdateCredentials: {
+            /** @description Replaces the account's entire explicit alias map and adds its targets to the saved scope. Omit or use null to keep the existing selection. An empty object clears the map and keeps the existing scope. On a deny_all account, choose a mode through the allowlist endpoint before changing the mapping. */
+            model_mapping?: components["schemas"]["AdminModelSelectionMapping"] | null;
+        } & {
+            [key: string]: unknown;
         };
         AdminBackupSchedule: {
             enabled?: boolean;
@@ -2821,6 +3012,25 @@ export interface components {
             reason: "published" | "published_without_eligible_binding" | "not_published" | "publication_not_observed";
         };
         AdminCatalogRevision: string;
+        AdminModelSelectionError: {
+            code: number;
+            message: string;
+            reason: string;
+            metadata: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description Explicit request alias to upstream model ID mapping */
+        AdminModelSelectionMapping: {
+            [key: string]: string;
+        };
+        /**
+         * @description Inherit uses existing platform behavior, restricted filters to the saved upstream IDs, and deny_all disables all models.
+         * @enum {string}
+         */
+        AdminModelSelectionMode: "inherit" | "restricted" | "deny_all";
+        /** @description Lossless decimal rules revision */
+        AdminModelSelectionRevision: string;
         AdminRollbackEligibility: {
             database_floor: string;
             current_version: string;
@@ -5642,6 +5852,7 @@ export interface components {
         AdminCatalogProject: string;
         /** @description Explicit workspace ID. */
         AdminCatalogWorkspace: string;
+        AdminModelSelectionAccountID: number;
         CatalogAvailability: components["schemas"]["CatalogAvailabilityState"];
         CatalogBilling: components["schemas"]["CatalogBillingState"];
         /** @description Select a Key the current actor can use in this project. */
@@ -5745,10 +5956,178 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: {
+                            /** Format: int64 */
+                            id: number;
+                            /** @description Upstream targets added to the account's range by this update */
+                            auto_added: string[];
+                            rules_revision: components["schemas"]["AdminModelSelectionRevision"];
+                        } & {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
             };
             /** @description Invalid update, including conflicting model selection intent */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Account model selection conflict, mapping change on deny_all, or a Connections-managed account */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateAdminAccountModelAllowlist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AdminModelSelectionAccountID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminAccountModelSelectionUpdate"];
+            };
+        };
+        responses: {
+            /** @description Committed selection with the current rules revision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["AdminAccountModelSelectionSaved"];
+                    };
+                };
+            };
+            /** @description Invalid selection, missing compatibility confirmation, or missing deny-all reason */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminModelSelectionError"] & {
+                        /** @enum {unknown} */
+                        reason?: "INVALID_MODEL_SELECTION" | "MODEL_SELECTION_CONFIRMATION_REQUIRED" | "MODEL_SELECTION_REASON_REQUIRED";
+                    };
+                };
+            };
+            /** @description Administrator authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Account not found in the current workspace */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Rules revision is stale or the account is managed by Connections */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminModelSelectionError"] & {
+                        /** @enum {unknown} */
+                        reason?: "MODEL_SELECTION_CONFLICT" | "ACCOUNT_CONNECTION_MANAGED";
+                    };
+                };
+            };
+        };
+    };
+    getAdminAccountModelCatalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AdminModelSelectionAccountID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Model selection and catalog from the same account snapshot */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["AdminAccountModelCatalog"];
+                    };
+                };
+            };
+            /** @description Account not found in the current workspace */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    bulkUpdateAdminAccounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminAccountBulkUpdate"];
+            };
+        };
+        responses: {
+            /** @description Bulk update counts and per-account results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["AdminAccountBulkUpdateResult"];
+                    };
+                };
+            };
+            /** @description Invalid bulk update or mapping */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Account model selection conflict, mapping change on deny_all, or a Connections-managed account */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

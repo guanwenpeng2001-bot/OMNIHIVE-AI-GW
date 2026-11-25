@@ -14,6 +14,12 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+func repairModelSelectionsBeforeStartup(ctx context.Context, database *sql.DB) error {
+	repairContext, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	return repository.RepairAccountModelSelections(repairContext, database)
+}
+
 func provideOpsAggregationService(s *process.Supervisor, opsRepo service.OpsRepository,
 	settingRepo service.SettingRepository,
 	db *sql.DB,
