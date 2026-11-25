@@ -396,6 +396,15 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 				"error", updateErr,
 			)
 			return nil, fmt.Errorf("%w: %w", errOAuthRefreshCredentialPersist, updateErr)
+		} else {
+			refreshedAccount, readErr := api.accountRepo.GetByID(ctx, freshAccount.ID)
+			if readErr != nil || refreshedAccount == nil {
+				if readErr == nil {
+					readErr = fmt.Errorf("account not found after credential refresh")
+				}
+				return nil, fmt.Errorf("%w: failed to reread refreshed credentials: %w", errOAuthRefreshCredentialPersist, readErr)
+			}
+			freshAccount = refreshedAccount
 		}
 	}
 
