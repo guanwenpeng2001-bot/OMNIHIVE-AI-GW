@@ -383,7 +383,7 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 		options.Endpoint, _ = ctx.Value(modelCatalogEndpointContextKey{}).(string)
 	}
 	binding := AccountModelBinding{PublicModel: publicModel, Endpoint: options.Endpoint, RouteSource: CompositeRouteSourceAccount}
-	if !catalogAccountEnabled(account) || !accountImplementsGatewayAction(ctx, account) {
+	if !catalogAccountEnabled(account) || account.ModelSelectionDeniesAll() || !accountImplementsGatewayAction(ctx, account) {
 		return binding
 	}
 	binding.AccountID = account.ID

@@ -147,7 +147,7 @@ func TestLegacyModelCatalogSeedUpgrade(t *testing.T) {
 	require.True(t, replacementBinding.Supported, "empty discovery preserves the saved selection")
 	require.Equal(t, service.ModelEvidenceConfiguredSelection, replacementBinding.EvidenceKind)
 	replacement.Credentials["model_mapping"] = map[string]any{}
-	service.NormalizeEmptyAccountModelSelection(replacement)
+	replacement.Extra[service.UpstreamModelAllowlistExtraKey] = service.AccountModelAllowlist{Enabled: true, Reason: "explicit deny test"}
 	require.False(t, service.AccountSupportsResolvedModel(ctx, replacement, "public-model", options), "removing the saved selection revokes access")
 
 	_, err = database.Exec(`TRUNCATE accounts`)

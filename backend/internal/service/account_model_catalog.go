@@ -128,68 +128,19 @@ type AccountModelCatalogCommitter interface {
 	CommitAccountModelCatalog(context.Context, int64, AccountModelCatalogBaseline, *AccountModelCatalogSnapshot, AccountModelCatalogState, *UpstreamModelMetadataSnapshot, bool) error
 }
 
-type AccountModelAllowlistWriter interface {
-	UpdateAccountModelAllowlist(context.Context, int64, AccountModelCatalogBaseline, AccountModelAllowlist) error
-}
-
-type AccountModelSelectionScopeWriter interface {
-	ReplaceAccountModelSelectionScope(context.Context, int64, AccountModelCatalogBaseline, AccountModelAllowlist, *map[string]string) ([]string, error)
-}
-
-// ConfigureAccountModelAllowlist atomically saves scope and optional explicit selection.
+// ConfigureAccountModelAllowlist adapts legacy in-process scope requests.
 func (service *AccountTestService) ConfigureAccountModelAllowlist(ctx context.Context, account *Account, enabled bool, models []string, reason string, actorID int64, expectedRulesRevision int64, mapping *map[string]string) ([]string, error) {
-	baseline := account.ModelCatalogBaseline()
-	if baseline.RulesRevision != expectedRulesRevision {
-		return nil, ErrAccountModelCatalogConflict
-	}
-	if actorID <= 0 {
-		return nil, newUpstreamModelSyncConfigError("Administrator identity is required", nil)
-	}
-	if strings.TrimSpace(reason) == "" {
-		reason = "管理端模型范围调整"
-	}
-	discovered := map[string]bool{}
-	if snapshot := account.GetUpstreamModelCatalog(); snapshot != nil && snapshot.IdentityRevision == baseline.IdentityRevision {
-		for _, model := range snapshot.DiscoveredModels {
-			discovered[model] = true
-		}
-	}
-	notDiscovered := []string{}
-	for _, model := range models {
-		if !exactConfiguredModel(model) {
-			return nil, newUpstreamModelSyncConfigError("Use concrete upstream model IDs for account scope", nil)
-		}
-		if !discovered[model] {
-			notDiscovered = append(notDiscovered, model)
-		}
-	}
-	selection := configuredModelMapping(account)
-	if mapping != nil {
-		selection = *mapping
-		for name, target := range selection {
-			if strings.TrimSpace(name) == "" || name != strings.TrimSpace(name) || strings.ContainsAny(name, "\r\n") || strings.TrimSpace(target) == "" || target != strings.TrimSpace(target) || strings.ContainsAny(target, "\r\n") {
-				return nil, newUpstreamModelSyncConfigError("Use nonempty model mappings without surrounding whitespace", nil)
-			}
-		}
-		if len(selection) > 0 && enabled && len(models) == 0 {
-			return nil, newUpstreamModelSyncConfigError("A deny-all scope cannot enable a nonempty selection", nil)
-		}
-	}
-	scope := AccountModelAllowlist{Enabled: enabled, Models: dedupeAndSortModelIDs(models), IdentityRevision: baseline.IdentityRevision, ConfirmedAt: time.Now().UTC().Format(time.RFC3339Nano), ConfirmedBy: actorID, Reason: strings.TrimSpace(reason)}
-	var current AccountModelAllowlist
-	decodeCatalogExtra(account.Extra, UpstreamModelAllowlistExtraKey, &current)
-	if len(selection) == 0 || (mapping == nil && current.Enabled && len(current.Models) == 0) {
-		scope.Enabled = true
-		scope.Models = []string{}
-	}
-	writer, ok := service.accountRepo.(AccountModelSelectionScopeWriter)
-	if !ok {
-		return nil, newUpstreamModelSyncInternalError("Account scope persistence unavailable", nil)
-	}
-	if _, err := writer.ReplaceAccountModelSelectionScope(ctx, account.ID, baseline, scope, mapping); err != nil {
+	mode, err := ResolveModelSelectionMode("", &enabled, models, false)
+	if err != nil {
 		return nil, err
 	}
-	return dedupeAndSortModelIDs(notDiscovered), nil
+	identity := account.ModelCatalogBaseline().IdentityRevision
+	cmd := ModelSelectionCommand{Mode: mode, Models: models, Reason: reason, ActorID: actorID, ExpectedIdentityRevision: &identity, ExpectedRulesRevision: &expectedRulesRevision}
+	if mapping != nil {
+		cmd.ModelMapping = *mapping
+	}
+	result, err := service.SaveModelSelection(ctx, account.ID, cmd)
+	return result.NotDiscovered, err
 }
 
 // StripAccountModelCatalogExtra also prevents copies/imports inheriting another account's evidence.
@@ -197,7 +148,7 @@ func StripAccountModelCatalogExtra(extra map[string]any) map[string]any {
 	copyExtra := make(map[string]any, len(extra))
 	for key, value := range extra {
 		switch key {
-		case UpstreamModelCatalogExtraKey, UpstreamModelCatalogStateExtraKey, UpstreamModelAllowlistExtraKey, UpstreamModelMetadataExtraKey, ModelAvailabilityExtraKey, ModelProbeBudgetExtraKey, ModelSelectionBaselineFrozenExtraKey:
+		case UpstreamModelCatalogExtraKey, UpstreamModelCatalogStateExtraKey, UpstreamModelAllowlistExtraKey, UpstreamModelMetadataExtraKey, ModelAvailabilityExtraKey, ModelProbeBudgetExtraKey, ModelSelectionBaselineFrozenExtraKey, ModelSelectionRepairBackupExtraKey:
 		default:
 			copyExtra[key] = value
 		}
@@ -240,6 +191,10 @@ func AdvanceAccountModelCatalogRevisionsForUpdate(current, incoming *Account, co
 		identityChanged = true
 	}
 	rulesChanged := identityChanged || !reflect.DeepEqual(current.ProxyID, incoming.ProxyID)
+	var oldScope, newScope AccountModelAllowlist
+	decodeCatalogExtra(current.Extra, UpstreamModelAllowlistExtraKey, &oldScope)
+	decodeCatalogExtra(incoming.Extra, UpstreamModelAllowlistExtraKey, &newScope)
+	rulesChanged = rulesChanged || !reflect.DeepEqual(oldScope, newScope)
 	for _, key := range AccountCatalogRuleCredentialFields() {
 		rulesChanged = rulesChanged || !reflect.DeepEqual(current.Credentials[key], incoming.Credentials[key])
 		if key == "model_mapping" {
@@ -874,31 +829,10 @@ func (service *AccountTestService) ApplyAccountModelCatalog(ctx context.Context,
 	if err := ValidateAccountModelCatalogVersion(account.Extra, snapshot); err != nil {
 		return nil, err
 	}
-	freezeSelection := AccountModelSelectionNeedsFreeze(account)
-	var frozenMapping map[string]string
-	if freezeSelection {
-		frozenMapping = FrozenAccountModelSelection(account, baseline)
-	}
-	if err := committer.CommitAccountModelCatalog(ctx, account.ID, baseline, snapshot, state, metadata, freezeSelection); err != nil {
+	if err := committer.CommitAccountModelCatalog(ctx, account.ID, baseline, snapshot, state, metadata, false); err != nil {
 		return nil, newUpstreamModelSyncInternalError("Failed to save account model catalog", err)
 	}
 	expectedRules := baseline.RulesRevision
-	if freezeSelection {
-		expectedRules++
-		state.RulesRevision = expectedRules
-		snapshot.RulesRevision = expectedRules
-		credentials := make(map[string]any, len(account.Credentials)+1)
-		for key, value := range account.Credentials {
-			credentials[key] = value
-		}
-		credentials["model_mapping"] = frozenMapping
-		account.Credentials = credentials
-		NormalizeEmptyAccountModelSelection(account)
-		if account.Extra == nil {
-			account.Extra = map[string]any{}
-		}
-		account.Extra[ModelSelectionBaselineFrozenExtraKey] = true
-	}
 	// Production repositories reread after CAS while retaining the discovery lock.
 	if reader, ok := service.accountRepo.(ModelCatalogAccountRepository); ok {
 		saved, readErr := reader.GetModelCatalogAccount(ctx, account.ID)

@@ -174,7 +174,7 @@ func TestForwardModelBindingRejectsRevokedCurrentAccount(t *testing.T) {
 				current.Extra[UpstreamModelCatalogStateExtraKey] = AccountModelCatalogState{RulesRevision: 1}
 			case "selection removed":
 				current.Credentials["model_mapping"] = map[string]string{}
-				NormalizeEmptyAccountModelSelection(&current)
+				current.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Reason: "explicit deny test"}
 			}
 			ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{Model: "public-model", Protocol: "anthropic"}))
 			require.ErrorIs(t, validateAccountForwardModelBinding(ctx, repo, &selected, AccountModelBindingOptions{FinalModel: "actual-model", Endpoint: "messages"}), ErrAccountModelUnsupported)

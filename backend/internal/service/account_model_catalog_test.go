@@ -22,7 +22,7 @@ type catalogFixtureRepository struct {
 	commits  int
 }
 
-func (repository *catalogFixtureRepository) CommitAccountModelCatalog(_ context.Context, id int64, baseline AccountModelCatalogBaseline, snapshot *AccountModelCatalogSnapshot, state AccountModelCatalogState, metadata *UpstreamModelMetadataSnapshot, freezeSelectionBaseline bool) error {
+func (repository *catalogFixtureRepository) CommitAccountModelCatalog(_ context.Context, id int64, baseline AccountModelCatalogBaseline, snapshot *AccountModelCatalogSnapshot, state AccountModelCatalogState, metadata *UpstreamModelMetadataSnapshot, _ bool) error {
 	repository.mutex.Lock()
 	defer repository.mutex.Unlock()
 	account := repository.accounts[id]
@@ -37,18 +37,6 @@ func (repository *catalogFixtureRepository) CommitAccountModelCatalog(_ context.
 	}
 	if account.Extra == nil {
 		account.Extra = map[string]any{}
-	}
-	if snapshot != nil && freezeSelectionBaseline {
-		if !AccountModelSelectionNeedsFreeze(account) {
-			return ErrAccountModelCatalogConflict
-		}
-		mapping := FrozenAccountModelSelection(account, baseline)
-		if account.Credentials == nil {
-			account.Credentials = map[string]any{}
-		}
-		account.Credentials["model_mapping"] = mapping
-		account.Extra[ModelSelectionBaselineFrozenExtraKey] = true
-		state.RulesRevision++
 	}
 	account.Extra[UpstreamModelCatalogStateExtraKey] = state
 	if snapshot != nil {
@@ -152,7 +140,10 @@ func TestAccountModelCatalogProductDiscoveryUsesAccountCredentials(t *testing.T)
 		require.Equal(t, wantModels, catalog.Models)
 		effective := account.EffectiveUpstreamModelCatalog()
 		require.NotNil(t, effective)
-		require.Empty(t, effective.EligibleModels, "first discovery freezes an empty selection and does not auto-publish")
+		require.Len(t, effective.EligibleModels, len(wantModels))
+		require.Equal(t, ModelSelectionInherit, AccountModelSelectionView(account).Mode)
+		require.Empty(t, configuredModelMapping(account))
+		require.Zero(t, account.ModelCatalogState().RulesRevision)
 	}
 	require.Len(t, upstream.requests, 3)
 	for _, request := range upstream.requests {

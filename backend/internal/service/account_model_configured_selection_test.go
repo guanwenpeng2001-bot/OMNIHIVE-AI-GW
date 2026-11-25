@@ -248,75 +248,6 @@ func TestConfiguredSelectionWebSocketDiagnosisUsesWireScope(t *testing.T) {
 	require.False(t, accountModelScopeAllowsDiagnosis(ctx, &account, "wire-name"))
 }
 
-type selectionScopeRecorder struct {
-	AccountRepository
-	scope   AccountModelAllowlist
-	mapping *map[string]string
-}
-
-func (repo *selectionScopeRecorder) ReplaceAccountModelSelectionScope(_ context.Context, _ int64, _ AccountModelCatalogBaseline, scope AccountModelAllowlist, mapping *map[string]string) ([]string, error) {
-	repo.scope = scope
-	repo.mapping = mapping
-	return nil, nil
-}
-
-func TestConfiguredSelectionAtomicScopeRules(t *testing.T) {
-	selected := map[string]string{"alias": "manual"}
-	empty := map[string]string{}
-	for _, test := range []struct {
-		name    string
-		mapping *map[string]string
-		enabled bool
-		models  []string
-		deny    bool
-		invalid bool
-	}{
-		{"scope-only cannot unlock", nil, false, nil, true, false},
-		{"scope-only nonempty cannot unlock", nil, true, []string{"manual"}, true, false},
-		{"explicit reselect", &selected, false, nil, false, false},
-		{"explicit restricted reselect", &selected, true, []string{"manual"}, false, false},
-		{"empty normalizes", &empty, false, nil, true, false},
-		{"contradictory scope", &selected, true, nil, false, true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			account := catalogEvidenceAccount(1, PlatformOpenAI)
-			account.Credentials["model_mapping"] = selected
-			account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{}}
-			repo := &selectionScopeRecorder{}
-			svc := &AccountTestService{accountRepo: repo}
-			warnings, err := svc.ConfigureAccountModelAllowlist(context.Background(), &account, test.enabled, test.models, "", 7, 0, test.mapping)
-			if test.invalid {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, test.deny, repo.scope.Enabled && len(repo.scope.Models) == 0)
-			require.NotEmpty(t, repo.scope.Reason)
-			if len(test.models) > 0 {
-				require.Equal(t, []string{"manual"}, warnings)
-			}
-		})
-	}
-}
-
-func TestConfiguredSelectionFreezeUsesOnlyPriorScope(t *testing.T) {
-	account := catalogEvidenceAccount(1, PlatformOpenAI, "old", "restricted")
-	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{"old"}}
-	require.Equal(t, map[string]string{"old": "old"}, FrozenAccountModelSelection(&account, account.ModelCatalogBaseline()))
-	delete(account.Extra, UpstreamModelCatalogExtraKey)
-	require.Empty(t, FrozenAccountModelSelection(&account, account.ModelCatalogBaseline()))
-	NormalizeEmptyAccountModelSelection(&account)
-	require.False(t, AccountModelSelectionNeedsFreeze(&account))
-	// An ordinary edit can save draft selections but cannot remove deny-all.
-	account.Credentials["model_mapping"] = map[string]string{"draft": "draft"}
-	next := account
-	NormalizeAccountModelSelectionUpdate(&account, &next)
-	var scope AccountModelAllowlist
-	require.True(t, decodeCatalogExtra(next.Extra, UpstreamModelAllowlistExtraKey, &scope))
-	require.True(t, scope.Enabled)
-	require.Empty(t, scope.Models)
-}
-
 func TestConfiguredSelectionDirectory401RetainsSelection(t *testing.T) {
 	account := catalogEvidenceAccount(42, PlatformOpenAI, "discovered")
 	account.Credentials["api_key"] = "fixture"
@@ -362,23 +293,6 @@ func TestConfiguredSelectionVariantCannotBorrowDiscovery(t *testing.T) {
 	target, ok := resolveGeminiThinkingVariantForLevel(account, "gemini-3-flash", "high")
 	require.True(t, ok)
 	require.Equal(t, "gemini-3-flash-low", target)
-}
-
-func TestConfiguredSelectionShadowFreezeUsesOwnCatalog(t *testing.T) {
-	parent := catalogEvidenceAccount(8, PlatformOpenAI, "parent")
-	shadow := catalogEvidenceAccount(9, PlatformOpenAI, "shadow")
-	shadow.ParentAccountID = &parent.ID
-	snapshot := shadow.GetUpstreamModelCatalog()
-	snapshot.CredentialAccountID = parent.ID
-	snapshot.CredentialIdentityRevision = 3
-	shadow.Extra[UpstreamModelCatalogExtraKey] = snapshot
-	baseline := shadow.ModelCatalogBaseline()
-	baseline.CredentialAccountID = parent.ID
-	baseline.CredentialIdentityRevision = 3
-	require.True(t, AccountModelSelectionNeedsFreeze(&shadow))
-	require.Equal(t, map[string]string{"shadow": "shadow"}, FrozenAccountModelSelection(&shadow, baseline))
-	baseline.CredentialIdentityRevision++
-	require.Empty(t, FrozenAccountModelSelection(&shadow, baseline))
 }
 
 func TestConfiguredSelectionPreparedProtocolNames(t *testing.T) {
@@ -529,19 +443,21 @@ func TestConfiguredSelectionMessagesDispatchSurvivesForwardBoundary(t *testing.T
 	require.ErrorIs(t, validateAccountForwardModel(ordinary, nil, &account, "dispatched", "responses"), ErrAccountModelUnsupported)
 }
 
-func TestConfiguredSelectionApplyFreezeKeepsPostCommitRevision(t *testing.T) {
+func TestConfiguredSelectionDiscoveryPreservesScopeAndRulesRevision(t *testing.T) {
 	account := catalogEvidenceAccount(81, PlatformOpenAI, "old")
 	account.Credentials["api_key"] = "fixture"
+	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{"old"}}
 	repo := &selectionCatalogReadbackRepository{&catalogFixtureRepository{accounts: map[int64]*Account{81: &account}}}
 	svc := &AccountTestService{accountRepo: repo, cfg: upstreamModelSyncTestConfig(), httpUpstream: &httpUpstreamRecorder{resp: catalogFixtureResponse(`{"data":[{"id":"new"}]}`)}}
 	catalog, err := svc.ApplyAccountModelCatalog(context.Background(), &account, nil)
 	require.NoError(t, err)
 	require.True(t, catalog.Applied)
-	require.EqualValues(t, 1, catalog.RulesRevision)
-	require.EqualValues(t, 1, account.ModelCatalogState().RulesRevision)
-	require.Equal(t, map[string]string{"old": "old"}, account.GetModelMapping())
+	require.Zero(t, catalog.RulesRevision)
+	require.Zero(t, account.ModelCatalogState().RulesRevision)
+	require.Empty(t, account.GetModelMapping())
+	require.Equal(t, []string{"old"}, AccountModelSelectionView(&account).Models)
+	require.Equal(t, []string{"new"}, account.GetUpstreamModelCatalog().DiscoveredModels)
 	require.False(t, AccountSupportsResolvedModel(context.Background(), &account, "new", AccountModelBindingOptions{}))
-	require.True(t, AccountSupportsResolvedModel(context.Background(), &account, "old", AccountModelBindingOptions{}))
 }
 
 type selectionCatalogReadbackRepository struct{ *catalogFixtureRepository }
