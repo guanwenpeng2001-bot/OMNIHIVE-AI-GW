@@ -125,6 +125,9 @@ const ModelWhitelistSelectorStub = defineComponent({
     }
   },
   emits: ['update:modelValue'],
+  methods: {
+    revealValidation() {}
+  },
   template: `
     <div>
       <button
@@ -613,7 +616,7 @@ describe('model selection saves preserve unrelated account drafts', () => {
     await selector.findAll('button').find(button => button.text() === 'admin.accounts.addModel')!.trigger('click')
     await selector.get('[data-testid="save-model-selection"]').trigger('click')
     await flushPromises()
-    expect(allowlistWrite).toHaveBeenLastCalledWith(account.id, expect.objectContaining({ enabled: false, models: [], model_mapping: { 'manual-model': 'manual-model' } }))
+    expect(allowlistWrite).toHaveBeenLastCalledWith(account.id, expect.objectContaining({ mode: 'restricted', enabled: true, models: ['manual-model'], model_mapping: { 'manual-model': 'manual-model' } }))
     expect(selector.props('modelValue')).toEqual(['manual-model'])
     expect(selector.find('[data-testid="deny-all"]').exists()).toBe(false)
     updateAccountMock.mockResolvedValue(reselected)
@@ -722,15 +725,15 @@ describe('EditAccountModal', () => {
     const account = buildAccount()
     const initial = { synced: true, warnings: [], state: { rules_revision: '9007199254740993' }, effective_snapshot: { discovered_models: ['Native'], eligible_models: [{ id: 'Native' }] } }
     catalogRead.mockResolvedValueOnce(initial).mockResolvedValueOnce({ ...initial, state: { rules_revision: '9007199254740994' } })
-    allowlistWrite.mockReset().mockResolvedValue({ rules_revision: '9007199254740994' })
+    allowlistWrite.mockReset().mockResolvedValue({ mode: 'restricted', models: ['NotDiscovered'], model_mapping: {}, rules_revision: '9007199254740994' })
     const wrapper = mountModal(account, false, true)
     await flushPromises()
     const panel = wrapper.findAllComponents(ModelWhitelistSelector).at(0)!
-    await panel.get('[data-testid="allowlist-models"]').setValue('NotDiscovered')
-    await panel.get('[data-testid="allowlist-reason"]').setValue('restrict account scope')
-    await panel.get('[data-testid="save-allowlist"]').trigger('click')
+    await panel.get('input[aria-label="admin.accounts.customModelName"]').setValue('NotDiscovered')
+    await panel.findAll('button').find(button => button.text() === 'admin.accounts.addModel')!.trigger('click')
+    await panel.get('[data-testid="save-model-selection"]').trigger('click')
     await flushPromises()
-    expect(allowlistWrite).toHaveBeenCalledWith(account.id, { enabled: false, models: ['NotDiscovered'], reason: 'restrict account scope', expected_rules_revision: '9007199254740993' })
+    expect(allowlistWrite).toHaveBeenCalledWith(account.id, expect.objectContaining({ mode: 'restricted', enabled: true, models: ['gpt-5.2', 'NotDiscovered'], expected_rules_revision: '9007199254740993' }))
     expect(catalogRead).toHaveBeenLastCalledWith(account.id)
     wrapper.unmount()
   })

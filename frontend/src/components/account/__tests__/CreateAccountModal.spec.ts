@@ -495,7 +495,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('form#create-account-form input[type="text"]').setValue('Reviewed account')
     await wrapper.get('form#create-account-form input[type="password"]').setValue('test-key')
     await openReview(wrapper)
-    await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.clearAllModels')!.trigger('click')
+    await wrapper.get('[data-testid="mode-inherit"]').trigger('click')
     await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
     await flushPromises()
     await wrapper.get('[data-testid="add-preview-models"]').trigger('click')
@@ -751,7 +751,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
   })
 
   it('retains the created account ID for confirmation with explicit mappings', async () => {
-    const wrapper = mountModal()
+    const wrapper = mountModal([], true)
     await selectButtonByText(wrapper, 'OpenAI')
     await selectButtonByText(wrapper, 'API Key')
     await wrapper.get('form#create-account-form input[type="text"]').setValue('Mapped account')
@@ -1216,26 +1216,26 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       expect(wrapper.getComponent(ModelWhitelistSelector).props('modelMappings')).toEqual([])
     })
 
-    it.each(['confirm', 'cancel'] as const)('preserves selection after clear %s while presets are pending', async action => {
+    it('preserves inherit clear while presets are pending', async () => {
       await addCustomSelection()
-      await wrapper.get('[data-testid="clear-model-selection"]').trigger('click')
-      wrapper.getComponent(ModelWhitelistSelector).getComponent(ConfirmDialog).vm.$emit(action)
+      await wrapper.get('[data-testid="mode-inherit"]').trigger('click')
       await flushPromises()
       finishPresets()
       await flushPromises()
       const selector = wrapper.getComponent(ModelWhitelistSelector)
-      expect(selector.props('modelValue')).toEqual(action === 'confirm' ? [] : ['Custom/Direct'])
-      expect(selector.props('modelMappings')).toEqual(action === 'confirm' ? [] : [{ from: 'Custom/Alias', to: 'Private/Target' }])
+      expect(selector.props('modelValue')).toEqual([])
+      expect(selector.props('modelMappings')).toEqual([])
+      expect(selector.props('mode')).toBe('inherit')
     })
 
     it('preserves an explicit clear even when the selection was already empty', async () => {
-      await wrapper.get('[data-testid="clear-model-selection"]').trigger('click')
-      wrapper.getComponent(ModelWhitelistSelector).getComponent(ConfirmDialog).vm.$emit('confirm')
+      await wrapper.get('[data-testid="mode-inherit"]').trigger('click')
       await flushPromises()
       finishPresets()
       await flushPromises()
       expect(wrapper.getComponent(ModelWhitelistSelector).props('modelValue')).toEqual([])
       expect(wrapper.getComponent(ModelWhitelistSelector).props('modelMappings')).toEqual([])
+      expect(wrapper.getComponent(ModelWhitelistSelector).props('mode')).toBe('inherit')
     })
 
     it.each(['platform', 'reopen'] as const)('rejects an old response after %s changes draft identity', async change => {
@@ -2183,4 +2183,62 @@ it('creates BytePlus query keys only for the existing team billing plan', async 
   expect(createAccountMock.mock.calls[0][0].credentials).toMatchObject({ billing_plan: 'team', api_key: 'synthetic-inference', byteplus_access_key_id: 'synthetic-byteplus-id', byteplus_secret_access_key: 'synthetic-byteplus-secret', byteplus_seat_id: 'synthetic-seat' })
   expect(createAccountMock.mock.calls[0][0].credentials).not.toHaveProperty('byteplus_plan_edition')
   wrapper.unmount()
+})
+
+describe('v0.3.9 create account model selection defaults', () => {
+  it('defaults to inherit mode on API key create and omits empty model_mapping: {}', async () => {
+    createAccountMock.mockReset().mockResolvedValue({ id: 901, platform: 'anthropic', type: 'apikey' })
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'admin.accounts.claudeConsole')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Inherit API Key')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('sk-ant-inherit')
+    await openReview(wrapper)
+
+    const state = wrapper.vm as unknown as { modelSelectionMode: string }
+    expect(state.modelSelectionMode).toBe('inherit')
+    await confirmReview(wrapper)
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledOnce()
+    const payload = createAccountMock.mock.calls[0][0]
+    expect(payload.credentials).not.toHaveProperty('model_mapping')
+    wrapper.unmount()
+  })
+
+  it('defaults to inherit mode on OAuth review and omits empty model_mapping: {} from review and batchCreate', async () => {
+    createAccountMock.mockReset().mockResolvedValue({ id: 902, platform: 'anthropic', type: 'oauth' })
+    const wrapper = mountModal()
+    const workflow = wrapper.vm as unknown as {
+      createWithOptions: (payload: CreateAccountRequest) => Promise<never>
+      modelSelectionMode: string
+    }
+    await workflow.createWithOptions({
+      name: 'Inherit OAuth',
+      platform: 'anthropic',
+      type: 'oauth',
+      concurrency: 1,
+      priority: 1,
+      credentials: {
+        credential_draft: 'inherit-oauth-draft',
+        revision: 'initial',
+        platform: 'anthropic',
+        type: 'oauth',
+        expires_at: '2099-01-01T00:00:00Z'
+      }
+    }).catch(() => {})
+    await flushPromises()
+    expect(workflow.modelSelectionMode).toBe('inherit')
+
+    await confirmReview(wrapper)
+    await flushPromises()
+    expect(apiClient.post).toHaveBeenCalledWith(
+      '/admin/accounts/credential-drafts/inherit-oauth-draft/review',
+      expect.objectContaining({
+        credentials: expect.not.objectContaining({ model_mapping: expect.anything() })
+      })
+    )
+    expect(createAccountMock).toHaveBeenCalledOnce()
+    expect(createAccountMock.mock.calls[0][0].credentials).not.toHaveProperty('model_mapping')
+    wrapper.unmount()
+  })
 })

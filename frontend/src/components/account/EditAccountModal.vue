@@ -2547,7 +2547,7 @@
       </details>
       <div v-show="editActiveTab === 'all' || editActiveTab === 'models'" class="space-y-4">
       <AccountModelConfigurationSection ref="modelConfigurationSection" :candidate-identity="modelCandidateIdentity" :active="show" :account-id="cursorCredentialDraft ? undefined : account.id" :platform="account.platform" :sync-credentials="cursorDraftPreview"
-        v-model="allowedModels" v-model:mappings="modelMappings" :presets="presetMappings"
+        v-model="allowedModels" v-model:mappings="modelMappings" v-model:mode="modelSelectionMode" v-model:reason="modelSelectionReason" :presets="presetMappings"
         :discovery-disabled="compatibleDiscoveryDisabled(selectedCompatibleProvider, compatibleDraft)" :connection-context="modelDiscoveryContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="savedModelGeneration" :persisted-selection="persistedModelSelection" :register-actions="registerModelSelectionActions" :model-allowlist="accountModelAllowlist(account)" @selection-saved="handleModelSelectionSaved">
         <template #model-rules>
       <ModelAccessRuleEditor v-if="show" :key="account.id" :path="`/admin/accounts/${account.id}`" />
@@ -2825,7 +2825,7 @@ import {
   type OpenAIWSMode,
   resolveOpenAIWSModeFromExtra
 } from '@/utils/openaiWsMode'
-import { accountModelAllowlist, getPresetMappingsByPlatform, commonErrorCodes, buildModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors, splitModelMappingObject } from '@/composables/useModelWhitelist'
+import { accountModelAllowlist, normalizeAccountModelSelection, getPresetMappingsByPlatform, commonErrorCodes, buildModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors, type AccountModelSelectionMode } from '@/composables/useModelWhitelist'
 
 interface Props {
   show: boolean
@@ -3056,7 +3056,7 @@ const cursorStoredRelayProtocolLabel = computed(() => {
 const cursorDraftPreview = computed(() => cursorCredentialDraft.value ? {
   platform: 'cursor', type: 'oauth', credential_draft: cursorCredentialDraft.value.credential_draft,
   credential_draft_revision: cursorCredentialDraft.value.revision,
-  credentials: { model_mapping: buildModelRestrictionMapping() ?? {} }
+  credentials: buildCursorDraftCredentials()
 } : undefined)
 
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）account_mode / api_protocol 编辑 ──
@@ -3313,6 +3313,8 @@ const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
+const modelSelectionMode = ref<AccountModelSelectionMode>('inherit')
+const modelSelectionReason = ref('')
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
@@ -3833,13 +3835,18 @@ const normalizePoolModeRetryCount = (value: number) => {
   return normalized
 }
 
-const canonicalModelSelectionKey = (models: string[], mappings: ModelMapping[]) =>
-  JSON.stringify(
-    [
+const canonicalModelSelectionKey = (
+  mode: AccountModelSelectionMode,
+  models: string[],
+  mappings: ModelMapping[]
+) =>
+  JSON.stringify({
+    mode,
+    entries: [
       ...models.map(model => [model, model]),
       ...mappings.map(mapping => [mapping.from, mapping.to])
     ].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
-  )
+  })
 
 const canonicalCompactMappingKey = (mappings: ModelMapping[]) =>
   JSON.stringify(
@@ -3849,12 +3856,30 @@ const canonicalCompactMappingKey = (mappings: ModelMapping[]) =>
       .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
   )
 
-const persistedModelSelection = ref<{ models: string[]; mappings: ModelMapping[] }>({ models: [], mappings: [] })
+const persistedModelSelection = ref<{
+  mode: AccountModelSelectionMode
+  models: string[]
+  mappings: ModelMapping[]
+  reason?: string
+}>({ mode: 'inherit', models: [], mappings: [], reason: '' })
 const savedCompactMappingKey = ref(canonicalCompactMappingKey([]))
+const effectiveModelSelectionMode = computed<AccountModelSelectionMode>(() => {
+  if (
+    modelSelectionMode.value === 'inherit' &&
+    (allowedModels.value.length > 0 || modelMappings.value.length > 0)
+  ) {
+    return 'restricted'
+  }
+  return modelSelectionMode.value
+})
 const modelSelectionDirty = computed(
   () =>
-    canonicalModelSelectionKey(allowedModels.value, modelMappings.value) !==
-    canonicalModelSelectionKey(persistedModelSelection.value.models, persistedModelSelection.value.mappings)
+    canonicalModelSelectionKey(effectiveModelSelectionMode.value, allowedModels.value, modelMappings.value) !==
+    canonicalModelSelectionKey(
+      persistedModelSelection.value.mode,
+      persistedModelSelection.value.models,
+      persistedModelSelection.value.mappings
+    )
 )
 const hasUnsavedModelSelection = computed(
   () => Boolean(props.account) && !cursorCredentialDraft.value && modelSelectionDirty.value
@@ -3872,9 +3897,12 @@ const registerModelSelectionActions = (
 }
 const canTriggerModelSelectionSave = computed(() => Boolean(modelSelectionActions.value?.canSaveSelection()))
 
-const extractAccountModelSelection = (newAccount: Account | null): { allowedModels: string[]; modelMappings: ModelMapping[] } => {
-  if (!newAccount) return { allowedModels: [], modelMappings: [] }
+const extractAccountModelSelection = (
+  newAccount: Account | null
+): { mode: AccountModelSelectionMode; allowedModels: string[]; modelMappings: ModelMapping[]; reason: string } => {
+  if (!newAccount) return { mode: 'inherit', allowedModels: [], modelMappings: [], reason: '' }
   const credentials = newAccount.credentials as Record<string, unknown> | undefined
+  const allowlist = accountModelAllowlist(newAccount)
   if (
     newAccount.platform === 'antigravity' &&
     (!credentials?.model_mapping || typeof credentials.model_mapping !== 'object') &&
@@ -3883,18 +3911,41 @@ const extractAccountModelSelection = (newAccount: Account | null): { allowedMode
     const legacyModels = credentials.model_whitelist
       .map(model => String(model).trim())
       .filter(Boolean)
-    return splitModelMappingObject(Object.fromEntries(legacyModels.map(model => [model, model])))
+    const legacyMapping = Object.fromEntries(legacyModels.map(model => [model, model]))
+    const normalized = normalizeAccountModelSelection({
+      account: { ...newAccount, credentials: { ...credentials, model_mapping: legacyMapping } },
+      modelAllowlist: allowlist
+    })
+    return {
+      mode: normalized.mode,
+      allowedModels: normalized.models,
+      modelMappings: normalized.mappings,
+      reason: normalized.reason
+    }
   }
-  return splitModelMappingObject(credentials?.model_mapping as Record<string, unknown> | undefined)
+  const normalized = normalizeAccountModelSelection({
+    account: newAccount,
+    modelAllowlist: allowlist
+  })
+  return {
+    mode: normalized.mode,
+    allowedModels: normalized.models,
+    modelMappings: normalized.mappings,
+    reason: normalized.reason
+  }
 }
 
 const hydrateModelSelectionFromAccount = (newAccount: Account | null, preserveDraft = false) => {
   const parsed = extractAccountModelSelection(newAccount)
   persistedModelSelection.value = {
+    mode: parsed.mode,
     models: [...parsed.allowedModels],
-    mappings: parsed.modelMappings.map(entry => ({ ...entry }))
+    mappings: parsed.modelMappings.map(entry => ({ ...entry })),
+    reason: parsed.reason
   }
   if (preserveDraft) return
+  modelSelectionMode.value = parsed.mode
+  modelSelectionReason.value = parsed.reason
   allowedModels.value = parsed.allowedModels
   modelMappings.value = parsed.modelMappings
   modelRestrictionMode.value =
@@ -3905,6 +3956,12 @@ const hydrateModelSelectionFromAccount = (newAccount: Account | null, preserveDr
 
 const buildModelRestrictionMapping = () =>
   buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
+
+const buildCursorDraftCredentials = (): Record<string, unknown> => {
+  if (effectiveModelSelectionMode.value !== 'restricted') return {}
+  const mapping = buildModelRestrictionMapping()
+  return mapping ? { model_mapping: mapping } : {}
+}
 
 const applyOpenAICompactModelMappingCredentials = (credentials: Record<string, unknown>) => {
   delete credentials.model_mapping
@@ -3928,7 +3985,7 @@ const modelDiscoveryContext = computed(() => JSON.stringify([
   antigravityProjectId.value, headerOverrideEnabled.value, headerOverrideRows.value, grokOAuthBaseUrl.value, anthropicAPIKeyAuthScheme.value,
   openAIResponsesMode.value, mixedScheduling.value
 ]))
-const modelConnectionContext = computed(() => JSON.stringify([modelDiscoveryContext.value, allowedModels.value, modelMappings.value, openAICompactModelMappings.value]))
+const modelConnectionContext = computed(() => JSON.stringify([modelDiscoveryContext.value, effectiveModelSelectionMode.value, allowedModels.value, modelMappings.value, openAICompactModelMappings.value]))
 const savedModelDiscovery = ref('')
 const modelConfigurationDirty = computed(() => modelDiscoveryContext.value !== savedModelDiscovery.value)
 const markModelConfigurationSaved = () => {
@@ -4894,7 +4951,7 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
       const currentRevision = JSON.stringify([form, modelConnectionContext.value, autoPauseOnExpired.value])
       const payload: AccountWorkflowRequest = {
         ...form, load_factor: form.load_factor ?? undefined, platform: 'cursor', type: 'oauth', existing_account_id: accountID,
-        credentials: { model_mapping: buildModelRestrictionMapping() ?? {} }, extra,
+        credentials: buildCursorDraftCredentials(), extra,
         auto_pause_on_expired: autoPauseOnExpired.value,
         credential_draft: cursorCredentialDraft.value.credential_draft, credential_draft_revision: cursorCredentialDraft.value.revision
       }
@@ -4943,7 +5000,7 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
   if (!proxySelectionValid.value) { appStore.showError(t('admin.proxyGroups.selectionRequired')); return }
   accountForm.value?.querySelectorAll<HTMLElement>('[aria-invalid="true"]').forEach(revealField)
   if (!confirmation) antigravityMixedChannelConfirmed.value = false
-  const restrictionErrors = validateModelRestrictions('combined', allowedModels.value, modelMappings.value)
+  const restrictionErrors = validateModelRestrictions(effectiveModelSelectionMode.value, allowedModels.value, modelMappings.value)
   if (restrictionErrors.length) { modelConfigurationSection.value?.revealValidation(restrictionErrors); appStore.showError(translateModelRestrictionErrors(restrictionErrors, t)); return }
   if (!props.account) return
   const accountID = props.account.id

@@ -269,9 +269,52 @@
           </div>
 
           <template v-else>
-            <BulkModelPreview :active="show && enableModelRestriction" :account-ids="accountIds" :filtered="targetMode === 'filtered'" v-model="allowedModels" :model-mappings="modelMappings" :connection-context="[baseUrl, enableBaseUrl, proxyId, proxyGroupId, enableProxy, enableHeaderOverride, headerOverrideEnabled, headerOverrideRows, modelMappings]" />
-            <AccountModelConfigurationSection :active="show && enableModelRestriction" discovery-disabled
-              v-model="allowedModels" v-model:mappings="modelMappings" :platforms="targetSelectedPlatforms" :presets="filteredPresets" />
+            <div class="mb-3 space-y-2" data-testid="bulk-model-mode" role="radiogroup" :aria-label="t('admin.accounts.bulkEdit.modelModeLabel', '模型范围模式')">
+              <label class="flex cursor-pointer items-center gap-2 text-xs text-[var(--foreground)]">
+                <input v-model="bulkModelMode" type="radio" value="restricted" data-testid="bulk-mode-restricted" />
+                <span>{{ t('admin.accounts.bulkEdit.modelModeRestricted', '统一设为指定模型范围与别名') }}</span>
+              </label>
+              <label class="flex cursor-pointer items-center gap-2 text-xs text-[var(--foreground)]">
+                <input v-model="bulkModelMode" type="radio" value="inherit" data-testid="bulk-mode-inherit" />
+                <span>{{ t('admin.accounts.bulkEdit.modelModeInherit', '统一解除限制（恢复全部允许）') }}</span>
+              </label>
+              <label class="flex cursor-pointer items-center gap-2 text-xs text-red-600 dark:text-red-400">
+                <input v-model="bulkModelMode" type="radio" value="deny_all" data-testid="bulk-mode-deny-all" />
+                <span>{{ t('admin.accounts.bulkEdit.modelModeDenyAll', '统一显式禁用全部模型') }}</span>
+              </label>
+            </div>
+            <template v-if="bulkModelMode === 'restricted'">
+              <BulkModelPreview :active="show && enableModelRestriction" :account-ids="accountIds" :filtered="targetMode === 'filtered'" v-model="allowedModels" :model-mappings="modelMappings" :connection-context="[baseUrl, enableBaseUrl, proxyId, proxyGroupId, enableProxy, enableHeaderOverride, headerOverrideEnabled, headerOverrideRows, modelMappings]" />
+              <AccountModelConfigurationSection :active="show && enableModelRestriction" discovery-disabled
+                v-model="allowedModels" v-model:mappings="modelMappings" :mode="bulkModelMode" :allow-deny-all="false" :platforms="targetSelectedPlatforms" :presets="filteredPresets" />
+            </template>
+            <div v-else-if="bulkModelMode === 'inherit'" data-testid="bulk-inherit-panel" class="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)]/50 p-3">
+              <p data-testid="bulk-inherit-hint" class="text-xs text-[var(--muted-foreground)]">
+                {{ t('admin.accounts.bulkEdit.inheritHint', '所选账号将解除上游模型范围限制（enabled=false），恢复按平台默认调度。') }}
+              </p>
+              <label class="flex cursor-pointer items-center gap-2 text-xs text-[var(--foreground)]">
+                <input v-model="clearMappingsOnInherit" type="checkbox" data-testid="bulk-clear-mappings-on-inherit" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                <span>{{ t('admin.accounts.bulkEdit.clearMappingsOnInherit', '同时清空所选账号已有的自定义模型别名') }}</span>
+              </label>
+            </div>
+            <div v-else data-testid="bulk-deny-all-panel" class="space-y-2 rounded-lg border border-red-200 bg-red-50/70 p-3 dark:border-red-900/50 dark:bg-red-950/30">
+              <p data-testid="bulk-deny-all-warning" class="text-xs font-medium text-red-700 dark:text-red-300">
+                {{ t('admin.accounts.bulkEdit.denyAllWarning', '将把所选账号的可用模型设为 0，所有路由到这些账号的请求都会被拒绝。') }}
+              </p>
+              <div>
+                <label class="input-label text-xs" for="bulk-deny-all-reason-input">
+                  {{ t('admin.accounts.bulkEdit.denyAllReasonLabel', '批量禁用原因（必填）') }}
+                </label>
+                <input
+                  id="bulk-deny-all-reason-input"
+                  v-model="bulkDenyReason"
+                  type="text"
+                  data-testid="bulk-deny-all-reason-input"
+                  class="input mt-1 text-xs"
+                  :placeholder="t('admin.accounts.bulkEdit.denyAllReasonPlaceholder', '例如：上游服务维护，批量暂停调度')"
+                />
+              </div>
+            </div>
           </template>
         </div>
       </div>
@@ -1296,6 +1339,17 @@
     @confirm="handleMixedChannelConfirm"
     @cancel="handleMixedChannelCancel"
   />
+
+  <ConfirmDialog
+    :show="showBulkDenyAllConfirm"
+    :title="t('admin.accounts.bulkEdit.denyAllConfirmTitle', '确认批量禁用全部模型？')"
+    :message="t('admin.accounts.bulkEdit.denyAllConfirmMessage', { count: targetPreviewCount })"
+    :confirm-text="t('common.confirm')"
+    :cancel-text="t('common.cancel')"
+    :danger="true"
+    @confirm="handleBulkDenyAllConfirm"
+    @cancel="handleBulkDenyAllCancel"
+  />
 </template>
 
 <script setup lang="ts">
@@ -1328,7 +1382,10 @@ import BulkModelPreview from './BulkModelPreview.vue'
 import Icon from '@/components/icons/Icon.vue'
 import {
   buildModelMappingObject as buildModelMappingPayload,
-  getPresetMappingsByPlatform
+  getPresetMappingsByPlatform,
+  validateModelRestrictions,
+  translateModelRestrictionErrors,
+  type AccountModelSelectionMode
 } from '@/composables/useModelWhitelist'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import {
@@ -1521,9 +1578,15 @@ const showMixedChannelWarning = ref(false)
 const mixedChannelWarningMessage = ref('')
 const pendingUpdatesForConfirm = ref<Record<string, unknown> | null>(null)
 const pendingTargetRevision = ref('')
+const showBulkDenyAllConfirm = ref(false)
+const pendingDenyAllUpdates = ref<Record<string, unknown> | null>(null)
+const pendingDenyAllTargetRevision = ref('')
 const targetRevision = computed(() => JSON.stringify([props.accountIds, props.target, targetMode.value]))
 const baseUrl = ref('')
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
+const bulkModelMode = ref<AccountModelSelectionMode>('restricted')
+const bulkDenyReason = ref('')
+const clearMappingsOnInherit = ref(false)
 const allowedModels = ref<string[]>([])
 const modelMappings = ref<ModelMapping[]>([])
 const selectedErrorCodes = ref<number[]>([])
@@ -1839,8 +1902,25 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
   }
 
   if (enableModelRestriction.value && !isOpenAIModelRestrictionDisabled.value) {
-    credentials.model_mapping = buildModelMappingPayload('combined', allowedModels.value, modelMappings.value) ?? {}
-    credentialsChanged = true
+    if (bulkModelMode.value === 'restricted') {
+      const mapping = buildModelMappingPayload('combined', allowedModels.value, modelMappings.value)
+      if (!mapping || Object.keys(mapping).length === 0) {
+        return null
+      }
+      credentials.model_mapping = mapping
+      credentialsChanged = true
+    } else if (bulkModelMode.value === 'inherit') {
+      updates.mode = 'inherit'
+      updates.models = []
+      if (clearMappingsOnInherit.value) {
+        credentials.model_mapping = {}
+        credentialsChanged = true
+      }
+    } else {
+      updates.mode = 'deny_all'
+      updates.models = []
+      updates.reason = bulkDenyReason.value.trim()
+    }
   }
 
   if (enableCustomErrorCodes.value) {
@@ -2073,6 +2153,25 @@ const handleSubmit = async () => {
     }
   }
 
+  if (enableModelRestriction.value && !isOpenAIModelRestrictionDisabled.value) {
+    if (bulkModelMode.value === 'restricted') {
+      if (allowedModels.value.length === 0 && modelMappings.value.length === 0) {
+        appStore.showError(t('admin.accounts.bulkEdit.emptyRestrictedError', '请至少选择一个允许的上游模型，或切换为“解除限制（全部允许）” / “显式全部禁用”'))
+        return
+      }
+      const restrictionErrors = validateModelRestrictions('restricted', allowedModels.value, modelMappings.value, {
+        requireNonEmptyRestricted: true
+      })
+      if (restrictionErrors.length > 0) {
+        appStore.showError(translateModelRestrictionErrors(restrictionErrors, t))
+        return
+      }
+    } else if (bulkModelMode.value === 'deny_all' && !bulkDenyReason.value.trim()) {
+      appStore.showError(t('admin.accounts.modelValidation.denyAllReasonRequired', '显式禁用全部模型时必须填写禁用原因。'))
+      return
+    }
+  }
+
   const built = buildUpdatePayload()
   if (!built) {
     appStore.showError(t('admin.accounts.bulkEdit.noFieldsSelected'))
@@ -2081,6 +2180,13 @@ const handleSubmit = async () => {
 
   const canContinue = await preCheckMixedChannelRisk(built)
   if (!canContinue) return
+
+  if (enableModelRestriction.value && !isOpenAIModelRestrictionDisabled.value && bulkModelMode.value === 'deny_all') {
+    pendingDenyAllUpdates.value = built
+    pendingDenyAllTargetRevision.value = targetRevision.value
+    showBulkDenyAllConfirm.value = true
+    return
+  }
 
   await submitBulkUpdate(built)
 }
@@ -2103,12 +2209,20 @@ const submitBulkUpdate = async (baseUpdates: Record<string, unknown>) => {
     const success = res.success || 0
     const failed = res.failed || 0
     const inherited = res.long_context_inherited_count || 0
+    const autoAddedCount = (res.results ?? []).filter(
+      (item) => item.success && Array.isArray(item.auto_added) && item.auto_added.length > 0
+    ).length
 
     if (success > 0 && failed === 0) {
       if (inherited > 0) {
         appStore.showSuccess(t('admin.accounts.bulkEdit.successWithInherited', {
           count: success,
           inherited
+        }))
+      } else if (autoAddedCount > 0) {
+        appStore.showSuccess(t('admin.accounts.bulkEdit.autoAddedSummary', {
+          success,
+          autoAddedCount
         }))
       } else {
         appStore.showSuccess(t('admin.accounts.bulkEdit.success', { count: success }))
@@ -2159,6 +2273,13 @@ const handleMixedChannelConfirm = async () => {
   }
   mixedChannelConfirmed.value = true
   if (pendingUpdatesForConfirm.value) {
+    if (enableModelRestriction.value && !isOpenAIModelRestrictionDisabled.value && bulkModelMode.value === 'deny_all') {
+      pendingDenyAllUpdates.value = pendingUpdatesForConfirm.value
+      pendingDenyAllTargetRevision.value = pendingTargetRevision.value
+      pendingUpdatesForConfirm.value = null
+      showBulkDenyAllConfirm.value = true
+      return
+    }
     await submitBulkUpdate(pendingUpdatesForConfirm.value)
   }
 }
@@ -2166,6 +2287,29 @@ const handleMixedChannelConfirm = async () => {
 const handleMixedChannelCancel = () => {
   showMixedChannelWarning.value = false
   pendingUpdatesForConfirm.value = null
+}
+
+const handleBulkDenyAllConfirm = async () => {
+  showBulkDenyAllConfirm.value = false
+  const current = buildUpdatePayload()
+  if (
+    !current ||
+    targetRevision.value !== pendingDenyAllTargetRevision.value ||
+    JSON.stringify(current) !== JSON.stringify(pendingDenyAllUpdates.value)
+  ) {
+    pendingDenyAllUpdates.value = null
+    return
+  }
+  const updates = pendingDenyAllUpdates.value
+  pendingDenyAllUpdates.value = null
+  if (updates) {
+    await submitBulkUpdate(updates)
+  }
+}
+
+const handleBulkDenyAllCancel = () => {
+  showBulkDenyAllConfirm.value = false
+  pendingDenyAllUpdates.value = null
 }
 
 // Reset form when modal closes
@@ -2212,6 +2356,12 @@ watch(
       openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
       openAIResponsesMode.value = 'auto'
       modelRestrictionMode.value = 'whitelist'
+      bulkModelMode.value = 'restricted'
+      bulkDenyReason.value = ''
+      clearMappingsOnInherit.value = false
+      showBulkDenyAllConfirm.value = false
+      pendingDenyAllUpdates.value = null
+      pendingDenyAllTargetRevision.value = ''
       allowedModels.value = []
       modelMappings.value = []
       selectedErrorCodes.value = []

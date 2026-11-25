@@ -139,7 +139,13 @@ export function buildCursorCredentials(input: {
 }): Record<string, unknown> {
   const credentials: Record<string, unknown> = {}
   if (input.mode !== 'auto' && input.apiKey.trim()) credentials.api_key = input.apiKey.trim()
-  if (input.existing?.model_mapping) credentials.model_mapping = input.existing.model_mapping
+  if (
+    input.existing?.model_mapping &&
+    typeof input.existing.model_mapping === 'object' &&
+    Object.keys(input.existing.model_mapping as Record<string, unknown>).length > 0
+  ) {
+    credentials.model_mapping = input.existing.model_mapping
+  }
   if (input.mode === 'relay') {
     credentials.base_url = input.baseUrl?.trim() || ''
     credentials.api_protocol = resolveRelayProtocolForBuild(input.apiProtocol, input.existing?.api_protocol)

@@ -651,6 +651,7 @@ describe('Clearing model selection and preserving deny-all', () => {
     expect(updateModelAllowlistMock).toHaveBeenLastCalledWith(
       401,
       expect.objectContaining({
+        mode: 'deny_all',
         enabled: true,
         models: [],
         model_mapping: {},
@@ -677,12 +678,31 @@ describe('Clearing model selection and preserving deny-all', () => {
     expect(updateModelAllowlistMock).toHaveBeenLastCalledWith(
       401,
       expect.objectContaining({
-        enabled: false,
-        models: [],
+        mode: 'restricted',
+        enabled: true,
+        models: ['hunyuan-turbos'],
         model_mapping: { 'hunyuan-turbos': 'hunyuan-turbos' }
       })
     )
     expect(selector.find('[data-testid="deny-all"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('hydrates restricted mode from upstream_model_allowlist when model_mapping is absent', async () => {
+    const allowlistOnly = makeAccount({
+      id: 402,
+      platform: 'anthropic',
+      type: 'apikey',
+      credentials: {},
+      extra: { upstream_model_allowlist: { enabled: true, models: ['vendor/model-a'] } }
+    })
+    const wrapper = mountEditModal(allowlistOnly)
+    await flushPromises()
+    const selector = wrapper.getComponent(ModelWhitelistSelector)
+    expect(selector.props('mode')).toBe('restricted')
+    expect(selector.props('modelValue')).toEqual(['vendor/model-a'])
+    expect(selector.props('modelMappings')).toEqual([])
+    expect(wrapper.find('[data-testid="unsaved-model-selection-banner"]').exists()).toBe(false)
     wrapper.unmount()
   })
 })

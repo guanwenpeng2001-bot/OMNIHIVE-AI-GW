@@ -109,7 +109,7 @@
         </div>
       </div>
 
-      <AccountModelConfigurationSection v-if="pendingAuthorization" v-model="authorizationModels" v-model:mappings="authorizationMappings" :platform="account.platform" :candidate-identity="authorizationCandidateIdentity" :sync-credentials="authorizationPreview" :active="show" />
+      <AccountModelConfigurationSection v-if="pendingAuthorization" v-model="authorizationModels" v-model:mappings="authorizationMappings" v-model:mode="authorizationMode" :allow-deny-all="false" :platform="account.platform" :candidate-identity="authorizationCandidateIdentity" :sync-credentials="authorizationPreview" :active="show" />
       <p v-if="authorizationError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ authorizationError }}</p>
       <WorkBuddyAuthFields
         v-if="isWorkBuddy && !pendingAuthorization"
@@ -213,7 +213,7 @@ import WorkBuddyAuthFields from '@/components/account/WorkBuddyAuthFields.vue'
 import { buildWorkBuddyCredentials, extractWorkBuddyOAuthDraft, extractWorkBuddySite, type WorkBuddyOAuthDraft } from '@/components/account/credentialsBuilder'
 import type { WorkBuddySite } from '@/api/admin/workbuddy'
 import { readAccountCredentialDraft, credentialsFromAuthorization, type AccountCredentialDraft } from '@/components/account/accountCredentialDraft'
-import { splitModelMappingObject, buildModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors, type ModelMappingEntry } from '@/composables/useModelWhitelist'
+import { accountModelAllowlist, normalizeAccountModelSelection, buildModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors, type AccountModelSelectionMode, type ModelMappingEntry } from '@/composables/useModelWhitelist'
 
 import { extractApiErrorMessage } from '@/utils/apiError'
 
@@ -261,6 +261,7 @@ const appStore = useAppStore()
 const { t } = useI18n()
 const reauthorizationPending = Symbol('reauthorization-pending')
 const pendingAuthorization = ref<{ accountId: number; draft: AccountCredentialDraft; type: 'oauth' | 'setup-token'; extra?: Record<string, unknown> } | null>(null)
+const authorizationMode = ref<AccountModelSelectionMode>('inherit')
 const authorizationModels = ref<string[]>([])
 const authorizationMappings = ref<ModelMappingEntry[]>([])
 const confirmingAuthorization = ref(false)
@@ -273,10 +274,44 @@ const authorizationCandidateIdentity = computed(() => ({
   mode: String(props.account?.credentials?.account_mode ?? '')
 }))
 let reviewedAuthorization = ''
+let initialAuthorizationSelectionKey = ''
+const effectiveAuthorizationMode = computed<AccountModelSelectionMode>(() => {
+  if (
+    authorizationMode.value === 'inherit' &&
+    (authorizationModels.value.length > 0 || authorizationMappings.value.length > 0)
+  ) {
+    return 'restricted'
+  }
+  return authorizationMode.value
+})
+const authorizationSelectionKey = (
+  mode: AccountModelSelectionMode,
+  models: string[],
+  mappings: ModelMappingEntry[]
+) =>
+  JSON.stringify({
+    mode,
+    models: [...models].sort(),
+    mappings: [...mappings].sort((left, right) =>
+      `${left.from}\0${left.to}`.localeCompare(`${right.from}\0${right.to}`)
+    )
+  })
+const buildAuthorizationCredentials = (): Record<string, unknown> => {
+  const mode = effectiveAuthorizationMode.value
+  if (mode !== 'restricted') return {}
+  if (
+    authorizationSelectionKey(mode, authorizationModels.value, authorizationMappings.value) ===
+    initialAuthorizationSelectionKey
+  ) {
+    return {}
+  }
+  const mapping = buildModelMappingObject('combined', authorizationModels.value, authorizationMappings.value)
+  return mapping ? { model_mapping: mapping } : {}
+}
 const authorizationPreview = computed(() => pendingAuthorization.value ? {
   platform: pendingAuthorization.value.draft.platform, type: pendingAuthorization.value.type,
   credential_draft: pendingAuthorization.value.draft.credential_draft, credential_draft_revision: pendingAuthorization.value.draft.revision,
-  credentials: { model_mapping: buildModelMappingObject('combined', authorizationModels.value, authorizationMappings.value) ?? {} }
+  credentials: buildAuthorizationCredentials()
 } : undefined)
 async function stageReauthorization(accountId: number, payload: { type: 'oauth' | 'setup-token'; credentials: Record<string, unknown>; extra?: Record<string, unknown> }): Promise<never> {
   const draft = readAccountCredentialDraft(payload.credentials)
@@ -285,9 +320,18 @@ async function stageReauthorization(accountId: number, payload: { type: 'oauth' 
     await apiClient.delete(`/admin/accounts/credential-drafts/${encodeURIComponent(draft.credential_draft)}`).catch(() => {})
     throw reauthorizationPending
   }
-  const selection = splitModelMappingObject(props.account.credentials?.model_mapping as Record<string, unknown> | undefined)
-  authorizationModels.value = selection.allowedModels
-  authorizationMappings.value = selection.modelMappings
+  const selection = normalizeAccountModelSelection({
+    account: props.account,
+    modelAllowlist: accountModelAllowlist(props.account)
+  })
+  authorizationMode.value = selection.mode
+  authorizationModels.value = selection.models
+  authorizationMappings.value = selection.mappings
+  initialAuthorizationSelectionKey = authorizationSelectionKey(
+    selection.mode,
+    selection.models,
+    selection.mappings
+  )
   pendingAuthorization.value = { accountId, draft, type: payload.type, extra: payload.extra }
   reviewedAuthorization = ''
   authorizationError.value = ''
@@ -297,14 +341,18 @@ async function cancelAuthorizationReview() {
   const pending = pendingAuthorization.value
   pendingAuthorization.value = null
   reviewedAuthorization = ''
+  initialAuthorizationSelectionKey = ''
   if (pending) await apiClient.delete(`/admin/accounts/credential-drafts/${encodeURIComponent(pending.draft.credential_draft)}`).catch(() => {})
 }
 async function confirmAuthorizationReview() {
   const pending = pendingAuthorization.value
   if (!pending || confirmingAuthorization.value || props.account?.id !== pending.accountId) return
-  const errors = validateModelRestrictions('combined', authorizationModels.value, authorizationMappings.value)
+  const mode = effectiveAuthorizationMode.value
+  const errors = validateModelRestrictions(mode, authorizationModels.value, authorizationMappings.value, {
+    requireNonEmptyRestricted: authorizationMode.value === 'restricted'
+  })
   if (errors.length) { authorizationError.value = translateModelRestrictionErrors(errors, t); return }
-  const credentials = { model_mapping: buildModelMappingObject('combined', authorizationModels.value, authorizationMappings.value) ?? {} }
+  const credentials = buildAuthorizationCredentials()
   const selection = JSON.stringify(credentials)
   confirmingAuthorization.value = true
   authorizationError.value = ''
@@ -317,7 +365,7 @@ async function confirmAuthorizationReview() {
       pending.draft.revision = data.revision
       reviewedAuthorization = fingerprint
     }
-    if (pendingAuthorization.value !== pending || selection !== JSON.stringify({ model_mapping: buildModelMappingObject('combined', authorizationModels.value, authorizationMappings.value) ?? {} })) return
+    if (pendingAuthorization.value !== pending || selection !== JSON.stringify(buildAuthorizationCredentials())) return
     const updatedAccount = await adminAPI.accounts.applyOAuthCredentials(pending.accountId, {
       type: pending.type, credentials, extra: pending.extra, credential_draft: pending.draft.credential_draft, credential_draft_revision: pending.draft.revision
     })

@@ -79,4 +79,8 @@ describe('Cursor credentials', () => {
   it('keeps only relay credentials and preserves a blank replacement key', () => {
     expect(buildCursorCredentials({ mode: 'relay', apiKey: '', baseUrl: ` ${RELAY_BASE_URL} `, existing: { api_key: 'never-echo', machine_id: 'machine', access_token: 'derived', client_version: '0.48.0' } })).toEqual({ base_url: RELAY_BASE_URL, api_protocol: 'adaptive' })
   })
+
+  it('does not forward an empty model_mapping object from existing credentials', () => {
+    expect(buildCursorCredentials({ mode: 'official', apiKey: 'crsr_key', existing: { model_mapping: {} } })).toEqual({ api_key: 'crsr_key', client_version: '' })
+  })
 })
