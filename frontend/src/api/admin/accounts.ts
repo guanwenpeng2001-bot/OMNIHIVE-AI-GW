@@ -35,11 +35,23 @@ import type {
 import type {
   AccountModelCatalog,
   AccountModelCatalogDetails,
+  AccountModelSelectionMode,
+  AccountModelScopeMode,
   UpdateModelAllowlistRequest,
   UpdateModelAllowlistResponse,
   AvailableAccountModel,
 } from '@/types/model'
 import type { PaginatedResponse } from '@/types/common'
+
+export type {
+  AccountModelCatalog,
+  AccountModelCatalogDetails,
+  AccountModelSelectionMode,
+  AccountModelScopeMode,
+  UpdateModelAllowlistRequest,
+  UpdateModelAllowlistResponse,
+  AvailableAccountModel,
+}
 
 /** Wire filters shared by list, conditional list and billing snapshots. */
 export interface AccountListFilters {
@@ -523,7 +535,13 @@ export async function bulkUpdate(
   success_ids?: number[]
   failed_ids?: number[]
   long_context_inherited_count?: number
-  results: Array<{ account_id: number; success: boolean; error?: string }>
+  results: Array<{
+    account_id: number
+    success: boolean
+    error?: string
+    auto_added?: string[]
+    rules_revision?: string | number
+  }>
   }> {
   const payload = Array.isArray(accountIdsOrPayload)
     ? {
@@ -538,7 +556,13 @@ export async function bulkUpdate(
     success_ids?: number[]
     failed_ids?: number[]
     long_context_inherited_count?: number
-    results: Array<{ account_id: number; success: boolean; error?: string }>
+    results: Array<{
+      account_id: number
+      success: boolean
+      error?: string
+      auto_added?: string[]
+      rules_revision?: string | number
+    }>
   }>('/admin/accounts/bulk-update', payload)
   return data
 }

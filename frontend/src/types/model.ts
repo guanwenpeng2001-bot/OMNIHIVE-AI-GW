@@ -21,9 +21,16 @@ export interface ReasoningEffortMapping {
   model?: string
 }
 
+export type AccountModelSelectionMode = 'inherit' | 'restricted' | 'deny_all'
+export type AccountModelScopeMode = AccountModelSelectionMode
+
 export interface ModelAllowlist {
   enabled: boolean
   models: string[]
+  identity_revision?: number
+  confirmed_by?: number
+  confirmed_at?: string
+  reason?: string
 }
 
 // 固定账号获取 Codex Model Manifest 配置（仅 openai 分组）
@@ -223,6 +230,10 @@ export interface AccountModelCatalogSummary {
 /** Historical evidence remains visible when the effective snapshot is invalid. */
 
 export interface AccountModelCatalogDetails extends AccountModelCatalogSummary {
+  mode?: AccountModelSelectionMode
+  models?: string[]
+  model_mapping?: Record<string, string>
+  rules_revision?: string
   display_metadata?: Record<string, Partial<import('@/api/admin/accounts').UpstreamModelMetadata>>
   snapshot: AccountModelCatalogSnapshot | null
   effective_snapshot: AccountModelCatalogSnapshot | null
@@ -270,16 +281,23 @@ export interface AccountModelCatalog extends AccountModelCatalogBaseline, Accoun
 /** expected_rules_revision is also accepted as a number for legacy clients. */
 
 export interface UpdateModelAllowlistRequest {
-  enabled: boolean
+  mode?: AccountModelSelectionMode
+  enabled?: boolean
   models: string[]
   reason: string
   expected_rules_revision: string | number
   model_mapping?: Record<string, string>
+  confirm_deny_all?: boolean
 }
 
 export interface UpdateModelAllowlistResponse {
+  mode?: AccountModelSelectionMode
+  models?: string[]
+  model_mapping?: Record<string, string>
   rules_revision: string
+  scope?: ModelAllowlist
   not_discovered?: string[]
+  auto_added?: string[]
 }
 
 export interface ApplyAccountModelCatalogRequest {

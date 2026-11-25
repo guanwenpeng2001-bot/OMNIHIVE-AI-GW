@@ -3,6 +3,74 @@
     <p v-if="presetError" role="alert" class="mb-3 text-sm text-red-600">
       {{ presetError }} <button type="button" class="underline" @click="reloadPresets">{{ t('common.refresh') }}</button>
     </p>
+    <div
+      v-if="!catalogOnly && !isSimplePicker"
+      class="mb-4 space-y-2"
+      data-testid="model-scope-mode"
+      role="group"
+      :aria-label="t('admin.accounts.modelSync.scopeModeLabel')"
+    >
+      <div class="flex flex-wrap gap-2">
+        <button
+          type="button"
+          data-testid="mode-inherit"
+          :aria-pressed="currentMode === 'inherit' && !denyAll"
+          :disabled="!active || selectionBusy"
+          :class="[
+            'btn btn-sm',
+            currentMode === 'inherit' && !denyAll ? 'btn-primary' : 'btn-secondary'
+          ]"
+          @click="selectMode('inherit')"
+        >
+          {{ t('admin.accounts.modelSync.modeInherit') }}
+        </button>
+        <button
+          type="button"
+          data-testid="mode-restricted"
+          :aria-pressed="currentMode === 'restricted' && !denyAll"
+          :disabled="!active || selectionBusy"
+          :class="[
+            'btn btn-sm',
+            currentMode === 'restricted' && !denyAll ? 'btn-primary' : 'btn-secondary'
+          ]"
+          @click="selectMode('restricted')"
+        >
+          {{ t('admin.accounts.modelSync.modeRestricted') }}
+        </button>
+        <button
+          v-if="allowDenyAll !== false"
+          type="button"
+          data-testid="mode-deny-all"
+          :aria-pressed="denyAll"
+          :disabled="!active || selectionBusy || (!!accountId && (configurationDirty || !catalogSummary))"
+          :class="[
+            'btn btn-sm',
+            denyAll
+              ? 'btn-danger'
+              : 'btn-secondary border-red-200 text-red-600 dark:border-red-800 dark:text-red-400'
+          ]"
+          @click="selectMode('deny_all')"
+        >
+          {{ t('admin.accounts.modelSync.modeDenyAll') }}
+        </button>
+      </div>
+      <p
+        v-if="currentMode === 'inherit' && !denyAll"
+        role="status"
+        data-testid="mode-inherit-hint"
+        class="text-xs text-secondary"
+      >
+        {{ t('admin.accounts.modelSync.modeInheritHint') }}
+      </p>
+      <p
+        v-if="isLegacyFrozen"
+        role="status"
+        data-testid="legacy-frozen-notice"
+        class="text-xs text-secondary"
+      >
+        {{ t('admin.accounts.modelSync.legacyFrozenNotice') }}
+      </p>
+    </div>
     <div v-if="!catalogOnly" class="mb-4 space-y-1">
       <p data-testid="configured-model-summary" class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.accounts.modelSync.configuredSelection', { direct: selectedModels.length, mappings: modelMappings?.length ?? 0, wildcards: wildcardCount }) }}</p>
       <p v-if="!configuredModels.length" class="input-hint">{{ t('admin.accounts.modelSync.emptySelection') }}</p>
@@ -45,9 +113,61 @@
     <p v-if="configurationDirty && accountId" :id="dirtyReasonId" class="mb-2 text-sm text-secondary">{{ t('admin.accounts.modelSync.saveBeforePreview') }}</p>
 
     <p v-if="denyAll" role="status" data-testid="deny-all">{{ t('admin.accounts.modelSync.denyAll') }}</p>
+    <p v-if="autoAddedNotice" role="status" data-testid="auto-added-notice" class="mb-2 text-sm text-secondary">{{ autoAddedNotice }}</p>
     <p v-if="selectionWarning" role="status" data-testid="selection-warning">{{ selectionWarning }}</p>
-    <ConfirmDialog :show="confirmClear" :title="t('admin.accounts.clearAllModels')" :message="t('admin.accounts.modelSync.clearConfirmation')"
-      @confirm="clearAll" @cancel="confirmClear = false" />
+    <div
+      v-if="confirmClear"
+      data-testid="confirm-deny-all-dialog"
+      class="mb-4 space-y-3 rounded-lg border border-red-200 bg-red-50/70 p-3 dark:border-red-900/50 dark:bg-red-950/30"
+    >
+      <p class="text-xs font-medium text-red-700 dark:text-red-300">
+        {{ t('admin.accounts.modelSync.confirmDenyAllMessage') }}
+      </p>
+      <div class="space-y-2" data-testid="confirm-deny-all-body">
+        <label class="input-label text-xs">
+          {{ t('admin.accounts.modelSync.denyAllReasonLabel') }}
+          <input
+            ref="denyAllReasonInput"
+            v-model="denyAllReasonDraft"
+            type="text"
+            class="input mt-1 w-full"
+            data-testid="deny-all-reason-input"
+            :placeholder="t('admin.accounts.modelSync.denyAllReasonPlaceholder')"
+            @input="denyAllReasonError = ''"
+          />
+        </label>
+        <p
+          v-if="denyAllReasonError"
+          role="alert"
+          data-testid="deny-all-reason-error"
+          class="text-xs text-red-600"
+        >
+          {{ denyAllReasonError }}
+        </p>
+        <div class="flex justify-end gap-2">
+          <button type="button" class="btn btn-secondary btn-sm" @click="cancelDenyAll">
+            {{ t('common.cancel') }}
+          </button>
+          <button
+            type="button"
+            data-testid="confirm-deny-all-submit"
+            class="btn btn-danger btn-sm"
+            @click="clearAll"
+          >
+            {{ t('admin.accounts.modelSync.confirmDenyAllSubmit') }}
+          </button>
+        </div>
+      </div>
+    </div>
+    <ConfirmDialog
+      :show="confirmClear"
+      :title="t('admin.accounts.modelSync.confirmDenyAllTitle')"
+      :message="t('admin.accounts.modelSync.confirmDenyAllMessage')"
+      :confirm-text="t('admin.accounts.modelSync.confirmDenyAllSubmit')"
+      danger
+      @confirm="clearAll"
+      @cancel="cancelDenyAll"
+    />
 
     <details v-if="!catalogOnly" ref="selectionDetails" open class="mb-4 space-y-3" data-testid="model-selection">
       <summary class="cursor-pointer rounded-lg py-2 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">{{ t('admin.accounts.editSections.selection') }}</summary>
@@ -183,29 +303,83 @@
       </div>
     </div>
     </details>
+    <details
+      v-if="!catalogOnly && !isSimplePicker"
+      ref="mappingDetails"
+      class="mb-4 space-y-3 border-t border-[var(--border)] pt-3"
+      data-testid="model-mappings"
+    >
+      <summary class="cursor-pointer rounded-lg py-1.5 text-sm font-medium text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]">
+        {{ t('admin.accounts.editSections.mappings', { count: modelMappings?.length ?? 0 }) }}
+      </summary>
+      <p class="input-hint">{{ t('admin.accounts.mapRequestModels') }}</p>
+      <div
+        v-for="(mapping, index) in modelMappings ?? []"
+        :key="index"
+        class="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]"
+      >
+        <input
+          :value="mapping.from"
+          class="input min-w-0"
+          :aria-label="t('admin.accounts.requestModel')"
+          :placeholder="t('admin.accounts.requestModel')"
+          @input="updateMapping(index, 'from', $event)"
+        />
+        <input
+          :value="mapping.to"
+          class="input min-w-0"
+          :aria-label="t('admin.accounts.actualModel')"
+          :placeholder="t('admin.accounts.actualModel')"
+          @input="updateMapping(index, 'to', $event)"
+        />
+        <button type="button" class="btn btn-secondary" @click="removeMapping(index)">
+          {{ t('common.delete') }}
+        </button>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <button type="button" class="btn btn-secondary" @click="addMapping()">
+          {{ t('admin.accounts.addMapping') }}
+        </button>
+        <button
+          v-for="targetModel in selectedModels"
+          :key="`target-alias-${targetModel}`"
+          type="button"
+          data-testid="add-target-alias"
+          class="btn btn-secondary text-xs"
+          @click="addMapping({ from: '', to: targetModel })"
+        >
+          {{ t('admin.accounts.modelSync.addInlineAlias') }}: {{ targetModel }}
+        </button>
+      </div>
+      <div v-if="presets?.length" class="space-y-2">
+        <p class="input-label">{{ t('admin.accounts.editSections.mappingTemplates') }}</p>
+        <div class="flex flex-wrap gap-2">
+          <button
+            v-for="preset in presets"
+            :key="preset.from"
+            type="button"
+            class="btn btn-secondary max-w-full break-all text-xs"
+            @click="addMapping(preset)"
+          >
+            {{ preset.label || preset.from }}
+          </button>
+        </div>
+      </div>
+    </details>
     <div v-if="!catalogOnly" class="mb-4 space-y-2">
       <div class="flex flex-wrap items-center gap-3">
         <button v-if="accountId" type="button" data-testid="save-model-selection" class="btn btn-primary w-full sm:w-auto"
           :aria-describedby="configurationDirty ? dirtyReasonId : undefined"
-          :disabled="!active || configurationDirty || selectionBusy || !catalogSummary || (!modelValue.length && !modelMappings?.length)" @click="saveSelection(false)">
-          {{ t(selectionBusy && !allowlistBusy ? 'admin.accounts.modelSync.savingSelection' : denyAll ? 'admin.accounts.modelSync.reselect' : 'admin.accounts.modelSync.saveSelection') }}
+          :disabled="!active || configurationDirty || selectionBusy || !catalogSummary || !canSubmitCurrentMode" @click="saveSelection(false)">
+          {{ t(selectionBusy ? 'admin.accounts.modelSync.savingSelection' : denyAll ? 'admin.accounts.modelSync.reselect' : 'admin.accounts.modelSync.saveSelection') }}
         </button>
         <p v-if="accountId" role="status" data-testid="model-save-status" class="text-sm text-secondary">{{ t(`admin.accounts.modelSync.${selectionStatus}`) }}</p>
       </div>
       <p class="input-hint">{{ t(accountId ? 'admin.accounts.modelSync.selectionPendingSave' : 'admin.accounts.modelSync.selectionPendingCreate') }}</p>
     </div>
-    <details v-if="accountId && catalogSummary" class="mb-4 space-y-3 border-t pt-3 border-[var(--border)]" data-testid="catalog-allowlist">
-      <summary class="cursor-pointer rounded-lg py-2 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">{{ t('admin.accounts.modelSync.allowlistTitle') }}</summary>
-      <p class="input-hint">{{ t('admin.accounts.modelSync.allowlistHint') }}</p>
-      <label class="flex gap-2"><input v-model="allowlistEnabled" type="checkbox" />{{ t('admin.accounts.modelSync.allowlistEnabled') }}</label>
-      <label class="input-label">{{ t('admin.accounts.modelSync.allowlistModels') }}<textarea v-model="allowlistModels" class="input" data-testid="allowlist-models" /></label>
-      <label class="input-label">{{ t('admin.accounts.modelSync.allowlistReason') }}<input v-model="allowlistReason" class="input" data-testid="allowlist-reason" /></label>
-      <p v-if="allowlistEnabled && !allowlistModels.trim()" class="input-hint">{{ t('admin.accounts.modelSync.denyAll') }}</p>
-      <button type="button" class="btn btn-secondary" data-testid="save-allowlist" :aria-describedby="configurationDirty ? dirtyReasonId : undefined" :disabled="!active || configurationDirty || selectionBusy || allowlistBusy" @click="saveAllowlist">{{ t(allowlistBusy ? 'common.saving' : 'common.save') }}</button>
-    </details>
     <ModelCatalogDetails :display-metadata="displayMetadata" :mapping-targets="[...modelValue, ...(modelMappings ?? []).map(entry => entry.to)]" :creation-context="!accountId" :stale="catalogState === 'stale' || catalogState === 'invalidIdentity' || catalogSummary?.staleness === 'stale'" :status-override="catalogState === 'idle' ? undefined : catalogState" :result="syncResult" :summary="catalogSummary" :candidate-count="presetCount" />
-    <div v-if="!catalogOnly" class="mt-4 flex justify-end border-t pt-4 border-[var(--border)]">
-      <button type="button" @click="confirmClear = true"
+    <div v-if="!catalogOnly && allowDenyAll !== false" class="mt-4 flex justify-end border-t pt-4 border-[var(--border)]">
+      <button type="button" @click="openClearConfirmation"
         data-testid="clear-model-selection" :disabled="selectionBusy || !active || (!!accountId && (configurationDirty || !catalogSummary))"
         class="btn btn-secondary border-red-200 text-red-600 dark:border-red-800 dark:text-red-400">
         {{ t('admin.accounts.clearAllModels') }}
@@ -231,7 +405,20 @@ import type { SyncUpstreamModelsResult, SyncUpstreamPreviewParams } from '@/api/
 import { useClipboard } from '@/composables/useClipboard'
 import ModelIcon from '@/components/common/ModelIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { accountModelAllowlist, buildModelMappingObject, splitModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors, type ModelRestrictionError, type ModelMappingEntry, type ModelCandidateIdentity, modelCandidateKey, modelSyncErrorKey } from '@/composables/useModelWhitelist'
+import {
+  accountModelAllowlist,
+  buildUpdateModelAllowlistRequest,
+  isLegacySystemFreezeAllowlist,
+  splitModelMappingObject,
+  validateModelRestrictions,
+  translateModelRestrictionErrors,
+  type AccountModelSelectionMode,
+  type ModelRestrictionError,
+  type ModelMappingEntry,
+  type ModelCandidateIdentity,
+  modelCandidateKey,
+  modelSyncErrorKey
+} from '@/composables/useModelWhitelist'
 
 const { t } = useI18n()
 
@@ -244,24 +431,41 @@ const props = withDefaults(defineProps<{
   candidateIdentity?: ModelCandidateIdentity
   connectionContext?: unknown
   savedRevision?: unknown
-  persistedSelection?: { models: string[]; mappings: ModelMappingEntry[] }
+  persistedSelection?: {
+    mode?: AccountModelSelectionMode
+    models: string[]
+    mappings: ModelMappingEntry[]
+    reason?: string
+  }
   registerActions?: (actions: { saveSelection: () => Promise<boolean>; canSaveSelection: () => boolean } | null) => void
   configurationDirty?: boolean
   modelMappings?: ModelMappingEntry[]
+  mode?: AccountModelSelectionMode
+  reason?: string
+  presets?: (ModelMappingEntry & { label?: string })[]
+  allowDenyAll?: boolean
+  simplePicker?: boolean
   active?: boolean
   modelValue: string[]
   platform?: string
   platforms?: string[]
   accountId?: number
   syncCredentials?: SyncUpstreamPreviewParams
-}>(), { active: true })
+}>(), {
+  active: true,
+  allowDenyAll: true,
+  simplePicker: false,
+  presets: () => []
+})
 
 const emit = defineEmits<{
   'update:modelValue': [value: string[]]
+  'update:modelMappings': [mappings: ModelMappingEntry[]]
+  'update:mode': [mode: AccountModelSelectionMode]
+  'update:reason': [reason: string]
   'upstream-synced': []
   'catalog-applied': []
   'selection-saved': [account: Account]
-  'update:modelMappings': [mappings: ModelMappingEntry[]]
   'validation-failed': [errors: ModelRestrictionError[]]
 }>()
 
@@ -274,10 +478,26 @@ const previewReasonId = useId()
 const dirtyReasonId = useId()
 const trigger = ref<HTMLButtonElement>()
 const selectionDetails = ref<HTMLDetailsElement>()
+const mappingDetails = ref<HTMLDetailsElement>()
 const customModelInput = ref<HTMLInputElement>()
+const denyAllReasonInput = ref<HTMLInputElement>()
 function revealSelection() {
   if (selectionDetails.value) selectionDetails.value.open = true
   void nextTick(() => customModelInput.value?.focus())
+}
+function revealValidation(errors: ModelRestrictionError[]) {
+  const error = errors[0]
+  if (!error) return
+  if (error.code === 'exactIdRequired' || error.code === 'emptyRestrictedSelection') {
+    revealSelection()
+    return
+  }
+  if (error.code === 'denyAllReasonRequired') {
+    void nextTick(() => denyAllReasonInput.value?.focus())
+    return
+  }
+  if (mappingDetails.value) mappingDetails.value.open = true
+  void nextTick(() => mappingDetails.value?.querySelectorAll('input')[(error.row - 1) * 2]?.focus())
 }
 const handleEscape = (event: KeyboardEvent) => {
   if (!showDropdown.value) return
@@ -341,15 +561,77 @@ const catalogSummary = ref<AccountModelCatalogDetails | null>(null)
 const syncError = ref('')
 const needsPreview = ref(false)
 const confirmClear = ref(false)
+const denyAllDialogMode = ref<'explicit_deny' | 'clear'>('clear')
+const denyAllReasonDraft = ref('')
+const denyAllReasonError = ref('')
 const selectionBusy = ref(false)
 const selectionWarning = ref('')
+const autoAddedNotice = ref('')
 const savedAllowlist = ref(props.modelAllowlist)
+const localModeOverride = ref<AccountModelSelectionMode | null>(null)
+const localReason = ref(props.reason ?? props.modelAllowlist?.reason ?? '')
+const stashedRestrictedDraft = ref<{ models: string[]; mappings: ModelMappingEntry[] } | null>(null)
+const isSimplePicker = computed(
+  () =>
+    props.simplePicker ||
+    (!props.accountId &&
+      !props.platform &&
+      !(props.platforms?.length) &&
+      props.modelMappings === undefined &&
+      props.mode === undefined &&
+      !props.modelAllowlist)
+)
+const isLegacyFrozen = computed(() => isLegacySystemFreezeAllowlist(savedAllowlist.value))
+const isPersistedDenyAll = computed(
+  () =>
+    savedAllowlist.value?.enabled === true &&
+    !savedAllowlist.value.models?.length &&
+    !isLegacyFrozen.value
+)
+const hasConfiguredModelsOrMappings = computed(
+  () => props.modelValue.length > 0 || (props.modelMappings?.length ?? 0) > 0
+)
+const currentMode = computed<AccountModelSelectionMode>(() => {
+  if (localModeOverride.value !== null) return localModeOverride.value
+  if (props.mode !== undefined) {
+    if (props.mode === 'inherit' && hasConfiguredModelsOrMappings.value) return 'restricted'
+    return props.mode
+  }
+  if (hasConfiguredModelsOrMappings.value) return 'restricted'
+  if (isPersistedDenyAll.value) return 'deny_all'
+  if (savedAllowlist.value?.enabled === true && (savedAllowlist.value.models?.length ?? 0) > 0) {
+    return 'restricted'
+  }
+  if (catalogSummary.value?.mode) return catalogSummary.value.mode
+  return 'inherit'
+})
+const denyAll = computed(
+  () =>
+    (isPersistedDenyAll.value && localModeOverride.value !== 'inherit') ||
+    currentMode.value === 'deny_all'
+)
+const canSubmitCurrentMode = computed(() => {
+  if (currentMode.value === 'inherit') return true
+  return hasConfiguredModelsOrMappings.value
+})
+const currentRulesRevision = computed(
+  () => catalogSummary.value?.rules_revision ?? catalogSummary.value?.state?.rules_revision
+)
 watch(() => props.modelAllowlist, value => { savedAllowlist.value = value }, { deep: true })
+watch(() => props.mode, value => {
+  if (value !== undefined) localModeOverride.value = null
+})
+watch(() => props.reason, value => {
+  if (value !== undefined) localReason.value = value
+})
 watch(() => [props.accountId, props.active], () => {
   selectionWarning.value = ''
+  autoAddedNotice.value = ''
   savedAllowlist.value = props.modelAllowlist
+  localModeOverride.value = null
+  localReason.value = props.reason ?? props.modelAllowlist?.reason ?? ''
+  stashedRestrictedDraft.value = null
 })
-const denyAll = computed(() => savedAllowlist.value?.enabled === true && !savedAllowlist.value.models?.length)
 const catalogState = ref<'idle' | 'loading' | 'failed' | 'empty' | 'stale' | 'ready' | 'unsynced' | 'invalidIdentity'>('idle')
 let generation = 0
 let selectionGeneration = 0
@@ -359,22 +641,34 @@ const context = computed(() => {
   return JSON.stringify([props.active !== false, props.accountId, normalizedPlatforms.value.map(platform => modelCandidateKey(platform, props.candidateIdentity)), credentials, props.connectionContext, props.savedRevision, props.discoveryDisabled])
 })
 const selectionContext = computed(() => JSON.stringify([props.modelValue, props.modelMappings, props.syncCredentials?.model_mapping, props.configurationDirty]))
-function selectionKey(models: string[], mappings: ModelMappingEntry[]) {
-  return JSON.stringify([...models.map(model => [model, model]), ...mappings.map(mapping => [mapping.from, mapping.to])]
-    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))))
+function selectionKey(models: string[], mappings: ModelMappingEntry[], mode?: AccountModelSelectionMode) {
+  const hasEntries = models.length > 0 || mappings.length > 0
+  const resolvedMode: AccountModelSelectionMode =
+    mode === 'deny_all'
+      ? 'deny_all'
+      : mode === 'inherit' && !hasEntries
+        ? 'inherit'
+        : hasEntries || mode === 'restricted'
+          ? 'restricted'
+          : 'inherit'
+  return JSON.stringify({
+    mode: resolvedMode,
+    entries: [...models.map(model => [model, model]), ...mappings.map(mapping => [mapping.from, mapping.to])]
+      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+  })
 }
-const selectionFingerprint = computed(() => selectionKey(props.modelValue, props.modelMappings ?? []))
+const selectionFingerprint = computed(() => selectionKey(props.modelValue, props.modelMappings ?? [], currentMode.value))
 const savedSelectionFingerprint = ref(selectionFingerprint.value)
 const selectionSaved = ref(false)
 const selectionSaveFailed = ref(false)
 const selectionDirty = computed(() => selectionFingerprint.value !== savedSelectionFingerprint.value)
-const selectionStatus = computed(() => selectionBusy.value && !allowlistBusy.value ? 'savingSelection' : selectionSaveFailed.value ? 'selectionSaveFailed' : selectionDirty.value ? 'unsavedSelection' : selectionSaved.value ? 'savedSelection' : 'unchangedSelection')
+const selectionStatus = computed(() => selectionBusy.value ? 'savingSelection' : selectionSaveFailed.value ? 'selectionSaveFailed' : selectionDirty.value ? 'unsavedSelection' : selectionSaved.value ? 'savedSelection' : 'unchangedSelection')
 const wildcardCount = computed(() => props.modelMappings?.filter(mapping => mapping.from.includes('*')).length ?? 0)
 watch(
   () => props.persistedSelection,
   (value) => {
     if (!value) return
-    savedSelectionFingerprint.value = selectionKey(value.models, value.mappings)
+    savedSelectionFingerprint.value = selectionKey(value.models, value.mappings, value.mode)
   },
   { immediate: true, deep: true }
 )
@@ -382,7 +676,7 @@ watch(() => [props.accountId, props.active], async () => {
   selectionSaved.value = false
   selectionSaveFailed.value = false
   if (props.persistedSelection) {
-    savedSelectionFingerprint.value = selectionKey(props.persistedSelection.models, props.persistedSelection.mappings)
+    savedSelectionFingerprint.value = selectionKey(props.persistedSelection.models, props.persistedSelection.mappings, props.persistedSelection.mode)
     return
   }
   await nextTick()
@@ -397,10 +691,6 @@ watch(selectionContext, () => {
   needsPreview.value = true
   confirmClear.value = false
 }, { flush: 'sync' })
-const allowlistReason = ref('')
-const allowlistModels = ref('')
-const allowlistEnabled = ref(true)
-const allowlistBusy = ref(false)
 // Read the persisted account after every mutation: legacy filter writes can be
 // normalized to deny-all by the server and must never be shown as unrestricted.
 const persistSelection = async (requestBody: Parameters<typeof accountsAPI.updateModelAllowlist>[1]): Promise<boolean> => {
@@ -414,32 +704,84 @@ const persistSelection = async (requestBody: Parameters<typeof accountsAPI.updat
   selectionSaveFailed.value = false
   syncError.value = ''
   selectionWarning.value = ''
+  autoAddedNotice.value = ''
   try {
     const result = await accountsAPI.updateModelAllowlist(accountId, requestBody)
     if (disposed || request !== generation) return false
     draftChanged = selectionContext.value !== savedDraftContext
-    if (requestBody.model_mapping !== undefined && !draftChanged) {
+    if (requestBody.model_mapping !== undefined && !draftChanged && requestBody.mode !== 'inherit') {
       const selection = splitModelMappingObject(requestBody.model_mapping)
-      emit('update:modelValue', selection.allowedModels)
+      const immediateModels =
+        selection.allowedModels.length > 0 || selection.modelMappings.length > 0
+          ? [...new Set([...selection.allowedModels, ...(result.auto_added ?? [])])]
+          : [...new Set([...(result.models ?? []), ...requestBody.models])]
+      emit('update:modelValue', immediateModels)
       emit('update:modelMappings', selection.modelMappings)
     }
     await nextTick()
     savedDraftContext = selectionContext.value
     const account = await accountsAPI.getById(accountId)
     if (disposed || request !== generation) return false
-    if (requestBody.model_mapping !== undefined) {
-      const persisted = splitModelMappingObject(account.credentials?.model_mapping as Record<string, unknown>)
-      savedSelectionFingerprint.value = selectionKey(persisted.allowedModels, persisted.modelMappings)
-      selectionSaved.value = true
+    const accountAllowlist = accountModelAllowlist(account)
+    const effectiveMode: AccountModelSelectionMode =
+      result.mode ??
+      requestBody.mode ??
+      (accountAllowlist?.enabled
+        ? accountAllowlist.models.length > 0
+          ? 'restricted'
+          : 'deny_all'
+        : 'restricted')
+    const persistedMappingRaw = (account?.credentials?.model_mapping ??
+      result.model_mapping ??
+      requestBody.model_mapping) as Record<string, unknown> | undefined
+    const persisted = splitModelMappingObject(persistedMappingRaw)
+    let persistedModels: string[] = []
+    let persistedMappings: ModelMappingEntry[] = []
+    if (effectiveMode === 'inherit') {
+      persistedModels = []
+      persistedMappings = persisted.modelMappings
+      savedAllowlist.value = accountAllowlist ?? { enabled: false, models: [] }
+    } else if (effectiveMode === 'deny_all') {
+      persistedModels = []
+      persistedMappings = []
+      savedAllowlist.value = accountAllowlist ?? {
+        enabled: true,
+        models: [],
+        ...(requestBody.reason ? { reason: requestBody.reason } : {})
+      }
+    } else {
+      persistedMappings = persisted.modelMappings
+      if (persisted.allowedModels.length > 0) {
+        persistedModels = [...new Set([...persisted.allowedModels, ...(result.auto_added ?? [])])]
+      } else if (persisted.modelMappings.length > 0) {
+        persistedModels = result.auto_added?.length ? [...new Set(result.auto_added)] : []
+      } else {
+        persistedModels = [
+          ...new Set([
+            ...(accountAllowlist?.models ?? []),
+            ...(result.models ?? []),
+            ...requestBody.models
+          ])
+        ]
+      }
+      savedAllowlist.value =
+        accountAllowlist && (accountAllowlist.enabled || persisted.allowedModels.length > 0 || persisted.modelMappings.length > 0)
+          ? accountAllowlist
+          : {
+              enabled: true,
+              models: persistedModels,
+              ...(requestBody.reason ? { reason: requestBody.reason } : {})
+            }
     }
-    savedAllowlist.value = accountModelAllowlist(account)
-    allowlistEnabled.value = savedAllowlist.value?.enabled ?? false
-    allowlistModels.value = savedAllowlist.value?.models?.join('\n') ?? ''
+    localModeOverride.value = effectiveMode
+    emit('update:mode', effectiveMode)
+    savedSelectionFingerprint.value = selectionKey(persistedModels, persistedMappings, effectiveMode)
+    selectionSaved.value = true
     if (result.not_discovered?.length) selectionWarning.value = t('admin.accounts.modelSync.notDiscoveredWarning', { models: result.not_discovered.join(', ') })
+    if (result.auto_added?.length) autoAddedNotice.value = t('admin.accounts.modelSync.autoAddedNotice', { models: result.auto_added.join(', ') })
     if (requestBody.model_mapping !== undefined && !draftChanged && selectionContext.value === savedDraftContext) {
-      const selection = splitModelMappingObject(account.credentials?.model_mapping as Record<string, unknown>)
-      emit('update:modelValue', selection.allowedModels)
-      emit('update:modelMappings', selection.modelMappings)
+      emit('update:modelValue', persistedModels)
+      emit('update:modelMappings', persistedMappings)
       emit('selection-saved', account)
     }
     emit('catalog-applied')
@@ -448,39 +790,85 @@ const persistSelection = async (requestBody: Parameters<typeof accountsAPI.updat
   } catch (error) {
     if (disposed || request !== generation) return false
     selectionSaveFailed.value = requestBody.model_mapping !== undefined
-    syncError.value = t(`admin.accounts.${extractApiErrorStatus(error) === 400 ? 'modelSync.invalidSelection' : modelSyncErrorKey(error)}`)
+    const errorKey = modelSyncErrorKey(error)
+    syncError.value = t(
+      `admin.accounts.${
+        extractApiErrorStatus(error) === 400 && errorKey === 'syncUpstreamModelsFailed'
+          ? 'modelSync.invalidSelection'
+          : errorKey
+      }`
+    )
     // Refresh the CAS token; retain the user's draft and require an explicit retry.
     await loadCatalog()
     return false
   } finally { if (selectionRequest === selectionGeneration) selectionBusy.value = false }
 }
-const saveAllowlist = async () => {
-  const revision = catalogSummary.value?.state?.rules_revision
-  if (revision === undefined) return
-  allowlistBusy.value = true
-  const saveContext = context.value
-  try {
-    await persistSelection({ enabled: allowlistEnabled.value, models: [...new Set(allowlistModels.value.split(/[\s,]+/).filter(Boolean))],
-      reason: allowlistReason.value.trim(), expected_rules_revision: revision })
-  } finally { if (saveContext === context.value) allowlistBusy.value = false }
-}
-const saveSelection = async (clear: boolean): Promise<boolean> => {
-  if (!clear && !props.modelValue.length && !(props.modelMappings?.length)) return false
-  const revision = catalogSummary.value?.state?.rules_revision
+const saveSelection = async (clear: boolean, explicitReason?: string): Promise<boolean> => {
+  const revision = currentRulesRevision.value
   if (revision === undefined) return false
-  const errors = clear ? [] : validateModelRestrictions('combined', props.modelValue, props.modelMappings ?? [])
+  if (clear) {
+    const reasonText =
+      (explicitReason ?? localReason.value).trim() ||
+      t('admin.accounts.modelSync.defaultDenyAllReason')
+    return await persistSelection(
+      buildUpdateModelAllowlistRequest({
+        mode: 'deny_all',
+        models: [],
+        mappings: [],
+        reason: reasonText,
+        expectedRulesRevision: revision
+      })
+    )
+  }
+  const targetMode: AccountModelSelectionMode =
+    localModeOverride.value === 'inherit' ||
+    (currentMode.value === 'inherit' && !hasConfiguredModelsOrMappings.value)
+      ? 'inherit'
+      : 'restricted'
+  if (targetMode === 'restricted' && !hasConfiguredModelsOrMappings.value) {
+    const emptyErrors = validateModelRestrictions('restricted', props.modelValue, props.modelMappings ?? [], {
+      requireNonEmptyRestricted: true
+    })
+    syncError.value = translateModelRestrictionErrors(emptyErrors, t)
+    revealValidation(emptyErrors)
+    emit('validation-failed', emptyErrors)
+    return false
+  }
+  const errors = validateModelRestrictions(targetMode, props.modelValue, props.modelMappings ?? [])
   if (errors.length) {
     syncError.value = translateModelRestrictionErrors(errors, t)
-    if (errors[0].code === 'exactIdRequired') revealSelection()
+    revealValidation(errors)
     emit('validation-failed', errors)
     return false
   }
-  const mapping = clear ? {} : buildModelMappingObject('combined', props.modelValue, props.modelMappings ?? []) ?? {}
-  // A normal selection save preserves a configured filter. Reselecting from
-  // deny-all is the sole explicit operation that releases that state.
-  const enabled = clear || (!denyAll.value && savedAllowlist.value?.enabled === true)
-  return await persistSelection({ enabled, models: clear || denyAll.value ? [] : savedAllowlist.value?.models ?? [],
-    reason: '', expected_rules_revision: revision, model_mapping: mapping })
+  if (targetMode === 'inherit') {
+    return await persistSelection(
+      buildUpdateModelAllowlistRequest({
+        mode: 'inherit',
+        models: [],
+        mappings: props.modelMappings ?? [],
+        reason: localReason.value,
+        expectedRulesRevision: revision
+      })
+    )
+  }
+  const scopeModels = [
+    ...new Set([
+      ...props.modelValue.map(model => model.trim()).filter(Boolean),
+      ...(savedAllowlist.value?.enabled && !isPersistedDenyAll.value
+        ? (savedAllowlist.value.models ?? []).map(model => model.trim()).filter(Boolean)
+        : [])
+    ])
+  ]
+  return await persistSelection(
+    buildUpdateModelAllowlistRequest({
+      mode: 'restricted',
+      models: scopeModels,
+      mappings: props.modelMappings ?? [],
+      reason: localReason.value,
+      expectedRulesRevision: revision
+    })
+  )
 }
 const canSaveSelection = () =>
   Boolean(
@@ -488,8 +876,8 @@ const canSaveSelection = () =>
     props.active &&
     !props.configurationDirty &&
     !selectionBusy.value &&
-    catalogSummary.value?.state?.rules_revision !== undefined &&
-    (props.modelValue.length > 0 || (props.modelMappings?.length ?? 0) > 0)
+    currentRulesRevision.value !== undefined &&
+    canSubmitCurrentMode.value
   )
 watch(
   () => props.registerActions,
@@ -518,6 +906,16 @@ const loadCatalog = async () => {
       const summary = await accountsAPI.getModelCatalog(accountId)
       if (disposed || request !== generation) return
       catalogSummary.value = summary
+      if (summary.mode === 'deny_all' && !savedAllowlist.value) {
+        savedAllowlist.value = { enabled: true, models: [] }
+      } else if (
+        summary.mode === 'restricted' &&
+        Array.isArray(summary.models) &&
+        summary.models.length > 0 &&
+        !savedAllowlist.value
+      ) {
+        savedAllowlist.value = { enabled: true, models: [...summary.models] }
+      }
       catalog.value = [...new Set([...catalog.value, ...(summary.snapshot?.discovered_models ?? [])])]
       catalogState.value = catalog.value.length ? 'ready' : 'empty'
       catalogMetadata.value = { ...catalogMetadata.value, ...summary.display_metadata }
@@ -546,8 +944,8 @@ watch(context, () => {
   generation++
   selectionGeneration++
   selectionBusy.value = false
-  allowlistBusy.value = false
   confirmClear.value = false
+  denyAllReasonError.value = ''
   catalog.value = []
   catalogMetadata.value = {}
   syncResult.value = null
@@ -558,9 +956,6 @@ watch(context, () => {
   isSyncingUpstream.value = false
   showDropdown.value = false
   optionLimit.value = 100
-  allowlistReason.value = ''
-  allowlistModels.value = props.modelAllowlist?.models?.join('\n') ?? ''
-  allowlistEnabled.value = props.modelAllowlist?.enabled ?? false
   // Invalidate synchronously, but read only after all parent props (including
   // configurationDirty) settle. Vue updates those props one at a time.
   if (!catalogLoadScheduled) {
@@ -624,7 +1019,88 @@ const modelSource = (id: string) => {
   if (!sources.length) sources.push(t('admin.accounts.modelSync.manualSelection'))
   return sources.join(' · ')
 }
-const selectFilteredModels = () => emit('update:modelValue', [...new Set([...props.modelValue, ...filteredModels.value.map(model => model.value).filter(model => !configuredModelKeys.value.has(model))])])
+const ensureRestrictedModeOnEdit = () => {
+  if (currentMode.value !== 'restricted') {
+    localModeOverride.value = 'restricted'
+    emit('update:mode', 'restricted')
+  }
+}
+
+const selectMode = (nextMode: AccountModelSelectionMode) => {
+  if (!props.active || selectionBusy.value) return
+  syncError.value = ''
+  if (nextMode === 'deny_all') {
+    denyAllDialogMode.value = 'explicit_deny'
+    denyAllReasonDraft.value = localReason.value.trim()
+    denyAllReasonError.value = ''
+    confirmClear.value = true
+    void nextTick(() => denyAllReasonInput.value?.focus())
+    return
+  }
+  if (nextMode === 'inherit') {
+    if (props.modelValue.length > 0 || (props.modelMappings?.length ?? 0) > 0) {
+      stashedRestrictedDraft.value = {
+        models: [...props.modelValue],
+        mappings: (props.modelMappings ?? []).map(entry => ({ ...entry }))
+      }
+      emit('update:modelValue', [])
+      emit('update:modelMappings', [])
+    }
+    localModeOverride.value = 'inherit'
+    emit('update:mode', 'inherit')
+    return
+  }
+  localModeOverride.value = 'restricted'
+  emit('update:mode', 'restricted')
+  if (!props.modelValue.length && !(props.modelMappings?.length) && stashedRestrictedDraft.value) {
+    emit('update:modelValue', [...stashedRestrictedDraft.value.models])
+    emit('update:modelMappings', stashedRestrictedDraft.value.mappings.map(entry => ({ ...entry })))
+  }
+}
+
+const openClearConfirmation = () => {
+  denyAllDialogMode.value = 'clear'
+  denyAllReasonDraft.value = localReason.value.trim()
+  denyAllReasonError.value = ''
+  confirmClear.value = true
+}
+
+const cancelDenyAll = () => {
+  confirmClear.value = false
+  denyAllReasonError.value = ''
+}
+
+const removeMapping = (index: number) => {
+  const current = props.modelMappings ?? []
+  if (current.length === 1 && !props.modelValue.length && props.allowDenyAll !== false) {
+    openClearConfirmation()
+    return
+  }
+  emit('update:modelMappings', current.filter((_, position) => position !== index))
+}
+
+const updateMapping = (index: number, field: keyof ModelMappingEntry, event: Event) => {
+  const value = (event.target as HTMLInputElement).value
+  const current = props.modelMappings ?? []
+  ensureRestrictedModeOnEdit()
+  emit(
+    'update:modelMappings',
+    current.map((mapping, position) => (position === index ? { ...mapping, [field]: value } : mapping))
+  )
+}
+
+const addMapping = (mapping: ModelMappingEntry = { from: '', to: '' }) => {
+  const current = props.modelMappings ?? []
+  if (mapping.from && current.some(existing => existing.from === mapping.from)) return
+  ensureRestrictedModeOnEdit()
+  if (mappingDetails.value) mappingDetails.value.open = true
+  emit('update:modelMappings', [...current, { from: mapping.from, to: mapping.to }])
+}
+
+const selectFilteredModels = () => {
+  ensureRestrictedModeOnEdit()
+  emit('update:modelValue', [...new Set([...props.modelValue, ...filteredModels.value.map(model => model.value).filter(model => !configuredModelKeys.value.has(model))])])
+}
 
 const toggleDropdown = () => {
   showDropdown.value = !showDropdown.value
@@ -632,7 +1108,7 @@ const toggleDropdown = () => {
 }
 
 const removeModel = (model: string) => {
-  if (configuredModelKeys.value.size === 1) { confirmClear.value = true; return }
+  if (configuredModelKeys.value.size === 1 && props.allowDenyAll !== false) { openClearConfirmation(); return }
   if (props.modelValue.some(value => value.trim() === model)) {
     emit('update:modelValue', props.modelValue.filter(value => value.trim() !== model))
   }
@@ -645,6 +1121,7 @@ const toggleModel = (model: string) => {
   if (configuredModelKeys.value.has(model)) {
     removeModel(model)
   } else {
+    ensureRestrictedModeOnEdit()
     emit('update:modelValue', [...props.modelValue, model])
   }
 }
@@ -660,6 +1137,7 @@ const addCustom = () => {
     appStore.showInfo(t('admin.accounts.modelExists'))
     return
   }
+  ensureRestrictedModeOnEdit()
   emit('update:modelValue', [...props.modelValue, model])
   customModel.value = ''
 }
@@ -673,6 +1151,7 @@ const fillRelated = () => {
   for (const model of presetModels.value) {
     if (!configuredModelKeys.value.has(model) && !newModels.includes(model)) newModels.push(model)
   }
+  if (newModels.length > 0) ensureRestrictedModeOnEdit()
   emit('update:modelValue', newModels)
 }
 
@@ -690,6 +1169,7 @@ const addPreviewModels = () => {
     return
   }
   const count = previewAdditions.value.length
+  ensureRestrictedModeOnEdit()
   emit('update:modelValue', nextModels)
   appStore.showInfo(t('admin.accounts.modelSync.previewAdded', { count }))
 }
@@ -732,13 +1212,36 @@ const syncUpstreamModels = async () => {
   }
 }
 
-defineExpose({ requestClear: () => { confirmClear.value = true }, revealSelection })
+defineExpose({ requestClear: openClearConfirmation, revealSelection, revealValidation })
 
 const clearAll = async () => {
   if (!confirmClear.value || !props.active || selectionBusy.value) return
+  const trimmedReason = denyAllReasonDraft.value.trim()
+  if (denyAllDialogMode.value === 'explicit_deny' && !trimmedReason) {
+    denyAllReasonError.value = t('admin.accounts.modelValidation.denyAllReasonRequired')
+    syncError.value = denyAllReasonError.value
+    void nextTick(() => denyAllReasonInput.value?.focus())
+    return
+  }
+  const effectiveReason =
+    trimmedReason ||
+    localReason.value.trim() ||
+    t('admin.accounts.modelSync.defaultDenyAllReason')
   confirmClear.value = false
-  if (props.accountId) await saveSelection(true)
-  else {
+  denyAllReasonError.value = ''
+  if (props.accountId) {
+    localReason.value = effectiveReason
+    localModeOverride.value = 'deny_all'
+    emit('update:reason', effectiveReason)
+    emit('update:mode', 'deny_all')
+    await saveSelection(true, effectiveReason)
+  } else {
+    if (denyAllDialogMode.value === 'explicit_deny') {
+      localReason.value = effectiveReason
+      localModeOverride.value = 'deny_all'
+      emit('update:reason', effectiveReason)
+      emit('update:mode', 'deny_all')
+    }
     emit('update:modelValue', [])
     emit('update:modelMappings', [])
   }
