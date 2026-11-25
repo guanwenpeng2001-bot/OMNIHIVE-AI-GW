@@ -125,7 +125,12 @@ func TestModelCatalogIndependentClientsCAS(test *testing.T) {
 				require.Equal(test, "conflict", commit(first, 7))
 				require.Equal(test, "conflict", commit(second, 7))
 			case "stale_rules":
-				require.NoError(test, repository.UpdateCredentials(ctx, row.ID, map[string]any{"api_key": "fixture", "model_mapping": map[string]any{"new-alias": "new-target"}, service.CredentialSecretVersionKey: service.CredentialVersion(account.Credentials)}))
+				selection, err := service.NewAccountModelSelectionService(repository).SaveModelSelection(ctx, row.ID, service.ModelSelectionCommand{
+					ModelMapping: map[string]string{"new-alias": "new-target"},
+					Source:       service.ModelSelectionAccountWrite,
+				})
+				require.NoError(test, err)
+				require.Equal(test, initial.Baseline.RulesRevision+1, selection.RulesRevision)
 				require.Equal(test, "conflict", commit(first, 7))
 				require.Equal(test, "conflict", commit(second, 7))
 			case "stale_publication":
