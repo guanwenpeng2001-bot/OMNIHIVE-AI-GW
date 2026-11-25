@@ -113,6 +113,9 @@ func ChangeSecret(ctx context.Context, tx *sql.Tx, enc service.SecretEncryptor, 
 }
 
 func Activate(ctx context.Context, tx *sql.Tx, w, id, actor int64, name, endpoint, proxy string, concurrency int, models []string) error {
+	if _, err := tx.ExecContext(ctx, "SELECT set_config('omnihive.connection_writer','v2',true)"); err != nil {
+		return err
+	}
 	mapping := map[string]string{}
 	for _, s := range models {
 		mapping[s] = s
@@ -125,9 +128,6 @@ func Activate(ctx context.Context, tx *sql.Tx, w, id, actor int64, name, endpoin
 		return service.ResolveLockedModelSelection(account, service.ModelSelectionCommand{Mode: mode, Models: models, ModelMapping: mapping, Reason: "Connections activation", ActorID: actor, Source: service.ModelSelectionConnection})
 	})
 	if e != nil {
-		return e
-	}
-	if _, e = tx.ExecContext(ctx, "SELECT set_config('omnihive.connection_writer','v2',true)"); e != nil {
 		return e
 	}
 	_, e = tx.ExecContext(ctx, `UPDATE accounts SET name=$3,proxy_id=nullif($4,'')::bigint,concurrency=$5,status='active',schedulable=$8,
