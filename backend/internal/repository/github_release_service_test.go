@@ -482,6 +482,68 @@ func TestGitHubReleaseServiceSuite(t *testing.T) {
 	suite.Run(t, new(GitHubReleaseServiceSuite))
 }
 
+func TestGitHubReleaseClientUsesETagCache(t *testing.T) {
+	var requests int
+	client := newTestGitHubReleaseClient()
+	client.httpClient.Transport = githubReleaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests++
+		if requests == 2 {
+			require.Equal(t, `"release-1"`, req.Header.Get("If-None-Match"))
+			return &http.Response{StatusCode: http.StatusNotModified, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("")), Request: req}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Etag": {`"release-1"`}}, Body: io.NopCloser(strings.NewReader(`{"tag_name":"v1.2.3"}`)), Request: req}, nil
+	})
+	for range 2 {
+		release, err := client.FetchLatestRelease(context.Background(), "test/repo")
+		require.NoError(t, err)
+		require.Equal(t, "v1.2.3", release.TagName)
+	}
+	require.Equal(t, 2, requests)
+}
+
+func TestGitHubReleaseClientAnonymousRateLimitFallsBackToRedirect(t *testing.T) {
+	client := newTestGitHubReleaseClient()
+	client.httpClient.Transport = githubReleaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/repos/test/repo/releases/latest":
+			require.Empty(t, req.Header.Get("Authorization"))
+			return &http.Response{StatusCode: http.StatusForbidden, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("rate limited")), Request: req}, nil
+		case "/test/repo/releases/latest":
+			return &http.Response{StatusCode: http.StatusFound, Header: http.Header{"Location": {"https://github.com/test/repo/releases/tag/v1.2.3"}}, Body: io.NopCloser(strings.NewReader("")), Request: req}, nil
+		case "/test/repo/releases/tag/v1.2.3":
+			body := `<a href="/test/repo/releases/download/v1.2.3/custom.tar.gz">asset</a>`
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+		default:
+			t.Fatalf("unexpected request %s", req.URL)
+			return nil, nil
+		}
+	})
+	release, err := client.FetchLatestRelease(context.Background(), "test/repo")
+	require.NoError(t, err)
+	require.Equal(t, "v1.2.3", release.TagName)
+	names := make(map[string]string)
+	for _, asset := range release.Assets {
+		names[asset.Name] = asset.BrowserDownloadURL
+	}
+	require.Contains(t, names, "custom.tar.gz")
+	require.Contains(t, names, "checksums.txt")
+	require.Contains(t, names, "omnihive-release-manifest.json")
+	require.Equal(t, "https://github.com/test/repo/releases/download/v1.2.3/checksums.txt", names["checksums.txt"])
+}
+
+func TestGitHubReleaseClientTokenDoesNotFallbackAnonymous(t *testing.T) {
+	client := newTestGitHubReleaseClient()
+	client.updateGitHubToken = "secret"
+	var requests int
+	client.httpClient.Transport = githubReleaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests++
+		return &http.Response{StatusCode: http.StatusForbidden, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("rate limited")), Request: req}, nil
+	})
+	_, err := client.FetchLatestRelease(context.Background(), "test/repo")
+	require.Error(t, err)
+	require.Equal(t, 1, requests)
+}
+
 func TestGitHubReleaseClientAssetAuthorization(t *testing.T) {
 	for _, token := range []string{"", "update-secret"} {
 		for _, host := range []string{"api.github.com", "github.com", "objects.githubusercontent.com"} {

@@ -416,3 +416,38 @@ func TestRegistryDeclaresRequiredDefaultsAndResetAuthority(t *testing.T) {
 		}
 	}
 }
+
+func TestRegistryDatabaseValuesRoundTripDefaultsAndDecimals(t *testing.T) {
+	svc := registryService(&registrySettingRepoStub{values: map[string]string{}})
+	for _, registration := range svc.SettingRegistry() {
+		if registration.Authority != SettingAuthorityDatabaseOnly || registration.Sensitive {
+			continue
+		}
+		t.Run(registration.Key, func(t *testing.T) {
+			baseline := svc.resolveEffectiveSetting(registration, nil, nil)
+			require.Equal(t, EffectiveSettingStateEffective, baseline.State)
+			require.Equal(t, registration.Default, baseline.Value)
+
+			raw := "0.00000000"
+			if registration.ValueType == SettingValueFloat {
+				raw = "1.25000000"
+			} else {
+				switch registration.Default.(type) {
+				case bool:
+					raw = "true"
+				case int, int64:
+					raw = "1"
+				case []string:
+					raw = `["one"]`
+				case []any, map[string]any:
+					raw = `{"one":1}`
+				}
+			}
+			item := svc.resolveEffectiveSetting(registration, map[string]string{registration.Key: raw}, nil)
+			require.Equal(t, EffectiveSettingStateEffective, item.State)
+			if registration.ValueType == SettingValueFloat {
+				require.Equal(t, 1.25, item.Value)
+			}
+		})
+	}
+}

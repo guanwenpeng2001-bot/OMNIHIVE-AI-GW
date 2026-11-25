@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -273,6 +274,13 @@ func mapAntigravityModel(account *Account, requestedModel string) string {
 	// 判断是否映射成功（mapped != requestedModel 说明找到了映射规则）
 	if mapped != requestedModel {
 		return mapped
+	}
+	var scope AccountModelAllowlist
+	decodeCatalogExtra(account.Extra, UpstreamModelAllowlistExtraKey, &scope)
+	if legacyUpgradeFreeze(scope) {
+		if snapshot := account.GetUpstreamModelCatalog(); snapshot != nil && slices.Contains(snapshot.DiscoveredModels, requestedModel) {
+			return requestedModel
+		}
 	}
 
 	// 如果 mapped == requestedModel，检查是否在映射表中配置（精确或通配符）

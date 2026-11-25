@@ -47,7 +47,6 @@ func (repository *catalogFixtureRepository) CommitAccountModelCatalog(_ context.
 			account.Credentials = map[string]any{}
 		}
 		account.Credentials["model_mapping"] = mapping
-		NormalizeEmptyAccountModelSelection(account)
 		account.Extra[ModelSelectionBaselineFrozenExtraKey] = true
 		state.RulesRevision++
 	}

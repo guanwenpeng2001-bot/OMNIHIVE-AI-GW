@@ -2,6 +2,7 @@ package service
 
 import (
 	"maps"
+	"slices"
 	"strings"
 
 	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
@@ -27,6 +28,22 @@ func (a *Account) IsKiloFree() bool {
 	return a != nil && a.Platform == PlatformKilo && a.GetKiloAccountMode() == KiloAccountModeFree
 }
 func publicModelLane(a *Account) bool { return a.IsOpenCodeZenFree() || a.IsKiloFree() }
+
+func (a *Account) IsOpenRouterFreeModel(model string) bool {
+	return a != nil && a.Platform == PlatformOpenRouter && strings.HasSuffix(strings.ToLower(strings.TrimSpace(model)), ":free")
+}
+
+func verifiedOpenRouterFreeTariff(account *Account, model string) bool {
+	if !account.IsOpenRouterFreeModel(model) || account.ModelCatalogState().Result == "credentials_invalid" {
+		return false
+	}
+	catalog := account.GetUpstreamModelCatalog()
+	if catalog == nil || catalog.SourceKind != "live" || !catalog.Complete || !modelCatalogIdentityMatches(account, nil, catalog) || !slices.Contains(catalog.DiscoveredModels, model) {
+		return false
+	}
+	metadata, found := account.GetUpstreamModelMetadata(model)
+	return found && metadata.Free != nil && *metadata.Free
+}
 
 // NormalizeFreeModelCredentials is shared by admin create/update and connection
 // verification. Runtime accessors also handle old rows without mutating shared

@@ -72,5 +72,20 @@ func openRouterModelMetadata(raw []byte, entry UpstreamModelMetadata) UpstreamMo
 		entry.SupportedReasoningLevels = levels
 	}
 	entry.ProviderProfile = PlatformOpenRouter
+	free := openRouterZeroPricing(fields["pricing"])
+	entry.Free = &free
 	return entry
+}
+
+// openRouterZeroPricing reports free only for an explicitly published, all-zero
+// price contract; missing, null, empty or malformed pricing is never free.
+func openRouterZeroPricing(raw json.RawMessage) bool {
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder.UseNumber()
+	var pricing map[string]any
+	if decoder.Decode(&pricing) != nil || len(pricing) == 0 {
+		return false
+	}
+	priced, allZero := zenCostVerdict(pricing, 0)
+	return priced && allZero
 }

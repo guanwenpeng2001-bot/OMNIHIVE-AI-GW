@@ -9,8 +9,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/net/html"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
@@ -20,6 +25,13 @@ type githubReleaseClient struct {
 	httpClient         *http.Client
 	downloadHTTPClient *http.Client
 	updateGitHubToken  string
+	cacheMu            sync.Mutex
+	cache              map[string]githubReleaseCacheEntry
+}
+
+type githubReleaseCacheEntry struct {
+	etag string
+	body []byte
 }
 
 type githubReleaseClientError struct {
@@ -67,6 +79,7 @@ func NewGitHubReleaseClient(proxyURL string, allowDirectOnProxyError bool) servi
 		httpClient:         apiClient,
 		downloadHTTPClient: downloadClient,
 		updateGitHubToken:  os.Getenv("UPDATE_GITHUB_TOKEN"),
+		cache:              make(map[string]githubReleaseCacheEntry),
 	}
 }
 
@@ -126,27 +139,13 @@ func (c *githubReleaseClientError) FetchChecksumFile(ctx context.Context, url st
 
 func (c *githubReleaseClient) FetchLatestRelease(ctx context.Context, repo string) (*service.GitHubRelease, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
-
-	req, err := c.newAPIRequest(ctx, url)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
-	}
-
 	var release service.GitHubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	if err := c.fetchAPIJSON(ctx, url, &release); err != nil {
+		if c.updateGitHubToken == "" && (strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), "429")) {
+			return c.fetchLatestReleaseRedirect(ctx, repo)
+		}
 		return nil, err
 	}
-
 	return &release, nil
 }
 
@@ -159,27 +158,151 @@ func (c *githubReleaseClient) FetchRecentReleases(ctx context.Context, repo stri
 	}
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=%d", repo, perPage)
 
-	req, err := c.newAPIRequest(ctx, url)
+	var releases []*service.GitHubRelease
+	if err := c.fetchAPIJSON(ctx, url, &releases); err != nil {
+		return nil, err
+	}
+	return releases, nil
+}
+
+func (c *githubReleaseClient) fetchAPIJSON(ctx context.Context, target string, destination any) error {
+	req, err := c.newAPIRequest(ctx, target)
+	if err != nil {
+		return err
+	}
+	c.cacheMu.Lock()
+	cached, found := c.cache[target]
+	c.cacheMu.Unlock()
+	if found && cached.etag != "" {
+		req.Header.Set("If-None-Match", cached.etag)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusNotModified && found {
+		return json.Unmarshal(cached.body, destination)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("GitHub API returned %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(body, destination); err != nil {
+		return err
+	}
+	c.cacheMu.Lock()
+	if c.cache == nil {
+		c.cache = make(map[string]githubReleaseCacheEntry)
+	}
+	c.cache[target] = githubReleaseCacheEntry{etag: resp.Header.Get("ETag"), body: body}
+	c.cacheMu.Unlock()
+	return nil
+}
+
+func (c *githubReleaseClient) fetchLatestReleaseRedirect(ctx context.Context, repo string) (*service.GitHubRelease, error) {
+	latestURL := fmt.Sprintf("https://github.com/%s/releases/latest", repo)
+	client := cloneHTTPClient(c.httpClient)
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, latestURL, nil)
 	if err != nil {
 		return nil, err
 	}
-
-	resp, err := c.httpClient.Do(req)
+	req.Header.Set("User-Agent", "OmniHive-Updater")
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
+	if resp.StatusCode < 300 || resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("GitHub latest release redirect returned %d after API failure", resp.StatusCode)
 	}
-
-	var releases []*service.GitHubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+	location, err := resp.Location()
+	if err != nil {
 		return nil, err
 	}
+	marker := "/" + repo + "/releases/tag/"
+	index := strings.Index(location.Path, marker)
+	if location.Scheme != "https" || location.Host != "github.com" || index < 0 {
+		return nil, fmt.Errorf("unexpected GitHub latest release redirect")
+	}
+	tag, err := url.PathUnescape(strings.TrimPrefix(location.Path[index:], marker))
+	if err != nil || tag == "" || strings.Contains(tag, "/") {
+		return nil, fmt.Errorf("invalid GitHub latest release tag")
+	}
+	pageURL := "https://github.com" + location.Path[index:]
+	pageReq, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	pageReq.Header.Set("User-Agent", "OmniHive-Updater")
+	pageResp, err := c.httpClient.Do(pageReq)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = pageResp.Body.Close() }()
+	if pageResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub release page returned %d", pageResp.StatusCode)
+	}
+	document, err := html.Parse(io.LimitReader(pageResp.Body, 16<<20))
+	if err != nil {
+		return nil, err
+	}
+	prefix := "/" + repo + "/releases/download/" + location.Path[index+len(marker):] + "/"
+	seen := make(map[string]bool)
+	assets := []*service.GitHubAsset{}
+	var walk func(*html.Node)
+	walk = func(node *html.Node) {
+		if node.Type == html.ElementNode && node.Data == "a" {
+			for _, attribute := range node.Attr {
+				if attribute.Key != "href" || !strings.HasPrefix(attribute.Val, prefix) {
+					continue
+				}
+				name := path.Base(attribute.Val)
+				if name == "." || name == "/" || name == "" || seen[name] {
+					continue
+				}
+				seen[name] = true
+				assets = append(assets, &service.GitHubAsset{Name: name, BrowserDownloadURL: "https://github.com" + attribute.Val})
+			}
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(document)
+	return &service.GitHubRelease{
+		TagName: tag,
+		Name:    tag,
+		HTMLURL: pageURL,
+		Assets:  fallbackReleaseAssets(repo, tag, assets),
+	}, nil
+}
 
-	return releases, nil
+func fallbackReleaseAssets(repo, tag string, discovered []*service.GitHubAsset) []service.GitHubAsset {
+	assets := make([]service.GitHubAsset, 0, len(discovered)+3)
+	seen := make(map[string]bool)
+	for _, asset := range discovered {
+		if asset != nil && asset.Name != "" {
+			seen[asset.Name] = true
+			assets = append(assets, *asset)
+		}
+	}
+	for _, name := range []string{
+		"checksums.txt",
+		"omnihive-release-manifest.json",
+		fmt.Sprintf("omnihive_%s_%s_%s.tar.gz", strings.TrimPrefix(tag, "v"), runtime.GOOS, runtime.GOARCH),
+	} {
+		if !seen[name] {
+			assets = append(assets, service.GitHubAsset{Name: name, BrowserDownloadURL: fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", repo, tag, name)})
+		}
+	}
+	return assets
 }
 
 func (c *githubReleaseClient) DownloadFile(ctx context.Context, url, dest string, maxSize int64) error {

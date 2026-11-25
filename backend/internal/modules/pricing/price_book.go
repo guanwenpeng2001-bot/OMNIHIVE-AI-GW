@@ -24,6 +24,7 @@ const (
 type Binding struct {
 	Provider, Model    string
 	WireModel          string
+	AccountID          int64
 	GroupID, ChannelID int64
 	Workspace, Project int64
 	Funding            string

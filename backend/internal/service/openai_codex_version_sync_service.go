@@ -158,7 +158,11 @@ func (s *OpenAICodexVersionSyncService) runOnce() {
 func (s *OpenAICodexVersionSyncService) fetchLatestStableVersion(ctx context.Context) string {
 	release, err := s.githubClient.FetchLatestRelease(ctx, openAICodexVersionSyncRepo)
 	if err != nil {
-		slog.Warn("openai_codex_version_sync_latest_fetch_failed", "error", err)
+		logLevel := slog.LevelWarn
+		if strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), "429") {
+			logLevel = slog.LevelDebug
+		}
+		slog.Log(ctx, logLevel, "openai_codex_version_sync_latest_fetch_failed", "error", err)
 	} else if version := latestCodexStableReleaseVersion([]*GitHubRelease{release}); version != "" {
 		return version
 	}
@@ -166,7 +170,7 @@ func (s *OpenAICodexVersionSyncService) fetchLatestStableVersion(ctx context.Con
 	// 主路径没拿到可用版本（抓取失败，或 latest 不是客户端 tag 家族的稳定版）。
 	releases, err := s.githubClient.FetchRecentReleases(ctx, openAICodexVersionSyncRepo, openAICodexVersionSyncPerPage)
 	if err != nil {
-		slog.Warn("openai_codex_version_sync_fetch_failed", "error", err)
+		slog.Debug("openai_codex_version_sync_fetch_failed", "error", err)
 		return ""
 	}
 	version := latestCodexStableReleaseVersion(releases)

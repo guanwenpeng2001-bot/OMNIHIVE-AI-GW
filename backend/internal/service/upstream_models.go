@@ -600,7 +600,7 @@ func upstreamCatalogNeedsRegistry(models []string, metadata map[string]UpstreamM
 }
 
 func upstreamModelMetadataIsUseful(metadata UpstreamModelMetadata) bool {
-	return metadata.CreatedAt != "" || metadata.ModelVersion != "" || metadata.SupportsFunctionCalling != nil || metadata.SupportsPromptCaching != nil || metadata.ReasoningControl != nil || strings.TrimSpace(metadata.Category) != "" || strings.TrimSpace(metadata.TaskType) != "" ||
+	return metadata.Free != nil || metadata.CreatedAt != "" || metadata.ModelVersion != "" || metadata.SupportsFunctionCalling != nil || metadata.SupportsPromptCaching != nil || metadata.ReasoningControl != nil || strings.TrimSpace(metadata.Category) != "" || strings.TrimSpace(metadata.TaskType) != "" ||
 		strings.TrimSpace(metadata.DefaultReasoningLevel) != "" ||
 		metadata.SupportedMethods != nil || metadata.OutputModalities != nil || strings.TrimSpace(metadata.DisplayName) != "" ||
 		strings.TrimSpace(metadata.Description) != "" ||

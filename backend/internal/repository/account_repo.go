@@ -1102,6 +1102,7 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 		return err
 	}
 	var runtimeSQL accountExtraSQL
+	manualCredentialUpdate := ctx.Value(runtimeCredentialRefresh{}) == nil
 	catalogExtra := runtimeSQL.bind("catalog_extra", `(COALESCE((CASE
 		-- 凭证整体未变化 ⇒ Ollama 组身份必然未变化；顶层 DISTINCT 守卫防止
 		-- 非 Ollama 账号的无变化持久化误清探测快照或重写 NULL extra。
@@ -1126,7 +1127,7 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 			AND credentials IS DISTINCT FROM $1::jsonb
 		THEN COALESCE(extra, '{}'::jsonb) - 'upstream_billing_probe'
 		ELSE extra
-	END), '{}'::jsonb) || `+accountCatalogRevisionPatchSQL("$1::jsonb", "", "", false)+`) - `+cloudQuotaInvalidationSQL("$1::jsonb"))
+	END), '{}'::jsonb) || `+accountCatalogRevisionPatchSQL("$1::jsonb", "", "", manualCredentialUpdate)+`) - `+cloudQuotaInvalidationSQL("$1::jsonb"))
 	openCodeIdentityChanged := runtimeSQL.bind("opencode_identity_changed", openCodeQuotaIdentityChangeSQL("$1::jsonb", catalogExtra, ""))
 	quotaColumns, quotaValues := openCodeQuotaInvalidationSQL(openCodeIdentityChanged)
 	runtimeExtra := runtimeSQL.bind("runtime_extra", clearChangedAccountRuntimeObservationsSQL("$1::jsonb", catalogExtra, ""))
@@ -4858,6 +4859,7 @@ func accountCatalogRevisionPatchSQL(incoming, incomingExtra, proxyChanged string
 	for _, field := range service.WorkBuddyCatalogIdentityFields() {
 		changes = append(changes, "(platform = 'workbuddy' AND credentials->'"+field+"' IS DISTINCT FROM "+incoming+"->'"+field+"')")
 	}
+	changes = append(changes, "(platform = 'antigravity' AND credentials->'email' IS DISTINCT FROM "+incoming+"->'email')")
 	legacyIdentity := "(" + strings.Join(changes, " OR ") + ")"
 	stable := "FALSE"
 	if !manual {
@@ -4869,7 +4871,8 @@ func accountCatalogRevisionPatchSQL(incoming, incomingExtra, proxyChanged string
 			}
 			return "(" + strings.Join(terms, " OR ") + ")"
 		}
-		stable = "CASE WHEN platform = 'workbuddy' THEN " + hasSubject(service.PlatformWorkBuddy) + " ELSE " + hasSubject("") + " END"
+		antigravityStable := "(COALESCE(credentials->>'project_id','') <> '')"
+		stable = "CASE WHEN platform = 'workbuddy' THEN " + hasSubject(service.PlatformWorkBuddy) + " WHEN platform = 'antigravity' THEN " + antigravityStable + " ELSE " + hasSubject("") + " END"
 	}
 	changes = append(changes, "(("+versionChanged+" OR credentials->'access_token' IS DISTINCT FROM "+incoming+"->'access_token') AND NOT ("+stable+"))")
 	identity := "(" + strings.Join(changes, " OR ") + ")"

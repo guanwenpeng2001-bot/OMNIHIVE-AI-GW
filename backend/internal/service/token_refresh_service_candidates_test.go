@@ -32,6 +32,17 @@ func (r *tokenRefreshCandidateRepo) ListActive(context.Context) ([]Account, erro
 	return r.accounts, nil
 }
 
+func (r *tokenRefreshCandidateRepo) GetByID(_ context.Context, id int64) (*Account, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for index := range r.accounts {
+		if r.accounts[index].ID == id {
+			return snapshotOAuthRefreshAccount(&r.accounts[index]), nil
+		}
+	}
+	return nil, ErrAccountNotFound
+}
+
 func (r *tokenRefreshCandidateRepo) ListOAuthRefreshCandidatePage(_ context.Context, options OAuthRefreshPageOptions) (*OAuthRefreshCandidatePage, error) {
 	candidates := make([]Account, 0, len(r.accounts))
 	now := time.Now()
@@ -69,10 +80,16 @@ func (r *tokenRefreshCandidateRepo) ListOAuthRefreshCandidatePage(_ context.Cont
 	return page, nil
 }
 
-func (r *tokenRefreshCandidateRepo) UpdateCredentials(_ context.Context, id int64, _ map[string]any) error {
+func (r *tokenRefreshCandidateRepo) UpdateCredentials(_ context.Context, id int64, credentials map[string]any) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.updatedCredentialIDs = append(r.updatedCredentialIDs, id)
+	for index := range r.accounts {
+		if r.accounts[index].ID == id {
+			r.accounts[index].Credentials = shallowCopyMap(credentials)
+			return nil
+		}
+	}
 	return nil
 }
 

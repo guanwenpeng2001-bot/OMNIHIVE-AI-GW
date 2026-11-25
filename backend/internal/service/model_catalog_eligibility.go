@@ -248,6 +248,13 @@ func (account *Account) EffectiveUpstreamModelCatalogForCredentialAccount(creden
 	}
 	var allowlist AccountModelAllowlist
 	decodeCatalogExtra(account.Extra, UpstreamModelAllowlistExtraKey, &allowlist)
+	if legacyUpgradeFreeze(allowlist) {
+		// This marker was written when an upgraded account had no saved explicit
+		// selection. Native discovery was the legacy authorization, not a new
+		// administrator-approved expansion. Only an explicit admin deny-all may
+		// suppress those discoveries.
+		allowlist.Enabled = false
+	}
 	eligible := make([]AccountCatalogModel, 0, len(snapshot.EligibleModels))
 	for _, model := range snapshot.EligibleModels {
 		if !zenFreeModelAllowed(account, model.ID) {
@@ -266,6 +273,10 @@ func (account *Account) EffectiveUpstreamModelCatalogForCredentialAccount(creden
 	}
 	snapshot.EligibleModels = eligible
 	return snapshot
+}
+
+func legacyUpgradeFreeze(scope AccountModelAllowlist) bool {
+	return scope.Enabled && len(scope.Models) == 0 && scope.Reason == "system_upgrade_baseline_freeze" && scope.ConfirmedBy == 0 && scope.ConfirmedAt == ""
 }
 
 func (account *Account) ModelCatalogState() AccountModelCatalogState {
@@ -297,6 +308,9 @@ func AccountCatalogIdentityCredentialFields(platform string) []string {
 	if platform == PlatformWorkBuddy {
 		fields = append(fields, WorkBuddyCatalogIdentityFields()...)
 	}
+	if platform == PlatformAntigravity {
+		fields = append(fields, "email")
+	}
 	return fields
 }
 
@@ -305,6 +319,9 @@ func AccountCatalogIdentityCredentialFields(platform string) []string {
 func AccountCatalogSubjectFields(platform string) []string {
 	if platform == PlatformWorkBuddy {
 		return []string{"uid"}
+	}
+	if platform == PlatformAntigravity {
+		return []string{"project_id"}
 	}
 	return []string{"chatgpt_account_id", "chatgpt_user_id", "sub", "account_id", "user_id"}
 }
@@ -604,7 +621,17 @@ func computeAccountBindingModel(ctx context.Context, account *Account, model str
 				_, matched = resolveRequestedModelInMapping(configuredModelMapping(account), normalized)
 			}
 		}
-		if len(configuredModelMapping(account)) > 0 && !matched && !variantResolved && options.MessagesDispatchModel == "" {
+		discoveredAntigravity := false
+		if account.Platform == PlatformAntigravity && !matched && !variantResolved {
+			var scope AccountModelAllowlist
+			decodeCatalogExtra(account.Extra, UpstreamModelAllowlistExtraKey, &scope)
+			if legacyUpgradeFreeze(scope) {
+				if snapshot := account.GetUpstreamModelCatalog(); snapshot != nil && slices.Contains(snapshot.DiscoveredModels, model) {
+					discoveredAntigravity = true
+				}
+			}
+		}
+		if len(configuredModelMapping(account)) > 0 && !matched && !variantResolved && !discoveredAntigravity && options.MessagesDispatchModel == "" {
 			return "", false
 		}
 		switch {

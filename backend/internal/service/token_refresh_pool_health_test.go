@@ -20,6 +20,7 @@ type poolHealthAccountRepo struct {
 
 	mu                   sync.Mutex
 	pages                map[int64][]Account
+	accounts             map[int64]*Account
 	requests             []OAuthRefreshPageOptions
 	updatedCredentialIDs []int64
 	setErrorCalls        int
@@ -27,9 +28,14 @@ type poolHealthAccountRepo struct {
 	getByIDErr           error
 }
 
-func (r *poolHealthAccountRepo) GetByID(_ context.Context, _ int64) (*Account, error) {
+func (r *poolHealthAccountRepo) GetByID(_ context.Context, id int64) (*Account, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.getByIDErr != nil {
 		return nil, r.getByIDErr
+	}
+	if account := r.accounts[id]; account != nil {
+		return snapshotOAuthRefreshAccount(account), nil
 	}
 	return nil, ErrAccountNotFound
 }
@@ -46,10 +52,13 @@ func (r *poolHealthAccountRepo) ListOAuthRefreshCandidatePage(_ context.Context,
 	return page, nil
 }
 
-func (r *poolHealthAccountRepo) UpdateCredentials(_ context.Context, id int64, _ map[string]any) error {
+func (r *poolHealthAccountRepo) UpdateCredentials(_ context.Context, id int64, credentials map[string]any) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.updatedCredentialIDs = append(r.updatedCredentialIDs, id)
+	if account := r.accounts[id]; account != nil {
+		account.Credentials = shallowCopyMap(credentials)
+	}
 	return nil
 }
 
@@ -351,7 +360,23 @@ func grokPoolAccount(id int64) Account {
 	}
 }
 
+func poolHealthAccountsByID(accounts []Account) map[int64]*Account {
+	result := make(map[int64]*Account, len(accounts))
+	for index := range accounts {
+		result[accounts[index].ID] = snapshotOAuthRefreshAccount(&accounts[index])
+	}
+	return result
+}
+
 func newPoolHealthService(repo *poolHealthAccountRepo, refresher *poolHealthRefresher, cfg config.TokenRefreshConfig) *TokenRefreshService {
+	if repo.accounts == nil {
+		repo.accounts = make(map[int64]*Account)
+	}
+	for _, accounts := range repo.pages {
+		for id, account := range poolHealthAccountsByID(accounts) {
+			repo.accounts[id] = account
+		}
+	}
 	return &TokenRefreshService{
 		accountRepo:    repo,
 		candidatePager: repo,
@@ -575,7 +600,11 @@ func TestTokenRefreshService_SaturatedProviderPreservesConcurrencyAndActualQPSSt
 		providerQPS         = 20
 		attemptCount        = 8
 	)
-	repo := &poolHealthAccountRepo{}
+	accounts := make([]Account, 0, attemptCount)
+	for id := int64(1); id <= attemptCount; id++ {
+		accounts = append(accounts, grokPoolAccount(id))
+	}
+	repo := &poolHealthAccountRepo{accounts: poolHealthAccountsByID(accounts)}
 	refresher := &poolHealthRefresher{
 		// The first two QPS-spaced attempts finish together. If queued callers
 		// reserve QPS slots before acquiring provider capacity, two expired

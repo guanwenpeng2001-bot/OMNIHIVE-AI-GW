@@ -917,6 +917,14 @@ func (s *TokenRefreshService) refreshWithRetryWithRateGate(
 					err = fmt.Errorf("failed to save credentials: %w", saveErr)
 				} else {
 					credentialsPersisted = true
+					if refreshed, readErr := s.accountRepo.GetByID(attemptCtx, account.ID); readErr != nil || refreshed == nil {
+						if readErr == nil {
+							readErr = errors.New("account not found after credential refresh")
+						}
+						err = fmt.Errorf("failed to reread refreshed credentials: %w", readErr)
+					} else {
+						account = refreshed
+					}
 				}
 			}
 		}

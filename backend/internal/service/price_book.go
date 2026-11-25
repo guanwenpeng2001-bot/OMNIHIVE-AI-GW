@@ -53,11 +53,33 @@ func pinnedPricingInstant(ctx context.Context) time.Time {
 // PlatformPriceBook adapts a caller-authorized sale binding to the legacy
 // gateway evaluator and channel snapshot. Group reads use the existing store.
 type PlatformPriceBook struct {
-	resolver *ModelPricingResolver
+	resolver      *ModelPricingResolver
+	accountReader interface {
+		GetByID(context.Context, int64) (*Account, error)
+	}
 }
 
-func NewPlatformPriceBook(resolver *ModelPricingResolver) *PlatformPriceBook {
-	return &PlatformPriceBook{resolver: resolver}
+func NewPlatformPriceBook(resolver *ModelPricingResolver, readers ...interface {
+	GetByID(context.Context, int64) (*Account, error)
+}) *PlatformPriceBook {
+	book := &PlatformPriceBook{resolver: resolver}
+	if len(readers) != 0 {
+		book.accountReader = readers[0]
+	}
+	return book
+}
+
+func (b *PlatformPriceBook) SetAccountReader(reader interface {
+	GetByID(context.Context, int64) (*Account, error)
+}) {
+	b.accountReader = reader
+}
+
+func ProvidePlatformPriceBook(resolver *ModelPricingResolver, gateway *GatewayService) *PlatformPriceBook {
+	if gateway == nil {
+		return NewPlatformPriceBook(resolver)
+	}
+	return NewPlatformPriceBook(resolver, gateway.accountRepo)
 }
 
 var _ pricing.PriceBook = (*PlatformPriceBook)(nil)
@@ -150,6 +172,19 @@ func (b *PlatformPriceBook) ResolveForGroup(ctx context.Context, binding pricing
 	}
 	input := PricingInput{Provider: binding.Provider, Model: binding.Model, Mode: BillingMode(binding.Mode), At: binding.At, Group: group, GroupID: groupID}
 	resolved := r.Resolve(ctx, input)
+	if publicModelPricingPlatform(binding.Provider) && binding.AccountID != 0 && b.accountReader != nil {
+		account, err := b.accountReader.GetByID(ctx, binding.AccountID)
+		if err != nil {
+			return nil, err
+		}
+		if publicModelLane(account) && zenFreeModelAllowed(account, binding.WireModel) {
+			resolved = newOfficialFreeTariff(binding.Provider)
+			input.Model = binding.WireModel
+		} else if verifiedOpenRouterFreeTariff(account, binding.WireModel) {
+			resolved = newOfficialFreeTariff(binding.Provider)
+			input.Model = binding.WireModel
+		}
+	}
 	if wire := strings.TrimSpace(binding.WireModel); wire != "" && wire != input.Model && resolved.pricingErr == nil &&
 		(input.Mode == "" || input.Mode == BillingModeToken) {
 		configured := resolved.Source == PricingSourceGroup || resolved.Source == PricingSourceChannel

@@ -229,7 +229,7 @@ func TestAccountConfigurationPostgres(t *testing.T) {
 			if oldSnapshot {
 				extra[service.UpstreamModelCatalogExtraKey] = &service.AccountModelCatalogSnapshot{Revision: 1, Complete: true, DiscoveredModels: []string{"old"}, EligibleModels: []service.AccountCatalogModel{{ID: "old", Endpoints: []string{"chat_completions"}, EvidenceKind: "native_account_catalog"}}}
 			}
-			account := createEncryptedCatalogFixture(t, ctx, client, db, repo, &service.Account{Name: "legacy-selection", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture"}, Extra: extra})
+			account := createEncryptedCatalogFixture(t, ctx, client, db, repo, &service.Account{Name: "legacy-selection", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Credentials: map[string]any{"api_key": "fixture"}, Extra: extra})
 			baseline := account.ModelCatalogBaseline()
 			incoming := &service.AccountModelCatalogSnapshot{Revision: baseline.SnapshotRevision + 1, Complete: true, DiscoveredModels: []string{"new"}, EligibleModels: []service.AccountCatalogModel{{ID: "new", Endpoints: []string{"chat_completions"}, EvidenceKind: "native_account_catalog"}}}
 			// A stale baseline cannot publish discovery or leave a selection-only partial update.
@@ -247,11 +247,14 @@ func TestAccountConfigurationPostgres(t *testing.T) {
 			require.NoError(t, err)
 			require.False(t, service.AccountModelSelectionNeedsFreeze(current))
 			require.Equal(t, baseline.RulesRevision+1, current.ModelCatalogState().RulesRevision)
-			require.False(t, service.AccountSupportsResolvedModel(ctx, current, "new", service.AccountModelBindingOptions{}))
+			binding := service.ResolveAccountModelBinding(ctx, current, "new", service.AccountModelBindingOptions{Endpoint: "chat_completions"})
+			require.Equal(t, !oldSnapshot, binding.Supported, "native discovery is allowed only without an explicit saved selection")
 			if oldSnapshot {
 				require.Equal(t, map[string]string{"old": "old"}, current.GetModelMapping())
+				require.True(t, service.AccountSupportsResolvedModel(ctx, current, "old", service.AccountModelBindingOptions{Endpoint: "chat_completions"}))
 			} else {
-				require.Empty(t, current.EffectiveUpstreamModelCatalog().EligibleModels)
+				require.Len(t, current.EffectiveUpstreamModelCatalog().EligibleModels, 1)
+				require.Empty(t, current.GetModelMapping())
 			}
 			require.ErrorIs(t, repo.CommitAccountModelCatalog(ctx, account.ID, baseline, incoming, account.ModelCatalogState(), nil, true), service.ErrAccountModelCatalogConflict)
 		}

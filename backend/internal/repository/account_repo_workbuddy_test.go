@@ -101,3 +101,72 @@ func TestWorkBuddyReferencedRefreshPreservesPublication(t *testing.T) {
 	require.NotContains(t, changed.Extra, service.WorkBuddyUsageSnapshotExtraKey)
 	require.ErrorIs(t, repo.UpdateAccountRuntimeSnapshot(f.ctx, rotated, observation, nil), service.ErrAccountRuntimeIdentityChanged)
 }
+
+func TestAntigravityReferencedRefreshPreservesPublication(t *testing.T) {
+	f := newCredentialSecretFixture(t)
+	repo := f.accounts
+	current := f.createAccount(t, f.ctx, uniqueName("antigravity-refresh"), service.PlatformAntigravity, service.AccountTypeOAuth, map[string]any{"project_id": "stable-project", "email": "owner@example.test", "access_token": "old", "refresh_token": "refresh"})
+	read := func() *service.Account {
+		account, err := repo.GetByID(f.ctx, current.ID)
+		require.NoError(t, err)
+		return account
+	}
+	current = read()
+	baseline := current.ModelCatalogBaseline()
+	snapshot := &service.AccountModelCatalogSnapshot{Revision: baseline.SnapshotRevision + 1, IdentityRevision: baseline.IdentityRevision, Complete: true, SourceKind: "live", DiscoveredModels: []string{"native"}, EligibleModels: []service.AccountCatalogModel{{ID: "native"}}}
+	require.NoError(t, repo.CommitAccountModelCatalog(f.ctx, current.ID, baseline, snapshot, current.ModelCatalogState(), nil, false))
+	current = read()
+	credentials := maps.Clone(current.Credentials)
+	credentials["access_token"], credentials["refresh_token"] = "rotated", "renewed"
+	require.NoError(t, repo.UpdateAccountRuntimeCredentials(f.ctx, current, credentials))
+	rotated := read()
+	require.Greater(t, service.CredentialVersion(rotated.Credentials), service.CredentialVersion(current.Credentials))
+	require.Equal(t, current.ModelCatalogBaseline().IdentityRevision, rotated.ModelCatalogBaseline().IdentityRevision)
+	require.NotNil(t, rotated.EffectiveUpstreamModelCatalog())
+	require.NoError(t, repo.UpdateAccountRuntimeSnapshot(f.ctx, rotated, map[string]any{"privacy_mode": service.AntigravityPrivacySet}, nil))
+	require.ErrorIs(t, repo.UpdateAccountRuntimeSnapshot(f.ctx, current, map[string]any{"privacy_mode": service.AntigravityPrivacySet}, nil), service.ErrAccountRuntimeIdentityChanged)
+
+	credentials = maps.Clone(rotated.Credentials)
+	credentials["project_id"] = "different-project"
+	require.NoError(t, repo.UpdateAccountRuntimeCredentials(f.ctx, rotated, credentials))
+	changed := read()
+	require.Nil(t, changed.EffectiveUpstreamModelCatalog())
+	require.ErrorIs(t, repo.UpdateAccountRuntimeSnapshot(f.ctx, rotated, map[string]any{"privacy_mode": service.AntigravityPrivacySet}, nil), service.ErrAccountRuntimeIdentityChanged)
+
+	current = f.createAccount(t, f.ctx, uniqueName("antigravity-manual"), service.PlatformAntigravity, service.AccountTypeOAuth, map[string]any{"project_id": "shared-project", "email": "owner@example.test", "access_token": "old", "refresh_token": "refresh"})
+	baseline = current.ModelCatalogBaseline()
+	credentials = maps.Clone(current.Credentials)
+	credentials["access_token"], credentials["refresh_token"] = "replacement", "replacement-refresh"
+	require.NoError(t, repo.UpdateCredentials(f.ctx, current.ID, credentials))
+	changed = read()
+	require.Greater(t, changed.ModelCatalogBaseline().IdentityRevision, baseline.IdentityRevision)
+	require.Nil(t, changed.EffectiveUpstreamModelCatalog())
+
+	current = f.createAccount(t, f.ctx, uniqueName("antigravity-owner"), service.PlatformAntigravity, service.AccountTypeOAuth, map[string]any{"project_id": "shared-project", "email": "first@example.test", "access_token": "old", "refresh_token": "refresh"})
+	baseline = current.ModelCatalogBaseline()
+	credentials = maps.Clone(current.Credentials)
+	credentials["email"] = "second@example.test"
+	credentials["access_token"], credentials["refresh_token"] = "replacement", "replacement-refresh"
+	require.NoError(t, repo.UpdateCredentials(f.ctx, current.ID, credentials))
+	changed = read()
+	require.Greater(t, changed.ModelCatalogBaseline().IdentityRevision, baseline.IdentityRevision)
+	require.Nil(t, changed.EffectiveUpstreamModelCatalog())
+}
+
+func TestAntigravityReferencedRefreshWithoutEmailPreservesPublication(t *testing.T) {
+	f := newCredentialSecretFixture(t)
+	repo := f.accounts
+	current := f.createAccount(t, f.ctx, uniqueName("antigravity-no-email"), service.PlatformAntigravity, service.AccountTypeOAuth, map[string]any{"project_id": "stable-project", "access_token": "old", "refresh_token": "refresh"})
+	baseline := current.ModelCatalogBaseline()
+	snapshot := &service.AccountModelCatalogSnapshot{Revision: baseline.SnapshotRevision + 1, IdentityRevision: baseline.IdentityRevision, Complete: true, SourceKind: "live", DiscoveredModels: []string{"native"}, EligibleModels: []service.AccountCatalogModel{{ID: "native"}}}
+	require.NoError(t, repo.CommitAccountModelCatalog(f.ctx, current.ID, baseline, snapshot, current.ModelCatalogState(), nil, false))
+	current, err := repo.GetByID(f.ctx, current.ID)
+	require.NoError(t, err)
+	credentials := maps.Clone(current.Credentials)
+	credentials["access_token"], credentials["refresh_token"] = "rotated", "renewed"
+	require.NoError(t, repo.UpdateAccountRuntimeCredentials(f.ctx, current, credentials))
+	rotated, err := repo.GetByID(f.ctx, current.ID)
+	require.NoError(t, err)
+	require.Equal(t, current.ModelCatalogBaseline().IdentityRevision, rotated.ModelCatalogBaseline().IdentityRevision)
+	require.NotNil(t, rotated.EffectiveUpstreamModelCatalog())
+}

@@ -244,8 +244,10 @@ func databaseRegistration(key, raw string) SettingRegistration {
 		Validation: "registered database value",
 	}
 	registration.ValueType = settingValueType(registration.Default)
-	if key == SettingKeyDefaultBalance || key == SettingKeyOpenAIOAuthSchedulingRateMultiplier || key == SettingKeyAffiliateRebateRate || key == SettingKeyAffiliateRebatePerInviteeCap {
+	if strings.HasSuffix(key, "_balance") || strings.HasSuffix(key, "_threshold") ||
+		strings.HasSuffix(key, "_rate") || strings.HasSuffix(key, "_multiplier") || strings.HasSuffix(key, "_cap") {
 		registration.ValueType = SettingValueFloat
+		registration.Default, _ = parseEffectiveValue(raw, SettingValueFloat)
 	}
 	_, registration.Sensitive = sensitiveSettingKeys[key]
 	if _, ok := securitySettingKeys[key]; ok {

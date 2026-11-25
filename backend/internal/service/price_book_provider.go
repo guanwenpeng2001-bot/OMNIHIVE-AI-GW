@@ -180,6 +180,9 @@ func stripTariffDate(model string) string {
 }
 
 func providerTariffNames(provider, model string) []string {
+	if provider == PlatformAntigravity {
+		return []string{model, normalizeAntigravityTieredModel(model), normalizeGeminiThinkingTierAlias(strings.TrimPrefix(model, "models/"))}
+	}
 	if provider == PlatformGemini || provider == PlatformAntigravity {
 		model = strings.TrimPrefix(model, "models/")
 		if strings.HasPrefix(model, "publishers/google/models/") || strings.Contains(model, "/publishers/google/models/") {
@@ -196,6 +199,22 @@ func providerTariffNames(provider, model string) []string {
 		return []string{model, strings.ReplaceAll(model, "-4-5-", "-4.5-")}
 	}
 	return []string{model}
+}
+
+func normalizeAntigravityTieredModel(model string) string {
+	for _, suffix := range []string{"-high", "-medium", "-low", "-thinking"} {
+		if strings.HasSuffix(model, suffix) && strings.HasPrefix(model, "claude-") {
+			base := strings.TrimSuffix(model, suffix)
+			if base == "claude-opus-5-5" {
+				return "claude-opus-5"
+			}
+			return base
+		}
+	}
+	if model == "claude-opus-5-5" {
+		return "claude-opus-5"
+	}
+	return model
 }
 
 func (s *PricingService) providerModelPricing(provider, model string, exact bool) (*LiteLLMModelPricing, error) {
@@ -260,7 +279,11 @@ func (i *providerPriceIndex) lookup(provider, model string, exact bool) (*LiteLL
 	}
 	for _, name := range names {
 		if origin := tariffBindings().Hosted[provider][name]; origin != "" {
-			return i.lookup(origin, name, exact)
+			target := name
+			if provider == PlatformAntigravity {
+				target = normalizeAntigravityTieredModel(name)
+			}
+			return i.lookup(origin, target, exact)
 		}
 	}
 	return nil, nil
@@ -274,9 +297,16 @@ func scopedFallback(s *BillingService, provider, model string) *ModelPricing {
 	names := providerTariffNames(provider, model)
 	for _, name := range names {
 		if origin := tariffBindings().Hosted[provider][name]; origin != "" {
-			return scopedFallback(s, origin, name)
+			target := name
+			if provider == PlatformAntigravity {
+				target = normalizeAntigravityTieredModel(name)
+			}
+			return scopedFallback(s, origin, target)
 		}
 		base := stripTariffDate(name)
+		if provider == PlatformAntigravity {
+			base = normalizeAntigravityTieredModel(base)
+		}
 		if slices.Contains(tariffBindings().Static[provider], base) {
 			return s.fallbackPrices[base]
 		}

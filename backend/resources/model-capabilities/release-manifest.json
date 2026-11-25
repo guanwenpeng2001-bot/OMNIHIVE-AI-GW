@@ -99,7 +99,7 @@
     "internal/service/model_registry_reload.go": "9d46e14235a679186b05c7d9e219739cf179584deaa4911db3ef68a0cb4eaf7b",
     "internal/service/native_provider_profiles.go": "2d74cacd2972b770a41826a08f2638e70fb40efb17939ce162538a8478ea0e8b",
     "internal/service/platform_model_catalog.go": "608b1c5ea54192d3cc0c583ffc4fe552bd9bc99c6165241c7f10ced432d7df00",
-    "internal/service/upstream_models.go": "2a6a98e45b1d54745e3b833a9453b8e1ae0db4c5dc63dbcda2e573203df6ffdd",
+    "internal/service/upstream_models.go": "c16998ebb629ecd986c7df9bf98a180dafa925a5894925436243197d0e3b784d",
     "internal/service/visible_model_resolver.go": "18dd3002760a312e2ce24cab50993286b61b2f36691900c8a432c6eedcb63279",
     "resources/model-capabilities/release.go": "162d39bad99e33835ea6e901edf07a418eb0fd734705e4325a1770dcde4417d0"
   },

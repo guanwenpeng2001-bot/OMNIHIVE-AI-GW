@@ -98,6 +98,8 @@ func TestOpenRouterMetadataAndKeyUsage(t *testing.T) {
 	require.EqualValues(t, 8192, m.MaxOutputTokens)
 	require.Equal(t, []string{"text", "image"}, m.InputModalities)
 	require.Equal(t, []string{"tools", "reasoning"}, m.SupportedParameters)
+	require.NotNil(t, m.Free)
+	require.True(t, *m.Free)
 	require.Nil(t, m.SupportedReasoningLevels)
 	require.Nil(t, m.SupportsFunctionCalling)
 	account := openRouterFixtureAccount()
@@ -113,6 +115,27 @@ func TestOpenRouterMetadataAndKeyUsage(t *testing.T) {
 	for _, fixture := range []string{`{}`, `{"data":null}`, `{"data":{"usage":-1}}`} {
 		_, err := parseOpenRouterKeyUsage([]byte(fixture))
 		require.Error(t, err)
+	}
+}
+
+func TestOpenRouterDiscoveryComputesFreeMetadata(t *testing.T) {
+	_, metadata, err := extractUpstreamModelCatalog([]byte(`{"data":[{"id":"vendor/free:free","pricing":{"prompt":"0","completion":"0","request":"0"}},{"id":"vendor/paid-alias:free","pricing":{"prompt":"0.000001","completion":"0"}},{"id":"vendor/tiny-paid:free","pricing":{"prompt":"1e-999"}},{"id":"vendor/zero-priced","pricing":{"prompt":0,"completion":0}},{"id":"vendor/paid","pricing":{"prompt":"0","completion":"0.01"}}]}`), false, PlatformOpenRouter)
+	require.NoError(t, err)
+	for _, model := range []string{"vendor/free:free", "vendor/zero-priced"} {
+		require.NotNil(t, metadata[model].Free, model)
+		require.True(t, *metadata[model].Free, model)
+	}
+	for _, model := range []string{"vendor/paid-alias:free", "vendor/tiny-paid:free", "vendor/paid"} {
+		require.NotNil(t, metadata[model].Free, model)
+		require.False(t, *metadata[model].Free, model)
+	}
+
+	_, metadata, err = extractUpstreamModelCatalog([]byte(`{"data":[{"id":"vendor/missing:free"},{"id":"vendor/null:free","pricing":null},{"id":"vendor/empty:free","pricing":{}},{"id":"vendor/null-fields:free","pricing":{"prompt":null,"completion":null}},{"id":"vendor/nested-empty:free","pricing":{"prompt":{}}},{"id":"vendor/malformed:free","pricing":"free"},{"id":"vendor/bool:free","pricing":{"prompt":false}}]}`), false, PlatformOpenRouter)
+	require.NoError(t, err)
+	for _, model := range []string{"vendor/missing:free", "vendor/null:free", "vendor/empty:free", "vendor/null-fields:free", "vendor/nested-empty:free", "vendor/malformed:free", "vendor/bool:free"} {
+		if metadata[model].Free != nil {
+			require.False(t, *metadata[model].Free, model)
+		}
 	}
 }
 
