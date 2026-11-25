@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"strconv"
 	"strings"
 	"time"
@@ -206,13 +207,18 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 			v := acc.ExpiresAt.Unix()
 			expiresAt = &v
 		}
+		extra := acc.Extra
+		if _, hasRepairBackup := extra[service.ModelSelectionRepairBackupExtraKey]; hasRepairBackup {
+			extra = maps.Clone(extra)
+			delete(extra, service.ModelSelectionRepairBackupExtraKey)
+		}
 		dataAccounts = append(dataAccounts, DataAccount{
 			Name:               acc.Name,
 			Notes:              acc.Notes,
 			Platform:           acc.Platform,
 			Type:               acc.Type,
 			Credentials:        acc.Credentials,
-			Extra:              acc.Extra,
+			Extra:              extra,
 			ProxyKey:           proxyKey,
 			TPMLimit:           service.OptionalTPMLimit{Value: acc.TPMLimit, Present: true},
 			Concurrency:        acc.Concurrency,

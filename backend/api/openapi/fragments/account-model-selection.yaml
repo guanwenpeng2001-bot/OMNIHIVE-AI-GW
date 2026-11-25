@@ -1,0 +1,229 @@
+paths:
+  /api/v1/admin/accounts/{id}/models/catalog:
+    parameters:
+    - $ref: '#/components/parameters/AdminModelSelectionAccountID'
+    get:
+      operationId: getAdminAccountModelCatalog
+      summary: Read the account's saved model selection and catalog evidence
+      responses:
+        '200':
+          description: Model selection and catalog from the same account snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data: {$ref: '#/components/schemas/AdminAccountModelCatalog'}
+        '404':
+          description: Account not found in the current workspace
+  /api/v1/admin/accounts/{id}/models/allowlist:
+    parameters:
+    - $ref: '#/components/parameters/AdminModelSelectionAccountID'
+    put:
+      operationId: updateAdminAccountModelAllowlist
+      summary: Save the account's model scope and optional mapping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AdminAccountModelSelectionUpdate'}
+      responses:
+        '200':
+          description: Committed selection with the current rules revision
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data: {$ref: '#/components/schemas/AdminAccountModelSelectionSaved'}
+        '400':
+          description: Invalid selection, missing compatibility confirmation, or missing deny-all reason
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/AdminModelSelectionError'
+                - type: object
+                  properties:
+                    reason:
+                      enum: [INVALID_MODEL_SELECTION, MODEL_SELECTION_CONFIRMATION_REQUIRED, MODEL_SELECTION_REASON_REQUIRED]
+        '401':
+          description: Administrator authentication required
+        '404':
+          description: Account not found in the current workspace
+        '409':
+          description: Rules revision is stale or the account is managed by Connections
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/AdminModelSelectionError'
+                - type: object
+                  properties:
+                    reason:
+                      enum: [MODEL_SELECTION_CONFLICT, ACCOUNT_CONNECTION_MANAGED]
+components:
+  parameters:
+    AdminModelSelectionAccountID:
+      name: id
+      in: path
+      required: true
+      schema: {type: integer, format: int64, minimum: 1}
+  schemas:
+    AdminModelSelectionMode:
+      type: string
+      enum: [inherit, restricted, deny_all]
+      description: Inherit uses existing platform behavior, restricted filters to the saved upstream IDs, and deny_all disables all models.
+    AdminModelSelectionRevision:
+      type: string
+      pattern: '^[0-9]+$'
+      description: Lossless decimal rules revision
+    AdminModelSelectionMapping:
+      type: object
+      additionalProperties: {type: string}
+      description: Explicit request alias to upstream model ID mapping
+    AdminModelSelectionError:
+      type: object
+      required: [code, message, reason, metadata]
+      properties:
+        code: {type: integer}
+        message: {type: string}
+        reason: {type: string}
+        metadata: {type: object, additionalProperties: true}
+    AdminAccountModelSelection:
+      type: object
+      required: [mode, models, model_mapping, rules_revision]
+      properties:
+        mode: {$ref: '#/components/schemas/AdminModelSelectionMode'}
+        models:
+          type: array
+          items: {type: string}
+          description: Saved concrete upstream IDs, in stable order for newly saved selections
+        model_mapping: {$ref: '#/components/schemas/AdminModelSelectionMapping'}
+        rules_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
+    AdminAccountModelSelectionUpdate:
+      type: object
+      required: [expected_rules_revision]
+      description: >-
+        With mode omitted, a nonempty models array means restricted regardless of enabled.
+        An empty or omitted models array means inherit when enabled is omitted or false.
+        An empty or omitted models array with enabled true requires confirm_deny_all true and a nonblank
+        reason. When mode is supplied, it must agree with any supplied enabled value.
+      properties:
+        mode: {$ref: '#/components/schemas/AdminModelSelectionMode'}
+        enabled:
+          type: boolean
+          description: Compatibility field. Inherit corresponds to false. Restricted and deny_all correspond to true.
+        models:
+          type: array
+          items: {type: string}
+          description: >-
+            Concrete upstream IDs. The restricted scope is the union of these IDs and all explicit mapping
+            targets. That union must be nonempty. Inherit and deny_all require an empty or omitted array.
+        model_mapping:
+          anyOf:
+          - $ref: '#/components/schemas/AdminModelSelectionMapping'
+          - type: 'null'
+          description: Omit or use null to retain the current mapping. An empty object clears it. Deny_all rejects a nonempty mapping.
+        reason:
+          type: string
+          description: A nonblank reason is required for explicit or inferred deny_all.
+        confirm_deny_all:
+          type: boolean
+          description: Required for the compatibility request with enabled true, an empty scope, and mode omitted.
+        expected_rules_revision:
+          description: Rules revision from the last read or save. Prefer a decimal string for full precision.
+          oneOf:
+          - $ref: '#/components/schemas/AdminModelSelectionRevision'
+          - {type: integer, format: int64, minimum: 0, maximum: 9223372036854775806}
+    AdminAccountModelAllowlistScope:
+      type: object
+      required: [enabled, models, identity_revision, confirmed_at, confirmed_by, reason]
+      properties:
+        enabled: {type: boolean}
+        models: {type: array, items: {type: string}}
+        identity_revision: {type: integer, format: int64}
+        confirmed_at: {type: string}
+        confirmed_by: {type: integer, format: int64}
+        reason: {type: string}
+    AdminAccountModelSelectionSaved:
+      allOf:
+      - $ref: '#/components/schemas/AdminAccountModelSelection'
+      - type: object
+        required: [scope, not_discovered, auto_added]
+        properties:
+          scope: {$ref: '#/components/schemas/AdminAccountModelAllowlistScope'}
+          not_discovered:
+            type: array
+            items: {type: string}
+            description: IDs in the final restricted scope that lack current discovery evidence
+          auto_added:
+            type: array
+            items: {type: string}
+            description: Mapping targets added to the requested scope
+    AdminAccountModelCatalogModel:
+      type: object
+      required: [id, endpoints, evidence_kind, evidence_observed_at]
+      properties:
+        id: {type: string}
+        endpoints: {type: [array, 'null'], items: {type: string}}
+        category: {type: string}
+        evidence_kind: {type: string}
+        evidence_observed_at: {type: string}
+    AdminAccountModelCatalogSnapshot:
+      type: [object, 'null']
+      additionalProperties: true
+      properties:
+        revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
+        identity_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
+        rules_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
+        eligible_models:
+          type: [array, 'null']
+          items: {$ref: '#/components/schemas/AdminAccountModelCatalogModel'}
+        discovered_models: {type: [array, 'null'], items: {type: string}}
+    AdminAccountModelCatalog:
+      allOf:
+      - $ref: '#/components/schemas/AdminAccountModelSelection'
+      - type: object
+        required: [state, baseline, snapshot, effective_snapshot, synced, eligible_models]
+        properties:
+          state:
+            type: object
+            required: [identity_revision, rules_revision]
+            additionalProperties: true
+            properties:
+              identity_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
+              rules_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
+          baseline:
+            type: object
+            required: [identity_revision, rules_revision, snapshot_revision]
+            properties:
+              identity_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
+              rules_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
+              snapshot_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
+          snapshot: {$ref: '#/components/schemas/AdminAccountModelCatalogSnapshot'}
+          effective_snapshot: {$ref: '#/components/schemas/AdminAccountModelCatalogSnapshot'}
+          synced: {type: boolean}
+          complete: {type: boolean}
+          observed_at: {type: [string, 'null']}
+          snapshot_revision:
+            anyOf:
+            - $ref: '#/components/schemas/AdminModelSelectionRevision'
+            - type: 'null'
+          discovered_count: {type: integer}
+          eligible_count: {type: integer}
+          excluded_count: {type: integer}
+          last_error: {type: [string, 'null']}
+          warnings: {type: array, items: {type: string}}
+          staleness: {type: string}
+          last_success_at: {type: [string, 'null']}
+          last_attempt_at: {type: [string, 'null']}
+          eligible_models:
+            type: [array, 'null']
+            items: {$ref: '#/components/schemas/AdminAccountModelCatalogModel'}

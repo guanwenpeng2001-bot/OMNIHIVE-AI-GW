@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"math"
 	"net/http"
 	"sort"
 	"strconv"
@@ -156,8 +157,11 @@ func prepareCompatibleAccountUpdate(existing *service.Account, req *UpdateAccoun
 	}
 	// The legacy service replaces non-secret keys on PUT. Forward the validated
 	// resulting map for compatible providers; leave absent credential edits absent.
-	if len(req.Credentials) > 0 {
+	if len(req.Credentials) > 0 && !accountModelMappingOnly(req.Credentials) {
 		domain.ClearEmptyBillingPlan(credentials)
+		if _, editsMapping := req.Credentials["model_mapping"]; !editsMapping {
+			delete(credentials, "model_mapping")
+		}
 		if req.PreserveModelSelection {
 			delete(credentials, "model_mapping")
 			delete(credentials, "model_whitelist")
@@ -168,6 +172,11 @@ func prepareCompatibleAccountUpdate(existing *service.Account, req *UpdateAccoun
 		req.Credentials = credentials
 	}
 	return nil
+}
+
+func accountModelMappingOnly(credentials map[string]any) bool {
+	_, hasMapping := credentials["model_mapping"]
+	return hasMapping && len(credentials) == 1
 }
 
 // OAuthHandler handles OAuth-related operations for accounts
@@ -367,6 +376,7 @@ type CheckMixedChannelRequest struct {
 // AccountWithConcurrency extends Account with real-time concurrency info
 type AccountWithConcurrency struct {
 	*dto.Account
+	*dto.AccountModelSelectionUpdate
 	simpleMode         bool                         `json:"-"`
 	CurrentConcurrency int                          `json:"current_concurrency"`
 	SchedulerScore     *AccountSchedulerScore       `json:"scheduler_score,omitempty"`
@@ -1351,8 +1361,11 @@ func (h *AccountHandler) Update(c *gin.Context) {
 	// 确定是否跳过混合渠道检查
 	skipCheck := req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk
 
+	subject, _ := middleware.GetAuthSubjectFromContext(c)
 	account, err := h.adminService.UpdateAccount(c.Request.Context(), accountID, &service.UpdateAccountInput{
 		PreserveModelSelection: req.PreserveModelSelection,
+		PatchCredentials:       accountModelMappingOnly(req.Credentials),
+		ModelSelectionActorID:  subject.UserID,
 		TPMLimit:               req.TPMLimit.Pointer(),
 		Name:                   req.Name,
 		Notes:                  req.Notes,
@@ -1394,7 +1407,9 @@ func (h *AccountHandler) Update(c *gin.Context) {
 	// 发现失败不影响账号更新响应或已保存的模型选择。
 	h.scheduleModelCatalogApply(account, len(req.Credentials) > 0)
 
-	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+	result := h.buildAccountResponseWithRuntime(c.Request.Context(), account)
+	result.AccountModelSelectionUpdate = dto.AccountModelSelectionUpdateFromService(account)
+	response.Success(c, result)
 }
 
 // scheduleOpenAIResponsesProbe 异步触发 OpenAI APIKey 账号的 Responses API 能力探测。
@@ -2394,47 +2409,40 @@ func (h *AccountHandler) BatchUpdateCredentials(c *gin.Context) {
 
 	ctx := c.Request.Context()
 
-	// 阶段一：预验证所有账号存在，收集 credentials
-	type accountUpdate struct {
-		ID          int64
-		Credentials map[string]any
-	}
-	updates := make([]accountUpdate, 0, len(req.AccountIDs))
+	// Validate every target before applying the first credential patch.
 	for _, accountID := range req.AccountIDs {
-		account, err := h.adminService.GetAccount(ctx, accountID)
-		if err != nil {
+		if _, err := h.adminService.GetAccount(ctx, accountID); err != nil {
 			response.Error(c, 404, fmt.Sprintf("Account %d not found", accountID))
 			return
 		}
-		if account.Credentials == nil {
-			account.Credentials = make(map[string]any)
-		}
-		account.Credentials[req.Field] = req.Value
-		updates = append(updates, accountUpdate{ID: accountID, Credentials: account.Credentials})
 	}
 
 	// 阶段二：依次更新，返回每个账号的成功/失败明细，便于调用方重试
 	success := 0
 	failed := 0
-	successIDs := make([]int64, 0, len(updates))
-	failedIDs := make([]int64, 0, len(updates))
-	results := make([]gin.H, 0, len(updates))
-	for _, u := range updates {
-		updateInput := &service.UpdateAccountInput{Credentials: u.Credentials}
-		if _, err := h.adminService.UpdateAccount(ctx, u.ID, updateInput); err != nil {
+	successIDs := make([]int64, 0, len(req.AccountIDs))
+	failedIDs := make([]int64, 0, len(req.AccountIDs))
+	results := make([]gin.H, 0, len(req.AccountIDs))
+	for _, accountID := range req.AccountIDs {
+		updateInput := &service.UpdateAccountInput{
+			Credentials:            map[string]any{req.Field: req.Value},
+			PatchCredentials:       true,
+			PreserveModelSelection: true,
+		}
+		if _, err := h.adminService.UpdateAccount(ctx, accountID, updateInput); err != nil {
 			failed++
-			failedIDs = append(failedIDs, u.ID)
+			failedIDs = append(failedIDs, accountID)
 			results = append(results, gin.H{
-				"account_id": u.ID,
+				"account_id": accountID,
 				"success":    false,
 				"error":      err.Error(),
 			})
 			continue
 		}
 		success++
-		successIDs = append(successIDs, u.ID)
+		successIDs = append(successIDs, accountID)
 		results = append(results, gin.H{
-			"account_id": u.ID,
+			"account_id": accountID,
 			"success":    true,
 		})
 	}
@@ -2496,12 +2504,14 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 		return
 	}
 
+	subject, _ := middleware.GetAuthSubjectFromContext(c)
 	result, err := h.adminService.BulkUpdateAccounts(c.Request.Context(), &service.BulkUpdateAccountsInput{
-		TPMLimit:   req.TPMLimit.Pointer(),
-		AccountIDs: req.AccountIDs,
-		Filters:    toServiceBulkUpdateAccountFilters(req.Filters),
-		Name:       req.Name,
-		ProxyID:    req.ProxyID, ProxyGroupID: req.ProxyGroupID,
+		ModelSelectionActorID: subject.UserID,
+		TPMLimit:              req.TPMLimit.Pointer(),
+		AccountIDs:            req.AccountIDs,
+		Filters:               toServiceBulkUpdateAccountFilters(req.Filters),
+		Name:                  req.Name,
+		ProxyID:               req.ProxyID, ProxyGroupID: req.ProxyGroupID,
 		Concurrency:           req.Concurrency,
 		Priority:              req.Priority,
 		RateMultiplier:        req.RateMultiplier,
@@ -2529,7 +2539,7 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, result)
+	response.Success(c, dto.BulkAccountUpdateFromService(result))
 }
 
 func toServiceBulkUpdateAccountFilters(filters *BulkUpdateAccountFilters) *service.BulkUpdateAccountFilters {
@@ -2984,6 +2994,12 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
 	if err != nil {
 		response.NotFound(c, "Account not found")
+		return
+	}
+
+	if account.ModelSelectionDeniesAll() {
+		c.Header("X-Model-Catalog-Source", "applied")
+		response.Success(c, []map[string]string{})
 		return
 	}
 
@@ -3518,7 +3534,7 @@ func (h *AccountHandler) RefreshTier(c *gin.Context) {
 	}
 
 	_, updateErr := h.adminService.UpdateAccount(ctx, accountID, &service.UpdateAccountInput{
-		Credentials: creds,
+		Credentials: existingAccountDraftCredentials(creds, nil),
 		Extra:       extra,
 	})
 	if updateErr != nil {
@@ -3610,7 +3626,7 @@ func (h *AccountHandler) BatchRefreshTier(c *gin.Context) {
 			}
 
 			_, updateErr := h.adminService.UpdateAccount(gctx, acc.ID, &service.UpdateAccountInput{
-				Credentials: creds,
+				Credentials: existingAccountDraftCredentials(creds, nil),
 				Extra:       extra,
 			})
 
@@ -3697,6 +3713,7 @@ func (h *AccountHandler) getModelCatalog(c *gin.Context, now time.Time) {
 		effective = account.EffectiveUpstreamModelCatalogForCredentialAccount(credentialAccount)
 	}
 	state := account.ModelCatalogState()
+	selection := dto.AccountModelSelectionFromService(account)
 	staleness, lastSuccess := account.ModelCatalogFreshness(now)
 	summary := gin.H{
 		"snapshot": modelCatalogSnapshotResponse(snapshot), "effective_snapshot": modelCatalogSnapshotResponse(effective),
@@ -3709,6 +3726,10 @@ func (h *AccountHandler) getModelCatalog(c *gin.Context, now time.Time) {
 		"invalid_aliases": service.InvalidAccountCatalogAliases(account, effective),
 		"alias_endpoint":  service.CompositeRouteEndpointAny,
 		"eligible_models": []service.AccountCatalogModel{},
+		"mode":            selection.Mode,
+		"models":          selection.Models,
+		"model_mapping":   selection.ModelMapping,
+		"rules_revision":  selection.RulesRevision,
 	}
 	if display := h.accountTestService.ReadOnlyModelCapabilities(account); len(display) > 0 {
 		summary["display_metadata"] = display
@@ -3780,8 +3801,8 @@ func (h *AccountHandler) GetPlatformModelPresets(c *gin.Context) {
 
 func (h *AccountHandler) UpdateModelAllowlist(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		response.BadRequest(c, "Invalid account ID")
+	if err != nil || id <= 0 {
+		response.ErrorFrom(c, service.ErrModelSelectionInvalid)
 		return
 	}
 	subject, ok := middleware.GetAuthSubjectFromContext(c)
@@ -3790,43 +3811,51 @@ func (h *AccountHandler) UpdateModelAllowlist(c *gin.Context) {
 		return
 	}
 	var request struct {
-		Enabled               bool               `json:"enabled"`
-		Models                []string           `json:"models"`
-		Reason                string             `json:"reason"`
-		ExpectedRulesRevision *json.Number       `json:"expected_rules_revision"`
-		ModelMapping          *map[string]string `json:"model_mapping"`
+		Mode                  *service.ModelSelectionMode `json:"mode"`
+		Enabled               *bool                       `json:"enabled"`
+		Models                []string                    `json:"models"`
+		ConfirmDenyAll        bool                        `json:"confirm_deny_all"`
+		Reason                string                      `json:"reason"`
+		ExpectedRulesRevision *json.Number                `json:"expected_rules_revision"`
+		ModelMapping          map[string]string           `json:"model_mapping"`
 	}
 	if err := c.ShouldBindJSON(&request); err != nil || request.ExpectedRulesRevision == nil {
-		response.BadRequest(c, "Scope and expected_rules_revision are required")
+		response.ErrorFrom(c, service.ErrModelSelectionInvalid)
 		return
 	}
 	expectedRevision, parseErr := request.ExpectedRulesRevision.Int64()
-	if parseErr != nil || expectedRevision < 0 || expectedRevision == int64(^uint64(0)>>1) {
-		response.BadRequest(c, "Invalid expected_rules_revision")
+	if parseErr != nil || expectedRevision < 0 || expectedRevision == math.MaxInt64 {
+		response.ErrorFrom(c, service.ErrModelSelectionInvalid)
 		return
 	}
-	account, err := h.adminService.GetAccount(c.Request.Context(), id)
+	var requestedMode service.ModelSelectionMode
+	if request.Mode != nil {
+		requestedMode = *request.Mode
+		if requestedMode == "" {
+			response.ErrorFrom(c, service.ErrModelSelectionInvalid)
+			return
+		}
+	}
+	mode, err := service.ResolveModelSelectionMode(requestedMode, request.Enabled, request.Models, request.ConfirmDenyAll)
 	if err != nil {
 		response.ErrorFrom(c, err)
+		return
+	}
+	if mode == service.ModelSelectionDenyAll && strings.TrimSpace(request.Reason) == "" {
+		response.ErrorFrom(c, service.ErrModelSelectionReasonRequired)
 		return
 	}
 	if h.accountTestService == nil {
 		response.InternalError(c, "Account test service unavailable")
 		return
 	}
-	notDiscovered, err := h.accountTestService.ConfigureAccountModelAllowlist(c.Request.Context(), account, request.Enabled, request.Models, request.Reason, subject.UserID, expectedRevision, request.ModelMapping)
-	if err != nil {
-		writeUpstreamModelSyncError(c, err)
-		return
-	}
-	fresh, err := h.adminService.GetAccount(c.Request.Context(), id)
+	result, err := h.accountTestService.SaveModelSelection(c.Request.Context(), id, service.ModelSelectionCommand{
+		Mode: mode, Models: request.Models, ModelMapping: request.ModelMapping, Reason: request.Reason,
+		ExpectedRulesRevision: &expectedRevision, ActorID: subject.UserID, Source: service.ModelSelectionAdmin,
+	})
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, gin.H{
-		"rules_revision": strconv.FormatInt(fresh.ModelCatalogBaseline().RulesRevision, 10),
-		"not_discovered": notDiscovered,
-		"scope":          fresh.Extra[service.UpstreamModelAllowlistExtraKey],
-	})
+	response.Success(c, result)
 }

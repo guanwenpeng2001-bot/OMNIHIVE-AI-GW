@@ -17,22 +17,10 @@ import (
 
 // Use the real update/selection services and DTO redaction. Only persistence is
 // in memory; the database merge interleaving has a separate repository regression.
-type mappingRoundTripRepository struct{ *handlerSelectionRepository }
-
-func (repo *mappingRoundTripRepository) UpdateWithAccountBillingSettings(ctx context.Context, account *service.Account, _, _ *bool, _ *float64) error {
-	if merged, ok := service.MergeAccountCredentialChanges(ctx, repo.account.Credentials); ok {
-		account.Credentials = merged
-	}
-	service.NormalizeAccountModelSelectionUpdate(&repo.account, account)
-	repo.account = *account
-	repo.writes++
-	return nil
-}
-
-func mappingRoundTripRouter(repo *mappingRoundTripRepository) *gin.Engine {
+func mappingRoundTripRouter(repo *handlerSelectionRepository) *gin.Engine {
 	admin := service.NewAdminService(&config.Config{}, nil, nil, nil, repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	handler := &AccountHandler{adminService: admin}
-	router := newHandlerSelectionRouter(repo.handlerSelectionRepository, 7, 2)
+	router := newHandlerSelectionRouter(repo, 7, 2)
 	// New paths reuse identity middleware but execute services with the merging repository.
 	router.PUT("/roundtrip/:id", handler.Update)
 	router.GET("/roundtrip/:id", handler.GetByID)
@@ -62,7 +50,7 @@ func TestAccountModelMappingSaveReread(t *testing.T) {
 		{service.PlatformGemini, service.AccountTypeOAuth},
 	} {
 		t.Run(account.platform+"/"+account.kind, func(t *testing.T) {
-			repo := &mappingRoundTripRepository{newHandlerSelectionRepository()}
+			repo := newHandlerSelectionRepository()
 			repo.account.Platform, repo.account.Type = account.platform, account.kind
 			repo.account.Credentials["access_token"] = "synthetic-private-token"
 			repo.account.Credentials["api_key"] = "synthetic-private-token"
@@ -80,7 +68,7 @@ func TestAccountModelMappingSaveReread(t *testing.T) {
 			require.Equal(t, mapping, rereadMapping(t, router)["model_mapping"])
 
 			// The independent selection endpoint also echoes via fresh account GET.
-			saved = selectionHTTPRequest(router, "/accounts/42/models/allowlist", `{"enabled":true,"models":["chosen"],"expected_rules_revision":"3","model_mapping":{"chosen":"chosen","Alias":"chosen"}}`)
+			saved = selectionHTTPRequest(router, "/accounts/42/models/allowlist", `{"enabled":true,"models":["chosen"],"expected_rules_revision":"4","model_mapping":{"chosen":"chosen","Alias":"chosen"}}`)
 			require.Equal(t, 200, saved.Code, saved.Body.String())
 			require.Equal(t, map[string]any{"chosen": "chosen", "Alias": "chosen"}, rereadMapping(t, router)["model_mapping"])
 			// Legacy explicit clear remains valid when the preservation flag is absent.
@@ -98,7 +86,7 @@ func TestAccountModelMappingPreserveRejectsContradictions(t *testing.T) {
 		`{"preserve_model_selection":true,"credentials":{"model_whitelist":[]}}`,
 		`{"preserve_model_selection":true,"extra":{"upstream_model_allowlist":{"enabled":false}}}`,
 	} {
-		repo := &mappingRoundTripRepository{newHandlerSelectionRepository()}
+		repo := newHandlerSelectionRepository()
 		response := selectionHTTPRequest(mappingRoundTripRouter(repo), "/roundtrip/42", body)
 		require.Equal(t, 400, response.Code, response.Body.String())
 		require.Zero(t, repo.writes)
@@ -106,7 +94,7 @@ func TestAccountModelMappingPreserveRejectsContradictions(t *testing.T) {
 }
 
 func TestAccountModelMappingGeneralSavePreservesLegacyAndCompact(t *testing.T) {
-	repo := &mappingRoundTripRepository{newHandlerSelectionRepository()}
+	repo := newHandlerSelectionRepository()
 	repo.account.Platform, repo.account.Type = service.PlatformWorkBuddy, service.AccountTypeOAuth
 	repo.account.Credentials["model_whitelist"] = []string{"legacy"}
 	repo.account.Credentials["compact_model_mapping"] = map[string]string{"compact": "target"}

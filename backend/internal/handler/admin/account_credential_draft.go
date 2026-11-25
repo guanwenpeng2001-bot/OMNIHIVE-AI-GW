@@ -7,13 +7,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/response"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
@@ -268,6 +269,17 @@ func applyCredentialDraftOptions(account *service.Account, request CreateAccount
 	return service.ApplyAccountCredentialDraftOptions(account, request.Credentials)
 }
 
+// Existing-account confirmation applies only the mapping bound to the reviewed
+// request. A provider draft or refresh can carry a stale copy of the mapping.
+func existingAccountDraftCredentials(draft, reviewedOptions map[string]any) map[string]any {
+	if reviewedOptions["model_mapping"] != nil {
+		return draft
+	}
+	credentials := maps.Clone(draft)
+	delete(credentials, "model_mapping")
+	return credentials
+}
+
 func accountTypeRequiresCredentialDraft(accountType string) bool {
 	return accountType == service.AccountTypeOAuth || accountType == service.AccountTypeSetupToken
 }
@@ -384,7 +396,7 @@ func confirmCredentialDraftWithBinding(
 			updated, err := pending.UpdateAccountCredentialsIfUnchanged(txCtx, existing, adminService, &service.UpdateAccountInput{
 				TPMLimit: request.TPMLimit.Pointer(),
 				Name:     request.Name, Notes: request.Notes, Status: request.Status,
-				Credentials: draft.Credentials, Extra: extra,
+				Credentials: existingAccountDraftCredentials(draft.Credentials, request.Credentials), Extra: extra,
 				Concurrency: &request.Concurrency, Priority: &request.Priority,
 				RateMultiplier: request.RateMultiplier, LoadFactor: request.LoadFactor,
 				ProxyID: request.ProxyID, ProxyGroupID: request.ProxyGroupID, GroupIDs: &request.GroupIDs,
@@ -480,7 +492,7 @@ func (handler *AccountHandler) applyCredentialDraft(ctx context.Context, ginCtx 
 		}
 		account, err := handler.credentialDrafts.UpdateAccountCredentialsIfUnchanged(txCtx, existing, handler.adminService, &service.UpdateAccountInput{
 			Type:        request.Type,
-			Credentials: draft.Credentials,
+			Credentials: existingAccountDraftCredentials(draft.Credentials, request.Credentials),
 		})
 		if err != nil {
 			return 0, err
@@ -508,7 +520,8 @@ func (handler *AccountHandler) persistRefreshedCredentials(ctx context.Context, 
 	}
 	refreshCtx := service.WithCredentialRevision(ctx, expected.CredentialRevision)
 	return handler.credentialDrafts.UpdateAccountCredentialsIfUnchanged(refreshCtx, expected, handler.adminService, &service.UpdateAccountInput{
-		Credentials: credentials})
+		Credentials: existingAccountDraftCredentials(credentials, nil),
+	})
 }
 
 func (handler *AccountHandler) setCredentialPrivacy(ctx *gin.Context, account *service.Account) (string, error) {
