@@ -4,6 +4,14 @@ This project follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/
 
 ## Unreleased
 
+## 0.3.9 - 2026-11-26
+
+### Fixed
+
+- Saving an account's model scope works without aliases. Adding aliases to a restricted account includes their upstream targets in the saved scope.
+- Account model selection uses one set of rules across individual and bulk edits. Disabling all models requires explicit intent and a reason. Bulk edits also require confirmation.
+- Startup repairs recognized legacy automatic freezes and records the original scope for rollback. Administrator restrictions and inconsistent managed accounts are preserved.
+
 ## 0.3.8 - 2026-11-25
 
 ### Fixed
