@@ -23,11 +23,15 @@ func TestLegacyCatalogResiliencePostgres(test *testing.T) {
 	if dsn == "" {
 		test.Skip("set UPSTREAM_JOB_TEST_DSN to isolated job_test")
 	}
+	migrated, err := testresources.OpenPostgres(context.Background(), dsn, "job_test")
+	require.NoError(test, err)
+	require.NoError(test, ApplyMigrations(context.Background(), migrated))
+	require.NoError(test, migrated.Close())
 	database := testresources.OpenSchema(test, dsn)
 	ctx := context.Background()
 	// Reuse the migrated test database's shape in an invocation-owned schema.
 	// No migration or test fixture can modify another runner's account rows.
-	_, err := database.ExecContext(ctx, `CREATE TABLE accounts (LIKE public.accounts INCLUDING ALL);
+	_, err = database.ExecContext(ctx, `CREATE TABLE accounts (LIKE public.accounts INCLUDING ALL);
 	CREATE TABLE scheduler_outbox (LIKE public.scheduler_outbox INCLUDING ALL);
 	CREATE TABLE account_groups (LIKE public.account_groups INCLUDING ALL);
 	CREATE TABLE groups (LIKE public.groups INCLUDING ALL);
@@ -113,7 +117,7 @@ func TestLegacyCatalogResiliencePostgres(test *testing.T) {
 		account := create(test)
 		require.NoError(test, repository.UpdateCredentials(ctx, account.ID, account.Credentials))
 		account = get(test, account.ID)
-		require.NoError(test, repository.UpdateAccountModelAllowlist(ctx, account.ID, account.ModelCatalogBaseline(), service.AccountModelAllowlist{Enabled: true, Models: []string{}}))
+		require.NoError(test, repository.UpdateAccountModelAllowlist(ctx, account.ID, account.ModelCatalogBaseline(), service.AccountModelAllowlist{Enabled: true, Models: []string{}, ConfirmedBy: 7, Reason: "maintenance"}))
 		account = get(test, account.ID)
 		require.Zero(test, account.ModelCatalogState().LegacyPolicyRevision)
 		require.NotEmpty(test, account.GetUpstreamModelCatalog().EligibleModels)

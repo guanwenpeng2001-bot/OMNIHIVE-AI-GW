@@ -79,9 +79,10 @@ func TestSchedulerSnapshotPreservesCatalogBindingAndRevocation(t *testing.T) {
 	require.False(t, service.AccountSupportsResolvedModel(ctx, read(), "public", options), "disabled status survives the cache round trip")
 	account.Schedulable = true
 	account.Credentials["model_mapping"] = map[string]string{}
-	service.NormalizeEmptyAccountModelSelection(&account)
+	delete(account.Extra, service.UpstreamModelAllowlistExtraKey)
+	account.Extra[service.UpstreamModelCatalogStateExtraKey] = service.AccountModelCatalogState{IdentityRevision: 3, RulesRevision: 2}
 	require.NoError(t, cache.SetAccount(ctx, &account))
-	require.False(t, service.AccountSupportsResolvedModel(ctx, read(), "public", options), "removing the selection survives the cache round trip")
+	require.True(t, service.AccountSupportsResolvedModel(ctx, read(), "public", options), "clearing credentials alone preserves the inherited scope")
 }
 
 func TestSchedulerProjectionPreservesCatalogInputs(t *testing.T) {

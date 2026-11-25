@@ -30,12 +30,14 @@ func accountExtraPostgresFixture(t *testing.T) (*sql.DB, *accountRepository) {
 		id bigserial PRIMARY KEY, platform text NOT NULL DEFAULT 'cursor', type text NOT NULL DEFAULT 'oauth',
 		credentials jsonb, extra jsonb, deleted_at timestamptz, updated_at timestamptz,
 		workspace_id bigint NOT NULL DEFAULT 1, proxy_id bigint, proxy_group_id bigint, proxy_fallback_origin_id bigint,
+		parent_account_id bigint,
 		temp_unschedulable_until timestamptz, temp_unschedulable_reason text,
 		rate_limited_at timestamptz, rate_limit_reset_at timestamptz
 	);
 	CREATE TABLE scheduler_outbox (
 		id bigserial PRIMARY KEY, event_type text, account_id bigint, group_id bigint, payload jsonb, dedup_key text
 	);
+	CREATE TABLE provider_connections (account_id bigint, workspace_id bigint, legacy_dirty boolean NOT NULL DEFAULT false);
 	CREATE UNIQUE INDEX ON scheduler_outbox (dedup_key) WHERE dedup_key IS NOT NULL`)
 	require.NoError(t, err)
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
@@ -111,8 +113,11 @@ func TestAccountExtraSQLPostgresMergeAndRevisions(t *testing.T) {
 			require.NotContains(t, extra, "upstream_billing_probe", "explicit null removes the probe key")
 			require.NotContains(t, extra, "codex_fingerprint_seed")
 			require.Equal(t, map[string]any{"identity_revision": float64(7), "rules_revision": float64(12), "legacy_policy_revision": float64(14), "result": "keep"}, extra["upstream_model_catalog_state"])
-			_, err := repo.ReplaceAccountModelSelectionScope(ctx, id, service.AccountModelCatalogBaseline{IdentityRevision: 7, RulesRevision: 11}, service.AccountModelAllowlist{}, nil)
-			require.ErrorIs(t, err, service.ErrAccountModelCatalogConflict, "stale catalog configuration must still conflict")
+			identity, revision := int64(7), int64(11)
+			_, err := service.NewAccountModelSelectionService(repo).SaveModelSelection(ctx, id, service.ModelSelectionCommand{
+				Mode: service.ModelSelectionInherit, ActorID: 7, ExpectedIdentityRevision: &identity, ExpectedRulesRevision: &revision,
+			})
+			require.ErrorIs(t, err, service.ErrModelSelectionConflict, "stale catalog configuration must still conflict")
 
 			legacyID := insertAccountExtraFixture(t, db, nil)
 			require.NoError(t, writeAccountExtraFixture(ctx, repo, bulk, legacyID, map[string]any{"note": "legacy"}))

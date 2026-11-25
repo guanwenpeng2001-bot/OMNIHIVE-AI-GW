@@ -382,6 +382,7 @@ func (r *accountRepository) bulkUpdateCredentialSecrets(ctx context.Context, ids
 	if r.client == nil || r.credentialEncryptor == nil {
 		return 0, service.ErrCredentialSecretInvalid
 	}
+	baseCtx := ctx
 	tx := dbent.TxFromContext(ctx)
 	owned := false
 	if tx == nil {
@@ -400,9 +401,19 @@ func (r *accountRepository) bulkUpdateCredentialSecrets(ctx context.Context, ids
 	if err := validateBulkCopilotNousCredentials(ctx, client, ids, updates.Credentials); err != nil {
 		return 0, err
 	}
+	baselines, err := lockBulkModelSelections(ctx, client, ids, updates.ModelSelectionCommand)
+	if err != nil {
+		return 0, err
+	}
+	previousRules := make(map[int64]int64, len(baselines))
+	for _, baseline := range baselines {
+		previousRules[baseline.id] = baseline.rulesRevision
+	}
 	inline, secrets := service.SplitCredentialSecrets(updates.Credentials)
-	updates.Credentials = inline
-	if _, err := r.BulkUpdate(ctx, ids, updates); err != nil {
+	metadataUpdates := updates
+	metadataUpdates.Credentials = inline
+	metadataUpdates.ModelSelectionCommand = nil
+	if _, err := r.BulkUpdate(ctx, ids, metadataUpdates); err != nil {
 		return 0, err
 	}
 	ids = slices.Clone(ids)
@@ -420,14 +431,30 @@ func (r *accountRepository) bulkUpdateCredentialSecrets(ctx context.Context, ids
 			current = map[string]any{}
 		}
 		maps.Copy(current, secrets)
-		if err = r.UpdateCredentials(ctx, id, current); err != nil {
+		writeCtx := ctx
+		if previous, ok := previousRules[id]; ok {
+			row, err := client.Account.Get(ctx, id)
+			if err != nil {
+				return 0, err
+			}
+			if (&service.Account{Extra: row.Extra}).ModelCatalogState().RulesRevision > previous {
+				writeCtx = context.WithValue(ctx, bulkSelectionRulesAlreadyAdvanced{}, true)
+			}
+		}
+		if err = r.UpdateCredentials(writeCtx, id, current); err != nil {
 			return 0, err
 		}
 		count++
 	}
+	if err := r.applyBulkModelSelections(ctx, baselines, updates); err != nil {
+		return 0, err
+	}
 	if owned {
 		if err := tx.Commit(); err != nil {
 			return 0, err
+		}
+		if len(baselines) > 0 {
+			r.syncSchedulerAccountSnapshots(baseCtx, ids)
 		}
 	}
 	return count, nil

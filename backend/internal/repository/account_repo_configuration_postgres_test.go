@@ -206,24 +206,24 @@ func TestAccountConfigurationPostgres(t *testing.T) {
 		_, err := repo.ReplaceAccountModelSelectionScope(ctx, account.ID, account.ModelCatalogBaseline(), service.AccountModelAllowlist{Enabled: true, Models: []string{"first"}}, &mapping)
 		require.NoError(t, err)
 		reload()
-		require.Len(t, account.EffectiveUpstreamModelCatalog().EligibleModels, 1)
+		require.Len(t, account.EffectiveUpstreamModelCatalog().EligibleModels, 2, "the scope includes both mapping targets")
 		require.Len(t, account.GetUpstreamModelCatalog().EligibleModels, 2)
 		require.NoError(t, repo.UpdateAccountModelAllowlist(ctx, account.ID, account.ModelCatalogBaseline(), service.AccountModelAllowlist{Enabled: true, Models: []string{"first", "second"}}))
 		reload()
 		require.Len(t, account.EffectiveUpstreamModelCatalog().EligibleModels, 2)
-		require.NoError(t, repo.UpdateAccountModelAllowlist(ctx, account.ID, account.ModelCatalogBaseline(), service.AccountModelAllowlist{Enabled: true, Models: []string{}}))
+		require.NoError(t, repo.UpdateAccountModelAllowlist(ctx, account.ID, account.ModelCatalogBaseline(), service.AccountModelAllowlist{Enabled: true, Models: []string{}, ConfirmedBy: 7, Reason: "maintenance"}))
 		reload()
 		require.Empty(t, account.EffectiveUpstreamModelCatalog().EligibleModels)
 		require.NoError(t, repo.UpdateAccountModelAllowlist(ctx, account.ID, account.ModelCatalogBaseline(), service.AccountModelAllowlist{Enabled: false}))
 		reload()
-		require.Empty(t, account.EffectiveUpstreamModelCatalog().EligibleModels, "scope-only cannot undo explicit deny-all")
+		require.Len(t, account.EffectiveUpstreamModelCatalog().EligibleModels, 2, "an explicit inherit command restores routing")
 		_, err = repo.ReplaceAccountModelSelectionScope(ctx, account.ID, account.ModelCatalogBaseline(), service.AccountModelAllowlist{Enabled: false}, &mapping)
 		require.NoError(t, err)
 		reload()
 		require.Len(t, account.EffectiveUpstreamModelCatalog().EligibleModels, 2)
 	})
 
-	t.Run("freeze_and_catalog_commit_are_atomic", func(t *testing.T) {
+	t.Run("discovery_checks_CAS_without_changing_selection", func(t *testing.T) {
 		for _, oldSnapshot := range []bool{false, true} {
 			extra := map[string]any{}
 			if oldSnapshot {
@@ -240,36 +240,31 @@ func TestAccountConfigurationPostgres(t *testing.T) {
 			require.ErrorIs(t, repo.CommitAccountModelCatalog(ctx, account.ID, stale, incoming, state, nil, true), service.ErrAccountModelCatalogConflict)
 			unchanged, err := repo.GetByID(ctx, account.ID)
 			require.NoError(t, err)
-			require.True(t, service.AccountModelSelectionNeedsFreeze(unchanged))
+			require.Equal(t, service.ModelSelectionInherit, service.AccountModelSelectionView(unchanged).Mode)
 			require.Equal(t, baseline, unchanged.ModelCatalogBaseline())
 			require.NoError(t, repo.CommitAccountModelCatalog(ctx, account.ID, baseline, incoming, account.ModelCatalogState(), nil, true))
 			current, err := repo.GetByID(ctx, account.ID)
 			require.NoError(t, err)
-			require.False(t, service.AccountModelSelectionNeedsFreeze(current))
-			require.Equal(t, baseline.RulesRevision+1, current.ModelCatalogState().RulesRevision)
+			require.Equal(t, service.ModelSelectionInherit, service.AccountModelSelectionView(current).Mode)
+			require.Equal(t, baseline.RulesRevision, current.ModelCatalogState().RulesRevision)
 			binding := service.ResolveAccountModelBinding(ctx, current, "new", service.AccountModelBindingOptions{Endpoint: "chat_completions"})
-			require.Equal(t, !oldSnapshot, binding.Supported, "native discovery is allowed only without an explicit saved selection")
-			if oldSnapshot {
-				require.Equal(t, map[string]string{"old": "old"}, current.GetModelMapping())
-				require.True(t, service.AccountSupportsResolvedModel(ctx, current, "old", service.AccountModelBindingOptions{Endpoint: "chat_completions"}))
-			} else {
-				require.Len(t, current.EffectiveUpstreamModelCatalog().EligibleModels, 1)
-				require.Empty(t, current.GetModelMapping())
-			}
+			require.True(t, binding.Supported, "discovery does not create or overwrite configuration")
+			require.Empty(t, current.GetModelMapping())
 			require.ErrorIs(t, repo.CommitAccountModelCatalog(ctx, account.ID, baseline, incoming, account.ModelCatalogState(), nil, true), service.ErrAccountModelCatalogConflict)
 		}
 	})
 
-	t.Run("ordinary_credentials_clear_selection_without_unlocking", func(t *testing.T) {
+	t.Run("credential_refresh_preserves_selection", func(t *testing.T) {
 		account := create(t)
 		require.NoError(t, repo.UpdateCredentials(ctx, account.ID, map[string]any{"api_key": "old", "model_mapping": map[string]string{}, service.CredentialSecretVersionKey: service.CredentialVersion(account.Credentials)}))
 		account, err = repo.GetByID(ctx, account.ID)
 		require.NoError(t, err)
-		require.False(t, service.AccountModelSelectionNeedsFreeze(account))
+		require.Equal(t, map[string]string{"alias": "target"}, account.GetModelMapping())
 		require.NoError(t, repo.UpdateCredentials(ctx, account.ID, map[string]any{"api_key": "new", "model_mapping": map[string]string{"draft": "draft"}, service.CredentialSecretVersionKey: service.CredentialVersion(account.Credentials)}))
 		account, err = repo.GetByID(ctx, account.ID)
 		require.NoError(t, err)
-		require.Empty(t, account.EffectiveUpstreamModelCatalog().EligibleModels, "ordinary credentials writes preserve deny-all")
+		require.Equal(t, map[string]string{"alias": "target"}, account.GetModelMapping())
+		require.Len(t, account.EffectiveUpstreamModelCatalog().EligibleModels, 1)
 		mapping := map[string]string{"draft": "draft"}
 		_, err = repo.ReplaceAccountModelSelectionScope(ctx, account.ID, account.ModelCatalogBaseline(), service.AccountModelAllowlist{Enabled: false}, &mapping)
 		require.NoError(t, err)
@@ -349,6 +344,35 @@ func TestAccountConfigurationPostgres(t *testing.T) {
 		current, err = repo.GetByID(ctx, account.ID)
 		require.NoError(t, err)
 		require.Greater(t, current.ModelCatalogBaseline().IdentityRevision, baseline.IdentityRevision)
+	})
+
+	t.Run("bulk_selection_with_other_rules_advances_once", func(t *testing.T) {
+		for _, field := range []string{"compact_model_mapping", "api_key", "compact_mapping_and_key"} {
+			t.Run(field, func(t *testing.T) {
+				account := create(t)
+				baseline := account.ModelCatalogState().RulesRevision
+				mapping := map[string]string{"alias": "new-target"}
+				credentials := map[string]any{"model_mapping": mapping}
+				if field != "compact_model_mapping" {
+					credentials["api_key"] = "rotated-bulk-key"
+				}
+				if field != "api_key" {
+					credentials["compact_model_mapping"] = map[string]any{"compact": "other-target"}
+				}
+				results := make(map[int64]service.ModelSelectionResult)
+				_, err := repo.BulkUpdate(ctx, []int64{account.ID}, service.AccountBulkUpdate{
+					Credentials: credentials, ModelSelectionResults: results,
+				})
+				require.NoError(t, err)
+				current, err := repo.GetByID(ctx, account.ID)
+				require.NoError(t, err)
+				require.Equal(t, baseline+1, current.ModelCatalogState().RulesRevision)
+				require.Equal(t, []string{"new-target"}, service.AccountModelSelectionView(current).Models)
+				require.Equal(t, mapping, current.GetModelMapping())
+				require.Equal(t, baseline+1, results[account.ID].RulesRevision)
+				require.Equal(t, []string{"new-target"}, results[account.ID].AutoAdded)
+			})
+		}
 	})
 
 	t.Run("failed_outbox_rolls_back_before_cache_refresh", func(t *testing.T) {

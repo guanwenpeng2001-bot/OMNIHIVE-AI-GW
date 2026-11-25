@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"testing"
 
@@ -38,4 +39,34 @@ func createEncryptedCatalogFixture(t *testing.T, ctx context.Context, client *db
 	_, err = database.ExecContext(ctx, `DELETE FROM scheduler_outbox WHERE account_id=$1`, account.ID)
 	require.NoError(t, err)
 	return created
+}
+
+// Legacy fixture adapters keep the state-oriented assertions on the unified writer.
+func (r *accountRepository) UpdateAccountModelAllowlist(ctx context.Context, id int64, baseline service.AccountModelCatalogBaseline, allowlist service.AccountModelAllowlist) error {
+	_, err := r.ReplaceAccountModelSelectionScope(ctx, id, baseline, allowlist, nil)
+	return err
+}
+
+func (r *accountRepository) ReplaceAccountModelSelectionScope(ctx context.Context, id int64, baseline service.AccountModelCatalogBaseline, allowlist service.AccountModelAllowlist, mapping *map[string]string) ([]string, error) {
+	command := service.ModelSelectionCommand{
+		Mode: service.ModelSelectionInherit, Reason: allowlist.Reason, ActorID: allowlist.ConfirmedBy, Source: service.ModelSelectionAdmin,
+		ExpectedRulesRevision: &baseline.RulesRevision, ExpectedIdentityRevision: &baseline.IdentityRevision,
+	}
+	if allowlist.Enabled {
+		command.Mode = service.ModelSelectionRestricted
+		command.Models = allowlist.Models
+		if len(allowlist.Models) == 0 {
+			command.Mode = service.ModelSelectionDenyAll
+		}
+	}
+	if mapping != nil {
+		command.ModelMapping = *mapping
+	}
+	result, err := r.UpdateModelSelection(ctx, id, service.ModelSelectionAdmin, func(account *service.Account) (service.ModelSelectionResult, error) {
+		return service.ResolveLockedModelSelection(account, command)
+	})
+	if errors.Is(err, service.ErrModelSelectionConflict) || errors.Is(err, service.ErrAccountNotFound) {
+		return nil, service.ErrAccountModelCatalogConflict
+	}
+	return result.NotDiscovered, err
 }

@@ -3,7 +3,6 @@ package legacy
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"strconv"
 
@@ -113,12 +112,18 @@ func ChangeSecret(ctx context.Context, tx *sql.Tx, enc service.SecretEncryptor, 
 	return err
 }
 
-func Activate(ctx context.Context, tx *sql.Tx, w, id int64, name, endpoint, proxy string, concurrency int, models []string) error {
+func Activate(ctx context.Context, tx *sql.Tx, w, id, actor int64, name, endpoint, proxy string, concurrency int, models []string) error {
 	mapping := map[string]string{}
 	for _, s := range models {
 		mapping[s] = s
 	}
-	data, e := json.Marshal(mapping)
+	mode := service.ModelSelectionRestricted
+	if len(models) == 0 {
+		mode = service.ModelSelectionInherit
+	}
+	selection, e := repository.UpdateModelSelectionInSQL(domain.WithWorkspaceScope(ctx, w), tx, id, service.ModelSelectionConnection, func(account *service.Account) (service.ModelSelectionResult, error) {
+		return service.ResolveLockedModelSelection(account, service.ModelSelectionCommand{Mode: mode, Models: models, ModelMapping: mapping, Reason: "Connections activation", ActorID: actor, Source: service.ModelSelectionConnection})
+	})
 	if e != nil {
 		return e
 	}
@@ -126,10 +131,13 @@ func Activate(ctx context.Context, tx *sql.Tx, w, id int64, name, endpoint, prox
 		return e
 	}
 	_, e = tx.ExecContext(ctx, `UPDATE accounts SET name=$3,proxy_id=nullif($4,'')::bigint,concurrency=$5,status='active',schedulable=$8,
- credentials=(credentials-'base_url'-'model_mapping')||jsonb_strip_nulls(jsonb_build_object('base_url',nullif($6,''),'model_mapping',$7::jsonb)),updated_at=now()
- WHERE workspace_id=$1 AND id=$2`, w, id, name, proxy, concurrency, endpoint, string(data), len(models) > 0)
+ credentials=(credentials-'base_url')||jsonb_strip_nulls(jsonb_build_object('base_url',nullif($6,''))),updated_at=now()
+ WHERE workspace_id=$1 AND id=$2`, w, id, name, proxy, concurrency, endpoint, len(models) > 0)
 	if e != nil {
 		return e
+	}
+	if selection.Changed {
+		return nil
 	}
 	return Notify(ctx, tx, id)
 }
