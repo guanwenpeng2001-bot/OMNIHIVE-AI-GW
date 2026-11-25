@@ -4,6 +4,12 @@ This project follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/
 
 ## Unreleased
 
+## 0.3.8 - 2026-11-25
+
+### Fixed
+
+- **Scheduled model discovery rejected**: v0.3.6 changed pinned discovery/registry dependencies but re-bound the model-capability release at the same generation, so every account's scheduled discovery was rejected as "same generation, different source" and kept stale model lists. The reviewed generation now advances (catalog records, prices, presets and aliases are unchanged), and CI fails if a release manifest changes without advancing its generation relative to the previous tag.
+
 ## 0.3.7 - 2026-11-25
 
 ### Fixed
