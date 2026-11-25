@@ -53,10 +53,10 @@ Use the automated preparation script for the easiest setup:
 
 ```bash
 # Download and run the preparation script
-curl -fsSL --globoff 'https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/v0.3.6/deploy/docker-deploy.sh' | bash
+curl -fsSL --globoff 'https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/v0.3.7/deploy/docker-deploy.sh' | bash
 
 # Or download first, then run
-curl -fsSL --globoff 'https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/v0.3.6/deploy/docker-deploy.sh' -o docker-deploy.sh
+curl -fsSL --globoff 'https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/v0.3.7/deploy/docker-deploy.sh' -o docker-deploy.sh
 chmod +x docker-deploy.sh
 ./docker-deploy.sh
 ```
@@ -68,7 +68,7 @@ chmod +x docker-deploy.sh
 - Creates necessary data directories (data/, postgres_data/, redis_data/)
 - Writes `.env` with mode `0600` and prints the private credential file path (secrets are not echoed)
 
-The script defaults to release tag `v0.3.6`. Set `OMNIHIVE_RELEASE_TAG` to explicitly
+The script defaults to release tag `v0.3.7`. Set `OMNIHIVE_RELEASE_TAG` to explicitly
 select another release. Downloads fail on HTTP errors and are validated in a temporary
 directory before being moved into place. If either `docker-compose.yml` or `.env` already
 exists, the script exits without overwriting or changing the deployment.
@@ -317,7 +317,7 @@ before draining so in-flight usage receipts can be persisted.
 | `TURNSTILE_REQUIRED` | No | `false` | Deployment hard requirement for Turnstile, enforced only in release mode. |
 | `BIND_HOST` | No | `127.0.0.1` | Host address for the Compose port; keep loopback behind Caddy. Standalone defaults to `0.0.0.0` and needs operator-provided TLS if exposed. |
 | `SERVER_PORT` | No | `8080` | Published host port in Compose; application always listens on container port 8080 |
-| `OMNIHIVE_IMAGE_TAG` | No | `v0.3.6` | Application image tag used by all Compose templates. Pin it to a release. |
+| `OMNIHIVE_IMAGE_TAG` | No | `v0.3.7` | Application image tag used by all Compose templates. Pin it to a release. |
 | `ADMIN_EMAIL` | No | `admin@omnihive.local` | Admin email |
 | `ADMIN_PASSWORD` | No | *(auto-generated)* | Admin password |
 | `TZ` | No | `Asia/Shanghai` | Timezone |
