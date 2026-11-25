@@ -44,6 +44,8 @@ func TestGetModelCatalogContract(t *testing.T) {
 				state.Result = "failed"
 				state.Error = "upstream_unavailable"
 				state.AttemptedAt = "2026-09-16T02:00:00Z"
+				attemptedIdentity := state.IdentityRevision
+				state.AttemptedIdentityRevision = &attemptedIdentity
 			}
 			account.Extra[service.UpstreamModelCatalogStateExtraKey] = state
 			adminSvc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: account}
@@ -72,6 +74,7 @@ func TestGetModelCatalogContract(t *testing.T) {
 			require.Equal(t, "9007199254740993", payload.Data["rules_revision"])
 			responseState, ok := payload.Data["state"].(map[string]any)
 			require.True(t, ok)
+			require.NotContains(t, responseState, "attempted_identity_revision")
 			require.Equal(t, payload.Data["rules_revision"], responseState["rules_revision"])
 			require.Equal(t, "inherit", payload.Data["mode"])
 			require.Equal(t, []any{}, payload.Data["models"])

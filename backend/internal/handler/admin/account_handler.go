@@ -3762,6 +3762,7 @@ func (h *AccountHandler) getModelCatalog(c *gin.Context, now time.Time) {
 		effective = account.EffectiveUpstreamModelCatalogForCredentialAccount(credentialAccount)
 	}
 	state := account.ModelCatalogState()
+	state.AttemptedIdentityRevision = nil
 	selection := dto.AccountModelSelectionFromService(account)
 	staleness, lastSuccess := account.ModelCatalogFreshness(now)
 	summary := gin.H{

@@ -17,6 +17,15 @@ type AccountModelCatalogLocker interface {
 
 type catalogScheduledRefreshKey struct{}
 
+type catalogScheduledRefresh struct {
+	periodic bool
+}
+
+// Only invalidated catalogs need to be loaded when periodic refresh is off.
+type invalidatedModelCatalogLister interface {
+	ListActiveWithInvalidatedModelCatalog(context.Context) ([]Account, error)
+}
+
 // ModelCatalogFreshness reports age without removing published members.
 func (account *Account) ModelCatalogFreshness(now time.Time) (staleness, lastSuccess string) {
 	state := account.ModelCatalogState()
@@ -38,16 +47,26 @@ func (account *Account) ModelCatalogFreshness(now time.Time) (staleness, lastSuc
 	return "fresh", lastSuccess
 }
 
-func accountCatalogRefreshDue(account *Account, now time.Time) bool {
+func accountCatalogScheduledRefreshDue(account *Account, now time.Time, periodic bool) bool {
 	if account == nil || account.Status != StatusActive {
 		return false
 	}
 	state := account.ModelCatalogState()
+	snapshot := account.GetUpstreamModelCatalog()
+	snapshotIdentity := int64(0)
+	if snapshot != nil {
+		snapshotIdentity = snapshot.IdentityRevision
+	}
+	invalidated := snapshotIdentity < state.IdentityRevision
+	if invalidated && (state.AttemptedIdentityRevision == nil || *state.AttemptedIdentityRevision != state.IdentityRevision) {
+		return true
+	}
+	if !invalidated && !periodic {
+		return false
+	}
 	latest := state.AttemptedAt
-	if latest == "" {
-		if snapshot := account.GetUpstreamModelCatalog(); snapshot != nil {
-			latest = snapshot.ObservedAt
-		}
+	if latest == "" && snapshot != nil {
+		latest = snapshot.ObservedAt
 	}
 	at, err := time.Parse(time.RFC3339Nano, latest)
 	// Stable per-account jitter spreads work across a 30 minute window on all replicas.
@@ -66,7 +85,12 @@ func (s *ScheduledTestRunnerService) runCatalogRefresh() {
 }
 
 func (s *ScheduledTestRunnerService) refreshDueCatalogs(ctx context.Context, now time.Time) {
-	accounts, err := s.accountTestSvc.accountRepo.ListActive(ctx)
+	repo := s.accountTestSvc.accountRepo
+	list := repo.ListActive
+	if invalidated, ok := repo.(invalidatedModelCatalogLister); ok && !s.catalogRefreshEnabled {
+		list = invalidated.ListActiveWithInvalidatedModelCatalog
+	}
+	accounts, err := list(ctx)
 	if err != nil {
 		logger.LegacyPrintf("service.model_catalog_refresh", "list accounts failed: %v", err)
 		return
@@ -84,7 +108,7 @@ func (s *ScheduledTestRunnerService) refreshDueCatalogs(ctx context.Context, now
 	defer wg.Wait()
 	for i := range accounts {
 		account := &accounts[i]
-		if !accountCatalogRefreshDue(account, now) {
+		if !accountCatalogScheduledRefreshDue(account, now, s.catalogRefreshEnabled) {
 			continue
 		}
 		select {
@@ -96,8 +120,8 @@ func (s *ScheduledTestRunnerService) refreshDueCatalogs(ctx context.Context, now
 		go func(account *Account) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			attemptCtx, cancel := context.WithTimeout(context.WithValue(ctx, catalogScheduledRefreshKey{}, true), 2*time.Minute)
-			defer cancel()
+			refresh := catalogScheduledRefresh{periodic: s.catalogRefreshEnabled}
+			attemptCtx := context.WithValue(ctx, catalogScheduledRefreshKey{}, refresh)
 			_, err := s.accountTestSvc.ApplyAccountModelCatalog(attemptCtx, account, nil)
 			if err != nil && !errors.Is(err, ErrAccountModelCatalogConflict) {
 				staleness, _ := account.ModelCatalogFreshness(time.Now())

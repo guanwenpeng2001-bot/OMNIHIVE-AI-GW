@@ -1542,6 +1542,28 @@ func (r *accountRepository) ListActive(ctx context.Context) ([]service.Account, 
 	return r.accountsToService(ctx, accounts)
 }
 
+// Discovery reloads the account under its advisory lock. The scan needs only
+// catalog state and an ID, so it does not resolve or decrypt credentials.
+func (r *accountRepository) ListActiveWithInvalidatedModelCatalog(ctx context.Context) ([]service.Account, error) {
+	rows, err := r.client.Account.Query().
+		Where(dbaccount.StatusEQ(service.StatusActive), func(s *entsql.Selector) {
+			extra := s.C(dbaccount.FieldExtra)
+			s.Where(entsql.ExprP("COALESCE(" + extra + "->'upstream_model_catalog_state'->'identity_revision', '0'::jsonb) > " +
+				"COALESCE(" + extra + "->'upstream_model_catalog'->'identity_revision', '0'::jsonb)"))
+		}).
+		Order(dbent.Asc(dbaccount.FieldPriority, dbaccount.FieldID)).
+		Select(dbaccount.FieldID, dbaccount.FieldStatus, dbaccount.FieldExtra).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	accounts := make([]service.Account, 0, len(rows))
+	for _, row := range rows {
+		accounts = append(accounts, service.Account{ID: row.ID, Status: row.Status, Extra: row.Extra})
+	}
+	return accounts, nil
+}
+
 func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, options service.OAuthRefreshPageOptions) (*service.OAuthRefreshCandidatePage, error) {
 	executor := r.sql
 	if tx := dbent.TxFromContext(ctx); tx != nil {
@@ -4844,21 +4866,15 @@ func accountCatalogRevisionPatchSQL(incoming, incomingExtra, proxyChanged string
 		changes = append(changes, "(platform = 'workbuddy' AND credentials->'"+field+"' IS DISTINCT FROM "+incoming+"->'"+field+"')")
 	}
 	changes = append(changes, "(platform = 'antigravity' AND credentials->'email' IS DISTINCT FROM "+incoming+"->'email')")
+	changes = append(changes, "(platform = 'grok' AND credentials->'team_id' IS DISTINCT FROM "+incoming+"->'team_id')")
 	legacyIdentity := "(" + strings.Join(changes, " OR ") + ")"
-	stable := "FALSE"
+	tokenChanged := "(" + versionChanged + " OR credentials->'access_token' IS DISTINCT FROM " + incoming + "->'access_token')"
 	if !manual {
-		// Every subject field is already compared in legacyIdentity above.
-		hasSubject := func(platform string) string {
-			terms := []string{}
-			for _, field := range service.AccountCatalogSubjectFields(platform) {
-				terms = append(terms, "COALESCE(credentials->>'"+field+"','') <> ''")
-			}
-			return "(" + strings.Join(terms, " OR ") + ")"
-		}
-		antigravityStable := "(COALESCE(credentials->>'project_id','') <> '')"
-		stable = "CASE WHEN platform = 'workbuddy' THEN " + hasSubject(service.PlatformWorkBuddy) + " WHEN platform = 'antigravity' THEN " + antigravityStable + " ELSE " + hasSubject("") + " END"
+		// A provider renewal is bound to the old credential by CAS. Even
+		// providers without a stable subject can rotate opaque OAuth tokens.
+		tokenChanged = "(type <> 'oauth' AND " + tokenChanged + ")"
 	}
-	changes = append(changes, "(("+versionChanged+" OR credentials->'access_token' IS DISTINCT FROM "+incoming+"->'access_token') AND NOT ("+stable+"))")
+	changes = append(changes, tokenChanged)
 	identity := "(" + strings.Join(changes, " OR ") + ")"
 	ruleChanges := []string{identity}
 	for _, field := range service.AccountCatalogRuleCredentialFields() {
@@ -4881,5 +4897,9 @@ func accountCatalogRevisionPatchSQL(incoming, incomingExtra, proxyChanged string
 		}
 	}
 	legacyPolicy := "(" + strings.Join(ruleChanges, " OR ") + ")"
-	return "jsonb_build_object('upstream_model_catalog_state', COALESCE(extra->'upstream_model_catalog_state','{}'::jsonb) || jsonb_build_object('identity_revision', COALESCE((extra->'upstream_model_catalog_state'->>'identity_revision')::bigint,0) + CASE WHEN " + identity + " THEN 1 ELSE 0 END, 'rules_revision', COALESCE((extra->'upstream_model_catalog_state'->>'rules_revision')::bigint,0) + CASE WHEN " + rules + " THEN 1 ELSE 0 END, 'legacy_policy_revision', COALESCE((extra->'upstream_model_catalog_state'->>'legacy_policy_revision')::bigint,0) + CASE WHEN " + legacyPolicy + " THEN 1 ELSE 0 END))"
+	state := "COALESCE(extra->'upstream_model_catalog_state','{}'::jsonb)"
+	return "jsonb_build_object('upstream_model_catalog_state', " + state + " || jsonb_build_object(" +
+		"'identity_revision', COALESCE((" + state + "->>'identity_revision')::bigint,0) + CASE WHEN " + identity + " THEN 1 ELSE 0 END, " +
+		"'rules_revision', COALESCE((" + state + "->>'rules_revision')::bigint,0) + CASE WHEN " + rules + " THEN 1 ELSE 0 END, " +
+		"'legacy_policy_revision', COALESCE((" + state + "->>'legacy_policy_revision')::bigint,0) + CASE WHEN " + legacyPolicy + " THEN 1 ELSE 0 END))"
 }

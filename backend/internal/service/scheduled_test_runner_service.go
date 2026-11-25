@@ -46,8 +46,8 @@ func NewScheduledTestRunnerService(
 	}
 }
 
-// SetModelCatalogRefreshEnabled configures background adoption before Start.
-// It defaults to false; the configuration owner must explicitly opt in.
+// SetModelCatalogRefreshEnabled opts into periodic discovery of healthy catalogs.
+// Recovery of invalidated catalogs runs independently.
 func (s *ScheduledTestRunnerService) SetModelCatalogRefreshEnabled(enabled bool) {
 	s.catalogRefreshEnabled = enabled
 }
@@ -72,7 +72,7 @@ func (s *ScheduledTestRunnerService) Start() {
 			return
 		}
 		s.cron = c
-		if s.catalogRefreshEnabled {
+		if s.accountTestSvc != nil {
 			_, _ = c.AddFunc("* * * * *", s.runCatalogRefresh)
 		}
 		if s.boundedModelProbesEnabled {

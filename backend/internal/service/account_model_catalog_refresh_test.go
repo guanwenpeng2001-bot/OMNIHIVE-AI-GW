@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
-	"github.com/stretchr/testify/require"
+	"net/http"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestModelCatalogFreshnessBoundary(t *testing.T) {
@@ -51,19 +53,19 @@ func TestAccountModelCatalogScheduledRefreshDueAndFailureRetention(t *testing.T)
 	upstream := &httpUpstreamRecorder{resp: catalogFixtureResponse(`{"data":[]}`)}
 	upstream.resp.StatusCode = 502
 	svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}
-	runner := &ScheduledTestRunnerService{accountTestSvc: svc}
+	runner := &ScheduledTestRunnerService{catalogRefreshEnabled: true, accountTestSvc: svc}
 	runner.refreshDueCatalogs(context.Background(), now)
 	require.Equal(t, 1, repo.commits)
 	require.Equal(t, "failed", account.ModelCatalogState().Result)
 	require.Equal(t, old, account.GetUpstreamModelCatalog())
 	stale, _ := account.ModelCatalogFreshness(now)
 	require.Equal(t, "stale", stale)
-	require.False(t, accountCatalogRefreshDue(account, now.Add(5*time.Hour)))
-	require.True(t, accountCatalogRefreshDue(account, now.Add(7*time.Hour)))
+	require.False(t, accountCatalogScheduledRefreshDue(account, now.Add(5*time.Hour), true))
+	require.True(t, accountCatalogScheduledRefreshDue(account, now.Add(7*time.Hour), true))
 	runner.refreshDueCatalogs(context.Background(), now)
 	require.Equal(t, 1, repo.commits, "failed attempts also defer the next refresh")
 	account.Status = "disabled"
-	require.False(t, accountCatalogRefreshDue(account, now.Add(48*time.Hour)))
+	require.False(t, accountCatalogScheduledRefreshDue(account, now.Add(48*time.Hour), true))
 }
 
 func TestAccountModelCatalogInFlightSkipsUpstream(t *testing.T) {
@@ -75,16 +77,53 @@ func TestAccountModelCatalogInFlightSkipsUpstream(t *testing.T) {
 
 func TestModelCatalogRefreshScheduleSwitch(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
-		runner := &ScheduledTestRunnerService{}
+		runner := &ScheduledTestRunnerService{accountTestSvc: &AccountTestService{}}
 		runner.SetModelCatalogRefreshEnabled(enabled)
 		runner.Start()
-		want := 1
-		if enabled {
-			want++
-		}
-		require.Len(t, runner.cron.Entries(), want)
+		require.Len(t, runner.cron.Entries(), 2, "recovery is always scheduled")
 		runner.Stop()
 	}
+}
+
+func TestInvalidatedCatalogRefreshRetriesOnlyAfterBackoffOrNewIdentity(t *testing.T) {
+	now := time.Now()
+	previous := &AccountModelCatalogSnapshot{Revision: 2, IdentityRevision: 4, Complete: true, ObservedAt: now.Format(time.RFC3339Nano)}
+	account := &Account{ID: 23, Status: StatusActive, Platform: PlatformDeepseek, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "fixture", "base_url": "https://api.deepseek.com"},
+		Extra: map[string]any{
+			UpstreamModelCatalogExtraKey: previous,
+			UpstreamModelCatalogStateExtraKey: AccountModelCatalogState{
+				IdentityRevision: 5, AttemptedAt: previous.ObservedAt, Result: "succeeded",
+			},
+		},
+	}
+	healthy := Account{ID: 24, Status: StatusActive}
+	repo := &refreshCatalogRepository{catalogFixtureRepository: &catalogFixtureRepository{
+		accounts: map[int64]*Account{account.ID: account, healthy.ID: &healthy},
+	}, active: []Account{*account, healthy}}
+	failure := catalogFixtureResponse(`{"error":"unavailable"}`)
+	failure.StatusCode = 502
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{failure, catalogFixtureResponse(`{"data":[]}`)}}
+	runner := &ScheduledTestRunnerService{accountTestSvc: &AccountTestService{accountRepo: repo, httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}}
+
+	runner.refreshDueCatalogs(context.Background(), now)
+	require.Equal(t, 1, repo.commits)
+	require.Equal(t, previous, account.GetUpstreamModelCatalog())
+	state := account.ModelCatalogState()
+	require.Equal(t, "failed", state.Result)
+	require.NotNil(t, state.AttemptedIdentityRevision)
+	require.EqualValues(t, 5, *state.AttemptedIdentityRevision)
+	runner.refreshDueCatalogs(context.Background(), now.Add(time.Minute))
+	require.Equal(t, 1, repo.commits)
+	require.True(t, accountCatalogScheduledRefreshDue(account, now.Add(7*time.Hour), false))
+
+	state.IdentityRevision++
+	account.Extra[UpstreamModelCatalogStateExtraKey] = state
+	runner.refreshDueCatalogs(context.Background(), now.Add(time.Minute))
+	require.Equal(t, 2, repo.commits)
+	require.EqualValues(t, 6, account.GetUpstreamModelCatalog().IdentityRevision)
+	runner.refreshDueCatalogs(context.Background(), now.Add(7*time.Hour))
+	require.Equal(t, 2, repo.commits, "a recovered catalog stays out of the recovery-only schedule")
 }
 
 func TestModelCatalogRefreshConcurrentManualApply(t *testing.T) {

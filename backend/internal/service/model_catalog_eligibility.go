@@ -52,9 +52,12 @@ type AccountModelCatalogState struct {
 	IdentityRevision     int64  `json:"identity_revision"`
 	RulesRevision        int64  `json:"rules_revision"`
 	AttemptedAt          string `json:"attempted_at,omitempty"`
-	LastSuccessAt        string `json:"last_success_at,omitempty"`
-	Result               string `json:"result,omitempty"`
-	Error                string `json:"error,omitempty"`
+	// Older rows have no attempt binding, so they are immediately due if their
+	// snapshot belongs to an earlier identity.
+	AttemptedIdentityRevision *int64 `json:"attempted_identity_revision,omitempty"`
+	LastSuccessAt             string `json:"last_success_at,omitempty"`
+	Result                    string `json:"result,omitempty"`
+	Error                     string `json:"error,omitempty"`
 }
 
 type AccountCatalogModel struct {
@@ -310,6 +313,9 @@ func AccountCatalogIdentityCredentialFields(platform string) []string {
 	}
 	if platform == PlatformAntigravity {
 		fields = append(fields, "email")
+	}
+	if platform == PlatformGrok {
+		fields = append(fields, "team_id")
 	}
 	return fields
 }

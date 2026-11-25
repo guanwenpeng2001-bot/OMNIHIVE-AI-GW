@@ -219,6 +219,7 @@ func AdvanceAccountModelCatalogRevisionsForUpdate(current, incoming *Account, co
 	if identityChanged {
 		state.IdentityRevision++
 		state.Result = "identity_changed"
+		state.Error = ""
 	}
 	if rulesChanged {
 		state.RulesRevision++
@@ -729,9 +730,10 @@ func (service *AccountTestService) ApplyAccountModelCatalog(ctx context.Context,
 			return nil, err
 		}
 		account = fresh
-		if scheduled, _ := ctx.Value(catalogScheduledRefreshKey{}).(bool); scheduled && !accountCatalogRefreshDue(account, time.Now()) {
-			return nil, nil
-		}
+	}
+	refresh, scheduled := ctx.Value(catalogScheduledRefreshKey{}).(catalogScheduledRefresh)
+	if scheduled && !accountCatalogScheduledRefreshDue(account, time.Now(), refresh.periodic) {
+		return nil, nil
 	}
 	baseline := account.ModelCatalogBaseline()
 	if expectedRulesRevision != nil && *expectedRulesRevision != baseline.RulesRevision {
@@ -754,7 +756,7 @@ func (service *AccountTestService) ApplyAccountModelCatalog(ctx context.Context,
 			return nil, ErrAccountModelCatalogConflict
 		}
 	}
-	if scheduled, _ := ctx.Value(catalogScheduledRefreshKey{}).(bool); scheduled {
+	if scheduled {
 		baseline.RequireActive = true
 	}
 	committer, ok := service.accountRepo.(AccountModelCatalogCommitter)
@@ -764,12 +766,13 @@ func (service *AccountTestService) ApplyAccountModelCatalog(ctx context.Context,
 	catalog, err := service.SyncUpstreamModelCatalog(ctx, account)
 	state := account.ModelCatalogState()
 	state.AttemptedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	state.AttemptedIdentityRevision = &baseline.IdentityRevision
 	// A scheduled discovery can finish successfully but be rejected by the
 	// approved catalog version. Record that attempt through the same baseline
 	// CAS as other failures, retaining the published catalog and last success.
 	// Otherwise it remains due and repeats upstream discovery every minute.
 	versionRejected := false
-	if scheduled, _ := ctx.Value(catalogScheduledRefreshKey{}).(bool); scheduled && err == nil {
+	if scheduled && err == nil {
 		err = ValidateAccountModelCatalogVersion(account.Extra, catalog.snapshot)
 		versionRejected = err != nil
 	}

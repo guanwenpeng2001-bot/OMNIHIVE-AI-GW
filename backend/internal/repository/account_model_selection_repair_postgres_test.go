@@ -1,4 +1,4 @@
-//go:build unit
+//go:build unit || integration
 
 package repository
 
@@ -31,13 +31,16 @@ func TestAccountModelSelectionRepairPostgres(t *testing.T) {
 	require.NoError(t, err)
 	insert := func(scope map[string]any, frozen any, mapping any) int64 {
 		t.Helper()
-		extra := map[string]any{"upstream_model_allowlist": scope, "upstream_model_catalog_state": map[string]any{"rules_revision": 7}}
+		extra := map[string]any{"upstream_model_allowlist": scope, "upstream_model_catalog_state": map[string]any{"identity_revision": 4, "rules_revision": 7}}
 		if frozen != nil {
 			extra["model_selection_baseline_frozen"] = frozen
 		}
 		extraJSON, err := json.Marshal(extra)
 		require.NoError(t, err)
-		credentialsJSON, err := json.Marshal(map[string]any{"model_mapping": mapping})
+		credentialsJSON, err := json.Marshal(map[string]any{
+			"model_mapping": mapping, "sub": "fixture-subject", "access_token": "fixture-token",
+			"_token_version": 15, "credential_secret_version": 7,
+		})
 		require.NoError(t, err)
 		var id int64
 		require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO accounts(workspace_id,name,platform,type,status,schedulable,credentials,extra) VALUES(1,'repair','openai','apikey','active',true,$1,$2) RETURNING id`, string(credentialsJSON), string(extraJSON)).Scan(&id))
@@ -72,6 +75,13 @@ func TestAccountModelSelectionRepairPostgres(t *testing.T) {
 	require.NotContains(t, extra, service.ModelSelectionBaselineFrozenExtraKey)
 	require.Contains(t, extra, service.ModelSelectionRepairBackupExtraKey)
 	require.Equal(t, 1, outbox)
+	require.EqualValues(t, 4, (&service.Account{Extra: extra}).ModelCatalogState().IdentityRevision)
+	var credentialsUnchanged bool
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT credentials = '{
+		"model_mapping":{"b":"target-b","a":"target-a"}, "sub":"fixture-subject", "access_token":"fixture-token",
+		"_token_version":15, "credential_secret_version":7
+	}'::jsonb FROM accounts WHERE id=$1`, withMapping).Scan(&credentialsUnchanged))
+	require.True(t, credentialsUnchanged)
 	scope, _, _ = read(withoutMapping)
 	require.False(t, scope.Enabled)
 	require.Empty(t, scope.Models)
