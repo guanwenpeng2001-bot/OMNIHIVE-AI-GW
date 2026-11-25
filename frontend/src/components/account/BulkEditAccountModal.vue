@@ -287,6 +287,27 @@
               <BulkModelPreview :active="show && enableModelRestriction" :account-ids="accountIds" :filtered="targetMode === 'filtered'" v-model="allowedModels" :model-mappings="modelMappings" :connection-context="[baseUrl, enableBaseUrl, proxyId, proxyGroupId, enableProxy, enableHeaderOverride, headerOverrideEnabled, headerOverrideRows, modelMappings]" />
               <AccountModelConfigurationSection :active="show && enableModelRestriction" discovery-disabled
                 v-model="allowedModels" v-model:mappings="modelMappings" :mode="bulkModelMode" :allow-deny-all="false" :platforms="targetSelectedPlatforms" :presets="filteredPresets" />
+              <div data-testid="bulk-restricted-mapping-panel" class="mt-3 space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)]/50 p-3">
+                <label class="flex cursor-pointer items-center gap-2 text-xs text-[var(--foreground)]">
+                  <input
+                    v-model="clearMappingsOnRestricted"
+                    type="checkbox"
+                    :disabled="hasExplicitBulkMappings"
+                    data-testid="bulk-clear-mappings-on-restricted"
+                    class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                  <span>{{ t('admin.accounts.bulkEdit.clearMappingsOnRestricted') }}</span>
+                </label>
+                <p data-testid="bulk-restricted-mapping-hint" class="text-xs text-[var(--muted-foreground)]">
+                  {{
+                    hasExplicitBulkMappings
+                      ? t('admin.accounts.bulkEdit.restrictedMappingHintReplace')
+                      : clearMappingsOnRestricted
+                        ? t('admin.accounts.bulkEdit.restrictedMappingHintClear')
+                        : t('admin.accounts.bulkEdit.restrictedMappingHintKeep')
+                  }}
+                </p>
+              </div>
             </template>
             <div v-else-if="bulkModelMode === 'inherit'" data-testid="bulk-inherit-panel" class="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)]/50 p-3">
               <p data-testid="bulk-inherit-hint" class="text-xs text-[var(--muted-foreground)]">
@@ -1385,6 +1406,7 @@ import {
   buildModelMappingObject as buildModelMappingPayload,
   buildExplicitModelMappingObject,
   getPresetMappingsByPlatform,
+  mergeIdentityMappingsIntoModels,
   validateModelRestrictions,
   translateModelRestrictionErrors,
   type AccountModelSelectionMode
@@ -1593,8 +1615,12 @@ const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const bulkModelMode = ref<AccountModelSelectionMode>('restricted')
 const bulkDenyReason = ref('')
 const clearMappingsOnInherit = ref(false)
+const clearMappingsOnRestricted = ref(false)
 const allowedModels = ref<string[]>([])
 const modelMappings = ref<ModelMapping[]>([])
+const hasExplicitBulkMappings = computed(
+  () => Object.keys(buildExplicitModelMappingObject(modelMappings.value)).length > 0
+)
 const selectedErrorCodes = ref<number[]>([])
 const customErrorCodeInput = ref<number | null>(null)
 const interceptWarmupRequests = ref(false)
@@ -1910,8 +1936,9 @@ const buildUpdatePayload = (): BulkAccountFields | null => {
   if (enableModelRestriction.value && !isOpenAIModelRestrictionDisabled.value) {
     if (bulkModelMode.value === 'restricted') {
       const mapping = buildExplicitModelMappingObject(modelMappings.value)
-      const models = allowedModels.value.length > 0
-        ? allowedModels.value.map(model => model.trim())
+      const directModels = mergeIdentityMappingsIntoModels(allowedModels.value, modelMappings.value)
+      const models = directModels.length > 0
+        ? directModels
         : [...new Set(Object.values(mapping))]
       if (models.length === 0) {
         return null
@@ -1919,6 +1946,9 @@ const buildUpdatePayload = (): BulkAccountFields | null => {
       updates.model_selection = { mode: 'restricted', models }
       if (Object.keys(mapping).length > 0) {
         credentials.model_mapping = mapping
+        credentialsChanged = true
+      } else if (clearMappingsOnRestricted.value) {
+        credentials.model_mapping = {}
         credentialsChanged = true
       }
     } else if (bulkModelMode.value === 'inherit') {
@@ -2372,6 +2402,7 @@ watch(
       bulkModelMode.value = 'restricted'
       bulkDenyReason.value = ''
       clearMappingsOnInherit.value = false
+      clearMappingsOnRestricted.value = false
       showBulkDenyAllConfirm.value = false
       pendingDenyAllUpdates.value = null
       pendingDenyAllTargetRevision.value = ''

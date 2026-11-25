@@ -23,6 +23,10 @@ export interface ReasoningEffortMapping {
 
 export type AccountModelSelectionMode = 'inherit' | 'restricted' | 'deny_all'
 export type AccountModelScopeMode = AccountModelSelectionMode
+export interface AccountWorkflowModelSelection {
+  mode: Exclude<AccountModelSelectionMode, 'deny_all'>
+  models?: string[]
+}
 
 export interface ModelAllowlist {
   enabled: boolean

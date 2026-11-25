@@ -38,10 +38,80 @@ describe('existing account credential draft review', () => {
     workflow.authorizationModels = ['selected', 'additional']
     await wrapper.get('[data-testid="confirm-reauthorization"]').trigger('click')
     await flushPromises()
-    expect(requests.review).toHaveBeenCalledWith('/admin/accounts/credential-drafts/draft/review', expect.objectContaining({ name: 'account:71', platform, credential_draft_revision: 'initial' }))
+    expect(requests.review).toHaveBeenCalledWith(
+      '/admin/accounts/credential-drafts/draft/review',
+      expect.objectContaining({
+        name: 'account:71',
+        platform,
+        credential_draft_revision: 'initial',
+        model_selection: { mode: 'restricted', models: ['selected', 'additional', 'native'] },
+        credentials: { model_mapping: { public: 'native' } }
+      })
+    )
     expect(requests.apply).toHaveBeenCalledOnce()
-    expect(requests.apply).toHaveBeenCalledWith(71, expect.objectContaining({ credential_draft: 'draft', credential_draft_revision: 'reviewed', credentials: { model_mapping: { public: 'native', selected: 'selected', additional: 'additional' } } }))
+    expect(requests.apply).toHaveBeenCalledWith(
+      71,
+      expect.objectContaining({
+        credential_draft: 'draft',
+        credential_draft_revision: 'reviewed',
+        model_selection: { mode: 'restricted', models: ['selected', 'additional', 'native'] },
+        credentials: { model_mapping: { public: 'native' } }
+      })
+    )
     expect(wrapper.emitted('reauthorized')).toEqual([[{ id: 71 }]])
+    wrapper.unmount()
+  })
+
+  it('sends model_selection without identity model_mapping when configuring scope-only restricted models', async () => {
+    const wrapper = mount(ReAuthAccountModal, {
+      props: {
+        show: true,
+        account: {
+          id: 74,
+          name: 'Inherit to Restricted',
+          platform: 'anthropic',
+          type: 'oauth',
+          credentials: {},
+          extra: { upstream_model_allowlist: { enabled: false, models: [] } }
+        } as Account
+      },
+      global: {
+        stubs: {
+          BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
+          OAuthAuthorizationFlow: true,
+          AccountModelConfigurationSection: true
+        }
+      }
+    })
+    const workflow = wrapper.vm as unknown as {
+      stageReauthorization: (id: number, payload: { type: 'oauth'; credentials: Record<string, unknown> }) => Promise<never>
+      authorizationMode: string
+      authorizationModels: string[]
+    }
+    await workflow.stageReauthorization(74, {
+      type: 'oauth',
+      credentials: { credential_draft: 'scope-only-draft', revision: 'initial', platform: 'anthropic', type: 'oauth', expires_at: '2099-01-01T00:00:00Z' }
+    }).catch(() => {})
+    workflow.authorizationMode = 'restricted'
+    workflow.authorizationModels = ['vendor/model-a']
+    await flushPromises()
+    await wrapper.get('[data-testid="confirm-reauthorization"]').trigger('click')
+    await flushPromises()
+    expect(requests.review).toHaveBeenCalledWith(
+      '/admin/accounts/credential-drafts/scope-only-draft/review',
+      expect.objectContaining({
+        model_selection: { mode: 'restricted', models: ['vendor/model-a'] },
+        credentials: {}
+      })
+    )
+    expect(requests.apply).toHaveBeenCalledWith(
+      74,
+      expect.objectContaining({
+        model_selection: { mode: 'restricted', models: ['vendor/model-a'] },
+        credentials: {}
+      })
+    )
+    expect(requests.apply.mock.calls[0]?.[1]?.credentials).not.toHaveProperty('model_mapping')
     wrapper.unmount()
   })
 

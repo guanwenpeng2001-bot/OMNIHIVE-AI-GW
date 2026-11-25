@@ -37,6 +37,7 @@ import type {
   AccountModelCatalogDetails,
   AccountModelSelectionMode,
   AccountModelScopeMode,
+  AccountWorkflowModelSelection,
   UpdateModelAllowlistRequest,
   UpdateModelAllowlistResponse,
   AvailableAccountModel,
@@ -326,6 +327,7 @@ export async function applyOAuthCredentials(
   id: number,
   payload: {
     type: 'oauth' | 'setup-token'
+    model_selection?: AccountWorkflowModelSelection
     credential_draft?: string
     credential_draft_revision?: string
     credentials: Record<string, unknown>

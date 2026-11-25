@@ -123,7 +123,6 @@ vi.mock('@/api/admin/credentialSecrets', () => ({
 
 import EditAccountModal from '../EditAccountModal.vue'
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 
 const BaseDialogStub = defineComponent({
   name: 'BaseDialog',
@@ -526,8 +525,10 @@ describe('Preserving model selection on rename', () => {
     expect(updateModelAllowlistMock).toHaveBeenCalledWith(
       303,
       expect.objectContaining({
+        mode: 'restricted',
+        models: ['hunyuan-t1', 'new-draft-model'],
         expected_rules_revision: '9007199254740993',
-        model_mapping: { 'hunyuan-t1': 'hunyuan-t1', 'new-draft-model': 'new-draft-model' }
+        model_mapping: {}
       })
     )
     expect(updateModelAllowlistMock.mock.calls[0]?.[1]).not.toHaveProperty('preserve_model_selection')
@@ -589,7 +590,9 @@ describe('Preserving model selection on rename', () => {
     expect(updateModelAllowlistMock).toHaveBeenLastCalledWith(
       304,
       expect.objectContaining({
-        model_mapping: { 'hunyuan-t1': 'hunyuan-t1', 'extra-model': 'extra-model' }
+        mode: 'restricted',
+        models: ['hunyuan-t1', 'extra-model'],
+        model_mapping: {}
       })
     )
     expect(wrapper.emitted('close')).toHaveLength(1)
@@ -645,7 +648,7 @@ describe('Clearing model selection and preserving deny-all', () => {
     const selector = wrapper.getComponent(ModelWhitelistSelector)
 
     await selector.get('[data-testid="clear-model-selection"]').trigger('click')
-    selector.getComponent(ConfirmDialog).vm.$emit('confirm')
+    await selector.get('[data-testid="confirm-deny-all-submit"]').trigger('click')
     await flushPromises()
 
     expect(updateModelAllowlistMock).toHaveBeenLastCalledWith(
@@ -654,10 +657,10 @@ describe('Clearing model selection and preserving deny-all', () => {
         mode: 'deny_all',
         enabled: true,
         models: [],
-        model_mapping: {},
         expected_rules_revision: '9007199254740993'
       })
     )
+    expect(updateModelAllowlistMock.mock.calls.at(-1)?.[1]).not.toHaveProperty('model_mapping')
     expect(updateModelAllowlistMock.mock.calls[0]?.[1]).not.toHaveProperty('preserve_model_selection')
     expect(selector.props('modelValue')).toEqual([])
     expect(selector.props('modelMappings')).toEqual([])
@@ -681,7 +684,7 @@ describe('Clearing model selection and preserving deny-all', () => {
         mode: 'restricted',
         enabled: true,
         models: ['hunyuan-turbos'],
-        model_mapping: { 'hunyuan-turbos': 'hunyuan-turbos' }
+        model_mapping: {}
       })
     )
     expect(selector.find('[data-testid="deny-all"]').exists()).toBe(false)
@@ -902,6 +905,58 @@ describe('Model selection across provider platforms', () => {
     expect(payload.credentials ?? {}).not.toHaveProperty('model_mapping')
     expect(payload.credentials ?? {}).not.toHaveProperty('model_whitelist')
     expect(payload.extra ?? {}).not.toHaveProperty('upstream_model_allowlist')
+    wrapper.unmount()
+  })
+
+  it('sends model_selection without identity model_mapping on Cursor OAuth credential draft save', async () => {
+    const cursorAccount = makeAccount({
+      id: 601,
+      platform: 'cursor',
+      type: 'oauth',
+      credentials: { machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64) },
+      extra: { upstream_model_allowlist: { enabled: false, models: [] } }
+    })
+    apiPostMock.mockResolvedValue({ data: { credential_draft: 'cursor-draft-1', revision: 'rev-2', platform: 'cursor', type: 'oauth', expires_at: '2099-01-01T00:00:00Z' } })
+    batchCreateMock.mockResolvedValue({ success: 1, failed: 0, results: [{ success: true, id: 601 }] })
+    getAccountByIdMock.mockResolvedValue(cursorAccount)
+
+    const wrapper = mountEditModal(cursorAccount)
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      cursorCredentialDraft: { credential_draft: string; revision: string; platform: string; type: string; expires_at: string } | null
+      modelSelectionMode: string
+      allowedModels: string[]
+    }
+    vm.cursorCredentialDraft = {
+      credential_draft: 'cursor-draft-1',
+      revision: 'rev-1',
+      platform: 'cursor',
+      type: 'oauth',
+      expires_at: '2099-01-01T00:00:00Z'
+    }
+    vm.modelSelectionMode = 'restricted'
+    vm.allowedModels = ['composer-2.5']
+    await flushPromises()
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(apiPostMock).toHaveBeenCalledWith(
+      '/admin/accounts/credential-drafts/cursor-draft-1/review',
+      expect.objectContaining({
+        existing_account_id: 601,
+        model_selection: { mode: 'restricted', models: ['composer-2.5'] },
+        credentials: {}
+      })
+    )
+    expect(batchCreateMock).toHaveBeenCalledWith([
+      expect.objectContaining({
+        existing_account_id: 601,
+        model_selection: { mode: 'restricted', models: ['composer-2.5'] },
+        credentials: {}
+      })
+    ])
+    expect(batchCreateMock.mock.calls[0]?.[0]?.[0]?.credentials).not.toHaveProperty('model_mapping')
     wrapper.unmount()
   })
 })

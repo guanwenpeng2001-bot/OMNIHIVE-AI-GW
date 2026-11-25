@@ -246,6 +246,50 @@ describe('BulkEditAccountModal', () => {
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
       model_selection: { mode: 'restricted', models: ['common'] }
     })
+    expect(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls[0]?.[1]).not.toHaveProperty('credentials')
+    wrapper.unmount()
+  })
+
+  it('restricted 模式支持保留旧别名或勾选「同时清空旧别名」发送 model_mapping: {}', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['anthropic'],
+      selectedTypes: ['apikey']
+    })
+    await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(true)
+    await flushPromises()
+
+    const selector = wrapper.getComponent(ModelWhitelistSelector)
+    selector.vm.$emit('update:modelValue', ['claude-sonnet-4-6'])
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="bulk-restricted-mapping-hint"]').text()).toContain('restrictedMappingHintKeep')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenLastCalledWith([1, 2], {
+      model_selection: { mode: 'restricted', models: ['claude-sonnet-4-6'] }
+    })
+    expect(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls[0]?.[1]).not.toHaveProperty('credentials')
+
+    await wrapper.get('[data-testid="bulk-clear-mappings-on-restricted"]').setValue(true)
+    expect(wrapper.get('[data-testid="bulk-restricted-mapping-hint"]').text()).toContain('restrictedMappingHintClear')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenLastCalledWith([1, 2], {
+      model_selection: { mode: 'restricted', models: ['claude-sonnet-4-6'] },
+      credentials: { model_mapping: {} }
+    })
+
+    // 配置新别名时切换为替换提示并禁用清空复选框
+    selector.vm.$emit('update:modelMappings', [{ from: 'alias-a', to: 'claude-sonnet-4-6' }])
+    await flushPromises()
+    expect(wrapper.get('[data-testid="bulk-clear-mappings-on-restricted"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="bulk-restricted-mapping-hint"]').text()).toContain('restrictedMappingHintReplace')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenLastCalledWith([1, 2], {
+      model_selection: { mode: 'restricted', models: ['claude-sonnet-4-6'] },
+      credentials: { model_mapping: { 'alias-a': 'claude-sonnet-4-6' } }
+    })
     wrapper.unmount()
   })
 

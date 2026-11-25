@@ -461,7 +461,7 @@ describe('model selection saves preserve unrelated account drafts', () => {
     expect(updateAccountMock.mock.calls[0][1].credentials).toBeUndefined()
     await wrapper.get('[data-testid="save-model-selection"]').trigger('click')
     await flushPromises()
-    expect(allowlistWrite).toHaveBeenCalledWith(account.id, expect.objectContaining({ model_mapping: { LegacyExact: 'LegacyExact' } }))
+    expect(allowlistWrite).toHaveBeenCalledWith(account.id, expect.objectContaining({ mode: 'restricted', models: ['LegacyExact'], model_mapping: {} }))
     wrapper.unmount()
   })
 
@@ -487,7 +487,7 @@ describe('model selection saves preserve unrelated account drafts', () => {
     expect(wrapper.get('[data-testid="save-model-selection"]').attributes('disabled')).toBeUndefined()
     await wrapper.get('[data-testid="save-model-selection"]').trigger('click')
     await flushPromises()
-    expect(allowlistWrite).toHaveBeenCalledWith(account.id, expect.objectContaining({ model_mapping: mapping }))
+    expect(allowlistWrite).toHaveBeenCalledWith(account.id, expect.objectContaining({ mode: 'restricted', models: ['Exact'], model_mapping: { Alias: 'PrivateTarget', 'family-*': 'FamilyTarget' } }))
     expect(expiryToggle.classes()).toContain('bg-primary-600')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
@@ -600,9 +600,10 @@ describe('model selection saves preserve unrelated account drafts', () => {
     await flushPromises()
     const selector = wrapper.getComponent(ModelWhitelistSelector)
     await selector.get('[data-testid="clear-model-selection"]').trigger('click')
-    selector.getComponent(ConfirmDialog).vm.$emit('confirm')
+    await selector.get('[data-testid="confirm-deny-all-submit"]').trigger('click')
     await flushPromises()
-    expect(allowlistWrite).toHaveBeenLastCalledWith(account.id, expect.objectContaining({ enabled: true, models: [], model_mapping: {}, expected_rules_revision: '9007199254740993' }))
+    expect(allowlistWrite).toHaveBeenLastCalledWith(account.id, expect.objectContaining({ mode: 'deny_all', enabled: true, models: [], expected_rules_revision: '9007199254740993' }))
+    expect(allowlistWrite.mock.calls.at(-1)?.[1]).not.toHaveProperty('model_mapping')
     expect(selector.props('modelValue')).toEqual([])
     expect(selector.props('modelMappings')).toEqual([])
     expect(selector.find('[data-testid="deny-all"]').exists()).toBe(true)
@@ -616,7 +617,7 @@ describe('model selection saves preserve unrelated account drafts', () => {
     await selector.findAll('button').find(button => button.text() === 'admin.accounts.addModel')!.trigger('click')
     await selector.get('[data-testid="save-model-selection"]').trigger('click')
     await flushPromises()
-    expect(allowlistWrite).toHaveBeenLastCalledWith(account.id, expect.objectContaining({ mode: 'restricted', enabled: true, models: ['manual-model'], model_mapping: { 'manual-model': 'manual-model' } }))
+    expect(allowlistWrite).toHaveBeenLastCalledWith(account.id, expect.objectContaining({ mode: 'restricted', enabled: true, models: ['manual-model'], model_mapping: {} }))
     expect(selector.props('modelValue')).toEqual(['manual-model'])
     expect(selector.find('[data-testid="deny-all"]').exists()).toBe(false)
     updateAccountMock.mockResolvedValue(reselected)
@@ -1473,8 +1474,9 @@ describe('EditAccountModal', () => {
     await selector.get('[data-testid="save-model-selection"]').trigger('click')
     await flushPromises()
     expect(allowlistWrite).toHaveBeenCalledWith(account.id, expect.objectContaining({
+      mode: 'restricted',
+      models: ['gpt-5.2-2025-12-11'],
       model_mapping: {
-        'gpt-5.2-2025-12-11': 'gpt-5.2-2025-12-11',
         'gpt-latest': 'gpt-5.2'
       }
     }))

@@ -792,7 +792,7 @@
         </div>
         <Toggle v-model="upstreamBillingAutoProbeEnabled" data-testid="upstream-billing-auto-probe" :aria-label="t('admin.accounts.upstreamBilling.autoProbe')" />
       </div>
-      <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto' && !validateModelRestrictions(effectiveCreateModelMode, allowedModels, modelMappings).length" :client-version="cursorClientVersion" :account="{ ...form, platform: 'cursor', type: 'oauth', credentials: buildCreateModelMapping() ? { model_mapping: buildCreateModelMapping() } : {}, auto_pause_on_expired: autoPauseOnExpired }" @busy="cursorAuthorizing = $event" @draft="stageCursorAuthorization" />
+      <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto' && !validateModelRestrictions(effectiveCreateModelMode, allowedModels, modelMappings).length" :client-version="cursorClientVersion" :account="cursorBrowserAccount" @busy="cursorAuthorizing = $event" @draft="stageCursorAuthorization" />
 
       <WorkBuddyAuthFields
         v-if="form.platform === 'workbuddy'"
@@ -3637,7 +3637,8 @@ import { useI18n } from 'vue-i18n'
 import { platformSelectionClass, platformSelectionIconClass } from '@/utils/platformColors'
 import { useAppStore } from '@/stores/app'
 
-import { getPresetMappingsByPlatform, commonErrorCodes, buildModelMappingObject, splitModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors, type AccountModelSelectionMode } from '@/composables/useModelWhitelist'
+import { getPresetMappingsByPlatform, commonErrorCodes, buildAccountWorkflowModelPayload, buildModelMappingObject, splitModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors, type AccountModelSelectionMode } from '@/composables/useModelWhitelist'
+import type { AccountWorkflowModelSelection } from '@/types'
 import { adminAPI } from '@/api/admin'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
 import {
@@ -5109,30 +5110,55 @@ const effectiveCreateModelMode = computed<AccountModelSelectionMode>(() => {
   }
   return modelSelectionMode.value
 })
-const buildCreateModelMapping = (): Record<string, string> | undefined => {
-  if (effectiveCreateModelMode.value !== 'restricted') return undefined
-  return buildModelMappingObject('combined', allowedModels.value, modelMappings.value) ?? undefined
-}
-const modelMappingForReviewPayload = (payload: AccountWorkflowRequest): Record<string, string> | undefined => {
-  if (payload.platform === 'openai' && isOpenAIModelRestrictionDisabled.value) {
-    return undefined
+const buildCreateModelConfig = (
+  platform: string
+): { modelSelection: AccountWorkflowModelSelection; modelMapping?: Record<string, string> } => {
+  if (
+    (platform === 'openai' && isOpenAIModelRestrictionDisabled.value) ||
+    effectiveCreateModelMode.value !== 'restricted'
+  ) {
+    return {
+      modelSelection: { mode: 'inherit', models: [] }
+    }
   }
-  return buildCreateModelMapping()
+  const workflow = buildAccountWorkflowModelPayload({
+    mode: 'restricted',
+    models: allowedModels.value,
+    mappings: modelMappings.value
+  })
+  return {
+    modelSelection: {
+      mode: 'restricted',
+      models: workflow.models
+    },
+    modelMapping: workflow.model_mapping
+  }
 }
+const cursorBrowserAccount = computed(() => {
+  const { modelSelection, modelMapping } = buildCreateModelConfig('cursor')
+  return {
+    ...form,
+    platform: 'cursor',
+    type: 'oauth',
+    model_selection: modelSelection,
+    credentials: modelMapping ? { model_mapping: modelMapping } : {},
+    auto_pause_on_expired: autoPauseOnExpired.value
+  }
+})
 const reviewedRequests = computed<AccountWorkflowRequest[]>(() => pendingAccountRequests.value.map(payload => {
   const credentials = { ...payload.credentials }
-  const modelMapping = modelMappingForReviewPayload(payload)
-  if (modelMapping && Object.keys(modelMapping).length > 0) {
+  const { modelSelection, modelMapping } = buildCreateModelConfig(payload.platform)
+  if (modelMapping) {
     credentials.model_mapping = modelMapping
   } else {
     delete credentials.model_mapping
   }
-  return { ...payload, credentials }
+  return { ...payload, model_selection: modelSelection, credentials }
 }))
 const credentialPreview = computed(() => {
   const payload = reviewedRequests.value[selectedReviewIndex.value]
   if (!payload) return undefined
-  const modelMapping = modelMappingForReviewPayload(payload)
+  const modelMapping = payload.credentials.model_mapping as Record<string, string> | undefined
   return { platform: payload.platform, type: payload.type, proxy_id: (payload.proxy_id ?? form.proxy_id) || null, proxy_group_id: (payload.proxy_group_id ?? form.proxy_group_id) || null, credentials: payload.credential_draft ? { ...(modelMapping ? { model_mapping: modelMapping } : {}), ...(payload.credentials.compact_model_mapping ? { compact_model_mapping: payload.credentials.compact_model_mapping } : {}) } : payload.credentials,
     ...(!payload.credential_draft ? {
       base_url: typeof payload.credentials.base_url === 'string' ? payload.credentials.base_url : undefined,

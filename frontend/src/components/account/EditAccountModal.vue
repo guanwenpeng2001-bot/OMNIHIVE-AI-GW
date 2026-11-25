@@ -2546,7 +2546,7 @@
 
       </details>
       <div v-show="editActiveTab === 'all' || editActiveTab === 'models'" class="space-y-4">
-      <AccountModelConfigurationSection ref="modelConfigurationSection" :candidate-identity="modelCandidateIdentity" :active="show" :account-id="cursorCredentialDraft ? undefined : account.id" :platform="account.platform" :sync-credentials="cursorDraftPreview"
+      <AccountModelConfigurationSection ref="modelConfigurationSection" :candidate-identity="modelCandidateIdentity" :active="show" :account-id="cursorCredentialDraft ? undefined : account.id" :platform="account.platform" :sync-credentials="cursorDraftPreview" :allow-deny-all="!cursorCredentialDraft"
         v-model="allowedModels" v-model:mappings="modelMappings" v-model:mode="modelSelectionMode" v-model:reason="modelSelectionReason" :presets="presetMappings"
         :discovery-disabled="compatibleDiscoveryDisabled(selectedCompatibleProvider, compatibleDraft)" :connection-context="modelDiscoveryContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="savedModelGeneration" :persisted-selection="persistedModelSelection" :register-actions="registerModelSelectionActions" :model-allowlist="accountModelAllowlist(account)" @selection-saved="handleModelSelectionSaved">
         <template #model-rules>
@@ -2825,7 +2825,8 @@ import {
   type OpenAIWSMode,
   resolveOpenAIWSModeFromExtra
 } from '@/utils/openaiWsMode'
-import { accountModelAllowlist, normalizeAccountModelSelection, getPresetMappingsByPlatform, commonErrorCodes, buildModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors, type AccountModelSelectionMode } from '@/composables/useModelWhitelist'
+import { accountModelAllowlist, buildAccountWorkflowModelPayload, normalizeAccountModelSelection, getPresetMappingsByPlatform, commonErrorCodes, buildModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors, type AccountModelSelectionMode } from '@/composables/useModelWhitelist'
+import type { AccountWorkflowModelSelection } from '@/types'
 
 interface Props {
   show: boolean
@@ -3954,14 +3955,43 @@ const hydrateModelSelectionFromAccount = (newAccount: Account | null, preserveDr
       : 'whitelist'
 }
 
-const buildModelRestrictionMapping = () =>
-  buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
-
-const buildCursorDraftCredentials = (): Record<string, unknown> => {
-  if (effectiveModelSelectionMode.value !== 'restricted') return {}
-  const mapping = buildModelRestrictionMapping()
-  return mapping ? { model_mapping: mapping } : {}
+const buildCursorDraftModelPatch = (): {
+  credentials: Record<string, unknown>
+  modelSelection?: AccountWorkflowModelSelection
+} => {
+  if (!modelSelectionDirty.value) {
+    return { credentials: {} }
+  }
+  const mode = effectiveModelSelectionMode.value
+  if (mode === 'deny_all') {
+    return { credentials: {} }
+  }
+  const existingMapping = props.account?.credentials?.model_mapping
+  const initialHadMapping = Boolean(
+    existingMapping &&
+    typeof existingMapping === 'object' &&
+    Object.keys(existingMapping as Record<string, unknown>).length > 0
+  )
+  const workflow = buildAccountWorkflowModelPayload({
+    mode,
+    models: allowedModels.value,
+    mappings: modelMappings.value,
+    clearMappingsOnInherit: initialHadMapping
+  })
+  const modelSelection: AccountWorkflowModelSelection = {
+    mode: workflow.mode === 'restricted' ? 'restricted' : 'inherit',
+    models: workflow.models
+  }
+  const credentials: Record<string, unknown> = {}
+  if (workflow.model_mapping) {
+    credentials.model_mapping = workflow.model_mapping
+  } else if (initialHadMapping) {
+    credentials.model_mapping = {}
+  }
+  return { credentials, modelSelection }
 }
+
+const buildCursorDraftCredentials = (): Record<string, unknown> => buildCursorDraftModelPatch().credentials
 
 const applyOpenAICompactModelMappingCredentials = (credentials: Record<string, unknown>) => {
   delete credentials.model_mapping
@@ -4949,9 +4979,11 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
     if (cursorCredentialDraft.value) {
       const pending = cursorCredentialDraft.value
       const currentRevision = JSON.stringify([form, modelConnectionContext.value, autoPauseOnExpired.value])
+      const { credentials: cursorDraftCredentials, modelSelection: cursorModelSelection } = buildCursorDraftModelPatch()
       const payload: AccountWorkflowRequest = {
         ...form, load_factor: form.load_factor ?? undefined, platform: 'cursor', type: 'oauth', existing_account_id: accountID,
-        credentials: buildCursorDraftCredentials(), extra,
+        ...(cursorModelSelection ? { model_selection: cursorModelSelection } : {}),
+        credentials: cursorDraftCredentials, extra,
         auto_pause_on_expired: autoPauseOnExpired.value,
         credential_draft: cursorCredentialDraft.value.credential_draft, credential_draft_revision: cursorCredentialDraft.value.revision
       }

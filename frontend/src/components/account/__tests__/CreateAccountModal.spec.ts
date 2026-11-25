@@ -264,8 +264,12 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(selector.props('modelMappings')).toEqual([{ from: 'saved-alias', to: 'retired-model' }])
     expect((wrapper.vm as unknown as { presetMappings: { from: string }[] }).presetMappings.map(preset => preset.from)).toEqual(['current-model'])
     await confirmReview(wrapper)
+    expect(createAccountMock.mock.calls.at(-1)?.[0].model_selection).toEqual({
+      mode: 'restricted',
+      models: ['retired-model']
+    })
     expect(createAccountMock.mock.calls.at(-1)?.[0].credentials.model_mapping).toEqual({
-      'retired-model': 'retired-model', 'saved-alias': 'retired-model',
+      'saved-alias': 'retired-model'
     })
     wrapper.unmount()
     vi.mocked(getPlatformModelPresets).mockResolvedValue([])
@@ -503,7 +507,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await confirmReview(wrapper)
     await flushPromises()
     expect(createAccountMock).toHaveBeenCalledOnce()
-    expect(createAccountMock.mock.calls[0][0].credentials.model_mapping).toEqual({ 'public-glm': 'public-glm' })
+    expect(createAccountMock.mock.calls[0][0].model_selection).toEqual({ mode: 'restricted', models: ['public-glm'] })
+    expect(createAccountMock.mock.calls[0][0].credentials).not.toHaveProperty('model_mapping')
     expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
     expect(wrapper.emitted('close')).toBeUndefined()
     const panel = wrapper.get('[data-testid="created-catalog-accounts"]')
@@ -587,7 +592,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     const payload = createAccountMock.mock.calls[0]?.[0]
     expect(payload).toMatchObject({ platform: 'cursor', type: mode === 'official' ? 'apikey' : 'upstream', concurrency: 7 })
     expect(payload.credentials.api_key).toBe('crsr_test')
-    expect(payload.credentials.model_mapping).toEqual({ 'composer-2.5': 'composer-2.5' })
+    expect(payload.model_selection).toEqual({ mode: 'restricted', models: ['composer-2.5'] })
+    expect(payload.credentials).not.toHaveProperty('model_mapping')
     if (mode === 'official') expect(payload.credentials).not.toHaveProperty('base_url')
     else expect(payload.credentials).toMatchObject({ base_url: 'https://relay.example/v1', api_protocol: 'adaptive' })
     expect(payload.upstream_billing_probe_enabled).toBe(mode === 'relay' ? true : undefined)
@@ -736,7 +742,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(wrapper.emitted('close')).toBeUndefined()
   })
 
-  it('includes the current concrete model mapping in preview credentials', async () => {
+  it('omits identity model_mapping in preview credentials and sends model_selection on create', async () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'OpenAI')
     await selectButtonByText(wrapper, 'API Key')
@@ -745,9 +751,14 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('[data-testid="model-whitelist-selector"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('syncCredentials')).toMatchObject({
-      model_mapping: { 'public-glm': 'public-glm' }
+    expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('syncCredentials')).not.toHaveProperty('model_mapping')
+    await confirmReview(wrapper)
+    await flushPromises()
+    expect(createAccountMock.mock.calls[0]?.[0]?.model_selection).toEqual({
+      mode: 'restricted',
+      models: ['public-glm']
     })
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials).not.toHaveProperty('model_mapping')
   })
 
   it('retains the created account ID for confirmation with explicit mappings', async () => {
@@ -1206,7 +1217,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       expect(selector.props('modelMappings')).toEqual([{ from: 'Custom/Alias', to: 'Private/Target' }])
       expect(wrapper.get('[data-testid="selected-models"]').text()).not.toContain('Preset/Exact')
       await confirmReview(wrapper)
-      expect(createAccountMock.mock.calls[0][0].credentials.model_mapping).toEqual({ 'Custom/Direct': 'Custom/Direct', 'Custom/Alias': 'Private/Target' })
+      expect(createAccountMock.mock.calls[0][0].model_selection).toEqual({ mode: 'restricted', models: ['Custom/Direct', 'Private/Target'] })
+      expect(createAccountMock.mock.calls[0][0].credentials.model_mapping).toEqual({ 'Custom/Alias': 'Private/Target' })
     })
 
     it('seeds a still-pristine draft when delayed presets arrive', async () => {
@@ -1275,7 +1287,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(wrapper.get('[data-testid="selected-models"]').text()).not.toContain('public-glm')
     await confirmReview(wrapper)
     expect(createAccountMock).toHaveBeenCalledTimes(1)
-    expect(createAccountMock.mock.calls[0][0].credentials.model_mapping).toEqual({ 'Preset/Exact': 'Preset/Exact', Alias: 'PrivateTarget', 'family-*': 'FamilyTarget' })
+    expect(createAccountMock.mock.calls[0][0].model_selection).toEqual({ mode: 'restricted', models: ['Preset/Exact', 'PrivateTarget', 'FamilyTarget'] })
+    expect(createAccountMock.mock.calls[0][0].credentials.model_mapping).toEqual({ Alias: 'PrivateTarget', 'family-*': 'FamilyTarget' })
     wrapper.unmount()
     vi.mocked(getPlatformModelPresets).mockResolvedValue([])
   })
@@ -1728,7 +1741,8 @@ it.each(['anthropic', 'gemini'] as const)('stages %s OAuth with no writes, then 
   workflow.allowedModels = ['chosen-model']
   await confirmReview(wrapper)
   expect(createAccountMock).toHaveBeenCalledOnce()
-  expect(createAccountMock.mock.calls[0][0]).toMatchObject({ credential_draft: `${platform}-draft`, credential_draft_revision: 'reviewed', credentials: { model_mapping: { 'chosen-model': 'chosen-model' } } })
+  expect(createAccountMock.mock.calls[0][0]).toMatchObject({ credential_draft: `${platform}-draft`, credential_draft_revision: 'reviewed', model_selection: { mode: 'restricted', models: ['chosen-model'] } })
+  expect(createAccountMock.mock.calls[0][0].credentials).not.toHaveProperty('model_mapping')
   wrapper.unmount()
 })
 
