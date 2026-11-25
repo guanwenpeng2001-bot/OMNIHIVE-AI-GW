@@ -107,8 +107,9 @@ describe('BulkEditAccountModal', () => {
     expect((wrapper.vm as unknown as { filteredPresets: { from: string }[] }).filteredPresets.map(preset => preset.from)).toEqual(['current-model'])
     await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
     await flushPromises()
-    expect(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls.at(-1)?.[1].credentials?.model_mapping).toEqual({
-      'retired-model': 'retired-model', 'saved-alias': 'retired-model',
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenLastCalledWith([1, 2], {
+      model_selection: { mode: 'restricted', models: ['retired-model'] },
+      credentials: { model_mapping: { 'saved-alias': 'retired-model' } }
     })
     await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(false)
     await wrapper.get('#bulk-edit-concurrency-enabled').setValue(true)
@@ -242,7 +243,9 @@ describe('BulkEditAccountModal', () => {
     await wrapper.get('[data-testid="add-common-models"]').trigger('click')
     await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
     await flushPromises()
-    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], { credentials: { model_mapping: { common: 'common' } } })
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      model_selection: { mode: 'restricted', models: ['common'] }
+    })
     wrapper.unmount()
   })
 
@@ -302,8 +305,7 @@ describe('BulkEditAccountModal', () => {
 
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenLastCalledWith([1, 2], {
-      mode: 'inherit',
-      models: []
+      model_selection: { mode: 'inherit', models: [] }
     })
     expect(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls[0]?.[1]).not.toHaveProperty('credentials')
 
@@ -313,8 +315,7 @@ describe('BulkEditAccountModal', () => {
 
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(2)
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenLastCalledWith([1, 2], {
-      mode: 'inherit',
-      models: [],
+      model_selection: { mode: 'inherit', models: [] },
       credentials: {
         model_mapping: {}
       }
@@ -357,9 +358,7 @@ describe('BulkEditAccountModal', () => {
 
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
-      mode: 'deny_all',
-      models: [],
-      reason: '上游维护暂停'
+      model_selection: { mode: 'deny_all', models: [], reason: '上游维护暂停', confirm_deny_all: true }
     })
     wrapper.unmount()
   })

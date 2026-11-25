@@ -1362,6 +1362,7 @@ import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
+import type { components } from '@/api/generated/openapi'
 import type {
   Proxy as ProxyConfig,
   AdminGroup,
@@ -1382,6 +1383,7 @@ import BulkModelPreview from './BulkModelPreview.vue'
 import Icon from '@/components/icons/Icon.vue'
 import {
   buildModelMappingObject as buildModelMappingPayload,
+  buildExplicitModelMappingObject,
   getPresetMappingsByPlatform,
   validateModelRestrictions,
   translateModelRestrictionErrors,
@@ -1576,10 +1578,14 @@ const proxySelectionValid = ref(true)
 const submitting = ref(false)
 const showMixedChannelWarning = ref(false)
 const mixedChannelWarningMessage = ref('')
-const pendingUpdatesForConfirm = ref<Record<string, unknown> | null>(null)
+type BulkAccountFields = Record<string, unknown> & {
+  model_selection?: components['schemas']['AdminAccountBulkModelSelection']
+}
+
+const pendingUpdatesForConfirm = ref<BulkAccountFields | null>(null)
 const pendingTargetRevision = ref('')
 const showBulkDenyAllConfirm = ref(false)
-const pendingDenyAllUpdates = ref<Record<string, unknown> | null>(null)
+const pendingDenyAllUpdates = ref<BulkAccountFields | null>(null)
 const pendingDenyAllTargetRevision = ref('')
 const targetRevision = computed(() => JSON.stringify([props.accountIds, props.target, targetMode.value]))
 const baseUrl = ref('')
@@ -1807,8 +1813,8 @@ const buildOpenAICompactModelMapping = (): Record<string, string> | null => {
   return buildModelMappingPayload('mapping', [], openAICompactModelMappings.value)
 }
 
-const buildUpdatePayload = (): Record<string, unknown> | null => {
-  const updates: Record<string, unknown> = {}
+const buildUpdatePayload = (): BulkAccountFields | null => {
+  const updates: BulkAccountFields = {}
   if (enableTPM.value) updates.tpm_limit = tpmLimit.value
   const credentials: Record<string, unknown> = {}
   let credentialsChanged = false
@@ -1903,23 +1909,26 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
 
   if (enableModelRestriction.value && !isOpenAIModelRestrictionDisabled.value) {
     if (bulkModelMode.value === 'restricted') {
-      const mapping = buildModelMappingPayload('combined', allowedModels.value, modelMappings.value)
-      if (!mapping || Object.keys(mapping).length === 0) {
+      const mapping = buildExplicitModelMappingObject(modelMappings.value)
+      const models = allowedModels.value.length > 0
+        ? allowedModels.value.map(model => model.trim())
+        : [...new Set(Object.values(mapping))]
+      if (models.length === 0) {
         return null
       }
-      credentials.model_mapping = mapping
-      credentialsChanged = true
+      updates.model_selection = { mode: 'restricted', models }
+      if (Object.keys(mapping).length > 0) {
+        credentials.model_mapping = mapping
+        credentialsChanged = true
+      }
     } else if (bulkModelMode.value === 'inherit') {
-      updates.mode = 'inherit'
-      updates.models = []
+      updates.model_selection = { mode: 'inherit', models: [] }
       if (clearMappingsOnInherit.value) {
         credentials.model_mapping = {}
         credentialsChanged = true
       }
     } else {
-      updates.mode = 'deny_all'
-      updates.models = []
-      updates.reason = bulkDenyReason.value.trim()
+      updates.model_selection = { mode: 'deny_all', models: [], reason: bulkDenyReason.value.trim() }
     }
   }
 
@@ -2064,7 +2073,7 @@ const handleClose = () => {
 }
 
 // 预检查：提交前调接口检测，有风险就弹窗阻止，返回 false 表示需要用户确认
-const preCheckMixedChannelRisk = async (built: Record<string, unknown>): Promise<boolean> => {
+const preCheckMixedChannelRisk = async (built: BulkAccountFields): Promise<boolean> => {
   if (!canPreCheck()) return true
   if (mixedChannelConfirmed.value) return true
 
@@ -2191,11 +2200,15 @@ const handleSubmit = async () => {
   await submitBulkUpdate(built)
 }
 
-const submitBulkUpdate = async (baseUpdates: Record<string, unknown>) => {
+const submitBulkUpdate = async (baseUpdates: BulkAccountFields, confirmDenyAll = false) => {
   // 无论是预检查确认还是 409 兜底确认，只要 mixedChannelConfirmed 为 true 就带上 flag
-  const updates = mixedChannelConfirmed.value
-    ? { ...baseUpdates, confirm_mixed_channel_risk: true }
-    : baseUpdates
+  const updates = { ...baseUpdates }
+  if (mixedChannelConfirmed.value) {
+    updates.confirm_mixed_channel_risk = true
+  }
+  if (confirmDenyAll && baseUpdates.model_selection?.mode === 'deny_all') {
+    updates.model_selection = { ...baseUpdates.model_selection, confirm_deny_all: true }
+  }
 
   submitting.value = true
 
@@ -2303,7 +2316,7 @@ const handleBulkDenyAllConfirm = async () => {
   const updates = pendingDenyAllUpdates.value
   pendingDenyAllUpdates.value = null
   if (updates) {
-    await submitBulkUpdate(updates)
+    await submitBulkUpdate(updates, true)
   }
 }
 
