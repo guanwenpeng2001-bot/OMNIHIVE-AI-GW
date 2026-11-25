@@ -136,16 +136,38 @@ func TestAccountConfigurationPostgres(t *testing.T) {
 						account := create(t)
 						baseline := account.ModelCatalogBaseline()
 						if location == "credentials" {
-							account.Credentials[field] = map[string]any{"changed": true}
+							if field == "model_mapping" {
+								account.Credentials[field] = map[string]any{"changed": "changed-target"}
+							} else {
+								account.Credentials[field] = map[string]any{"changed": true}
+							}
+							if field == "model_mapping" {
+								account.Credentials[field] = map[string]string{"changed-alias": "changed-target"}
+							}
 						} else {
 							account.Extra[field] = true
 						}
 						switch method {
 						case "ordinary":
+							if field == "model_mapping" {
+								command, err := service.ModelSelectionCommandFromCredentials(account.Credentials, 7)
+								require.NoError(t, err)
+								account.ModelSelectionCommand = command
+							}
 							require.NoError(t, repo.UpdateWithAccountBillingSettings(ctx, account, nil, nil, nil))
 						case "patch":
 							if location == "credentials" {
 								require.NoError(t, repo.UpdateCredentials(ctx, account.ID, account.Credentials))
+								if field == "model_mapping" {
+									current, err := repo.GetByID(ctx, account.ID)
+									require.NoError(t, err)
+									require.Equal(t, baseline.RulesRevision, current.ModelCatalogBaseline().RulesRevision)
+									require.Equal(t, "target", current.GetMappedModel("alias"))
+									command, err := service.ModelSelectionCommandFromCredentials(account.Credentials, 7)
+									require.NoError(t, err)
+									_, err = service.NewAccountModelSelectionService(repo).SaveModelSelection(ctx, account.ID, *command)
+									require.NoError(t, err)
+								}
 							} else {
 								require.NoError(t, repo.UpdateExtra(ctx, account.ID, map[string]any{field: true}))
 							}

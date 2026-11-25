@@ -253,9 +253,11 @@ func TestCompatibleAdminAccountHandlers(test *testing.T) {
 	require.Equal(test, "adaptive", svc.updated.Credentials["api_protocol"])
 	require.Equal(test, map[string]any{"chat_completions": "https://edited.example/chat", "responses": "https://custom.example/responses"}, svc.updated.Credentials["api_base_urls"])
 	require.Equal(test, "https://custom.example/chat", before["api_base_urls"].(map[string]any)["chat_completions"])
-	for _, key := range []string{"api_key", "account_mode", "base_url", "model_mapping", "credential_ref"} {
+	for _, key := range []string{"api_key", "account_mode", "base_url", "credential_ref"} {
 		require.Equal(test, before[key], svc.updated.Credentials[key], key)
 	}
+	require.NotContains(test, svc.updated.Credentials, "model_mapping")
+	require.Equal(test, map[string]any{"local": "remote"}, svc.account.Credentials["model_mapping"])
 	require.Equal(test, "chat_completions", before["api_protocol"], "validation must not mutate persisted credentials")
 	for _, body := range []string{`{"type":"oauth"}`, `{"type":"bedrock"}`, `{"type":"service_account"}`, `{"credentials":{"account_mode":"payg"}}`, `{"credentials":{"api_protocol":"responses"}}`} {
 		svc.updated = nil

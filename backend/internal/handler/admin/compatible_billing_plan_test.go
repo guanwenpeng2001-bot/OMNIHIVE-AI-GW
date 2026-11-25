@@ -21,7 +21,7 @@ type persistedPlanCapture struct{ compatibleAdminCapture }
 func (capture *persistedPlanCapture) UpdateAccount(_ context.Context, _ int64, input *service.UpdateAccountInput) (*service.Account, error) {
 	capture.updated = input
 	if len(input.Credentials) > 0 {
-		encoded, err := json.Marshal(input.Credentials)
+		encoded, err := json.Marshal(service.PreserveCurrentModelMapping(input.Credentials, capture.account.Credentials))
 		if err != nil {
 			return nil, err
 		}

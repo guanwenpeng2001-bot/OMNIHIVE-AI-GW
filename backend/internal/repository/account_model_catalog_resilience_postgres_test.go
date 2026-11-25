@@ -36,6 +36,8 @@ func TestLegacyCatalogResiliencePostgres(test *testing.T) {
 	CREATE TABLE account_groups (LIKE public.account_groups INCLUDING ALL);
 	CREATE TABLE groups (LIKE public.groups INCLUDING ALL);
 	CREATE TABLE credential_secrets (LIKE public.credential_secrets INCLUDING ALL);
+	CREATE TABLE provider_connections (LIKE public.provider_connections INCLUDING ALL);
+	CREATE TABLE provider_connections (LIKE public.provider_connections INCLUDING ALL);
 	CREATE TABLE audit_logs (LIKE public.audit_logs INCLUDING ALL);
 	CREATE TABLE proxies (LIKE public.proxies INCLUDING ALL);`)
 	require.NoError(test, err)
@@ -88,15 +90,21 @@ func TestLegacyCatalogResiliencePostgres(test *testing.T) {
 			require.EqualValues(test, 2, account.ModelCatalogState().IdentityRevision)
 			require.EqualValues(test, 2, account.ModelCatalogState().RulesRevision)
 			require.ErrorIs(test, repository.CommitAccountModelCatalog(ctx, account.ID, oldBaseline, nil, service.AccountModelCatalogState{}, nil, false), service.ErrAccountModelCatalogConflict)
+			selection := service.NewAccountModelSelectionService(repository)
+			editMapping := func(mapping map[string]string) {
+				_, err := selection.SaveModelSelection(ctx, account.ID, service.ModelSelectionCommand{ModelMapping: mapping, ActorID: 7, Source: service.ModelSelectionAccountWrite})
+				require.NoError(test, err)
+				account = get(test, account.ID)
+			}
 			account.Credentials["model_mapping"] = map[string]string{"changed-alias": "target"}
 			write(account)
 			account = get(test, account.ID)
+			require.Equal(test, "target", account.GetMappedModel("alias"), "credential refresh preserves the stored mapping")
+			editMapping(map[string]string{"changed-alias": "target"})
 			require.EqualValues(test, 1, account.ModelCatalogState().LegacyPolicyRevision)
 			require.NotNil(test, account.EffectiveUpstreamModelCatalog())
 			require.Equal(test, service.ModelEvidenceConfiguredSelection, account.EffectiveUpstreamModelCatalog().EligibleModels[0].EvidenceKind)
-			account.Credentials["model_mapping"] = map[string]string{"alias": "target"}
-			write(account)
-			account = get(test, account.ID)
+			editMapping(map[string]string{"alias": "target"})
 			require.EqualValues(test, 2, account.ModelCatalogState().LegacyPolicyRevision)
 			require.NotNil(test, account.EffectiveUpstreamModelCatalog())
 			require.Equal(test, service.ModelEvidenceConfiguredSelection, account.EffectiveUpstreamModelCatalog().EligibleModels[0].EvidenceKind)

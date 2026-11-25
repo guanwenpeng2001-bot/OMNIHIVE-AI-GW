@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"maps"
 	"net/http"
 	"testing"
 	"time"
@@ -50,7 +51,10 @@ func (s *sparkShadowRepoStub) GetByID(_ context.Context, id int64) (*Account, er
 	if !ok {
 		return nil, ErrAccountNotFound
 	}
-	return acc, nil
+	cp := *acc
+	cp.Credentials = maps.Clone(acc.Credentials)
+	cp.Extra = maps.Clone(acc.Extra)
+	return &cp, nil
 }
 
 func (s *sparkShadowRepoStub) ListShadowsByParent(_ context.Context, parentID int64) ([]*Account, error) {
@@ -93,10 +97,39 @@ func (s *sparkShadowRepoStub) ExistsByID(_ context.Context, id int64) (bool, err
 	return ok, nil
 }
 func (s *sparkShadowRepoStub) Update(_ context.Context, account *Account) error {
-	if _, ok := s.accounts[account.ID]; !ok {
+	current, ok := s.accounts[account.ID]
+	if !ok {
 		return ErrAccountNotFound
 	}
 	cp := *account
+	cp.Credentials = PreserveCurrentModelMapping(cp.Credentials, current.Credentials)
+	if cmd := cp.ModelSelectionCommand; cmd != nil {
+		result, err := ResolveLockedModelSelection(current, *cmd)
+		if err != nil {
+			return err
+		}
+		if result.Changed {
+			if result.MappingChanged {
+				mapping := make(map[string]any, len(result.ModelMapping))
+				for alias, target := range result.ModelMapping {
+					mapping[alias] = target
+				}
+				if cp.Credentials == nil {
+					cp.Credentials = make(map[string]any)
+				}
+				cp.Credentials["model_mapping"] = mapping
+			}
+			if cp.Extra == nil {
+				cp.Extra = make(map[string]any)
+			}
+			cp.Extra[UpstreamModelAllowlistExtraKey] = result.Scope
+			state := current.ModelCatalogState()
+			state.RulesRevision = result.RulesRevision
+			cp.Extra[UpstreamModelCatalogStateExtraKey] = state
+			account.ModelSelectionResult = &result
+		}
+	}
+	cp.ModelSelectionCommand = nil
 	s.accounts[account.ID] = &cp
 	s.mockAccountRepoForGemini.accountsByID[account.ID] = &cp
 	return nil
@@ -942,7 +975,7 @@ func TestUpdateAccount_ShadowAllowsModelMappingAndGroupUpdate(t *testing.T) {
 	require.Empty(t, updated.GetOpenAIAccessToken(), "影子账号不可持有母账号 access_token")
 }
 
-func TestUpdateAccount_ShadowEmptyCredentialsClearsModelMapping(t *testing.T) {
+func TestUpdateAccount_ShadowRequiresExplicitMappingClear(t *testing.T) {
 	ctx := context.Background()
 	repo := newSparkShadowRepoStub()
 	svc := &adminServiceImpl{accountRepo: repo}
@@ -967,8 +1000,16 @@ func TestUpdateAccount_ShadowEmptyCredentialsClearsModelMapping(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	require.Empty(t, updated.Credentials)
-	require.Empty(t, repo.accounts[shadow.ID].Credentials)
+	require.Equal(t, map[string]string{"gpt-5.3-codex-spark": "gpt-5.3-codex-spark"}, AccountModelSelectionView(updated).ModelMapping)
+	require.Empty(t, updated.GetOpenAIAccessToken())
+
+	updated, err = svc.UpdateAccount(ctx, shadow.ID, &UpdateAccountInput{
+		Credentials: map[string]any{"model_mapping": map[string]any{}},
+	})
+	require.NoError(t, err)
+	require.Empty(t, AccountModelSelectionView(updated).ModelMapping)
+	require.Equal(t, map[string]any{}, repo.accounts[shadow.ID].Credentials["model_mapping"])
+	require.Empty(t, updated.GetOpenAIAccessToken())
 }
 
 func TestUpdateAccount_ShadowRejectsAuthCredentials(t *testing.T) {
