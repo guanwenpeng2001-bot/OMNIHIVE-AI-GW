@@ -338,23 +338,55 @@ type UpdateAccountRequest struct {
 
 // BulkUpdateAccountsRequest represents the payload for bulk editing accounts
 type BulkUpdateAccountsRequest struct {
-	TPMLimit                service.OptionalTPMLimit  `json:"tpm_limit,omitzero"`
-	AccountIDs              []int64                   `json:"account_ids"`
-	Filters                 *BulkUpdateAccountFilters `json:"filters"`
-	Name                    string                    `json:"name"`
-	ProxyID                 *int64                    `json:"proxy_id"`
-	ProxyGroupID            *int64                    `json:"proxy_group_id"`
-	Concurrency             *int                      `json:"concurrency"`
-	Priority                *int                      `json:"priority"`
-	RateMultiplier          *float64                  `json:"rate_multiplier"`
-	LoadFactor              *int                      `json:"load_factor"`
-	Status                  string                    `json:"status" binding:"omitempty,oneof=active inactive error"`
-	Schedulable             *bool                     `json:"schedulable"`
-	GroupIDs                *[]int64                  `json:"group_ids"`
-	Credentials             map[string]any            `json:"credentials"`
-	Extra                   map[string]any            `json:"extra"`
-	ProbeEnabled            *bool                     `json:"upstream_billing_probe_enabled"`
-	ConfirmMixedChannelRisk *bool                     `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
+	TPMLimit                service.OptionalTPMLimit   `json:"tpm_limit,omitzero"`
+	AccountIDs              []int64                    `json:"account_ids"`
+	Filters                 *BulkUpdateAccountFilters  `json:"filters"`
+	Name                    string                     `json:"name"`
+	ProxyID                 *int64                     `json:"proxy_id"`
+	ProxyGroupID            *int64                     `json:"proxy_group_id"`
+	Concurrency             *int                       `json:"concurrency"`
+	Priority                *int                       `json:"priority"`
+	RateMultiplier          *float64                   `json:"rate_multiplier"`
+	LoadFactor              *int                       `json:"load_factor"`
+	Status                  string                     `json:"status" binding:"omitempty,oneof=active inactive error"`
+	Schedulable             *bool                      `json:"schedulable"`
+	GroupIDs                *[]int64                   `json:"group_ids"`
+	Credentials             map[string]any             `json:"credentials"`
+	Extra                   map[string]any             `json:"extra"`
+	ModelSelection          *bulkAccountModelSelection `json:"model_selection"`
+	ProbeEnabled            *bool                      `json:"upstream_billing_probe_enabled"`
+	ConfirmMixedChannelRisk *bool                      `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
+}
+
+type bulkAccountModelSelection struct {
+	Mode           service.ModelSelectionMode `json:"mode"`
+	Models         []string                   `json:"models"`
+	Reason         string                     `json:"reason"`
+	ConfirmDenyAll bool                       `json:"confirm_deny_all"`
+}
+
+func (selection bulkAccountModelSelection) command(credentials map[string]any, actorID int64) (*service.ModelSelectionCommand, error) {
+	if selection.Mode == "" || (selection.Mode == service.ModelSelectionRestricted && len(selection.Models) == 0) {
+		return nil, service.ErrModelSelectionInvalid
+	}
+	if selection.Mode == service.ModelSelectionDenyAll && !selection.ConfirmDenyAll {
+		return nil, service.ErrModelSelectionConfirmationRequired
+	}
+	command := &service.ModelSelectionCommand{
+		Mode: selection.Mode, Models: selection.Models, Reason: selection.Reason,
+		ActorID: actorID, Source: service.ModelSelectionAccountWrite,
+	}
+	mapping, err := service.ModelSelectionCommandFromCredentials(credentials, actorID)
+	if err != nil {
+		return nil, err
+	}
+	if mapping != nil {
+		command.ModelMapping = mapping.ModelMapping
+	}
+	if _, err := service.NormalizeModelSelection(service.AccountModelAllowlist{}, nil, *command); err != nil {
+		return nil, err
+	}
+	return command, nil
 }
 
 type BulkUpdateAccountFilters struct {
@@ -2497,6 +2529,7 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 		req.GroupIDs != nil ||
 		len(req.Credentials) > 0 ||
 		len(req.Extra) > 0 ||
+		req.ModelSelection != nil ||
 		req.ProbeEnabled != nil
 
 	if !hasUpdates {
@@ -2505,8 +2538,18 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 	}
 
 	subject, _ := middleware.GetAuthSubjectFromContext(c)
+	var selection *service.ModelSelectionCommand
+	if req.ModelSelection != nil {
+		var err error
+		selection, err = req.ModelSelection.command(req.Credentials, subject.UserID)
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
 	result, err := h.adminService.BulkUpdateAccounts(c.Request.Context(), &service.BulkUpdateAccountsInput{
 		ModelSelectionActorID: subject.UserID,
+		ModelSelection:        selection,
 		TPMLimit:              req.TPMLimit.Pointer(),
 		AccountIDs:            req.AccountIDs,
 		Filters:               toServiceBulkUpdateAccountFilters(req.Filters),

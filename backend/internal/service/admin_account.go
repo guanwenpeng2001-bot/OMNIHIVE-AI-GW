@@ -1353,9 +1353,12 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	if input.TPMLimit != nil && *input.TPMLimit < 0 {
 		return nil, fmt.Errorf("tpm_limit must be non-negative")
 	}
-	selectionCommand, err := ModelSelectionCommandFromCredentials(input.Credentials, input.ModelSelectionActorID)
-	if err != nil {
-		return nil, err
+	selectionCommand := input.ModelSelection
+	if selectionCommand == nil {
+		selectionCommand, err = ModelSelectionCommandFromCredentials(input.Credentials, input.ModelSelectionActorID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	repoUpdates := AccountBulkUpdate{ProxyGroupID: input.ProxyGroupID,
 		TPMLimit:                   input.TPMLimit,

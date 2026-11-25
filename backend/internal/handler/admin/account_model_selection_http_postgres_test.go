@@ -324,7 +324,7 @@ func TestAccountModelSelectionHTTPPostgres(t *testing.T) {
 		fixtures[i].outbox = selectionOutboxCount(t, ctx, db, fixtures[i].id)
 	}
 	bulkMap := map[string]string{"bulk-alias": bulkTarget}
-	bulk := decodeSelectionHTTP[struct {
+	type bulkSelectionReply struct {
 		Success int `json:"success"`
 		Failed  int `json:"failed"`
 		Results []struct {
@@ -332,7 +332,8 @@ func TestAccountModelSelectionHTTPPostgres(t *testing.T) {
 			Success   bool  `json:"success"`
 			accountSelectionEditReply
 		} `json:"results"`
-	}](t, request(t, http.MethodPost, selectionAccountsPath+"/bulk-update", map[string]any{
+	}
+	bulk := decodeSelectionHTTP[bulkSelectionReply](t, request(t, http.MethodPost, selectionAccountsPath+"/bulk-update", map[string]any{
 		"account_ids": []int64{fixtures[1].id, fixtures[0].id},
 		"credentials": map[string]any{"model_mapping": bulkMap},
 	}, 200))
@@ -416,6 +417,45 @@ func TestAccountModelSelectionHTTPPostgres(t *testing.T) {
 	require.Equal(t, []string{bulkTarget}, reopened.AutoAdded)
 	require.Equal(t, f.revision+1, reopened.RulesRevision)
 	assertSelectionDatabase(t, ctx, db, f.id, reopened.RulesRevision, true, reopened.Models, bulkMap)
+
+	t.Run("explicit bulk model selection", func(t *testing.T) {
+		f.revision = reopened.RulesRevision
+		bulkPath := selectionAccountsPath + "/bulk-update"
+		ids := []int64{fixtures[0].id, fixtures[1].id}
+		apply := func(selection, credentials map[string]any, enabled bool, models, autoAdded []string, mapping map[string]string) {
+			t.Helper()
+			payload := map[string]any{"account_ids": ids, "model_selection": selection}
+			if credentials != nil {
+				payload["credentials"] = credentials
+			}
+			result := decodeSelectionHTTP[bulkSelectionReply](t, request(t, http.MethodPost, bulkPath, payload, 200))
+			require.Equal(t, 2, result.Success)
+			require.Zero(t, result.Failed)
+			require.Len(t, result.Results, 2)
+			for i, row := range result.Results {
+				account := &fixtures[i]
+				account.revision++
+				require.Equal(t, account.id, row.AccountID)
+				require.True(t, row.Success)
+				require.Equal(t, autoAdded, row.AutoAdded)
+				require.Equal(t, account.revision, row.RulesRevision)
+				assertSelectionDatabase(t, ctx, db, account.id, account.revision, enabled, models, mapping)
+			}
+		}
+		inherit := map[string]any{"mode": "inherit", "models": []string{}}
+		apply(inherit, nil, false, []string{}, []string{}, bulkMap)
+		deny := map[string]any{"mode": "deny_all", "models": []string{}, "reason": "batch maintenance"}
+		assertSelectionHTTPReason(t, request(t, http.MethodPost, bulkPath, map[string]any{"account_ids": ids, "model_selection": deny}, 400), "MODEL_SELECTION_CONFIRMATION_REQUIRED")
+		for _, account := range fixtures {
+			assertSelectionDatabase(t, ctx, db, account.id, account.revision, false, []string{}, bulkMap)
+		}
+		deny["confirm_deny_all"] = true
+		apply(deny, nil, true, []string{}, []string{}, bulkMap)
+		restricted := map[string]any{"mode": "restricted", "models": []string{"vendor/requested"}}
+		apply(restricted, nil, true, []string{bulkTarget, "vendor/requested"}, []string{bulkTarget}, bulkMap)
+		clearMapping := map[string]any{"model_mapping": map[string]string{}}
+		apply(inherit, clearMapping, false, []string{}, []string{}, map[string]string{})
+	})
 
 	t.Run("responses passthrough and compact eligibility", func(t *testing.T) {
 		const ordinary, compact = "gpt-4.1-mini", "compact-private"

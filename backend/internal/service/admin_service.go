@@ -477,6 +477,7 @@ type UpdateAccountInput struct {
 // BulkUpdateAccountsInput describes the payload for bulk updating accounts.
 type BulkUpdateAccountsInput struct {
 	ModelSelectionActorID int64
+	ModelSelection        *ModelSelectionCommand
 	TPMLimit              *int64
 	AccountIDs            []int64
 	Filters               *BulkUpdateAccountFilters

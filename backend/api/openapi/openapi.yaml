@@ -134,7 +134,10 @@ paths:
                   message: {type: string}
                   data: {$ref: '#/components/schemas/AdminAccountBulkUpdateResult'}
         '400':
-          description: Invalid bulk update or mapping
+          description: Invalid bulk update, empty restricted scope, or missing deny-all reason or confirmation
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AdminModelSelectionError'}
         '409':
           description: Account model selection conflict, mapping change on deny_all, or a Connections-managed account
   /api/v1/admin/backups/schedule:
@@ -5604,6 +5607,22 @@ components:
               message: {type: string}
               data: {$ref: '#/components/schemas/TelemetryExportConfig'}
   schemas:
+    AdminAccountBulkModelSelection:
+      type: object
+      required: [mode]
+      description: Applies one scope intent to every target account using that account's locked configuration.
+      properties:
+        mode: {$ref: '#/components/schemas/AdminModelSelectionMode'}
+        models:
+          type: array
+          items: {type: string}
+          description: Restricted requires at least one explicit model. The server adds each account's mapping targets. Inherit and deny_all require an empty or omitted list.
+        reason:
+          type: string
+          description: Required and non-blank for deny_all.
+        confirm_deny_all:
+          type: boolean
+          description: Must be true for deny_all.
     AdminAccountBulkUpdate:
       type: object
       anyOf:
@@ -5632,7 +5651,9 @@ components:
         group_ids: {type: array, items: {type: integer, format: int64}}
         credentials:
           $ref: '#/components/schemas/AdminAccountUpdateCredentials'
-          description: Each explicit mapping replaces the map on every target account and adds its targets to that account's current scope.
+          description: Each explicit mapping replaces the map on every target account. Omission or null preserves the map. An empty object explicitly clears it.
+        model_selection:
+          $ref: '#/components/schemas/AdminAccountBulkModelSelection'
         extra: {type: object, additionalProperties: true}
         upstream_billing_probe_enabled: {type: boolean}
         confirm_mixed_channel_risk: {type: boolean}
@@ -5658,7 +5679,7 @@ components:
               auto_added:
                 type: array
                 items: {type: string}
-                description: Upstream targets added to this account's scope during a mapping write
+                description: Upstream targets added to this account's scope during a selection or mapping write. An empty array is returned when no targets were added.
               rules_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
     AdminAccountModelAllowlistScope:
       type: object

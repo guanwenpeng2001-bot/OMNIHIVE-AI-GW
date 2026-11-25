@@ -195,6 +195,49 @@ type accountSelectionAdminStub struct {
 	bulk    *service.BulkUpdateAccountsResult
 }
 
+func TestBulkAccountModelSelectionCommand(t *testing.T) {
+	for _, tc := range []struct {
+		name, fields, errorReason string
+		mode                      service.ModelSelectionMode
+		models                    []string
+		mapping                   map[string]string
+	}{
+		{name: "inherit preserves", fields: `"model_selection":{"mode":"inherit"}`, mode: service.ModelSelectionInherit},
+		{name: "inherit clears", fields: `"model_selection":{"mode":"inherit","models":[]},"credentials":{"model_mapping":{}}`, mode: service.ModelSelectionInherit, models: []string{}, mapping: map[string]string{}},
+		{name: "restricted", fields: `"model_selection":{"mode":"restricted","models":["one"]},"credentials":{"model_mapping":{"alias":"two"}}`, mode: service.ModelSelectionRestricted, models: []string{"one"}, mapping: map[string]string{"alias": "two"}},
+		{name: "restricted empty", fields: `"model_selection":{"mode":"restricted","models":[]},"credentials":{"model_mapping":{"alias":"two"}}`, errorReason: "INVALID_MODEL_SELECTION"},
+		{name: "deny all no confirmation", fields: `"model_selection":{"mode":"deny_all","reason":"maintenance"}`, errorReason: "MODEL_SELECTION_CONFIRMATION_REQUIRED"},
+		{name: "deny all no reason", fields: `"model_selection":{"mode":"deny_all","confirm_deny_all":true,"reason":"  "}`, errorReason: "MODEL_SELECTION_REASON_REQUIRED"},
+		{name: "deny all confirmed", fields: `"model_selection":{"mode":"deny_all","reason":"maintenance","confirm_deny_all":true}`, mode: service.ModelSelectionDenyAll},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			admin := newStubAdminService()
+			handler := &AccountHandler{adminService: admin}
+			router := gin.New()
+			router.POST("/accounts/bulk-update", func(c *gin.Context) {
+				c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 7})
+				handler.BulkUpdate(c)
+			})
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/accounts/bulk-update", strings.NewReader(`{"account_ids":[42],`+tc.fields+`}`)))
+			if tc.errorReason != "" {
+				require.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
+				require.Contains(t, recorder.Body.String(), tc.errorReason)
+				require.Nil(t, admin.lastBulkUpdateAccountInput)
+				return
+			}
+			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+			require.NotNil(t, admin.lastBulkUpdateAccountInput)
+			cmd := admin.lastBulkUpdateAccountInput.ModelSelection
+			require.NotNil(t, cmd)
+			require.Equal(t, tc.mode, cmd.Mode)
+			require.Equal(t, tc.models, cmd.Models)
+			require.Equal(t, tc.mapping, cmd.ModelMapping)
+			require.EqualValues(t, 7, cmd.ActorID)
+		})
+	}
+}
+
 func (s *accountSelectionAdminStub) UpdateAccount(ctx context.Context, id int64, input *service.UpdateAccountInput) (*service.Account, error) {
 	_, err := s.stubAdminService.UpdateAccount(ctx, id, input)
 	return s.updated, err

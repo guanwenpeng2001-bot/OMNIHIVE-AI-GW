@@ -2698,6 +2698,16 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description Applies one scope intent to every target account using that account's locked configuration. */
+        AdminAccountBulkModelSelection: {
+            mode: components["schemas"]["AdminModelSelectionMode"];
+            /** @description Restricted requires at least one explicit model. The server adds each account's mapping targets. Inherit and deny_all require an empty or omitted list. */
+            models?: string[];
+            /** @description Required and non-blank for deny_all. */
+            reason?: string;
+            /** @description Must be true for deny_all. */
+            confirm_deny_all?: boolean;
+        };
         AdminAccountBulkUpdate: {
             account_ids?: number[];
             filters?: {
@@ -2721,8 +2731,9 @@ export interface components {
             status?: "active" | "inactive" | "error";
             schedulable?: boolean;
             group_ids?: number[];
-            /** @description Each explicit mapping replaces the map on every target account and adds its targets to that account's current scope. */
+            /** @description Each explicit mapping replaces the map on every target account. Omission or null preserves the map. An empty object explicitly clears it. */
             credentials?: components["schemas"]["AdminAccountUpdateCredentials"];
+            model_selection?: components["schemas"]["AdminAccountBulkModelSelection"];
             extra?: {
                 [key: string]: unknown;
             };
@@ -2742,7 +2753,7 @@ export interface components {
                 account_id: number;
                 success: boolean;
                 error?: string;
-                /** @description Upstream targets added to this account's scope during a mapping write */
+                /** @description Upstream targets added to this account's scope during a selection or mapping write. An empty array is returned when no targets were added. */
                 auto_added?: string[];
                 rules_revision?: components["schemas"]["AdminModelSelectionRevision"];
             }[];
@@ -6119,12 +6130,14 @@ export interface operations {
                     };
                 };
             };
-            /** @description Invalid bulk update or mapping */
+            /** @description Invalid bulk update, empty restricted scope, or missing deny-all reason or confirmation */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["AdminModelSelectionError"];
+                };
             };
             /** @description Account model selection conflict, mapping change on deny_all, or a Connections-managed account */
             409: {
