@@ -375,4 +375,3 @@ func rollbackLockedAccountModelSelection(ctx context.Context, transaction *sql.T
 	logger.LegacyPrintf("repository.account_model_selection", "v039 rollback applied workspace=%d account=%d", account.WorkspaceID, account.ID)
 	return true, transaction.Commit()
 }
-

@@ -274,4 +274,3 @@ func (r *accountRepository) applyBulkModelSelections(ctx context.Context, baseli
 	}
 	return nil
 }
-
