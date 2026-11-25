@@ -130,7 +130,7 @@ func Activate(ctx context.Context, tx *sql.Tx, w, id, actor int64, name, endpoin
 	if e != nil {
 		return e
 	}
-	_, e = tx.ExecContext(ctx, `UPDATE accounts SET name=$3,proxy_id=nullif($4,'')::bigint,concurrency=$5,status='active',schedulable=$8,
+	_, e = tx.ExecContext(ctx, `UPDATE accounts SET name=$3,proxy_id=nullif($4,'')::bigint,concurrency=$5,status='active',schedulable=$7,
  credentials=(credentials-'base_url')||jsonb_strip_nulls(jsonb_build_object('base_url',nullif($6,''))),updated_at=now()
  WHERE workspace_id=$1 AND id=$2`, w, id, name, proxy, concurrency, endpoint, len(models) > 0)
 	if e != nil {
