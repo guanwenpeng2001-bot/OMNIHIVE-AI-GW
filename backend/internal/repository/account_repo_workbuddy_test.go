@@ -105,7 +105,7 @@ func TestWorkBuddyReferencedRefreshPreservesPublication(t *testing.T) {
 func TestAntigravityReferencedRefreshPreservesPublication(t *testing.T) {
 	f := newCredentialSecretFixture(t)
 	repo := f.accounts
-	current := f.createAccount(t, f.ctx, uniqueName("antigravity-refresh"), service.PlatformAntigravity, service.AccountTypeOAuth, map[string]any{"project_id": "stable-project", "email": "owner@example.test", "access_token": "old", "refresh_token": "refresh"})
+	current := f.createAccount(t, f.ctx, uniqueName("antigravity-refresh"), service.PlatformAntigravity, service.AccountTypeOAuth, map[string]any{"project_id": "stable-project", "email": "owner@example.test", "access_token": "old", "refresh_token": "refresh", "expires_at": "2026-11-25T06:00:00Z"})
 	read := func() *service.Account {
 		account, err := repo.GetByID(f.ctx, current.ID)
 		require.NoError(t, err)
@@ -117,10 +117,11 @@ func TestAntigravityReferencedRefreshPreservesPublication(t *testing.T) {
 	require.NoError(t, repo.CommitAccountModelCatalog(f.ctx, current.ID, baseline, snapshot, current.ModelCatalogState(), nil, false))
 	current = read()
 	credentials := maps.Clone(current.Credentials)
-	credentials["access_token"], credentials["refresh_token"] = "rotated", "renewed"
+	credentials["access_token"], credentials["refresh_token"], credentials["expires_at"] = "rotated", "renewed", "2026-11-25T07:00:00Z"
 	require.NoError(t, repo.UpdateAccountRuntimeCredentials(f.ctx, current, credentials))
 	rotated := read()
 	require.Greater(t, service.CredentialVersion(rotated.Credentials), service.CredentialVersion(current.Credentials))
+	require.Equal(t, credentials["expires_at"], rotated.Credentials["expires_at"])
 	require.Equal(t, current.ModelCatalogBaseline().IdentityRevision, rotated.ModelCatalogBaseline().IdentityRevision)
 	require.NotNil(t, rotated.EffectiveUpstreamModelCatalog())
 	require.NoError(t, repo.UpdateAccountRuntimeSnapshot(f.ctx, rotated, map[string]any{"privacy_mode": service.AntigravityPrivacySet}, nil))
