@@ -107,5 +107,12 @@ def validate_release(value, inputs_path=catalog.INPUTS):
 
 
 if __name__ == "__main__":
-    validate_release(catalog.read(catalog.CATALOG))
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--previous", help="manifest from the previous release; same generation must keep identical bytes")
+    args = parser.parse_args()
+    current = catalog.read(catalog.CATALOG)
+    validate_release(current)
+    if args.previous:
+        verify(current, catalog.read(MANIFEST), catalog.read(PIN), catalog.read(catalog.Path(args.previous)))
     print("reviewed release pin verified (offline)")

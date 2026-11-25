@@ -57,6 +57,15 @@ jobs:
       - name: Strict Go test gate self-test
         shell: bash
         run: python3 scripts/test_go_test_strict.py --self-test
+      - name: Model-capability release generation advances with manifest
+        shell: bash
+        run: |
+          set -eu
+          git fetch --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'
+          previous_tag="$(git tag -l 'v*' --sort=-v:refname | head -1)"
+          git show "$previous_tag:backend/resources/model-capabilities/release-manifest.json" > "$RUNNER_TEMP/previous-manifest.json"
+          cd backend/resources/model-capabilities/scripts
+          python3 release.py --previous "$RUNNER_TEMP/previous-manifest.json"
 
   test:
     runs-on: ubuntu-latest
