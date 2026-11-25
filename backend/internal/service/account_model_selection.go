@@ -381,7 +381,8 @@ func InitializeAccountModelSelection(account *Account) error {
 	return nil
 }
 
-func preserveCurrentModelMapping(incoming, current map[string]any) map[string]any {
+// PreserveCurrentModelMapping keeps the locked selection during a credential-only write.
+func PreserveCurrentModelMapping(incoming, current map[string]any) map[string]any {
 	mapping, hasCurrent := current["model_mapping"]
 	_, hasIncoming := incoming["model_mapping"]
 	if !hasCurrent && !hasIncoming {

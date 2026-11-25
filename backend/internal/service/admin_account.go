@@ -998,7 +998,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			cursorRefreshStateRecovered = true
 		}
 	}
-	account.Credentials = preserveCurrentModelMapping(account.Credentials, previousCredentials)
+	account.Credentials = PreserveCurrentModelMapping(account.Credentials, previousCredentials)
 	ctx = WithAccountCredentialChanges(ctx, previousCredentials, account.Credentials)
 	billingSettingsAppliedAtomically := false
 	updater := s.accountBillingRepo

@@ -433,7 +433,7 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 		}
 		account.ModelSelectionCommand = cmd
 		credentials := SanitizeStoredCredentials(account.Platform, *req.Credentials)
-		account.Credentials = preserveCurrentModelMapping(credentials, account.Credentials)
+		account.Credentials = PreserveCurrentModelMapping(credentials, account.Credentials)
 	}
 
 	if req.Extra != nil {
