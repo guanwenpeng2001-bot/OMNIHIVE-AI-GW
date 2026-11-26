@@ -4,6 +4,13 @@ This project follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/
 
 ## Unreleased
 
+## 0.3.10 - 2026-11-26
+
+### Fixed
+
+- Restricted accounts continue to list and serve selected models that have no aliases. Adding an alias keeps its upstream target private unless the original name is explicitly published.
+- Composite groups ignore out-of-scope identity mappings when deciding which platform owns a model.
+
 ## 0.3.9 - 2026-11-26
 
 ### Fixed
