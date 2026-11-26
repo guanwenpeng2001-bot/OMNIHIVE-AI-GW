@@ -73,23 +73,10 @@ func openaiResponsesProbePayload(modelID string) []byte {
 	return body
 }
 
-// selectResponsesProbeModel 选出用于探测的上游模型。
-//
-// 工具能力探测必须用上游真实存在的模型——用占位模型(DefaultTestModel)打第三方
-// 上游只会拿到 400 model-not-found,无从判定工具能力。优先取账号 model_mapping
-// 的上游模型(值),其中优先通用 GPT 文本模型,同类按字典序取首个具体(非通配符)
-// 模型以保证可复现;无映射时回退
-// DefaultTestModel(适配 OpenAI 官方 APIKey 账号)。
+// selectResponsesProbeModel prefers configured upstream text models for the
+// Responses probe. The official default is the fallback for an empty selection.
 func selectResponsesProbeModel(account *Account) string {
-	mapping := account.GetModelMapping()
-	candidates := make([]string, 0, len(mapping))
-	for _, upstream := range mapping {
-		upstream = strings.TrimSpace(upstream)
-		if upstream == "" || strings.Contains(upstream, "*") {
-			continue
-		}
-		candidates = append(candidates, upstream)
-	}
+	candidates := configuredConcreteModelIDs(account)
 	if len(candidates) == 0 {
 		return openai.DefaultTestModel
 	}

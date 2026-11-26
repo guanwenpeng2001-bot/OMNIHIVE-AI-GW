@@ -129,7 +129,7 @@ func BuildPlazaCandidates(channel *Channel, groupID int64, groupPlatform string,
 				add(account.Platform, name)
 			}
 		}
-		for _, target := range configuredModelMapping(&account) {
+		for _, target := range configuredConcreteModelIDs(&account) {
 			add(account.Platform, target)
 		}
 	}

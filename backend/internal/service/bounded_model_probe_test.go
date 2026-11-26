@@ -152,6 +152,17 @@ func TestBoundedModelProbeLifecycle(test *testing.T) {
 		require.False(test, repository.locked)
 	})
 
+	test.Run("restricted probes use scoped upstream IDs", func(test *testing.T) {
+		service, repository, transport := boundedProbeFixture()
+		repository.account.Credentials["model_mapping"] = map[string]string{"alias": "private-model", "stale": "outside-model"}
+		repository.account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{
+			Enabled: true, Models: []string{"direct-model", "private-model"},
+		}
+		require.NoError(test, service.runBoundedModelProbes(context.Background(), 42, repository.now))
+		require.Equal(test, []string{"direct-model", "private-model"}, transport.requestModels)
+		require.Equal(test, 2, repository.budget.DailyUsed)
+	})
+
 	test.Run("selection preserves complete fresh discovery boundary", func(test *testing.T) {
 		for _, fixture := range []struct {
 			name   string

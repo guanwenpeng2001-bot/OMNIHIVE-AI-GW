@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -66,15 +67,7 @@ func (account *Account) ModelAvailabilityDeclarations() []ModelAvailabilityDecla
 }
 
 func concreteMappedModel(account *Account, model string) bool {
-	if account == nil || model == "" || model != strings.TrimSpace(model) || strings.ContainsAny(model, "*?\r\n") {
-		return false
-	}
-	for _, target := range configuredModelMapping(account) {
-		if target == model {
-			return true
-		}
-	}
-	return false
+	return exactConfiguredModel(model) && slices.Contains(configuredConcreteModelIDs(account), model)
 }
 
 func ModelAvailabilityEndpointValid(endpoint string) bool {

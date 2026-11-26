@@ -16,6 +16,21 @@ func exactConfiguredModel(model string) bool {
 	return model != "" && model == strings.TrimSpace(model) && !strings.ContainsAny(model, "*?\r\n")
 }
 
+// configuredConcreteModelIDs returns explicitly selected upstream IDs, including
+// private alias targets. Inherit mode derives selection evidence from saved mappings.
+func configuredConcreteModelIDs(account *Account) []string {
+	if account == nil {
+		return nil
+	}
+	var ids []string
+	if selection := account.restrictedPublicModels(); selection != nil {
+		ids = slices.Collect(maps.Keys(selection.scope))
+	} else {
+		ids = slices.Collect(maps.Values(configuredModelMapping(account)))
+	}
+	return slices.DeleteFunc(ids, func(id string) bool { return !exactConfiguredModel(id) })
+}
+
 func configuredPassthroughModel(account *Account, wireModel string) bool {
 	if account == nil || account.Platform != PlatformOpenAI || !exactConfiguredModel(wireModel) {
 		return false
@@ -83,10 +98,7 @@ func adapterBoundCatalogFamilies(account *Account) []string {
 }
 
 func appendConfiguredSelectionModels(account, credentialAccount *Account, snapshot *AccountModelCatalogSnapshot) *AccountModelCatalogSnapshot {
-	if selection := account.restrictedPublicModels(); selection != nil {
-		return appendConfiguredModelTargets(account, snapshot, slices.Collect(maps.Keys(selection.scope)), false)
-	}
-	return appendConfiguredModels(account, snapshot, configuredModelMapping(account), false)
+	return appendConfiguredModelTargets(account, snapshot, configuredConcreteModelIDs(account), false)
 }
 
 func appendConfiguredCompactSelectionModels(account, credentialAccount *Account, snapshot *AccountModelCatalogSnapshot) *AccountModelCatalogSnapshot {

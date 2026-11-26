@@ -59,6 +59,16 @@ func TestDeepSeekContextSuffixScope(t *testing.T) {
 	}
 }
 
+func TestDeepSeekRestrictedScopePreservesContextSuffix(t *testing.T) {
+	const model = "deepseek-flash[1m]"
+	account := &Account{Platform: PlatformDeepseek, Type: AccountTypeAPIKey, Extra: map[string]any{
+		UpstreamModelAllowlistExtraKey: AccountModelAllowlist{Enabled: true, Models: []string{model}},
+	}}
+	require.True(t, account.IsModelSupported(model))
+	require.False(t, account.IsModelSupported("deepseek-flash"))
+	require.Equal(t, model, normalizeOpenAIModelForUpstream(account, account.GetMappedModel(model)))
+}
+
 func TestDeepSeekCompatibilityPreservesQianwenRetirement(t *testing.T) {
 	for _, mapping := range []map[string]any{
 		nil,

@@ -39,11 +39,9 @@ func populateAccountCatalogCapabilities(account *Account, catalog *UpstreamModel
 		ids[id] = true
 	}
 	targets := make(map[string]bool)
-	for _, id := range configuredModelMapping(account) {
-		if id != "" && !strings.ContainsAny(id, "*?") {
-			targets[id] = true
-			ids[id] = true
-		}
+	for _, id := range configuredConcreteModelIDs(account) {
+		targets[id] = true
+		ids[id] = true
 	}
 	summary := &AccountCatalogCapabilitySummary{Total: len(ids), Discovered: len(snapshot.DiscoveredModels), MappingTargets: len(targets), Eligible: len(snapshot.EligibleModels)}
 	for id := range ids {

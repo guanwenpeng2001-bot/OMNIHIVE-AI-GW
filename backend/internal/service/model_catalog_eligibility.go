@@ -605,8 +605,8 @@ func computeAccountBindingModel(ctx context.Context, account *Account, model str
 			}
 		} else if len(configuredModelMapping(account)) > 0 {
 			selected := false
-			for _, target := range configuredModelMapping(account) {
-				if exactConfiguredModel(target) && normalizeAccountBindingWireModel(account, target) == options.FinalModel {
+			for _, target := range configuredConcreteModelIDs(account) {
+				if normalizeAccountBindingWireModel(account, target) == options.FinalModel {
 					selected = true
 					break
 				}
