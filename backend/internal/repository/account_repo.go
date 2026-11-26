@@ -1548,7 +1548,7 @@ func (r *accountRepository) ListActiveWithInvalidatedModelCatalog(ctx context.Co
 	rows, err := r.client.Account.Query().
 		Where(dbaccount.StatusEQ(service.StatusActive), func(s *entsql.Selector) {
 			extra := s.C(dbaccount.FieldExtra)
-			s.Where(entsql.ExprP("COALESCE(" + extra + "->'upstream_model_catalog_state'->'identity_revision', '0'::jsonb) > " +
+			s.Where(entsql.ExprP("COALESCE(" + extra + "->'upstream_model_catalog_state'->'identity_revision', '0'::jsonb) <> " +
 				"COALESCE(" + extra + "->'upstream_model_catalog'->'identity_revision', '0'::jsonb)"))
 		}).
 		Order(dbent.Asc(dbaccount.FieldPriority, dbaccount.FieldID)).
@@ -4822,6 +4822,26 @@ func (r *accountRepository) CommitAccountModelCatalog(ctx context.Context, id in
 	return nil
 }
 
+// RecordAccountModelCatalogCommitFailure advances only the retry marker. A
+// rules edit may have caused the failed commit, so preserve the current rules
+// and diagnostics and check identity, publication, and the prior attempt.
+func (r *accountRepository) RecordAccountModelCatalogCommitFailure(ctx context.Context, id int64, baseline service.AccountModelCatalogBaseline, previousAttempt, attemptedAt string) error {
+	_, err := r.client.ExecContext(ctx, `WITH credential AS (
+		SELECT id FROM accounts WHERE id = $6 AND deleted_at IS NULL
+		AND COALESCE((extra->'upstream_model_catalog_state'->>'identity_revision')::bigint, 0) = $7 FOR SHARE
+	)
+	UPDATE accounts SET extra = jsonb_set(COALESCE(extra, '{}'::jsonb), '{upstream_model_catalog_state}',
+		COALESCE(extra->'upstream_model_catalog_state', '{}'::jsonb) ||
+		jsonb_build_object('attempted_identity_revision', $2::bigint, 'attempted_at', $5::text))
+	WHERE id = $1 AND deleted_at IS NULL AND status = 'active'
+	AND COALESCE((extra->'upstream_model_catalog_state'->>'identity_revision')::bigint, 0) = $2
+	AND COALESCE((extra->'upstream_model_catalog'->>'revision')::bigint, 0) = $3
+	AND COALESCE(extra->'upstream_model_catalog_state'->>'attempted_at', '') = $4
+	AND ($6 = 0 OR parent_account_id IN (SELECT id FROM credential))`,
+		id, baseline.IdentityRevision, baseline.SnapshotRevision, previousAttempt, attemptedAt, baseline.CredentialAccountID, baseline.CredentialIdentityRevision)
+	return err
+}
+
 func clearChangedAccountRuntimeObservationsSQL(incomingCredentials, incomingExtra, proxyChanged string) string {
 	changes := []string{"credentials IS DISTINCT FROM (" + incomingCredentials + ")"}
 	for _, field := range []string{"secret_revision", "secret_reference", "credential_secret_id", "credential_secret_revision", "header_overrides", "base_url", "protocol"} {
@@ -4897,9 +4917,12 @@ func accountCatalogRevisionPatchSQL(incoming, incomingExtra, proxyChanged string
 		}
 	}
 	legacyPolicy := "(" + strings.Join(ruleChanges, " OR ") + ")"
-	state := "COALESCE(extra->'upstream_model_catalog_state','{}'::jsonb)"
-	return "jsonb_build_object('upstream_model_catalog_state', " + state + " || jsonb_build_object(" +
-		"'identity_revision', COALESCE((" + state + "->>'identity_revision')::bigint,0) + CASE WHEN " + identity + " THEN 1 ELSE 0 END, " +
+	state := "COALESCE(NULLIF(extra->'upstream_model_catalog_state','null'::jsonb),'{}'::jsonb)"
+	identityRevision := "COALESCE((" + state + "->>'identity_revision')::bigint,0)"
+	return "jsonb_build_object('upstream_model_catalog_state', (CASE WHEN " + identity +
+		" THEN jsonb_set(" + state + " - 'error', '{identity_revision}', to_jsonb(" + identityRevision + " + 1)) || " +
+		`'{"result":"identity_changed"}'::jsonb` +
+		" ELSE jsonb_set(" + state + ", '{identity_revision}', to_jsonb(" + identityRevision + ")) END) || jsonb_build_object(" +
 		"'rules_revision', COALESCE((" + state + "->>'rules_revision')::bigint,0) + CASE WHEN " + rules + " THEN 1 ELSE 0 END, " +
 		"'legacy_policy_revision', COALESCE((" + state + "->>'legacy_policy_revision')::bigint,0) + CASE WHEN " + legacyPolicy + " THEN 1 ELSE 0 END))"
 }

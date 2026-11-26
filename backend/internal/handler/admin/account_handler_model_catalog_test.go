@@ -52,6 +52,7 @@ func TestGetModelCatalogContract(t *testing.T) {
 			handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 			gin.SetMode(gin.TestMode)
 			router := gin.New()
+			router.GET("/api/v1/admin/accounts/:id", handler.GetByID)
 			router.GET("/api/v1/admin/accounts/:id/models/catalog", func(c *gin.Context) {
 				handler.getModelCatalog(c, time.Date(2026, 9, 16, 3, 0, 0, 0, time.UTC))
 			})
@@ -86,6 +87,20 @@ func TestGetModelCatalogContract(t *testing.T) {
 			if scenario == "failed_history" {
 				require.Equal(t, "upstream_unavailable", payload.Data["last_error"])
 				require.NotNil(t, payload.Data["effective_snapshot"])
+
+				detail := httptest.NewRecorder()
+				router.ServeHTTP(detail, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/42", nil))
+				require.Equal(t, http.StatusOK, detail.Code)
+				var response struct {
+					Data struct {
+						Extra map[string]map[string]json.RawMessage `json:"extra"`
+					} `json:"data"`
+				}
+				require.NoError(t, json.Unmarshal(detail.Body.Bytes(), &response))
+				extraState := response.Data.Extra[service.UpstreamModelCatalogStateExtraKey]
+				require.NotContains(t, extraState, "attempted_identity_revision")
+				require.Equal(t, "9007199254740993", string(extraState["rules_revision"]))
+				require.Equal(t, state.AttemptedIdentityRevision, account.ModelCatalogState().AttemptedIdentityRevision)
 			}
 			require.Equal(t, service.CompositeRouteEndpointAny, payload.Data["alias_endpoint"])
 			require.Empty(t, payload.Data["invalid_aliases"])

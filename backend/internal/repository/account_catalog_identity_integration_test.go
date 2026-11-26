@@ -4,11 +4,13 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -198,6 +200,9 @@ func TestGrokCatalogScheduledIdentityRecoveryPostgres(t *testing.T) {
 				WHERE id=$1`, account.ID)
 			require.NoError(t, err)
 		} else {
+			_, err = f.db.ExecContext(ctx, `UPDATE accounts SET extra = jsonb_set(extra, '{upstream_model_catalog_state}',
+				extra->'upstream_model_catalog_state' || '{"result":"failed","error":"previous_failure"}'::jsonb) WHERE id = $1`, account.ID)
+			require.NoError(t, err)
 			old, err := repo.GetByID(ctx, account.ID)
 			require.NoError(t, err)
 			nextCredentials := maps.Clone(old.Credentials)
@@ -210,6 +215,10 @@ func TestGrokCatalogScheduledIdentityRecoveryPostgres(t *testing.T) {
 		require.NoError(t, err)
 		require.EqualValues(t, 5, stale.ModelCatalogState().IdentityRevision)
 		require.EqualValues(t, 4, stale.GetUpstreamModelCatalog().IdentityRevision)
+		if !legacy {
+			require.Equal(t, "identity_changed", stale.ModelCatalogState().Result)
+			require.Empty(t, stale.ModelCatalogState().Error)
+		}
 		require.Nil(t, stale.EffectiveUpstreamModelCatalog())
 		view, err = gateway.VisibleModels(keyCtx, &group.ID, service.PlatformGrok)
 		require.NoError(t, err)
@@ -250,4 +259,166 @@ func TestGrokCatalogScheduledIdentityRecoveryPostgres(t *testing.T) {
 		require.NoError(t, err)
 		require.ElementsMatch(t, models, view.Models)
 	}
+}
+
+type catalogCommitFailureResult struct {
+	id  int64
+	err error
+}
+
+type catalogCommitFailureRepo struct {
+	*catalogRecoveryRepo
+	beforeFirstCommit func(context.Context, int64) error
+	firstCommits      sync.Map
+	firstResults      chan catalogCommitFailureResult
+	ticks             chan struct{}
+}
+
+func (r *catalogCommitFailureRepo) ListActiveWithInvalidatedModelCatalog(ctx context.Context) ([]service.Account, error) {
+	accounts, err := r.catalogRecoveryRepo.ListActiveWithInvalidatedModelCatalog(ctx)
+	select {
+	case r.ticks <- struct{}{}:
+	default:
+	}
+	return accounts, err
+}
+
+func (r *catalogCommitFailureRepo) CommitAccountModelCatalog(ctx context.Context, id int64, baseline service.AccountModelCatalogBaseline, snapshot *service.AccountModelCatalogSnapshot, state service.AccountModelCatalogState, metadata *service.UpstreamModelMetadataSnapshot, freeze bool) error {
+	if _, seen := r.firstCommits.LoadOrStore(id, struct{}{}); seen {
+		return r.catalogRecoveryRepo.CommitAccountModelCatalog(ctx, id, baseline, snapshot, state, metadata, freeze)
+	}
+	err := r.beforeFirstCommit(ctx, id)
+	if err == nil {
+		err = r.catalogRecoveryRepo.CommitAccountModelCatalog(ctx, id, baseline, snapshot, state, metadata, freeze)
+	}
+	r.firstResults <- catalogCommitFailureResult{id: id, err: err}
+	return err
+}
+
+type catalogCommitFailureUpstream struct {
+	catalogRecoveryUpstream
+	failID int64
+	calls  chan int64
+}
+
+func (u catalogCommitFailureUpstream) DoWithTLS(req *http.Request, proxyURL string, id int64, concurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
+	u.calls <- id
+	if id == u.failID {
+		return &http.Response{StatusCode: http.StatusBadGateway, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("{}"))}, nil
+	}
+	return u.catalogRecoveryUpstream.DoWithTLS(req, proxyURL, id, concurrency, profile)
+}
+
+func TestGrokCatalogScheduledCommitFailureBackoffPostgres(t *testing.T) {
+	t.Setenv("MODEL_CAPABILITY_OFFLINE", "1")
+	f := catalogIdentityFixture(t)
+	ctx, repo := f.ctx, f.accounts
+	newAccount := func(snapshotIdentity int64) int64 {
+		account := f.createAccount(t, ctx, uniqueName("catalog-commit-failure"), service.PlatformGrok, service.AccountTypeOAuth, map[string]any{
+			"access_token": grokCatalogFixtureToken, "team_id": "fixture-team",
+		})
+		_, err := f.db.ExecContext(ctx, `UPDATE accounts SET extra = jsonb_build_object(
+			'upstream_model_catalog', jsonb_build_object('revision', 3, 'identity_revision', $2::bigint, 'complete', true),
+			'upstream_model_catalog_state', '{"identity_revision":5,"rules_revision":8,"result":"failed",
+				"error":"previous_failure","attempted_at":"2026-01-01T00:00:00Z","attempted_identity_revision":4}'::jsonb)
+			WHERE id = $1`, account.ID, snapshotIdentity)
+		require.NoError(t, err)
+		return account.ID
+	}
+	rulesID, identityID, internalErrorID := newAccount(7), newAccount(4), newAccount(4)
+	internalErr := errors.New("injected commit failure")
+	selector := service.NewAccountModelSelectionService(repo)
+	recoveryRepo := &catalogCommitFailureRepo{
+		catalogRecoveryRepo: &catalogRecoveryRepo{
+			accountRepository: repo,
+			targets:           map[int64]bool{rulesID: true, identityID: true, internalErrorID: true},
+			committed:         make(chan int64, 9),
+		},
+		firstResults: make(chan catalogCommitFailureResult, 3),
+		ticks:        make(chan struct{}, 3),
+		beforeFirstCommit: func(ctx context.Context, id int64) error {
+			switch id {
+			case rulesID:
+				_, err := selector.SaveModelSelection(ctx, id, service.ModelSelectionCommand{
+					Mode: service.ModelSelectionRestricted, Models: []string{"grok-4.7"}, ActorID: 7, Source: service.ModelSelectionAccountWrite,
+				})
+				return err
+			case identityID:
+				old, err := repo.GetByID(ctx, id)
+				if err != nil {
+					return err
+				}
+				next := maps.Clone(old.Credentials)
+				next["team_id"] = "fixture-new-team"
+				applied, err := repo.UpdateGrokOAuthCredentialsIfUnchanged(ctx, id, old.Credentials, old.ProxyID, old.ProxyGroupID, next)
+				if err == nil && !applied {
+					return errors.New("fixture identity change was not applied")
+				}
+				return err
+			default:
+				return internalErr
+			}
+		},
+	}
+	upstream := catalogCommitFailureUpstream{failID: internalErrorID, calls: make(chan int64, 32)}
+	cfg := &config.Config{}
+	accountTests := service.NewAccountTestService(recoveryRepo, nil, nil, nil, nil, upstream, cfg, nil)
+	runner := service.NewScheduledTestRunnerService(catalogRecoveryNoPlans{}, nil, accountTests, nil, cfg)
+	runner.Start()
+	defer runner.Stop()
+	deadline := time.NewTimer(195 * time.Second)
+	defer deadline.Stop()
+	for range 3 {
+		select {
+		case <-recoveryRepo.ticks:
+		case <-deadline.C:
+			t.Fatal("catalog recovery did not process consecutive minute ticks")
+		}
+	}
+	// The third scan starts only after the first two ticks' workers finish.
+	require.Len(t, recoveryRepo.firstResults, 3)
+	for range 3 {
+		first := <-recoveryRepo.firstResults
+		if first.id == internalErrorID {
+			require.ErrorIs(t, first.err, internalErr)
+		} else {
+			require.ErrorIs(t, first.err, service.ErrAccountModelCatalogConflict)
+		}
+	}
+	select {
+	case id := <-recoveryRepo.committed:
+		require.Equal(t, identityID, id)
+	default:
+		t.Fatal("the new identity was not discovered on the next tick")
+	}
+	calls := map[int64]int{}
+	for len(upstream.calls) > 0 {
+		calls[<-upstream.calls]++
+	}
+	require.Equal(t, map[int64]int{rulesID: 1, identityID: 2, internalErrorID: 1}, calls)
+
+	for _, id := range []int64{rulesID, internalErrorID} {
+		saved, err := repo.GetByID(ctx, id)
+		require.NoError(t, err)
+		state := saved.ModelCatalogState()
+		require.EqualValues(t, 3, saved.GetUpstreamModelCatalog().Revision)
+		require.EqualValues(t, 5, state.IdentityRevision)
+		require.NotNil(t, state.AttemptedIdentityRevision)
+		require.EqualValues(t, 5, *state.AttemptedIdentityRevision)
+		require.NotEqual(t, "2026-01-01T00:00:00Z", state.AttemptedAt)
+		require.Equal(t, "previous_failure", state.Error)
+		require.NoError(t, repo.RecordAccountModelCatalogCommitFailure(ctx, id, saved.ModelCatalogBaseline(),
+			"2026-01-01T00:00:00Z", time.Now().UTC().Format(time.RFC3339Nano)))
+		reloaded, err := repo.GetByID(ctx, id)
+		require.NoError(t, err)
+		require.Equal(t, state, reloaded.ModelCatalogState(), "a stale writer must preserve the newer attempt")
+		if id == rulesID {
+			require.EqualValues(t, 9, state.RulesRevision)
+			require.Equal(t, []string{"grok-4.7"}, service.AccountModelSelectionView(saved).Scope.Models)
+		}
+	}
+	saved, err := repo.GetByID(ctx, identityID)
+	require.NoError(t, err)
+	require.EqualValues(t, 6, saved.ModelCatalogState().IdentityRevision)
+	require.EqualValues(t, 6, saved.GetUpstreamModelCatalog().IdentityRevision)
 }

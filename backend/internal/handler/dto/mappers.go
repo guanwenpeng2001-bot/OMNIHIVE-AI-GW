@@ -2,6 +2,7 @@
 package dto
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 	"time"
@@ -482,6 +483,28 @@ func AccountModelSelectionFromService(account *service.Account) AccountModelSele
 	}
 }
 
+func AccountModelCatalogStateFromService(state service.AccountModelCatalogState) map[string]json.RawMessage {
+	return redactAccountModelCatalogState(struct {
+		service.AccountModelCatalogState
+		IdentityRevision string `json:"identity_revision"`
+		RulesRevision    string `json:"rules_revision"`
+	}{state, strconv.FormatInt(state.IdentityRevision, 10), strconv.FormatInt(state.RulesRevision, 10)})
+}
+
+// Preserve stored extension fields and lossless revision values in account extra.
+func redactAccountModelCatalogState(state any) map[string]json.RawMessage {
+	encoded, err := json.Marshal(state)
+	if err != nil {
+		return nil
+	}
+	var public map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &public); err != nil {
+		return nil
+	}
+	delete(public, "attempted_identity_revision")
+	return public
+}
+
 type AccountModelSelectionUpdate struct {
 	AutoAdded     []string `json:"auto_added"`
 	RulesRevision string   `json:"rules_revision"`
@@ -541,6 +564,8 @@ func redactAccountManagedExtra(extra map[string]any) map[string]any {
 			service.OllamaCloudUsageSnapshotExtraKey,
 			service.ModelSelectionRepairBackupExtraKey:
 			continue
+		case service.UpstreamModelCatalogStateExtraKey:
+			redacted[key] = redactAccountModelCatalogState(value)
 		default:
 			redacted[key] = value
 		}

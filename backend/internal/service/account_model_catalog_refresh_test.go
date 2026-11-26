@@ -126,6 +126,23 @@ func TestInvalidatedCatalogRefreshRetriesOnlyAfterBackoffOrNewIdentity(t *testin
 	require.Equal(t, 2, repo.commits, "a recovered catalog stays out of the recovery-only schedule")
 }
 
+func TestReverseCatalogIdentityMismatchUsesSameRetryInterval(t *testing.T) {
+	now := time.Now()
+	attemptedIdentity := int64(5)
+	state := AccountModelCatalogState{IdentityRevision: 4, AttemptedAt: now.Format(time.RFC3339Nano), AttemptedIdentityRevision: &attemptedIdentity}
+	account := &Account{ID: 23, Status: StatusActive, Extra: map[string]any{
+		UpstreamModelCatalogExtraKey:      AccountModelCatalogSnapshot{IdentityRevision: 5, Complete: true},
+		UpstreamModelCatalogStateExtraKey: state,
+	}}
+	require.True(t, accountCatalogScheduledRefreshDue(account, now, false))
+
+	attemptedIdentity = state.IdentityRevision
+	interval := 6*time.Hour + time.Duration((account.ID*2654435761)%1801-900)*time.Second
+	require.False(t, accountCatalogScheduledRefreshDue(account, now.Add(time.Minute), false))
+	require.False(t, accountCatalogScheduledRefreshDue(account, now.Add(interval-time.Nanosecond), false))
+	require.True(t, accountCatalogScheduledRefreshDue(account, now.Add(interval), false))
+}
+
 func TestModelCatalogRefreshConcurrentManualApply(t *testing.T) {
 	account := &Account{ID: 61, Platform: PlatformDeepseek, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test", "base_url": "https://api.deepseek.com"}}
 	repo := &concurrentCatalogRepository{catalogFixtureRepository: &catalogFixtureRepository{accounts: map[int64]*Account{61: account}}, ready: make(chan struct{}, 1), release: make(chan struct{})}

@@ -3762,12 +3762,11 @@ func (h *AccountHandler) getModelCatalog(c *gin.Context, now time.Time) {
 		effective = account.EffectiveUpstreamModelCatalogForCredentialAccount(credentialAccount)
 	}
 	state := account.ModelCatalogState()
-	state.AttemptedIdentityRevision = nil
 	selection := dto.AccountModelSelectionFromService(account)
 	staleness, lastSuccess := account.ModelCatalogFreshness(now)
 	summary := gin.H{
 		"snapshot": modelCatalogSnapshotResponse(snapshot), "effective_snapshot": modelCatalogSnapshotResponse(effective),
-		"state":    modelCatalogStateResponse{AccountModelCatalogState: state, IdentityRevision: strconv.FormatInt(state.IdentityRevision, 10), RulesRevision: strconv.FormatInt(state.RulesRevision, 10)},
+		"state":    dto.AccountModelCatalogStateFromService(state),
 		"baseline": account.ModelCatalogBaseline(), "synced": snapshot != nil,
 		"complete": false, "observed_at": nil, "snapshot_revision": nil,
 		"discovered_count": 0, "eligible_count": 0, "excluded_count": 0,
@@ -3832,12 +3831,6 @@ func modelCatalogSnapshotResponse(snapshot *service.AccountModelCatalogSnapshot)
 		result.CredentialIdentityRevision = strconv.FormatInt(snapshot.CredentialIdentityRevision, 10)
 	}
 	return result
-}
-
-type modelCatalogStateResponse struct {
-	service.AccountModelCatalogState
-	IdentityRevision string `json:"identity_revision"`
-	RulesRevision    string `json:"rules_revision"`
 }
 
 func (h *AccountHandler) GetPlatformModelPresets(c *gin.Context) {

@@ -26,6 +26,24 @@ type invalidatedModelCatalogLister interface {
 	ListActiveWithInvalidatedModelCatalog(context.Context) ([]Account, error)
 }
 
+type accountModelCatalogAttemptRecorder interface {
+	RecordAccountModelCatalogCommitFailure(context.Context, int64, AccountModelCatalogBaseline, string, string) error
+}
+
+func (s *AccountTestService) recordCatalogCommitFailure(ctx context.Context, id int64, baseline AccountModelCatalogBaseline, previousAttempt, attemptedAt string) {
+	recorder, ok := s.accountRepo.(accountModelCatalogAttemptRecorder)
+	if !ok {
+		return
+	}
+	// A discovery deadline can also expire during commit. Bound this separate
+	// write and let the repository CAS arbitrate if the advisory lock was lost.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := recorder.RecordAccountModelCatalogCommitFailure(ctx, id, baseline, previousAttempt, attemptedAt); err != nil {
+		logger.LegacyPrintf("service.model_catalog_refresh", "account=%d commit_failure_attempt_write_failed", id)
+	}
+}
+
 // ModelCatalogFreshness reports age without removing published members.
 func (account *Account) ModelCatalogFreshness(now time.Time) (staleness, lastSuccess string) {
 	state := account.ModelCatalogState()
@@ -57,7 +75,7 @@ func accountCatalogScheduledRefreshDue(account *Account, now time.Time, periodic
 	if snapshot != nil {
 		snapshotIdentity = snapshot.IdentityRevision
 	}
-	invalidated := snapshotIdentity < state.IdentityRevision
+	invalidated := snapshotIdentity != state.IdentityRevision
 	if invalidated && (state.AttemptedIdentityRevision == nil || *state.AttemptedIdentityRevision != state.IdentityRevision) {
 		return true
 	}

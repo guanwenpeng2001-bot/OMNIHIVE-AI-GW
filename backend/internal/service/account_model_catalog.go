@@ -763,8 +763,9 @@ func (service *AccountTestService) ApplyAccountModelCatalog(ctx context.Context,
 	if !ok {
 		return nil, newUpstreamModelSyncInternalError("Account model catalog persistence unavailable", nil)
 	}
-	catalog, err := service.SyncUpstreamModelCatalog(ctx, account)
 	state := account.ModelCatalogState()
+	previousAttempt := state.AttemptedAt
+	catalog, err := service.SyncUpstreamModelCatalog(ctx, account)
 	state.AttemptedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	state.AttemptedIdentityRevision = &baseline.IdentityRevision
 	// A scheduled discovery can finish successfully but be rejected by the
@@ -802,6 +803,9 @@ func (service *AccountTestService) ApplyAccountModelCatalog(ctx context.Context,
 			}
 		}
 		if commitErr := committer.CommitAccountModelCatalog(ctx, account.ID, baseline, nil, state, nil, false); commitErr != nil {
+			if scheduled {
+				service.recordCatalogCommitFailure(ctx, account.ID, baseline, previousAttempt, state.AttemptedAt)
+			}
 			return nil, newUpstreamModelSyncInternalError("Failed to save model discovery state", commitErr)
 		}
 		if account.Extra == nil {
@@ -833,6 +837,9 @@ func (service *AccountTestService) ApplyAccountModelCatalog(ctx context.Context,
 		return nil, err
 	}
 	if err := committer.CommitAccountModelCatalog(ctx, account.ID, baseline, snapshot, state, metadata, false); err != nil {
+		if scheduled {
+			service.recordCatalogCommitFailure(ctx, account.ID, baseline, previousAttempt, state.AttemptedAt)
+		}
 		return nil, newUpstreamModelSyncInternalError("Failed to save account model catalog", err)
 	}
 	expectedRules := baseline.RulesRevision
