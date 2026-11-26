@@ -214,6 +214,7 @@ func (s *AccountRepoSuite) TestUpdate_SyncSchedulerSnapshotOnCredentialsChange()
 		Status:      service.StatusActive,
 		Schedulable: true,
 		Credentials: map[string]any{
+			"base_url": "https://old.example.test",
 			"model_mapping": map[string]any{
 				"gpt-5": "gpt-5.1",
 			},
@@ -222,7 +223,9 @@ func (s *AccountRepoSuite) TestUpdate_SyncSchedulerSnapshotOnCredentialsChange()
 	cacheRecorder := &schedulerCacheRecorder{}
 	s.repo.schedulerCache = cacheRecorder
 
+	// Generic updates sync credential changes but keep the model mapping, which only the selection writer changes.
 	account.Credentials = map[string]any{
+		"base_url": "https://new.example.test",
 		"model_mapping": map[string]any{
 			"gpt-5": "gpt-5.2",
 		},
@@ -232,9 +235,10 @@ func (s *AccountRepoSuite) TestUpdate_SyncSchedulerSnapshotOnCredentialsChange()
 
 	s.Require().Len(cacheRecorder.setAccounts, 1)
 	s.Require().Equal(account.ID, cacheRecorder.setAccounts[0].ID)
+	s.Require().Equal("https://new.example.test", cacheRecorder.setAccounts[0].Credentials["base_url"])
 	mapping, ok := cacheRecorder.setAccounts[0].Credentials["model_mapping"].(map[string]any)
 	s.Require().True(ok)
-	s.Require().Equal("gpt-5.2", mapping["gpt-5"])
+	s.Require().Equal("gpt-5.1", mapping["gpt-5"])
 }
 
 func (s *AccountRepoSuite) TestUpdateCredentials_SyncsSnapshotAndDurableOutbox() {
