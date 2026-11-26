@@ -6,10 +6,17 @@ This project follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/
 
 ## 0.3.10 - 2026-11-26
 
+### Added
+
+- The account model selector can keep an aliased model available under its original name, and previews the request names the account will serve before saving.
+
 ### Fixed
 
 - Restricted accounts continue to list and serve selected models that have no aliases. Adding an alias keeps its upstream target private unless the original name is explicitly published.
 - Composite groups ignore out-of-scope identity mappings when deciding which platform owns a model.
+- The admin model picker shows no models for accounts set to disable all models.
+- Model probes, capability sync and availability checks include restricted models that have no alias.
+- Restricted DeepSeek accounts keep the literal `[1m]` suffix of selected model names.
 
 ## 0.3.9 - 2026-11-26
 
