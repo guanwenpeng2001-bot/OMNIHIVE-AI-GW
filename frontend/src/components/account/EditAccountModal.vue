@@ -2825,7 +2825,7 @@ import {
   type OpenAIWSMode,
   resolveOpenAIWSModeFromExtra
 } from '@/utils/openaiWsMode'
-import { accountModelAllowlist, buildAccountWorkflowModelPayload, extractAliasTargets, normalizeAccountModelSelection, getPresetMappingsByPlatform, commonErrorCodes, buildModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors, type AccountModelSelectionMode } from '@/composables/useModelWhitelist'
+import { accountModelAllowlist, buildAccountWorkflowModelPayload, normalizeAccountModelSelection, projectModelAliases, getPresetMappingsByPlatform, commonErrorCodes, buildModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors, type AccountModelSelectionMode } from '@/composables/useModelWhitelist'
 import type { AccountWorkflowModelSelection } from '@/types'
 
 interface Props {
@@ -3843,8 +3843,7 @@ const canonicalModelSelectionKey = (
   mappings: ModelMapping[],
   targets: string[] = []
 ) => {
-  const aliasTargets = new Set(extractAliasTargets(mappings))
-  const normalizedTargets = [...new Set(targets.map(target => target.trim()).filter(target => aliasTargets.has(target)))].sort()
+  const normalizedTargets = [...projectModelAliases(mappings, targets).effectivePublicTargets].sort()
   return JSON.stringify({
     mode,
     entries: [

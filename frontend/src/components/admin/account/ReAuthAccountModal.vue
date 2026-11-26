@@ -213,7 +213,7 @@ import WorkBuddyAuthFields from '@/components/account/WorkBuddyAuthFields.vue'
 import { buildWorkBuddyCredentials, extractWorkBuddyOAuthDraft, extractWorkBuddySite, type WorkBuddyOAuthDraft } from '@/components/account/credentialsBuilder'
 import type { WorkBuddySite } from '@/api/admin/workbuddy'
 import { readAccountCredentialDraft, credentialsFromAuthorization, type AccountCredentialDraft } from '@/components/account/accountCredentialDraft'
-import { accountModelAllowlist, buildAccountWorkflowModelPayload, extractAliasTargets, normalizeAccountModelSelection, validateModelRestrictions, translateModelRestrictionErrors, type AccountModelSelectionMode, type ModelMappingEntry } from '@/composables/useModelWhitelist'
+import { accountModelAllowlist, buildAccountWorkflowModelPayload, normalizeAccountModelSelection, projectModelAliases, validateModelRestrictions, translateModelRestrictionErrors, type AccountModelSelectionMode, type ModelMappingEntry } from '@/composables/useModelWhitelist'
 
 import { extractApiErrorMessage } from '@/utils/apiError'
 
@@ -292,8 +292,7 @@ const authorizationSelectionKey = (
   mappings: ModelMappingEntry[],
   publicTargets: string[] = []
 ) => {
-  const aliasTargets = new Set(extractAliasTargets(mappings))
-  const normalizedTargets = [...new Set(publicTargets.map(target => target.trim()).filter(target => aliasTargets.has(target)))].sort()
+  const normalizedTargets = [...projectModelAliases(mappings, publicTargets).effectivePublicTargets].sort()
   return JSON.stringify({
     mode,
     models: [...models].sort(),

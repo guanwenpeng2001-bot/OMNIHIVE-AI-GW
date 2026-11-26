@@ -334,6 +334,7 @@
           :aria-label="t('admin.accounts.requestModel')"
           :placeholder="t('admin.accounts.requestModel')"
           @input="updateMapping(index, 'from', $event)"
+          @change="commitMappingEdits"
         />
         <input
           :value="mapping.to"
@@ -341,6 +342,7 @@
           :aria-label="t('admin.accounts.actualModel')"
           :placeholder="t('admin.accounts.actualModel')"
           @input="updateMapping(index, 'to', $event)"
+          @change="commitMappingEdits"
         />
         <button type="button" class="btn btn-secondary" @click="removeMapping(index)">
           {{ t('common.delete') }}
@@ -422,16 +424,29 @@
         <span v-if="!denyAll && (currentMode === 'restricted' || availableRequestNames.length > 0)" class="text-xs text-secondary">{{ availableRequestNames.length }}</span>
       </div>
       <p v-if="denyAll" class="text-xs text-secondary">{{ t('admin.accounts.modelSync.availableRequestNamesDenyAll') }}</p>
-      <div v-else-if="availableRequestNames.length > 0" class="flex flex-wrap gap-1.5">
-        <span
-          v-for="name in availableRequestNames"
-          :key="name"
-          data-testid="available-request-name"
-          class="inline-flex max-w-full break-all rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 font-mono text-xs text-[var(--foreground)]"
-        >
-          {{ name }}
-        </span>
-      </div>
+      <template v-else-if="availableRequestNames.length > 0 || wildcardRequestPatterns.length > 0">
+        <div v-if="availableRequestNames.length > 0" class="flex flex-wrap gap-1.5">
+          <span
+            v-for="name in availableRequestNames"
+            :key="name"
+            data-testid="available-request-name"
+            class="inline-flex max-w-full break-all rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 font-mono text-xs text-[var(--foreground)]"
+          >
+            {{ name }}
+          </span>
+        </div>
+        <div v-if="wildcardRequestPatterns.length > 0" data-testid="available-wildcard-rules" class="flex flex-wrap items-center gap-1.5 text-xs text-secondary">
+          <span>{{ t('admin.accounts.modelSync.availableWildcardRules') }}</span>
+          <span
+            v-for="pattern in wildcardRequestPatterns"
+            :key="pattern"
+            data-testid="available-wildcard-rule"
+            class="inline-flex max-w-full break-all rounded-md border border-dashed border-[var(--border)] bg-[var(--surface-2)]/60 px-2 py-0.5 font-mono text-xs text-[var(--foreground)]"
+          >
+            {{ pattern }}
+          </span>
+        </div>
+      </template>
       <p v-else-if="currentMode === 'inherit'" class="text-xs text-secondary">{{ t('admin.accounts.modelSync.availableRequestNamesInheritAll') }}</p>
       <p v-else class="text-xs text-secondary">{{ t('admin.accounts.modelSync.availableRequestNamesEmpty') }}</p>
     </div>
@@ -478,9 +493,10 @@ import {
   accountModelAllowlist,
   buildUpdateModelAllowlistRequest,
   computePublicRequestNames,
-  extractAliasTargets,
+  computeWildcardAliasPatterns,
   extractPublicAliasTargets,
   isLegacySystemFreezeAllowlist,
+  projectModelAliases,
   splitModelMappingObject,
   validateModelRestrictions,
   translateModelRestrictionErrors,
@@ -541,7 +557,7 @@ const emit = defineEmits<{
   'upstream-synced': []
   'catalog-applied': []
   'selection-saved': [account: Account]
-  'catalog-hydrated': [selection: { mode?: AccountModelSelectionMode; models: string[]; mappings: ModelMappingEntry[]; publicTargets: string[] }]
+  'catalog-hydrated': [selection: { publicTargets: string[] }]
   'validation-failed': [errors: ModelRestrictionError[]]
 }>()
 
@@ -660,23 +676,12 @@ const setPublicTargets = (next: string[]) => {
     localPublicTargets.value = normalized
   }
 }
-const aliasTargets = computed(() => extractAliasTargets(props.modelMappings ?? []))
-const aliasTargetsMap = computed(() => {
-  const map = new Map<string, string[]>()
-  for (const entry of props.modelMappings ?? []) {
-    const from = entry.from.trim()
-    const to = entry.to.trim()
-    if (!from || !to || from === to || to.includes('*')) continue
-    const list = map.get(to) ?? []
-    list.push(from)
-    map.set(to, list)
-  }
-  return map
-})
-const effectivePublicTargetSet = computed(() => {
-  const validTargets = new Set(aliasTargets.value)
-  return new Set(effectivePublicTargets.value.map(target => target.trim()).filter(target => validTargets.has(target)))
-})
+const aliasProjection = computed(() =>
+  projectModelAliases(props.modelMappings ?? [], effectivePublicTargets.value)
+)
+const aliasTargets = computed(() => aliasProjection.value.aliasTargets)
+const aliasTargetsMap = computed(() => aliasProjection.value.aliasTargetsMap)
+const effectivePublicTargetSet = computed(() => new Set(aliasProjection.value.effectivePublicTargets))
 watch(aliasTargets, (targets) => {
   const targetSet = new Set(targets)
   const current = effectivePublicTargets.value
@@ -777,8 +782,7 @@ function selectionKey(
         : hasEntries || mode === 'restricted'
           ? 'restricted'
           : 'inherit'
-  const validAliasTargets = new Set(extractAliasTargets(mappings))
-  const normalizedPublicTargets = [...new Set(publicTargets.map(target => target.trim()).filter(target => validAliasTargets.has(target)))].sort()
+  const normalizedPublicTargets = [...projectModelAliases(mappings, publicTargets).effectivePublicTargets].sort()
   return JSON.stringify({
     mode: resolvedMode,
     entries: [...models.map(model => [model, model]), ...mappings.map(mapping => [mapping.from, mapping.to])]
@@ -793,6 +797,12 @@ const availableRequestNames = computed(() =>
     models: props.modelValue,
     mappings: props.modelMappings ?? [],
     publicTargets: effectivePublicTargets.value
+  })
+)
+const wildcardRequestPatterns = computed(() =>
+  computeWildcardAliasPatterns({
+    mode: currentMode.value,
+    mappings: props.modelMappings ?? []
   })
 )
 const savedSelectionFingerprint = ref(selectionFingerprint.value)
@@ -1071,9 +1081,6 @@ const loadCatalog = async () => {
             if (JSON.stringify(currentSorted) !== JSON.stringify(nextSorted)) {
               emit('update:publicTargets', catalogPublicTargets)
               emit('catalog-hydrated', {
-                mode: summary.mode,
-                models: summary.models ?? [],
-                mappings: splitModelMappingObject(summary.model_mapping).modelMappings,
                 publicTargets: catalogPublicTargets
               })
               savedSelectionFingerprint.value = selectionKey(
@@ -1196,15 +1203,57 @@ const ensureRestrictedModeOnEdit = () => {
   }
 }
 
+const foldAliasTargetInlineIdentities = (
+  excludedTargets: ReadonlySet<string> = new Set(),
+  targetPublicSet?: Set<string>
+): boolean => {
+  const currentMappings = props.modelMappings ?? []
+  const validTargets = new Set(aliasTargets.value)
+  const inlineTargetsToFold = new Set<string>()
+  const nextMappings = currentMappings.filter((entry) => {
+    const from = entry.from.trim()
+    const to = entry.to.trim()
+    if (from && from === to && validTargets.has(to)) {
+      inlineTargetsToFold.add(to)
+      return false
+    }
+    return true
+  })
+  if (inlineTargetsToFold.size === 0) return false
+  const nextModels = [...props.modelValue]
+  const existingModels = new Set(nextModels.map(model => model.trim()))
+  for (const foldedTarget of inlineTargetsToFold) {
+    if (!existingModels.has(foldedTarget)) {
+      nextModels.push(foldedTarget)
+      existingModels.add(foldedTarget)
+    }
+    if (targetPublicSet && !excludedTargets.has(foldedTarget)) {
+      targetPublicSet.add(foldedTarget)
+    }
+  }
+  if (nextModels.length !== props.modelValue.length) {
+    emit('update:modelValue', nextModels)
+  }
+  emit('update:modelMappings', nextMappings)
+  return true
+}
+
+const commitMappingEdits = () => {
+  const next = new Set(effectivePublicTargetSet.value)
+  if (foldAliasTargetInlineIdentities(new Set(), next)) {
+    setPublicTargets([...next])
+  }
+}
+
 const toggleAliasTargetPublic = (target: string, checked: boolean) => {
   ensureRestrictedModeOnEdit()
-  const validTargets = new Set(aliasTargets.value)
-  const next = new Set(effectivePublicTargets.value.map(item => item.trim()).filter(item => validTargets.has(item)))
+  const next = new Set(effectivePublicTargetSet.value)
   if (checked) {
     next.add(target)
   } else {
     next.delete(target)
   }
+  foldAliasTargetInlineIdentities(checked ? new Set() : new Set([target]), next)
   setPublicTargets([...next])
 }
 

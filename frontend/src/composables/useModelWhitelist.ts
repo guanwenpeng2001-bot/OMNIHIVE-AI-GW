@@ -215,34 +215,77 @@ export function buildModelMappingObject(
   return Object.keys(mapping).length > 0 ? mapping : null
 }
 
-export function extractAliasTargets(modelMappings: readonly ModelMappingEntry[]): string[] {
-  const targets = new Set<string>()
+export interface ModelAliasProjection {
+  aliasTargets: string[]
+  aliasTargetsMap: Map<string, string[]>
+  literalAliasKeys: string[]
+  wildcardAliasKeys: string[]
+  inlineIdentities: string[]
+  effectivePublicTargets: string[]
+}
+
+export function projectModelAliases(
+  modelMappings: readonly ModelMappingEntry[] = [],
+  publicTargets: readonly string[] = []
+): ModelAliasProjection {
+  const aliasTargetsSet = new Set<string>()
+  const aliasTargetsMap = new Map<string, string[]>()
+  const literalAliasKeysSet = new Set<string>()
+  const wildcardAliasKeysSet = new Set<string>()
+  const inlineIdentitiesSet = new Set<string>()
+
   for (const entry of modelMappings) {
     const from = entry.from.trim()
     const to = entry.to.trim()
-    if (!from || !to || from === to || to.includes('*')) continue
-    targets.add(to)
+    if (!from || !to) continue
+    if (from === to) {
+      if (!from.includes('*') && !from.includes('?')) {
+        inlineIdentitiesSet.add(from)
+      }
+      continue
+    }
+    if (!isValidWildcardPattern(from) || to.includes('*')) continue
+    aliasTargetsSet.add(to)
+    const list = aliasTargetsMap.get(to) ?? []
+    if (!list.includes(from)) {
+      list.push(from)
+    }
+    aliasTargetsMap.set(to, list)
+    if (from.includes('*')) {
+      wildcardAliasKeysSet.add(from)
+    } else {
+      literalAliasKeysSet.add(from)
+    }
   }
-  return [...targets]
+
+  const effectivePublicTargetsSet = new Set<string>()
+  for (const rawTarget of [...inlineIdentitiesSet, ...publicTargets]) {
+    const target = rawTarget.trim()
+    if (target && aliasTargetsSet.has(target)) {
+      effectivePublicTargetsSet.add(target)
+    }
+  }
+
+  return {
+    aliasTargets: [...aliasTargetsSet],
+    aliasTargetsMap,
+    literalAliasKeys: [...literalAliasKeysSet].sort(),
+    wildcardAliasKeys: [...wildcardAliasKeysSet].sort(),
+    inlineIdentities: [...inlineIdentitiesSet],
+    effectivePublicTargets: [...effectivePublicTargetsSet]
+  }
+}
+
+export function extractAliasTargets(modelMappings: readonly ModelMappingEntry[]): string[] {
+  return projectModelAliases(modelMappings).aliasTargets
 }
 
 export function extractPublicAliasTargets(modelMapping?: Record<string, unknown> | null): string[] {
   if (!modelMapping || typeof modelMapping !== 'object') {
     return []
   }
-  const aliasTargets = new Set<string>()
-  const identities = new Set<string>()
-  for (const [rawFrom, rawTo] of Object.entries(modelMapping)) {
-    const from = rawFrom.trim()
-    const to = typeof rawTo === 'string' ? rawTo.trim() : ''
-    if (!from || !to) continue
-    if (from === to) {
-      if (!from.includes('*')) identities.add(from)
-    } else if (!to.includes('*')) {
-      aliasTargets.add(to)
-    }
-  }
-  return [...identities].filter(target => aliasTargets.has(target))
+  const { allowedModels, modelMappings } = splitModelMappingObject(modelMapping)
+  return projectModelAliases(modelMappings, allowedModels).effectivePublicTargets
 }
 
 export function computePublicRequestNames(input: {
@@ -254,26 +297,14 @@ export function computePublicRequestNames(input: {
   if (input.mode === 'deny_all') {
     return []
   }
-  const aliasKeys = new Set<string>()
-  const aliasTargets = new Set<string>()
-  const inlineIdentities = new Set<string>()
-  for (const entry of input.mappings ?? []) {
-    const from = entry.from.trim()
-    const to = entry.to.trim()
-    if (!from || !to) continue
-    if (from === to) {
-      if (!from.includes('*')) inlineIdentities.add(from)
-      continue
-    }
-    if (!isValidWildcardPattern(from) || to.includes('*')) continue
-    aliasKeys.add(from)
-    aliasTargets.add(to)
-  }
+  const projection = projectModelAliases(input.mappings ?? [], input.publicTargets ?? [])
   if (input.mode === 'inherit') {
-    return [...aliasKeys].sort()
+    return [...new Set([...projection.literalAliasKeys, ...projection.inlineIdentities])].sort()
   }
+  const aliasTargets = new Set(projection.aliasTargets)
+  const literalAliasKeys = new Set(projection.literalAliasKeys)
   const scope = new Set<string>()
-  for (const model of input.models) {
+  for (const model of [...input.models, ...projection.inlineIdentities]) {
     const trimmed = model.trim()
     if (trimmed && !trimmed.includes('*') && !trimmed.includes('?')) {
       scope.add(trimmed)
@@ -282,28 +313,31 @@ export function computePublicRequestNames(input: {
   for (const target of aliasTargets) {
     scope.add(target)
   }
-  const publicTargetSet = new Set<string>()
-  for (const rawTarget of [...inlineIdentities, ...(input.publicTargets ?? [])]) {
-    const target = rawTarget.trim()
-    if (target && aliasTargets.has(target) && scope.has(target)) {
-      publicTargetSet.add(target)
-    }
-  }
   const names = new Set<string>()
   for (const model of scope) {
-    if (!aliasTargets.has(model) && !aliasKeys.has(model)) {
+    if (!aliasTargets.has(model) && !literalAliasKeys.has(model)) {
       names.add(model)
     }
   }
-  for (const alias of aliasKeys) {
+  for (const alias of literalAliasKeys) {
     names.add(alias)
   }
-  for (const target of publicTargetSet) {
-    if (!aliasKeys.has(target)) {
+  for (const target of projection.effectivePublicTargets) {
+    if (!literalAliasKeys.has(target)) {
       names.add(target)
     }
   }
   return [...names].sort()
+}
+
+export function computeWildcardAliasPatterns(input: {
+  mode: AccountModelSelectionMode
+  mappings?: readonly ModelMappingEntry[]
+}): string[] {
+  if (input.mode === 'deny_all') {
+    return []
+  }
+  return projectModelAliases(input.mappings ?? []).wildcardAliasKeys
 }
 
 export function buildExplicitModelMappingObject(
@@ -311,23 +345,15 @@ export function buildExplicitModelMappingObject(
   publicTargets: readonly string[] = []
 ): Record<string, string> {
   const mapping: Record<string, string> = {}
-  const aliasTargets = new Set<string>()
-  const inlineIdentities = new Set<string>()
   for (const entry of modelMappings) {
     const from = entry.from.trim()
     const to = entry.to.trim()
-    if (!from || !to) continue
-    if (from === to) {
-      if (!from.includes('*')) inlineIdentities.add(from)
-      continue
-    }
+    if (!from || !to || from === to) continue
     if (!isValidWildcardPattern(from) || to.includes('*')) continue
     mapping[from] = to
-    aliasTargets.add(to)
   }
-  for (const rawTarget of [...inlineIdentities, ...publicTargets]) {
-    const target = rawTarget.trim()
-    if (!target || target.includes('*') || !aliasTargets.has(target)) continue
+  const { effectivePublicTargets } = projectModelAliases(modelMappings, publicTargets)
+  for (const target of effectivePublicTargets) {
     if (!(target in mapping)) {
       mapping[target] = target
     }

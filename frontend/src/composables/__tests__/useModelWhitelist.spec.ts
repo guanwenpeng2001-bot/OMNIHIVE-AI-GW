@@ -13,6 +13,8 @@ import {
   buildModelMappingObject,
   buildUpdateModelAllowlistRequest,
   computePublicRequestNames,
+  computeWildcardAliasPatterns,
+  extractAliasTargets,
   extractPublicAliasTargets,
   getModelsByPlatform,
   modelCandidateKey,
@@ -20,6 +22,7 @@ import {
   isLegacySystemFreezeAllowlist,
   mergeMappingTargetsIntoModels,
   normalizeAccountModelSelection,
+  projectModelAliases,
   splitModelMappingObject
 } from '../useModelWhitelist'
 
@@ -498,16 +501,57 @@ describe('v0.3.9 unified account model selection helpers', () => {
         ],
         publicTargets: ['public-target', 'plain-model']
       })
-    ).toEqual(['family-*', 'plain-model', 'priv-alias', 'pub-alias', 'public-target'])
+    ).toEqual(['plain-model', 'priv-alias', 'pub-alias', 'public-target'])
+
+    expect(
+      computeWildcardAliasPatterns({
+        mode: 'restricted',
+        mappings: [
+          { from: 'priv-alias', to: 'private-target' },
+          { from: 'family-*', to: 'private-target' }
+        ]
+      })
+    ).toEqual(['family-*'])
+
+    expect(
+      computePublicRequestNames({
+        mode: 'restricted',
+        models: [],
+        mappings: [{ from: 'gpt-5.4', to: 'gpt-5.4' }]
+      })
+    ).toEqual(['gpt-5.4'])
+
+    expect(
+      computePublicRequestNames({
+        mode: 'restricted',
+        models: [],
+        mappings: [
+          { from: 'alias', to: 'target-model' },
+          { from: 'target-model', to: 'target-model' }
+        ],
+        publicTargets: []
+      })
+    ).toEqual(['alias', 'target-model'])
 
     expect(
       computePublicRequestNames({
         mode: 'inherit',
         models: [],
-        mappings: [{ from: 'alias-only', to: 'target-model' }],
+        mappings: [
+          { from: 'alias-only', to: 'target-model' },
+          { from: 'gpt-5.4', to: 'gpt-5.4' },
+          { from: 'family-*', to: 'target-model' }
+        ],
         publicTargets: ['target-model']
       })
-    ).toEqual(['alias-only'])
+    ).toEqual(['alias-only', 'gpt-5.4'])
+
+    expect(
+      computeWildcardAliasPatterns({
+        mode: 'inherit',
+        mappings: [{ from: 'family-*', to: 'target-model' }]
+      })
+    ).toEqual(['family-*'])
 
     expect(
       computePublicRequestNames({
@@ -517,6 +561,51 @@ describe('v0.3.9 unified account model selection helpers', () => {
         publicTargets: ['target-model']
       })
     ).toEqual([])
+    expect(
+      computeWildcardAliasPatterns({
+        mode: 'deny_all',
+        mappings: [{ from: 'family-*', to: 'target-model' }]
+      })
+    ).toEqual([])
+  })
+
+  it('ignores invalid wildcard mappings in alias projections and target collectors', () => {
+    const mappings = [
+      { from: 'bad*wild', to: 'bad-target' },
+      { from: '*prefix', to: 'bad-target' },
+      { from: 'good-*', to: 'good-target' },
+      { from: 'exact-alias', to: 'exact-target' },
+      { from: 'bad-target', to: 'bad-target' }
+    ]
+    expect(extractAliasTargets(mappings)).toEqual(['good-target', 'exact-target'])
+    expect(projectModelAliases(mappings, ['bad-target', 'good-target'])).toEqual({
+      aliasTargets: ['good-target', 'exact-target'],
+      aliasTargetsMap: new Map([
+        ['good-target', ['good-*']],
+        ['exact-target', ['exact-alias']]
+      ]),
+      literalAliasKeys: ['exact-alias'],
+      wildcardAliasKeys: ['good-*'],
+      inlineIdentities: ['bad-target'],
+      effectivePublicTargets: ['good-target']
+    })
+    expect(
+      extractPublicAliasTargets({
+        'bad*wild': 'bad-target',
+        'bad-target': 'bad-target',
+        'good-*': 'good-target',
+        'good-target': 'good-target'
+      })
+    ).toEqual(['good-target'])
+    expect(
+      computePublicRequestNames({
+        mode: 'restricted',
+        models: [],
+        mappings,
+        publicTargets: ['bad-target']
+      })
+    ).toEqual(['bad-target', 'exact-alias'])
+    expect(computeWildcardAliasPatterns({ mode: 'restricted', mappings })).toEqual(['good-*'])
   })
 
   it('validates emptyRestrictedSelection, denyAllReasonRequired and new error keys', () => {

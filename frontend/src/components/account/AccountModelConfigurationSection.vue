@@ -25,7 +25,7 @@ const emit = defineEmits<{
   'update:mode': [mode: AccountModelSelectionMode]
   'update:reason': [reason: string]
   'selection-saved': [account: Account]
-  'catalog-hydrated': [selection: { mode?: AccountModelSelectionMode; models: string[]; mappings: ModelMappingEntry[]; publicTargets: string[] }]
+  'catalog-hydrated': [selection: { publicTargets: string[] }]
 }>()
 const { t } = useI18n()
 const selector = ref<InstanceType<typeof ModelWhitelistSelector>>()
