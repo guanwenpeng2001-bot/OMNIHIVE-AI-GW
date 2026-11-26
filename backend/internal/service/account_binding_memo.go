@@ -19,11 +19,11 @@ type accountBindingMemo struct {
 }
 
 type accountBindingMemoKey struct {
-	model, endpoint, finalModel, dispatchModel, registry string
-	compact, thinking, thinkingKnown, endpointOnly       bool
-	member                                               int
-	runtime                                              uint64
-	credential                                           *Account
+	model, endpoint, finalModel, dispatchModel, registry               string
+	compact, thinking, thinkingKnown, endpointOnly, allowInternalModel bool
+	member                                                             int
+	runtime                                                            uint64
+	credential                                                         *Account
 }
 
 type accountBindingMemoValue struct {
@@ -66,7 +66,7 @@ func accountBindingComputation(ctx context.Context, account *Account, model stri
 		dispatchModel: options.MessagesDispatchModel, compact: options.Compact,
 		thinking: thinking, thinkingKnown: thinkingKnown, member: member, endpointOnly: endpointOnly,
 		registry: ModelRegistrySnapshotFromContext(ctx).Version(), runtime: xai.RuntimeModelMappingVersion(),
-		credential: options.CredentialAccount,
+		credential: options.CredentialAccount, allowInternalModel: options.allowInternalModel,
 	}
 	// Model rewriting is independent of the endpoint. Catalog projections ask
 	// about ten endpoints for each model, so share that computation across them.

@@ -2913,7 +2913,7 @@ export interface components {
             mode?: components["schemas"]["AdminModelSelectionMode"];
             /** @description Compatibility field. Inherit corresponds to false. Restricted and deny_all correspond to true. */
             enabled?: boolean;
-            /** @description Concrete upstream IDs. The restricted scope is the union of these IDs and all explicit mapping targets. That union must be nonempty. Inherit and deny_all require an empty or omitted array. */
+            /** @description Concrete upstream IDs. The restricted scope is the union of these IDs and all non-identity mapping targets. That union must be nonempty. Inherit and deny_all require an empty or omitted array. */
             models?: string[];
             /** @description Omit or use null to retain the current mapping. An empty object clears it. Deny_all rejects a nonempty mapping. */
             model_mapping?: components["schemas"]["AdminModelSelectionMapping"] | null;
@@ -3120,7 +3120,7 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        /** @description Explicit request alias to upstream model ID mapping */
+        /** @description Request name to upstream model ID mapping. In restricted mode, unaliased scope members are callable directly. Aliases to in-scope targets are callable by alias and the original target name requires an explicit identity mapping. Redundant or out-of-scope identities are removed on save. */
         AdminModelSelectionMapping: {
             [key: string]: string;
         };

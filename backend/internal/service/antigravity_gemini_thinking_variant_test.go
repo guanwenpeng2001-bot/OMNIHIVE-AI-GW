@@ -74,3 +74,17 @@ func TestAntigravityThinkingVariantBindingRetainsPublicModel(t *testing.T) {
 	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{}}
 	require.ErrorIs(t, validateAccountForwardModel(ctx, nil, account, binding.UpstreamModel, "generate_content"), ErrAccountModelUnsupported)
 }
+
+func TestAntigravityRestrictedNamesDoNotAcquireImplicitVariants(t *testing.T) {
+	account := approvedAntigravityVariantAccount()
+	gateway := &AntigravityGatewayService{}
+	const bare, low = "gemini-3-flash", "gemini-3-flash-low"
+	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{low}}
+	require.Empty(t, gateway.getMappedModelForThinkingLevel(account, bare, "low"))
+	require.False(t, ResolveAccountModelBinding(context.Background(), account, bare, AccountModelBindingOptions{}).Supported)
+	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{bare, low}}
+	require.Equal(t, bare, gateway.getMappedModelForThinkingLevel(account, bare, "low"))
+	binding := ResolveAccountModelBinding(context.Background(), account, bare, AccountModelBindingOptions{Endpoint: "generate_content"})
+	require.True(t, binding.Supported)
+	require.Equal(t, bare, binding.UpstreamModel)
+}

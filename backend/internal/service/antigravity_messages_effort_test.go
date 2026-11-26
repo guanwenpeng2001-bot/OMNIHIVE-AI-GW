@@ -24,7 +24,7 @@ func TestAntigravityMessagesExplicitEffortUnavailable(t *testing.T) {
 			account := approvedAntigravityVariantAccount()
 			account.Credentials["model_mapping"] = map[string]any{"gemini-3-flash-high": "gemini-3-flash-high"}
 			account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{"gemini-3-flash-high"}}
-			if model == "public-flash" {
+			if model != "gemini-3-flash-high" {
 				account.Credentials["model_mapping"] = map[string]any{model: "gemini-3-flash-high"}
 			}
 			body := []byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hello"}],"output_config":{"effort":"low"}}`, model))

@@ -349,6 +349,10 @@ func InvalidAccountCatalogAliases(account *Account, snapshot *AccountModelCatalo
 	diagnosticAccount := &Account{ID: account.ID, Platform: account.Platform, Type: account.Type,
 		Credentials: account.Credentials, Extra: StripAccountModelCatalogExtra(account.Extra),
 		Status: StatusActive, Schedulable: true}
+	selection := account.restrictedPublicModels()
+	if selection != nil {
+		diagnosticAccount.Extra[UpstreamModelAllowlistExtraKey] = account.Extra[UpstreamModelAllowlistExtraKey]
+	}
 	if snapshot != nil {
 		evidence := *snapshot
 		evidence.CredentialAccountID = 0
@@ -356,7 +360,11 @@ func InvalidAccountCatalogAliases(account *Account, snapshot *AccountModelCatalo
 		diagnosticAccount.Extra[UpstreamModelCatalogExtraKey] = &evidence
 		diagnosticAccount.Extra[UpstreamModelCatalogStateExtraKey] = AccountModelCatalogState{IdentityRevision: evidence.IdentityRevision}
 	}
-	for alias := range configuredModelMapping(account) {
+	mapping := configuredModelMapping(account)
+	for alias, target := range mapping {
+		if selection != nil && alias == target && !selection.scope[target] {
+			continue
+		}
 		if !ResolveAccountModelBinding(context.Background(), diagnosticAccount, alias, AccountModelBindingOptions{Endpoint: CompositeRouteEndpointAny}).Supported {
 			invalid = append(invalid, alias)
 		}

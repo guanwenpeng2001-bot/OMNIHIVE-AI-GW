@@ -1820,7 +1820,7 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if req.RequestedModel != "" && GatewayRequestPlanFromContext(ctx) != nil && !s.service.supportsOpenAIAccountModel(ctx, account, req.RequestedModel, req.RequiredCapability) {
 		return false, "model_not_supported"
 	}
-	if req.RequestedModel != "" && !account.IsModelSupported(req.RequestedModel) {
+	if req.RequestedModel != "" && !account.supportsRoutedModel(ctx, req.RequestedModel) {
 		return false, "model_not_supported"
 	}
 	if req.GroupID != nil && s != nil && s.service != nil &&

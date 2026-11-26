@@ -917,8 +917,8 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 	return matchWildcardMappingResult(mapping, requestedModel)
 }
 
-// IsModelSupported 检查模型是否在 model_mapping 中（支持通配符）
-// 如果未配置 mapping，返回 true（允许所有模型）。
+// IsModelSupported reports account-level public request-name support.
+// In inherit mode a configured mapping remains a key whitelist.
 //
 // 例外：OpenAI OAuth 账号（Codex 上游）的空映射会排除明确属于其他厂商
 // 家族的模型（deepseek-*/glm-* 等）——转发阶段 normalizeOpenAIModelForUpstream
@@ -928,6 +928,9 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 func (a *Account) IsModelSupported(requestedModel string) bool {
 	if a.ModelSelectionDeniesAll() {
 		return false
+	}
+	if selection := a.restrictedPublicModels(); selection != nil {
+		return selection.allows(a, requestedModel, false)
 	}
 	if a.Platform == PlatformQianwen && (IsRetiredQianwenModel(requestedModel) || IsRetiredQianwenModel(a.GetMappedModel(requestedModel))) {
 		return false
@@ -958,8 +961,11 @@ func (a *Account) GetMappedModel(requestedModel string) string {
 }
 
 // ResolveMappedModel 获取映射后的模型名，并返回是否命中了账号级映射。
-// matched=true 表示命中了精确映射或通配符映射，即使映射结果与原模型名相同。
+// Restricted direct selections also return matched=true, as do explicit identity mappings.
 func (a *Account) ResolveMappedModel(requestedModel string) (mappedModel string, matched bool) {
+	if selection := a.restrictedPublicModels(); selection != nil {
+		return selection.resolve(requestedModel)
+	}
 	mapping := a.GetModelMapping()
 	if len(mapping) == 0 {
 		return requestedModel, false

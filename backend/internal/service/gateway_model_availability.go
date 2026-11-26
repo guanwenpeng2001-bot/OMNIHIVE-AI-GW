@@ -106,7 +106,12 @@ func (s *GatewayService) DiagnoseModelAvailabilityForPlatform(
 		// A live request plan must not turn diagnosis into full admission:
 		// expiry, runtime state and missing capability evidence are not a
 		// persistent model exclusion. Only the saved mapping and scope apply.
-		if s.isModelSupportedByAccount(&accounts[i], requestedModel) && accountModelScopeAllowsDiagnosis(ctx, &accounts[i], requestedModel) {
+		account := &accounts[i]
+		supported := s.isModelSupportedByAccount(account, requestedModel)
+		if account.restrictedPublicModels() != nil {
+			supported = account.supportsRoutedModel(ctx, requestedModel)
+		}
+		if supported && accountModelScopeAllowsDiagnosis(ctx, account, requestedModel) {
 			diag.HasModelSupport = true
 			return diag
 		}
@@ -124,7 +129,8 @@ func accountModelScopeAllowsDiagnosis(ctx context.Context, account *Account, req
 	if !scope.Enabled {
 		return true
 	}
-	if defaultMode, websocket := ctx.Value(openAIWebSocketSelectionKey{}).(string); websocket && account.ResolveOpenAIResponsesWebSocketV2Mode(defaultMode) == OpenAIWSIngressModePassthrough && configuredPassthroughModel(account, requestedModel) {
+	selection := account.restrictedPublicModels()
+	if defaultMode, websocket := ctx.Value(openAIWebSocketSelectionKey{}).(string); websocket && account.ResolveOpenAIResponsesWebSocketV2Mode(defaultMode) == OpenAIWSIngressModePassthrough && (selection != nil || configuredPassthroughModel(account, requestedModel)) {
 		// Match the relay's literal wire scope without admitting on transient
 		// account state or fetching dynamic binding evidence.
 		return slices.Contains(scope.Models, requestedModel)
@@ -132,7 +138,8 @@ func accountModelScopeAllowsDiagnosis(ctx context.Context, account *Account, req
 	if accountUsesHTTPResponsesPassthrough(ctx, account, "") && configuredPassthroughModel(account, normalizeAccountBindingWireModel(account, requestedModel)) {
 		return slices.Contains(scope.Models, normalizeAccountBindingWireModel(account, requestedModel))
 	}
-	model, resolved := computeAccountBindingModel(ctx, account, requestedModel, AccountModelBindingOptions{})
+	options := AccountModelBindingOptions{allowInternalModel: accountContextRewritesModel(ctx, requestedModel, "")}
+	model, resolved := computeAccountBindingModel(ctx, account, requestedModel, options)
 	if !resolved {
 		return false
 	}

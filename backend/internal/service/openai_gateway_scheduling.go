@@ -448,7 +448,7 @@ func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Con
 	if requestedModel != "" && GatewayRequestPlanFromContext(ctx) != nil && !requestAccountCatalogSupports(ctx, account, requestedModel, requestPlanCatalogEndpoint(ctx, account)) {
 		return "model_not_supported"
 	}
-	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
+	if requestedModel != "" && !account.supportsRoutedModel(ctx, requestedModel) {
 		return "model_not_supported"
 	}
 	if !account.SupportsOpenAIEndpointCapability(requiredCapability) {

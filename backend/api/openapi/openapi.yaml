@@ -5882,7 +5882,7 @@ components:
           type: array
           items: {type: string}
           description: >-
-            Concrete upstream IDs. The restricted scope is the union of these IDs and all explicit mapping targets. That union must be nonempty. Inherit and deny_all require an empty or omitted array.
+            Concrete upstream IDs. The restricted scope is the union of these IDs and all non-identity mapping targets. That union must be nonempty. Inherit and deny_all require an empty or omitted array.
         model_mapping:
           anyOf:
             - $ref: '#/components/schemas/AdminModelSelectionMapping'
@@ -6221,7 +6221,9 @@ components:
     AdminModelSelectionMapping:
       type: object
       additionalProperties: {type: string}
-      description: Explicit request alias to upstream model ID mapping
+      description: >
+        Request name to upstream model ID mapping. In restricted mode, unaliased scope members are callable directly. Aliases to in-scope targets are callable by alias and the original target name requires an explicit identity mapping. Redundant or out-of-scope identities are removed on save.
+
     AdminModelSelectionMode:
       type: string
       enum: [inherit, restricted, deny_all]

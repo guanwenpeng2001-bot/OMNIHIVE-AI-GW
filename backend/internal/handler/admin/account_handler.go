@@ -3124,6 +3124,19 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		response.Success(c, entries)
 	}
 
+	if service.AccountModelSelectionView(account).Mode == service.ModelSelectionRestricted {
+		names, _ := account.ConfiguredPublicModelNames()
+		catalogSource = "configured"
+		models := make([]map[string]string, 0, len(names))
+		for _, name := range names {
+			if !strings.ContainsAny(name, "*?") {
+				models = append(models, map[string]string{"id": name, "display_name": name})
+			}
+		}
+		respond(models)
+		return
+	}
+
 	if account.IsCursor() {
 		ids := service.DefaultCursorModelIDs()
 		if h.accountTestService != nil {

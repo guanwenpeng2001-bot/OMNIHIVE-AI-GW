@@ -305,6 +305,9 @@ func (r *VisibleModelResolver) resolveScoped(ctx context.Context, groupID *int64
 
 // A mapping target is private unless explicitly also declared as a public key.
 func internalMappedTarget(account *Account, model string) bool {
+	if selection := account.restrictedPublicModels(); selection != nil {
+		return selection.targets[model] && !selection.allows(account, model, false)
+	}
 	mapping := configuredModelMapping(account)
 	if _, public := mapping[model]; public {
 		return false
@@ -369,7 +372,8 @@ func (s *GatewayService) resolveVisibleModelIDs(ctx context.Context, groupID *in
 				addCandidate(member.ID)
 			}
 		}
-		for alias := range account.GetModelMapping() {
+		names, _ := account.ConfiguredPublicModelNames()
+		for _, alias := range names {
 			if strings.Contains(alias, "*") {
 				view.FullyEnumerable = false
 			} else {

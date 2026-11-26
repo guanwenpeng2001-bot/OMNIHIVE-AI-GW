@@ -516,7 +516,7 @@ func TestAccountModelSelectionHTTPPostgres(t *testing.T) {
 
 	t.Run("responses passthrough and compact eligibility", func(t *testing.T) {
 		const ordinary, compact = "gpt-4.1-mini", "compact-private"
-		mapping := map[string]string{ordinary: ordinary}
+		mapping := map[string]string{ordinary: ordinary, "responses-alias": ordinary}
 		created := request(t, http.MethodPost, selectionAccountsPath, map[string]any{
 			"name": responsesName, "platform": service.PlatformOpenAI, "type": "apikey", "concurrency": 1,
 			"credentials": map[string]any{

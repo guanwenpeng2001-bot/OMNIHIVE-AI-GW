@@ -29,6 +29,7 @@ type attemptFrameConn struct {
 	repo                AccountRepository
 	account             *Account
 	plan                func() *GatewayRequestPlan
+	forwardModel        func() string
 	sentResponseCreates atomic.Int32
 }
 
@@ -38,6 +39,7 @@ func (c *attemptFrameConn) WriteFrame(ctx context.Context, kind coderws.MessageT
 	}
 	isResponseCreate := strings.TrimSpace(gjson.GetBytes(payload, "type").String()) == "response.create"
 	if isResponseCreate {
+		ctx = withOpenAIWSForwardModel(ctx, c.forwardModel)
 		if err := validateAccountPassthroughForwardModel(ctx, c.repo, c.account, gjson.GetBytes(payload, "model").String()); err != nil {
 			return err
 		}
@@ -990,6 +992,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		requestPlan = hooks.RequestPlan
 	}
 	checkedUpstream := &attemptFrameConn{FrameConn: upstreamFrameConn, accountID: account.ID, repo: s.accountRepo, account: account, plan: requestPlan}
+	if hooks != nil {
+		checkedUpstream.forwardModel = hooks.ForwardModel
+	}
 	upstreamFrameConn = checkedUpstream
 	relayUpstreamFrameConn := &openAIWSPassthroughFirstOutputFrameConn{
 		inner:             upstreamFrameConn,

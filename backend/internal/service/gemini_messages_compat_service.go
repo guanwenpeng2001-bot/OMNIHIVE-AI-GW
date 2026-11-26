@@ -420,6 +420,9 @@ func (s *GeminiMessagesCompatService) isBetterGeminiAccount(candidate, current *
 
 // isModelSupportedByAccount 根据账户平台检查模型支持
 func (s *GeminiMessagesCompatService) isModelSupportedByAccount(account *Account, requestedModel string) bool {
+	if account.ModelSelectionDeniesAll() {
+		return false
+	}
 	if account.Platform == PlatformAntigravity {
 		if strings.TrimSpace(requestedModel) == "" {
 			return true
@@ -500,7 +503,8 @@ func (s *GeminiMessagesCompatService) AntigravityGeminiModelIDs(ctx context.Cont
 		if account.Platform != PlatformAntigravity || (requireMixed && !account.IsMixedSchedulingEnabled()) {
 			continue
 		}
-		for model := range account.GetModelMapping() {
+		names, _ := account.ConfiguredPublicModelNames()
+		for _, model := range names {
 			if isAntigravityGeminiModel(model) {
 				seen[model] = struct{}{}
 			}

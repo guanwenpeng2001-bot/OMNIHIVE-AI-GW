@@ -376,7 +376,8 @@ type AccountModelBindingOptions struct {
 	Compact               bool
 	CredentialAccount     *Account
 	// Passthrough carries the actual Responses WS ingress/forwarding decision.
-	Passthrough bool
+	Passthrough        bool
+	allowInternalModel bool
 }
 
 type modelCatalogEndpointContextKey struct{}
@@ -431,7 +432,14 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 		model = forward.model
 		options.Compact = options.Compact || forward.useCompactModelMapping
 	}
-	if defaultMode, websocket := ctx.Value(openAIWebSocketSelectionKey{}).(string); websocket && options.FinalModel == "" && account.ResolveOpenAIResponsesWebSocketV2Mode(defaultMode) == OpenAIWSIngressModePassthrough && configuredPassthroughModel(account, model) {
+	selection := account.restrictedPublicModels()
+	if selection != nil {
+		options.allowInternalModel = accountContextRewritesModel(ctx, model, binding.PublicModel)
+		if !selection.allows(account, model, options.allowInternalModel) {
+			return binding
+		}
+	}
+	if defaultMode, websocket := ctx.Value(openAIWebSocketSelectionKey{}).(string); websocket && options.FinalModel == "" && account.ResolveOpenAIResponsesWebSocketV2Mode(defaultMode) == OpenAIWSIngressModePassthrough && (selection != nil || configuredPassthroughModel(account, model)) {
 		options.Passthrough = true
 		options.FinalModel = model
 	}
@@ -591,7 +599,11 @@ func accountUsesHTTPResponsesPassthrough(ctx context.Context, account *Account, 
 
 func computeAccountBindingModel(ctx context.Context, account *Account, model string, options AccountModelBindingOptions) (string, bool) {
 	if options.FinalModel != "" {
-		if len(configuredModelMapping(account)) > 0 {
+		if selection := account.restrictedPublicModels(); selection != nil {
+			if !selection.allowsWireModel(account, options.FinalModel) {
+				return "", false
+			}
+		} else if len(configuredModelMapping(account)) > 0 {
 			selected := false
 			for _, target := range configuredModelMapping(account) {
 				if exactConfiguredModel(target) && normalizeAccountBindingWireModel(account, target) == options.FinalModel {
@@ -619,26 +631,34 @@ func computeAccountBindingModel(ctx context.Context, account *Account, model str
 		}
 		model = options.FinalModel
 	} else {
-		variant, variantResolved := resolveGeminiThinkingVariantForLevel(account, model, "")
-		_, matched := resolveRequestedModelInMapping(configuredModelMapping(account), model)
-		if !matched {
-			normalized := normalizeRequestedModelForLookup(account.Platform, model)
-			if normalized != model {
-				_, matched = resolveRequestedModelInMapping(configuredModelMapping(account), normalized)
+		var variant string
+		var variantResolved bool
+		if selection := account.restrictedPublicModels(); selection != nil {
+			if !selection.allows(account, model, options.allowInternalModel) {
+				return "", false
 			}
-		}
-		discoveredAntigravity := false
-		if account.Platform == PlatformAntigravity && !matched && !variantResolved {
-			var scope AccountModelAllowlist
-			decodeCatalogExtra(account.Extra, UpstreamModelAllowlistExtraKey, &scope)
-			if legacyUpgradeFreeze(scope) {
-				if snapshot := account.GetUpstreamModelCatalog(); snapshot != nil && slices.Contains(snapshot.DiscoveredModels, model) {
-					discoveredAntigravity = true
+		} else {
+			variant, variantResolved = resolveGeminiThinkingVariantForLevel(account, model, "")
+			_, matched := resolveRequestedModelInMapping(configuredModelMapping(account), model)
+			if !matched {
+				normalized := normalizeRequestedModelForLookup(account.Platform, model)
+				if normalized != model {
+					_, matched = resolveRequestedModelInMapping(configuredModelMapping(account), normalized)
 				}
 			}
-		}
-		if len(configuredModelMapping(account)) > 0 && !matched && !variantResolved && !discoveredAntigravity && options.MessagesDispatchModel == "" {
-			return "", false
+			discoveredAntigravity := false
+			if account.Platform == PlatformAntigravity && !matched && !variantResolved {
+				var scope AccountModelAllowlist
+				decodeCatalogExtra(account.Extra, UpstreamModelAllowlistExtraKey, &scope)
+				if legacyUpgradeFreeze(scope) {
+					if snapshot := account.GetUpstreamModelCatalog(); snapshot != nil && slices.Contains(snapshot.DiscoveredModels, model) {
+						discoveredAntigravity = true
+					}
+				}
+			}
+			if len(configuredModelMapping(account)) > 0 && !matched && !variantResolved && !discoveredAntigravity && options.MessagesDispatchModel == "" {
+				return "", false
+			}
 		}
 		switch {
 		case account.IsBedrock():

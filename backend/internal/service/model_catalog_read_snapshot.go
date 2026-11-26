@@ -106,13 +106,14 @@ type ModelCatalogBatchAccountRepository interface {
 }
 
 type catalogReadEvidence struct {
-	bindings    accountBindingMemo
-	implemented map[string][][]string
-	discovered  map[string]bool
-	catalog     *AccountModelCatalogSnapshot
-	state       AccountModelCatalogState
-	mapping     map[string]string
-	members     map[string][]AccountCatalogModel
+	publicModels *restrictedPublicModels
+	bindings     accountBindingMemo
+	implemented  map[string][][]string
+	discovered   map[string]bool
+	catalog      *AccountModelCatalogSnapshot
+	state        AccountModelCatalogState
+	mapping      map[string]string
+	members      map[string][]AccountCatalogModel
 }
 
 type catalogGroupSnapshotKey struct{}
@@ -127,12 +128,13 @@ type catalogGroupSnapshot struct {
 func prepareCatalogReadAccount(account *Account, parent *Account) {
 	account.modelCatalogCredentialAccount = parent
 	evidence := &catalogReadEvidence{
-		catalog:     account.EffectiveUpstreamModelCatalogForCredentialAccount(parent),
-		state:       account.ModelCatalogState(),
-		mapping:     configuredModelMapping(account),
-		members:     make(map[string][]AccountCatalogModel),
-		implemented: make(map[string][][]string),
-		discovered:  make(map[string]bool),
+		publicModels: account.restrictedPublicModels(),
+		catalog:      account.EffectiveUpstreamModelCatalogForCredentialAccount(parent),
+		state:        account.ModelCatalogState(),
+		mapping:      configuredModelMapping(account),
+		members:      make(map[string][]AccountCatalogModel),
+		implemented:  make(map[string][][]string),
+		discovered:   make(map[string]bool),
 	}
 	if evidence.catalog != nil {
 		for _, model := range evidence.catalog.DiscoveredModels {

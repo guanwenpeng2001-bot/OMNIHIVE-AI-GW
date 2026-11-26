@@ -2731,6 +2731,16 @@ func (s *GatewayService) isModelSupportedByAccountWithContext(ctx context.Contex
 			return false
 		}
 	}
+	selection := account.restrictedPublicModels()
+	if selection != nil && account.Platform != PlatformAntigravity {
+		if account.IsBedrock() {
+			_, valid := ResolveBedrockModelID(account, requestedModel)
+			if !valid {
+				return false
+			}
+		}
+		return account.supportsRoutedModel(ctx, requestedModel)
+	}
 	if account.Platform == PlatformAntigravity {
 		if strings.TrimSpace(requestedModel) == "" {
 			return true
@@ -2745,6 +2755,9 @@ func (s *GatewayService) isModelSupportedByAccountWithContext(ctx context.Contex
 			finalModel := applyThinkingModelSuffix(mapped, enabled)
 			if finalModel == mapped {
 				return true // thinking 后缀未改变模型名，映射已通过
+			}
+			if selection != nil {
+				return selection.scope[finalModel]
 			}
 			return account.IsModelSupported(finalModel)
 		}
@@ -2764,13 +2777,17 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 		}
 		return mapAntigravityModel(account, requestedModel) != ""
 	}
+	if account.restrictedPublicModels() != nil {
+		if !account.IsModelSupported(requestedModel) {
+			return false
+		}
+		if !account.IsBedrock() {
+			return true
+		}
+	}
 	if account.IsBedrock() {
 		_, ok := ResolveBedrockModelID(account, requestedModel)
 		return ok
-	}
-	// OpenAI 透传模式：仅替换认证，允许所有模型
-	if account.Platform == PlatformOpenAI && account.IsOpenAIPassthroughEnabled() && len(account.GetModelMapping()) == 0 {
-		return true
 	}
 	// OAuth/SetupToken 账号使用 Anthropic 标准映射（短ID → 长ID）
 	if account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {

@@ -181,3 +181,49 @@ func TestModelSelectionDenyAllAppliesWithPassthrough(t *testing.T) {
 	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{}, Reason: "system_upgrade_baseline_freeze"}
 	require.False(t, account.ModelSelectionDeniesAll())
 }
+
+func TestRestrictedPublicModelSelection(t *testing.T) {
+	account := Account{
+		Platform: PlatformOpenAI,
+		Credentials: map[string]any{"model_mapping": map[string]string{
+			"alias": "family-private", "family-*": "family-private", "family-outside-*": "unselected",
+			"unselected": "unselected",
+		}},
+		Extra: map[string]any{UpstreamModelAllowlistExtraKey: AccountModelAllowlist{
+			Enabled: true, Models: []string{"family-private", "family-direct"},
+		}},
+	}
+	names, configured := account.ConfiguredPublicModelNames()
+	require.True(t, configured)
+	require.Equal(t, []string{"alias", "family-*", "family-direct"}, names)
+	for name, target := range map[string]string{
+		"alias": "family-private", "family-other": "family-private", "family-outside-qualified": "family-private",
+		"family-direct": "family-direct",
+	} {
+		require.True(t, account.IsModelSupported(name), name)
+		require.Equal(t, target, account.GetMappedModel(name), name)
+		require.True(t, explicitModelMappingClaims(account, name), name)
+		require.True(t, codexExplicitModelMappingClaims(account, name), name)
+	}
+	for _, name := range []string{"family-private", "unselected", "other"} {
+		require.False(t, account.IsModelSupported(name), name)
+		require.False(t, explicitModelMappingClaims(account, name), name)
+		require.False(t, codexExplicitModelMappingClaims(account, name), name)
+	}
+}
+
+func TestRestrictedIdentityNormalizationIsIdempotent(t *testing.T) {
+	scope := AccountModelAllowlist{Enabled: true, Models: []string{"first", "second"}}
+	mapping := map[string]string{"alias-*": "first", "first": "first", "second": "second", "outside": "outside"}
+	command := ModelSelectionCommand{Mode: ModelSelectionRestricted, Models: scope.Models, ModelMapping: mapping}
+	saved, err := NormalizeModelSelection(scope, mapping, command)
+	require.NoError(t, err)
+	require.True(t, saved.MappingChanged)
+	require.Equal(t, scope.Models, saved.Models)
+	require.Empty(t, saved.AutoAdded)
+	require.Equal(t, map[string]string{"alias-*": "first", "first": "first"}, saved.ModelMapping)
+	replayed, err := NormalizeModelSelection(saved.Scope, saved.ModelMapping, command)
+	require.NoError(t, err)
+	require.False(t, replayed.Changed)
+	require.False(t, replayed.MappingChanged)
+}

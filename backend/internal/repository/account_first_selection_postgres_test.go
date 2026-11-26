@@ -141,8 +141,8 @@ func TestAccountLegacyDiscoveryPreservesSelectionPostgres(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, current.GetModelMapping())
 	require.Equal(t, originalBaseline.RulesRevision, current.ModelCatalogState().RulesRevision)
-	manual := map[string]string{"manual": "manual"}
-	_, err = repository.ReplaceAccountModelSelectionScope(ctx, legacy.ID, originalBaseline, service.AccountModelAllowlist{Enabled: true, Models: []string{"manual"}}, &manual)
+	manual := map[string]string{"manual": "manual", "alias": "manual", "direct": "direct"}
+	_, err = repository.ReplaceAccountModelSelectionScope(ctx, legacy.ID, originalBaseline, service.AccountModelAllowlist{Enabled: true, Models: []string{"manual", "direct"}}, &manual)
 	require.NoError(t, err, "catalog discovery does not invalidate a selection form")
 	current, err = repository.GetByID(ctx, legacy.ID)
 	require.NoError(t, err)
@@ -154,5 +154,7 @@ func TestAccountLegacyDiscoveryPreservesSelectionPostgres(t *testing.T) {
 	current, err = repository.GetByID(ctx, legacy.ID)
 	require.NoError(t, err)
 	require.Equal(t, baseline.RulesRevision, current.ModelCatalogState().RulesRevision)
-	require.Equal(t, manual, current.GetModelMapping())
+	require.Equal(t, map[string]string{"manual": "manual", "alias": "manual"}, current.GetModelMapping())
+	require.Equal(t, []string{"direct", "manual"}, service.AccountModelSelectionView(current).Models)
+	require.True(t, current.IsModelSupported("direct"))
 }

@@ -30,3 +30,12 @@ func openAIForwardModelFromContext(ctx context.Context) (openAIForwardModel, boo
 	forwardModel, ok := ctx.Value(openAIForwardModelContextKey{}).(openAIForwardModel)
 	return forwardModel, ok
 }
+
+func withOpenAIWSForwardModel(ctx context.Context, forwardModel func() string) context.Context {
+	if forwardModel != nil {
+		if model := forwardModel(); model != "" {
+			return WithOpenAIForwardModel(ctx, model, false)
+		}
+	}
+	return ctx
+}
