@@ -959,4 +959,77 @@ describe('Model selection across provider platforms', () => {
     expect(batchCreateMock.mock.calls[0]?.[0]?.[0]?.credentials).not.toHaveProperty('model_mapping')
     wrapper.unmount()
   })
+
+  it('reads back publicTargets on alias targets, detects toggle dirty state, and includes target identity in Cursor draft', async () => {
+    const cursorAccount = makeAccount({
+      id: 602,
+      platform: 'cursor',
+      type: 'oauth',
+      credentials: {
+        machine_id: 'a'.repeat(64),
+        mac_machine_id: 'b'.repeat(64),
+        model_mapping: {
+          'cursor-alias': 'composer-2.5',
+          'composer-2.5': 'composer-2.5',
+          'plain-model': 'plain-model'
+        }
+      },
+      extra: {
+        upstream_model_allowlist: { enabled: true, models: ['composer-2.5', 'plain-model'] }
+      }
+    })
+    const wrapper = mountEditModal(cursorAccount)
+    await flushPromises()
+
+    const selector = wrapper.getComponent(ModelWhitelistSelector)
+    expect(selector.props('publicTargets')).toEqual(['composer-2.5'])
+    expect(wrapper.find('[data-testid="unsaved-model-selection-banner"]').exists()).toBe(false)
+
+    const toggle = selector.get('[data-testid="toggle-alias-target-public"]')
+    expect((toggle.element as HTMLInputElement).checked).toBe(true)
+    await toggle.setValue(false)
+    await flushPromises()
+    expect(selector.props('publicTargets')).toEqual([])
+    expect(wrapper.find('[data-testid="unsaved-model-selection-banner"]').exists()).toBe(true)
+
+    await toggle.setValue(true)
+    await flushPromises()
+    expect(wrapper.find('[data-testid="unsaved-model-selection-banner"]').exists()).toBe(false)
+
+    selector.vm.$emit('update:modelMappings', [{ from: 'cursor-alias', to: 'composer-2.5' }, { from: 'new-alias', to: 'plain-model' }])
+    await flushPromises()
+
+    apiPostMock.mockResolvedValue({ data: { credential_draft: 'cursor-draft-2', revision: 'rev-2', platform: 'cursor', type: 'oauth', expires_at: '2099-01-01T00:00:00Z' } })
+    batchCreateMock.mockResolvedValue({ success: 1, failed: 0, results: [{ success: true, id: 602 }] })
+    getAccountByIdMock.mockResolvedValue(cursorAccount)
+    const vm = wrapper.vm as unknown as {
+      cursorCredentialDraft: { credential_draft: string; revision: string; platform: string; type: string; expires_at: string } | null
+    }
+    vm.cursorCredentialDraft = {
+      credential_draft: 'cursor-draft-2',
+      revision: 'draft-rev-2',
+      platform: 'cursor',
+      type: 'oauth',
+      expires_at: '2099-01-01T00:00:00Z'
+    }
+    await flushPromises()
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(apiPostMock).toHaveBeenCalledWith(
+      '/admin/accounts/credential-drafts/cursor-draft-2/review',
+      expect.objectContaining({
+        existing_account_id: 602,
+        model_selection: { mode: 'restricted', models: ['composer-2.5', 'plain-model'] },
+        credentials: {
+          model_mapping: {
+            'cursor-alias': 'composer-2.5',
+            'new-alias': 'plain-model',
+            'composer-2.5': 'composer-2.5'
+          }
+        }
+      })
+    )
+    wrapper.unmount()
+  })
 })

@@ -495,6 +495,7 @@ describe('WorkBuddy ConnectionWizardView & ReAuthAccountModal flows', () => {
         mode: 'restricted',
         models: ['hunyuan-t1', 'hunyuan-turbos'],
         model_mapping: {
+          'hunyuan-t1': 'hunyuan-t1',
           'wb-alias': 'hunyuan-t1',
           'claude-*': 'hunyuan-t1'
         }

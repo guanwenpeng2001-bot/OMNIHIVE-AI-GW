@@ -12,6 +12,8 @@ import {
   buildExplicitModelMappingObject,
   buildModelMappingObject,
   buildUpdateModelAllowlistRequest,
+  computePublicRequestNames,
+  extractPublicAliasTargets,
   getModelsByPlatform,
   modelCandidateKey,
   getPresetMappingsByPlatform,
@@ -195,6 +197,7 @@ describe('v0.3.9 unified account model selection helpers', () => {
       mode: 'restricted',
       models: ['openrouter/free', 'opencode/zen-free'],
       mappings: [],
+      publicTargets: [],
       reason: '免费模型范围'
     })
   })
@@ -218,6 +221,7 @@ describe('v0.3.9 unified account model selection helpers', () => {
       mode: 'inherit',
       models: [],
       mappings: [],
+      publicTargets: [],
       reason: ''
     })
   })
@@ -240,12 +244,45 @@ describe('v0.3.9 unified account model selection helpers', () => {
       mode: 'deny_all',
       models: [],
       mappings: [{ from: 'alias-a', to: 'vendor/model-a' }],
+      publicTargets: [],
       reason: '上游额度耗尽暂停'
     })
     expect(normalizeAccountModelSelection({ account: { credentials: {}, extra: {} } })).toEqual({
       mode: 'inherit',
       models: [],
       mappings: [],
+      publicTargets: [],
+      reason: ''
+    })
+  })
+
+  it('extracts publicTargets only for alias targets on read-back and ignores non-alias identity entries', () => {
+    const legacyProductionAccount = {
+      platform: 'openai',
+      credentials: {
+        model_mapping: {
+          'gpt-5.4': 'gpt-5.4',
+          'gpt-alias': 'gpt-5.4',
+          'claude-sonnet': 'claude-sonnet',
+          'priv-alias': 'private-deployment'
+        }
+      },
+      extra: {
+        upstream_model_allowlist: {
+          enabled: true,
+          models: ['gpt-5.4', 'claude-sonnet', 'private-deployment']
+        }
+      }
+    }
+    expect(extractPublicAliasTargets(legacyProductionAccount.credentials.model_mapping)).toEqual(['gpt-5.4'])
+    expect(normalizeAccountModelSelection({ account: legacyProductionAccount })).toEqual({
+      mode: 'restricted',
+      models: ['gpt-5.4', 'claude-sonnet', 'private-deployment'],
+      mappings: [
+        { from: 'gpt-alias', to: 'gpt-5.4' },
+        { from: 'priv-alias', to: 'private-deployment' }
+      ],
+      publicTargets: ['gpt-5.4'],
       reason: ''
     })
   })
@@ -264,6 +301,21 @@ describe('v0.3.9 unified account model selection helpers', () => {
     expect(buildExplicitModelMappingObject(mappings)).toEqual({
       'public-alias': 'vendor/model-b',
       'claude-*': 'vendor/model-c'
+    })
+    expect(buildExplicitModelMappingObject(mappings, ['vendor/model-b', 'vendor/model-a'])).toEqual({
+      'public-alias': 'vendor/model-b',
+      'claude-*': 'vendor/model-c',
+      'vendor/model-b': 'vendor/model-b'
+    })
+    expect(
+      buildExplicitModelMappingObject([
+        { from: 'public-alias', to: 'vendor/model-b' },
+        { from: 'vendor/model-b', to: 'vendor/model-b' },
+        { from: 'vendor/model-a', to: 'vendor/model-a' }
+      ])
+    ).toEqual({
+      'public-alias': 'vendor/model-b',
+      'vendor/model-b': 'vendor/model-b'
     })
   })
 
@@ -336,6 +388,26 @@ describe('v0.3.9 unified account model selection helpers', () => {
       expected_rules_revision: '14'
     })
     expect(denyAllReq).not.toHaveProperty('model_mapping')
+
+    expect(
+      buildUpdateModelAllowlistRequest({
+        mode: 'restricted',
+        models: ['vendor/model-a', 'vendor/model-b'],
+        mappings: [{ from: 'alias-b', to: 'vendor/model-b' }],
+        publicTargets: ['vendor/model-b', 'vendor/model-a'],
+        expectedRulesRevision: '15'
+      })
+    ).toEqual({
+      mode: 'restricted',
+      enabled: true,
+      models: ['vendor/model-a', 'vendor/model-b'],
+      reason: '',
+      expected_rules_revision: '15',
+      model_mapping: {
+        'alias-b': 'vendor/model-b',
+        'vendor/model-b': 'vendor/model-b'
+      }
+    })
   })
 
   it('builds workflow model payloads without sending empty model_mapping on inherit by default', () => {
@@ -396,6 +468,55 @@ describe('v0.3.9 unified account model selection helpers', () => {
       reason: '维护停用'
     })
     expect(denyWorkflow).not.toHaveProperty('model_mapping')
+
+    expect(
+      buildAccountWorkflowModelPayload({
+        mode: 'restricted',
+        models: ['model-a'],
+        mappings: [{ from: 'alias-b', to: 'model-b' }],
+        publicTargets: ['model-b', 'model-a']
+      })
+    ).toEqual({
+      mode: 'restricted',
+      models: ['model-a', 'model-b'],
+      model_mapping: {
+        'alias-b': 'model-b',
+        'model-b': 'model-b'
+      }
+    })
+  })
+
+  it('computes available public request names according to restricted, inherit, and deny_all rules', () => {
+    expect(
+      computePublicRequestNames({
+        mode: 'restricted',
+        models: ['plain-model', 'private-target', 'public-target'],
+        mappings: [
+          { from: 'priv-alias', to: 'private-target' },
+          { from: 'pub-alias', to: 'public-target' },
+          { from: 'family-*', to: 'private-target' }
+        ],
+        publicTargets: ['public-target', 'plain-model']
+      })
+    ).toEqual(['family-*', 'plain-model', 'priv-alias', 'pub-alias', 'public-target'])
+
+    expect(
+      computePublicRequestNames({
+        mode: 'inherit',
+        models: [],
+        mappings: [{ from: 'alias-only', to: 'target-model' }],
+        publicTargets: ['target-model']
+      })
+    ).toEqual(['alias-only'])
+
+    expect(
+      computePublicRequestNames({
+        mode: 'deny_all',
+        models: ['plain-model'],
+        mappings: [{ from: 'alias-only', to: 'target-model' }],
+        publicTargets: ['target-model']
+      })
+    ).toEqual([])
   })
 
   it('validates emptyRestrictedSelection, denyAllReasonRequired and new error keys', () => {

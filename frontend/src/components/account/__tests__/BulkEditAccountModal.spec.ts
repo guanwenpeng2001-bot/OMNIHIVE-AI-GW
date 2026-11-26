@@ -290,6 +290,22 @@ describe('BulkEditAccountModal', () => {
       model_selection: { mode: 'restricted', models: ['claude-sonnet-4-6'] },
       credentials: { model_mapping: { 'alias-a': 'claude-sonnet-4-6' } }
     })
+
+    // 开启“同时允许使用原模型名请求”时发送 target: target，未设别名的模型不发身份项
+    selector.vm.$emit('update:modelValue', ['claude-sonnet-4-6', 'claude-haiku-4-5'])
+    selector.vm.$emit('update:publicTargets', ['claude-sonnet-4-6'])
+    await flushPromises()
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenLastCalledWith([1, 2], {
+      model_selection: { mode: 'restricted', models: ['claude-sonnet-4-6', 'claude-haiku-4-5'] },
+      credentials: {
+        model_mapping: {
+          'alias-a': 'claude-sonnet-4-6',
+          'claude-sonnet-4-6': 'claude-sonnet-4-6'
+        }
+      }
+    })
     wrapper.unmount()
   })
 

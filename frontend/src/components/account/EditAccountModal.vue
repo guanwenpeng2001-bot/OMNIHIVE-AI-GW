@@ -2547,8 +2547,8 @@
       </details>
       <div v-show="editActiveTab === 'all' || editActiveTab === 'models'" class="space-y-4">
       <AccountModelConfigurationSection ref="modelConfigurationSection" :candidate-identity="modelCandidateIdentity" :active="show" :account-id="cursorCredentialDraft ? undefined : account.id" :platform="account.platform" :sync-credentials="cursorDraftPreview" :allow-deny-all="!cursorCredentialDraft"
-        v-model="allowedModels" v-model:mappings="modelMappings" v-model:mode="modelSelectionMode" v-model:reason="modelSelectionReason" :presets="presetMappings"
-        :discovery-disabled="compatibleDiscoveryDisabled(selectedCompatibleProvider, compatibleDraft)" :connection-context="modelDiscoveryContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="savedModelGeneration" :persisted-selection="persistedModelSelection" :register-actions="registerModelSelectionActions" :model-allowlist="accountModelAllowlist(account)" @selection-saved="handleModelSelectionSaved">
+        v-model="allowedModels" v-model:mappings="modelMappings" v-model:public-targets="publicTargets" v-model:mode="modelSelectionMode" v-model:reason="modelSelectionReason" :presets="presetMappings"
+        :discovery-disabled="compatibleDiscoveryDisabled(selectedCompatibleProvider, compatibleDraft)" :connection-context="modelDiscoveryContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="savedModelGeneration" :persisted-selection="persistedModelSelection" :register-actions="registerModelSelectionActions" :model-allowlist="accountModelAllowlist(account)" @selection-saved="handleModelSelectionSaved" @catalog-hydrated="handleCatalogSelectionHydrated">
         <template #model-rules>
       <ModelAccessRuleEditor v-if="show" :key="account.id" :path="`/admin/accounts/${account.id}`" />
         </template>
@@ -2825,7 +2825,7 @@ import {
   type OpenAIWSMode,
   resolveOpenAIWSModeFromExtra
 } from '@/utils/openaiWsMode'
-import { accountModelAllowlist, buildAccountWorkflowModelPayload, normalizeAccountModelSelection, getPresetMappingsByPlatform, commonErrorCodes, buildModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors, type AccountModelSelectionMode } from '@/composables/useModelWhitelist'
+import { accountModelAllowlist, buildAccountWorkflowModelPayload, extractAliasTargets, normalizeAccountModelSelection, getPresetMappingsByPlatform, commonErrorCodes, buildModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors, type AccountModelSelectionMode } from '@/composables/useModelWhitelist'
 import type { AccountWorkflowModelSelection } from '@/types'
 
 interface Props {
@@ -3311,6 +3311,7 @@ const isBedrockAPIKeyMode = computed(() =>
   (props.account?.credentials as Record<string, unknown>)?.auth_mode === 'apikey'
 )
 const modelMappings = ref<ModelMapping[]>([])
+const publicTargets = ref<string[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
@@ -3839,15 +3840,20 @@ const normalizePoolModeRetryCount = (value: number) => {
 const canonicalModelSelectionKey = (
   mode: AccountModelSelectionMode,
   models: string[],
-  mappings: ModelMapping[]
-) =>
-  JSON.stringify({
+  mappings: ModelMapping[],
+  targets: string[] = []
+) => {
+  const aliasTargets = new Set(extractAliasTargets(mappings))
+  const normalizedTargets = [...new Set(targets.map(target => target.trim()).filter(target => aliasTargets.has(target)))].sort()
+  return JSON.stringify({
     mode,
     entries: [
       ...models.map(model => [model, model]),
       ...mappings.map(mapping => [mapping.from, mapping.to])
-    ].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+    ].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
+    publicTargets: mode === 'restricted' ? normalizedTargets : []
   })
+}
 
 const canonicalCompactMappingKey = (mappings: ModelMapping[]) =>
   JSON.stringify(
@@ -3861,8 +3867,9 @@ const persistedModelSelection = ref<{
   mode: AccountModelSelectionMode
   models: string[]
   mappings: ModelMapping[]
+  publicTargets: string[]
   reason?: string
-}>({ mode: 'inherit', models: [], mappings: [], reason: '' })
+}>({ mode: 'inherit', models: [], mappings: [], publicTargets: [], reason: '' })
 const savedCompactMappingKey = ref(canonicalCompactMappingKey([]))
 const effectiveModelSelectionMode = computed<AccountModelSelectionMode>(() => {
   if (
@@ -3875,11 +3882,12 @@ const effectiveModelSelectionMode = computed<AccountModelSelectionMode>(() => {
 })
 const modelSelectionDirty = computed(
   () =>
-    canonicalModelSelectionKey(effectiveModelSelectionMode.value, allowedModels.value, modelMappings.value) !==
+    canonicalModelSelectionKey(effectiveModelSelectionMode.value, allowedModels.value, modelMappings.value, publicTargets.value) !==
     canonicalModelSelectionKey(
       persistedModelSelection.value.mode,
       persistedModelSelection.value.models,
-      persistedModelSelection.value.mappings
+      persistedModelSelection.value.mappings,
+      persistedModelSelection.value.publicTargets
     )
 )
 const hasUnsavedModelSelection = computed(
@@ -3900,8 +3908,8 @@ const canTriggerModelSelectionSave = computed(() => Boolean(modelSelectionAction
 
 const extractAccountModelSelection = (
   newAccount: Account | null
-): { mode: AccountModelSelectionMode; allowedModels: string[]; modelMappings: ModelMapping[]; reason: string } => {
-  if (!newAccount) return { mode: 'inherit', allowedModels: [], modelMappings: [], reason: '' }
+): { mode: AccountModelSelectionMode; allowedModels: string[]; modelMappings: ModelMapping[]; publicTargets: string[]; reason: string } => {
+  if (!newAccount) return { mode: 'inherit', allowedModels: [], modelMappings: [], publicTargets: [], reason: '' }
   const credentials = newAccount.credentials as Record<string, unknown> | undefined
   const allowlist = accountModelAllowlist(newAccount)
   if (
@@ -3921,6 +3929,7 @@ const extractAccountModelSelection = (
       mode: normalized.mode,
       allowedModels: normalized.models,
       modelMappings: normalized.mappings,
+      publicTargets: normalized.publicTargets,
       reason: normalized.reason
     }
   }
@@ -3932,6 +3941,7 @@ const extractAccountModelSelection = (
     mode: normalized.mode,
     allowedModels: normalized.models,
     modelMappings: normalized.mappings,
+    publicTargets: normalized.publicTargets,
     reason: normalized.reason
   }
 }
@@ -3942,6 +3952,7 @@ const hydrateModelSelectionFromAccount = (newAccount: Account | null, preserveDr
     mode: parsed.mode,
     models: [...parsed.allowedModels],
     mappings: parsed.modelMappings.map(entry => ({ ...entry })),
+    publicTargets: [...parsed.publicTargets],
     reason: parsed.reason
   }
   if (preserveDraft) return
@@ -3949,10 +3960,19 @@ const hydrateModelSelectionFromAccount = (newAccount: Account | null, preserveDr
   modelSelectionReason.value = parsed.reason
   allowedModels.value = parsed.allowedModels
   modelMappings.value = parsed.modelMappings
+  publicTargets.value = parsed.publicTargets
   modelRestrictionMode.value =
     parsed.modelMappings.length > 0 && parsed.allowedModels.length === 0
       ? 'mapping'
       : 'whitelist'
+}
+
+const handleCatalogSelectionHydrated = (payload: { publicTargets: string[] }) => {
+  persistedModelSelection.value = {
+    ...persistedModelSelection.value,
+    publicTargets: [...payload.publicTargets]
+  }
+  publicTargets.value = [...payload.publicTargets]
 }
 
 const buildCursorDraftModelPatch = (): {
@@ -3976,6 +3996,7 @@ const buildCursorDraftModelPatch = (): {
     mode,
     models: allowedModels.value,
     mappings: modelMappings.value,
+    publicTargets: publicTargets.value,
     clearMappingsOnInherit: initialHadMapping
   })
   const modelSelection: AccountWorkflowModelSelection = {
@@ -4015,7 +4036,7 @@ const modelDiscoveryContext = computed(() => JSON.stringify([
   antigravityProjectId.value, headerOverrideEnabled.value, headerOverrideRows.value, grokOAuthBaseUrl.value, anthropicAPIKeyAuthScheme.value,
   openAIResponsesMode.value, mixedScheduling.value
 ]))
-const modelConnectionContext = computed(() => JSON.stringify([modelDiscoveryContext.value, effectiveModelSelectionMode.value, allowedModels.value, modelMappings.value, openAICompactModelMappings.value]))
+const modelConnectionContext = computed(() => JSON.stringify([modelDiscoveryContext.value, effectiveModelSelectionMode.value, allowedModels.value, modelMappings.value, publicTargets.value, openAICompactModelMappings.value]))
 const savedModelDiscovery = ref('')
 const modelConfigurationDirty = computed(() => modelDiscoveryContext.value !== savedModelDiscovery.value)
 const markModelConfigurationSaved = () => {
