@@ -20,6 +20,9 @@
       <Select v-if="pendingAccountRequests.length > 1" v-model="selectedReviewIndex" :options="pendingAccountRequests.map((payload, index) => ({ value: index, label: payload.name }))" />
       <p v-else class="input-hint">{{ selectedReviewRequest?.name }}</p>
       <AccountModelConfigurationSection v-model="allowedModels" v-model:mappings="modelMappings"
+        :mode="modelSelectionMode"
+        @update:mode="handleCreateModelModeUpdate"
+        :allow-deny-all="false"
         :platform="selectedReviewRequest?.platform" :candidate-identity="modelCandidateIdentity" :presets="presetMappings"
         :active="show" :discovery-disabled="compatibleDiscoveryDisabled(compatibleProvider(selectedReviewRequest?.platform || ''), selectedReviewRequest?.credentials || {})" :sync-credentials="credentialPreview" :connection-context="previewConnectionContext" />
       <p v-if="reviewError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ reviewError }}</p>
@@ -789,7 +792,7 @@
         </div>
         <Toggle v-model="upstreamBillingAutoProbeEnabled" data-testid="upstream-billing-auto-probe" :aria-label="t('admin.accounts.upstreamBilling.autoProbe')" />
       </div>
-      <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto' && !validateModelRestrictions('combined', allowedModels, modelMappings).length" :client-version="cursorClientVersion" :account="{ ...form, platform: 'cursor', type: 'oauth', credentials: { model_mapping: buildModelMappingObject('combined', allowedModels, modelMappings) }, auto_pause_on_expired: autoPauseOnExpired }" @busy="cursorAuthorizing = $event" @draft="stageCursorAuthorization" />
+      <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto' && !validateModelRestrictions(effectiveCreateModelMode, allowedModels, modelMappings).length" :client-version="cursorClientVersion" :account="cursorBrowserAccount" @busy="cursorAuthorizing = $event" @draft="stageCursorAuthorization" />
 
       <WorkBuddyAuthFields
         v-if="form.platform === 'workbuddy'"
@@ -3634,7 +3637,8 @@ import { useI18n } from 'vue-i18n'
 import { platformSelectionClass, platformSelectionIconClass } from '@/utils/platformColors'
 import { useAppStore } from '@/stores/app'
 
-import { getPresetMappingsByPlatform, commonErrorCodes, buildModelMappingObject, splitModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors } from '@/composables/useModelWhitelist'
+import { getPresetMappingsByPlatform, commonErrorCodes, buildAccountWorkflowModelPayload, buildModelMappingObject, splitModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors, type AccountModelSelectionMode } from '@/composables/useModelWhitelist'
+import type { AccountWorkflowModelSelection } from '@/types'
 import { adminAPI } from '@/api/admin'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
 import {
@@ -3949,6 +3953,7 @@ function resetSupplierConnection() {
   apiKeyBaseUrl.value = ''
   allowedModels.value = []
   modelMappings.value = []
+  modelSelectionMode.value = 'inherit'
 }
 function selectSupplierPlatform(platform: string) {
   const supplier = supplierOf(platform)
@@ -4268,6 +4273,7 @@ const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
+const modelSelectionMode = ref<AccountModelSelectionMode>('inherit')
 const createdCatalogAccounts = ref<Array<{ id: number; platform: string }>>([])
 const rememberCatalogAccount = (id: number | undefined, platform: string) => {
   if (id && !createdCatalogAccounts.value.some(account => account.id === id)) createdCatalogAccounts.value.push({ id, platform })
@@ -4616,6 +4622,7 @@ watch(cursorKeyMode, (mode) => {
   if (form.platform !== 'cursor') return
   allowedModels.value = []
   modelMappings.value = []
+  modelSelectionMode.value = 'inherit'
   apiKeyBaseUrl.value = ''
   apiKeyValue.value = ''
   cursorAutoCredentials.value = {}
@@ -4707,6 +4714,10 @@ let mappingGeneration = 0
 watch(() => JSON.stringify([props.show, form.platform, form.type, apiKeyBaseUrl.value, accountMode.value, compatibleDraft.value, antigravityAccountType.value]), () => { mappingGeneration++ }, { flush: 'sync' })
 // A selection edit, including an intentional clear, ends pending default seeding.
 watch([allowedModels, modelMappings], () => { mappingGeneration++ }, { deep: true, flush: 'sync' })
+function handleCreateModelModeUpdate(mode: AccountModelSelectionMode) {
+  mappingGeneration++
+  modelSelectionMode.value = mode
+}
 const loadAntigravityMappings = async () => {
   const request = ++mappingGeneration
   await reloadPresets()
@@ -4715,6 +4726,7 @@ const loadAntigravityMappings = async () => {
     const selection = splitModelMappingObject(Object.fromEntries(mappings.map(({ from, to }) => [from, to])))
     allowedModels.value = selection.allowedModels
     modelMappings.value = selection.modelMappings
+    modelSelectionMode.value = selection.allowedModels.length || selection.modelMappings.length ? 'restricted' : 'inherit'
   }
 }
 
@@ -4730,6 +4742,7 @@ watch(
       // Start with an explicit empty selection; candidates remain available in the picker.
       allowedModels.value = []
       modelMappings.value = []
+      modelSelectionMode.value = 'inherit'
       // Seed Antigravity presets through the shared identity/alias split.
       if (form.platform === 'antigravity') {
         void loadAntigravityMappings()
@@ -4820,6 +4833,7 @@ watch(
     // Clear model-related settings
     allowedModels.value = []
     modelMappings.value = []
+    modelSelectionMode.value = 'inherit'
     // Seed Antigravity presets through the shared identity/alias split.
     if (newPlatform === 'antigravity') {
       void loadAntigravityMappings()
@@ -5090,19 +5104,67 @@ const reviewError = ref('')
 const reviewSubmitting = ref(false)
 const selectedReviewIndex = ref(0)
 const selectedReviewRequest = computed(() => pendingAccountRequests.value[selectedReviewIndex.value])
-const reviewedRequests = computed<AccountWorkflowRequest[]>(() => pendingAccountRequests.value.map(payload => ({
-  ...payload,
-  credentials: { ...payload.credentials, model_mapping: buildModelMappingObject('combined', allowedModels.value, modelMappings.value) ?? {} }
-})))
+const effectiveCreateModelMode = computed<AccountModelSelectionMode>(() => {
+  if (modelSelectionMode.value === 'inherit' && (allowedModels.value.length > 0 || modelMappings.value.length > 0)) {
+    return 'restricted'
+  }
+  return modelSelectionMode.value
+})
+const buildCreateModelConfig = (
+  platform: string
+): { modelSelection: AccountWorkflowModelSelection; modelMapping?: Record<string, string> } => {
+  if (
+    (platform === 'openai' && isOpenAIModelRestrictionDisabled.value) ||
+    effectiveCreateModelMode.value !== 'restricted'
+  ) {
+    return {
+      modelSelection: { mode: 'inherit', models: [] }
+    }
+  }
+  const workflow = buildAccountWorkflowModelPayload({
+    mode: 'restricted',
+    models: allowedModels.value,
+    mappings: modelMappings.value
+  })
+  return {
+    modelSelection: {
+      mode: 'restricted',
+      models: workflow.models
+    },
+    modelMapping: workflow.model_mapping
+  }
+}
+const cursorBrowserAccount = computed(() => {
+  const { modelSelection, modelMapping } = buildCreateModelConfig('cursor')
+  return {
+    ...form,
+    platform: 'cursor',
+    type: 'oauth',
+    model_selection: modelSelection,
+    credentials: modelMapping ? { model_mapping: modelMapping } : {},
+    auto_pause_on_expired: autoPauseOnExpired.value
+  }
+})
+const reviewedRequests = computed<AccountWorkflowRequest[]>(() => pendingAccountRequests.value.map(payload => {
+  const credentials = { ...payload.credentials }
+  const { modelSelection, modelMapping } = buildCreateModelConfig(payload.platform)
+  if (modelMapping) {
+    credentials.model_mapping = modelMapping
+  } else {
+    delete credentials.model_mapping
+  }
+  return { ...payload, model_selection: modelSelection, credentials }
+}))
 const credentialPreview = computed(() => {
   const payload = reviewedRequests.value[selectedReviewIndex.value]
   if (!payload) return undefined
-  return { platform: payload.platform, type: payload.type, proxy_id: (payload.proxy_id ?? form.proxy_id) || null, proxy_group_id: (payload.proxy_group_id ?? form.proxy_group_id) || null, credentials: payload.credential_draft ? { model_mapping: payload.credentials.model_mapping, ...(payload.credentials.compact_model_mapping ? { compact_model_mapping: payload.credentials.compact_model_mapping } : {}) } : payload.credentials,
+  const modelMapping = payload.credentials.model_mapping as Record<string, string> | undefined
+  return { platform: payload.platform, type: payload.type, proxy_id: (payload.proxy_id ?? form.proxy_id) || null, proxy_group_id: (payload.proxy_group_id ?? form.proxy_group_id) || null, credentials: payload.credential_draft ? { ...(modelMapping ? { model_mapping: modelMapping } : {}), ...(payload.credentials.compact_model_mapping ? { compact_model_mapping: payload.credentials.compact_model_mapping } : {}) } : payload.credentials,
     ...(!payload.credential_draft ? {
       base_url: typeof payload.credentials.base_url === 'string' ? payload.credentials.base_url : undefined,
       api_key: typeof payload.credentials.api_key === 'string' ? payload.credentials.api_key : undefined
     } : {}),
-    model_mapping: buildModelMappingObject('combined', allowedModels.value, modelMappings.value) ?? {},
+    ...(modelMapping ? { model_mapping: modelMapping } : {}),
     credential_draft: payload.credential_draft, credential_draft_revision: payload.credential_draft_revision }
 })
 // 复核预览的连接身份：任一连接输入（含 Relay 协议）变化都要让在途结果失效，
@@ -5124,7 +5186,9 @@ async function confirmAccountReview(confirmedPayloads?: AccountWorkflowRequest[]
   if (reviewSubmitting.value) return
   const payloads = JSON.parse(JSON.stringify(confirmedPayloads ?? reviewedRequests.value)) as AccountWorkflowRequest[]
   if (!payloads.length) return
-  const errors = validateModelRestrictions('combined', allowedModels.value, modelMappings.value)
+  const errors = validateModelRestrictions(effectiveCreateModelMode.value, allowedModels.value, modelMappings.value, {
+    requireNonEmptyRestricted: modelSelectionMode.value === 'restricted'
+  })
   if (errors.length) { reviewError.value = translateModelRestrictionErrors(errors, t); return }
   reviewSubmitting.value = true
   reviewError.value = ''
@@ -5183,10 +5247,6 @@ const createWithOptions = async (payload: CreateAccountRequest) => {
     credentials.account_scheduling_threshold = threshold
   }
   if (payload.platform === 'grok' && payload.type === 'oauth') extra.grok_client_tool_cache_enabled = createGrokToolCache.value
-  if (payload.type === 'service_account') {
-    const mapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
-    if (mapping) credentials.model_mapping = mapping
-  }
   if (payload.platform === 'openai') {
     if (createImageTool.value === 'block') extra.codex_image_generation_explicit_tool_policy = 'strip'
     else if (createImageTool.value !== 'inherit') extra.codex_image_generation_bridge = createImageTool.value === 'enabled'
@@ -5296,6 +5356,7 @@ const resetForm = () => {
   openAICompactModelMappings.value = []
   modelRestrictionMode.value = 'whitelist'
   allowedModels.value = []
+  modelSelectionMode.value = 'inherit'
 
   poolModeEnabled.value = false
   poolModeRetryCount.value = DEFAULT_POOL_MODE_RETRY_COUNT
@@ -5572,7 +5633,9 @@ const handleSubmit = async () => {
   if (supplierSelectionIncomplete.value) { appStore.showError(t('admin.accounts.supplier.chooseVariant')); return }
   if (!proxySelectionValid.value) { appStore.showError(t('admin.proxyGroups.selectionRequired')); return }
   if (createdCatalogAccounts.value.length || pendingAccountRequests.value.length || submitting.value) return
-  const restrictionErrors = validateModelRestrictions('combined', allowedModels.value, modelMappings.value)
+  const restrictionErrors = validateModelRestrictions(effectiveCreateModelMode.value, allowedModels.value, modelMappings.value, {
+    requireNonEmptyRestricted: modelSelectionMode.value === 'restricted'
+  })
   if (restrictionErrors.length) { appStore.showError(translateModelRestrictionErrors(restrictionErrors, t)); return }
   if (form.platform === 'cursor') {
     if (cursorAuthorizing.value) return
@@ -5584,8 +5647,6 @@ const handleSubmit = async () => {
     }
     if (!form.name.trim() || (cursorKeyMode.value !== 'auto' && !apiKeyValue.value.trim())) { appStore.showError(t('admin.accounts.pleaseEnterApiKey')); return }
     const credentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: apiKeyValue.value, baseUrl: apiKeyBaseUrl.value, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value, apiProtocol: relayProtocol ?? undefined })
-    const mapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
-    if (mapping) credentials.model_mapping = mapping
     if (isCursorRelay.value) {
       const headerError = headerOverrideEnabled.value && validateHeaderOverrideRows(headerOverrideRows.value)
       if (headerError) { appStore.showError(t(`admin.accounts.headerOverride.${headerError}`)); return }
@@ -5617,8 +5678,6 @@ const handleSubmit = async () => {
       apiKey: apiKeyValue.value,
       baseUrl: apiKeyBaseUrl.value
     })
-    const mapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
-    if (mapping) credentials.model_mapping = mapping
     if (mode === 'apikey' && headerOverrideEnabled.value) {
       const headerError = validateHeaderOverrideRows(headerOverrideRows.value)
       if (headerError) {
@@ -5682,13 +5741,6 @@ const handleSubmit = async () => {
       credentials.aws_force_global = 'true'
     }
 
-    // Model mapping
-    const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value
-    )
-    if (modelMapping) {
-      credentials.model_mapping = modelMapping
-    }
-
     // Pool mode
     if (poolModeEnabled.value) {
       credentials.pool_mode = true
@@ -5726,12 +5778,6 @@ const handleSubmit = async () => {
     const credentials: Record<string, unknown> = {
       base_url: upstreamBaseUrl.value.trim(),
       api_key: upstreamApiKey.value.trim()
-    }
-
-    // Serialize the shared model selection.
-    const antigravityModelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
-    if (antigravityModelMapping) {
-      credentials.model_mapping = antigravityModelMapping
     }
 
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
@@ -5869,13 +5915,6 @@ const handleSubmit = async () => {
     applyVolcengineQuotaCredentials(credentials, quotaCredentials.value)
   }
 
-  // Add model mapping if configured（OpenAI 开启自动透传时不应用）
-  if (!isOpenAIModelRestrictionDisabled.value) {
-    const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
-    if (modelMapping) {
-      credentials.model_mapping = modelMapping
-    }
-  }
   if (form.platform === 'openai') {
     applyOpenAIEndpointCapabilities(credentials)
     const compactModelMapping = buildOpenAICompactModelMapping()
@@ -6035,12 +6074,6 @@ const createAccountAndFinish = async (
     if (!credentials.base_url) {
       credentials.base_url = apiKeyBaseUrl.value.trim() || 'https://api.x.ai/v1'
     }
-    const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
-    if (modelMapping) {
-      credentials.model_mapping = modelMapping
-    } else {
-      delete credentials.model_mapping
-    }
   }
   await doCreateAccount({
     name: form.name,
@@ -6102,10 +6135,6 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
         const extra = grokOAuth.buildExtraInfo(tokenInfo)
         const accountName = refreshTokens.length > 1 ? `${form.name || tokenInfo.email || 'Grok OAuth Account'} #${i + 1}` : (form.name || tokenInfo.email || 'Grok OAuth Account')
 
-        const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
-        if (modelMapping) {
-          credentials.model_mapping = modelMapping
-        }
         if (!applyTempUnschedConfig(credentials)) {
           return
         }
@@ -6175,10 +6204,6 @@ const handleGrokImportSSO = async (ssoInput: string) => {
 
   const credentials: Record<string, unknown> = {}
   applyGrokOAuthUpstreamConfig(credentials)
-  const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
-  if (modelMapping) {
-    credentials.model_mapping = modelMapping
-  }
   if (!applyTempUnschedConfig(credentials)) {
     grokOAuth.loading.value = false
     return
@@ -6269,13 +6294,6 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
             ? `${form.name || tokenInfo.email || 'Grok OAuth Account'} #${i + 1}`
             : form.name || tokenInfo.email || 'Grok OAuth Account'
 
-        const modelMapping = buildModelMappingObject('combined',
-          allowedModels.value,
-          modelMappings.value
-        )
-        if (modelMapping) {
-          credentials.model_mapping = modelMapping
-        }
         if (!applyTempUnschedConfig(credentials)) {
           return
         }
@@ -6365,13 +6383,6 @@ const handleOpenAIExchange = async (authCode: string) => {
     const extra = buildOpenAIExtra(oauthExtra)
     const shouldCreateOpenAI = form.platform === 'openai'
 
-    // Add model mapping for OpenAI OAuth accounts（透传模式下不应用）
-    if (shouldCreateOpenAI && !isOpenAIModelRestrictionDisabled.value) {
-      const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
-      if (modelMapping) {
-        credentials.model_mapping = modelMapping
-      }
-    }
     if (shouldCreateOpenAI) {
       const compactModelMapping = buildOpenAICompactModelMapping()
       if (compactModelMapping) {
@@ -6422,13 +6433,6 @@ const OPENAI_MOBILE_RT_CLIENT_ID = 'app_LlGpXReQgckcGGUo2JrYvtJK'
 
 const buildOpenAICodexImportCredentialExtras = (): Record<string, unknown> | null => {
   const credentials: Record<string, unknown> = {}
-  if (!isOpenAIModelRestrictionDisabled.value) {
-    const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
-    if (modelMapping) {
-      credentials.model_mapping = modelMapping
-    }
-  }
-
   const compactModelMapping = buildOpenAICompactModelMapping()
   if (compactModelMapping) {
     credentials.compact_model_mapping = compactModelMapping
@@ -6622,13 +6626,6 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
         const oauthExtra = oauthClient.buildExtraInfo(tokenInfo) as Record<string, unknown> | undefined
         const extra = buildOpenAIExtra(oauthExtra)
 
-        // Add model mapping for OpenAI OAuth accounts（透传模式下不应用）
-        if (shouldCreateOpenAI && !isOpenAIModelRestrictionDisabled.value) {
-          const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
-          if (modelMapping) {
-            credentials.model_mapping = modelMapping
-          }
-        }
         if (shouldCreateOpenAI) {
           const compactModelMapping = buildOpenAICompactModelMapping()
           if (compactModelMapping) {
@@ -6866,11 +6863,6 @@ const handleAntigravityExchange = async (authCode: string) => {
 		const credentials = credentialsFromAuthorization(tokenInfo, () => antigravityOAuth.buildCredentials(tokenInfo))
 		applyAntigravityProjectID(credentials, antigravityProjectId.value, 'create')
 		applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
-		// Serialize the shared model selection.
-		const antigravityModelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
-		if (antigravityModelMapping) {
-			credentials.model_mapping = antigravityModelMapping
-		}
 		const extra = buildAntigravityExtra()
 		await createAccountAndFinish('antigravity', 'oauth', credentials, extra)
   } catch (error: unknown) {

@@ -107,8 +107,9 @@ describe('BulkEditAccountModal', () => {
     expect((wrapper.vm as unknown as { filteredPresets: { from: string }[] }).filteredPresets.map(preset => preset.from)).toEqual(['current-model'])
     await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
     await flushPromises()
-    expect(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls.at(-1)?.[1].credentials?.model_mapping).toEqual({
-      'retired-model': 'retired-model', 'saved-alias': 'retired-model',
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenLastCalledWith([1, 2], {
+      model_selection: { mode: 'restricted', models: ['retired-model'] },
+      credentials: { model_mapping: { 'saved-alias': 'retired-model' } }
     })
     await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(false)
     await wrapper.get('#bulk-edit-concurrency-enabled').setValue(true)
@@ -242,7 +243,53 @@ describe('BulkEditAccountModal', () => {
     await wrapper.get('[data-testid="add-common-models"]').trigger('click')
     await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
     await flushPromises()
-    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], { credentials: { model_mapping: { common: 'common' } } })
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      model_selection: { mode: 'restricted', models: ['common'] }
+    })
+    expect(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls[0]?.[1]).not.toHaveProperty('credentials')
+    wrapper.unmount()
+  })
+
+  it('restricted 模式支持保留旧别名或勾选「同时清空旧别名」发送 model_mapping: {}', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['anthropic'],
+      selectedTypes: ['apikey']
+    })
+    await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(true)
+    await flushPromises()
+
+    const selector = wrapper.getComponent(ModelWhitelistSelector)
+    selector.vm.$emit('update:modelValue', ['claude-sonnet-4-6'])
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="bulk-restricted-mapping-hint"]').text()).toContain('restrictedMappingHintKeep')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenLastCalledWith([1, 2], {
+      model_selection: { mode: 'restricted', models: ['claude-sonnet-4-6'] }
+    })
+    expect(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls[0]?.[1]).not.toHaveProperty('credentials')
+
+    await wrapper.get('[data-testid="bulk-clear-mappings-on-restricted"]').setValue(true)
+    expect(wrapper.get('[data-testid="bulk-restricted-mapping-hint"]').text()).toContain('restrictedMappingHintClear')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenLastCalledWith([1, 2], {
+      model_selection: { mode: 'restricted', models: ['claude-sonnet-4-6'] },
+      credentials: { model_mapping: {} }
+    })
+
+    // 配置新别名时切换为替换提示并禁用清空复选框
+    selector.vm.$emit('update:modelMappings', [{ from: 'alias-a', to: 'claude-sonnet-4-6' }])
+    await flushPromises()
+    expect(wrapper.get('[data-testid="bulk-clear-mappings-on-restricted"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="bulk-restricted-mapping-hint"]').text()).toContain('restrictedMappingHintReplace')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenLastCalledWith([1, 2], {
+      model_selection: { mode: 'restricted', models: ['claude-sonnet-4-6'] },
+      credentials: { model_mapping: { 'alias-a': 'claude-sonnet-4-6' } }
+    })
     wrapper.unmount()
   })
 
@@ -274,7 +321,7 @@ describe('BulkEditAccountModal', () => {
     expect(wrapper.text()).not.toContain('GPT-5.3 Codex Spark')
   })
 
-  it('仅勾选模型限制且白名单留空时，应提交空 model_mapping 以支持所有模型', async () => {
+  it('拦截 restricted 模式下的空模型选择，绝不静默发送空 model_mapping: {}', async () => {
     const wrapper = mountModal({
       selectedPlatforms: ['anthropic'],
       selectedTypes: ['apikey']
@@ -284,12 +331,102 @@ describe('BulkEditAccountModal', () => {
     await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
     await flushPromises()
 
+    expect(adminAPI.accounts.bulkUpdate).not.toHaveBeenCalled()
+    expect(showError).toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('支持批量 inherit 模式并按选项决定是否清空自定义别名', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['anthropic'],
+      selectedTypes: ['apikey']
+    })
+
+    await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(true)
+    await wrapper.get('[data-testid="bulk-mode-inherit"]').setValue(true)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
-    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenLastCalledWith([1, 2], {
+      model_selection: { mode: 'inherit', models: [] }
+    })
+    expect(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls[0]?.[1]).not.toHaveProperty('credentials')
+
+    await wrapper.get('[data-testid="bulk-clear-mappings-on-inherit"]').setValue(true)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(2)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenLastCalledWith([1, 2], {
+      model_selection: { mode: 'inherit', models: [] },
       credentials: {
         model_mapping: {}
       }
     })
+    wrapper.unmount()
+  })
+
+  it('批量 deny_all 模式校验必填原因并走二次确认', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['anthropic'],
+      selectedTypes: ['apikey']
+    })
+
+    await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(true)
+    await wrapper.get('[data-testid="bulk-mode-deny-all"]').setValue(true)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).not.toHaveBeenCalled()
+    expect(showError).toHaveBeenCalled()
+
+    await wrapper.get('[data-testid="bulk-deny-all-reason-input"]').setValue('上游维护暂停')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).not.toHaveBeenCalled()
+    const dialog = wrapper.findAllComponents({ name: 'ConfirmDialog' }).find(
+      component => component.props('title') === 'admin.accounts.bulkEdit.denyAllConfirmTitle'
+    )!
+    expect(dialog.props('show')).toBe(true)
+
+    dialog.vm.$emit('cancel')
+    await flushPromises()
+    expect(adminAPI.accounts.bulkUpdate).not.toHaveBeenCalled()
+
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    dialog.vm.$emit('confirm')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      model_selection: { mode: 'deny_all', models: [], reason: '上游维护暂停', confirm_deny_all: true }
+    })
+    wrapper.unmount()
+  })
+
+  it('批量保存返回 auto_added 时展示汇总提示', async () => {
+    vi.mocked(adminAPI.accounts.bulkUpdate).mockResolvedValueOnce({
+      success: 2,
+      failed: 0,
+      results: [
+        { account_id: 1, success: true, auto_added: ['vendor/model-b'], rules_revision: '5' },
+        { account_id: 2, success: true, auto_added: [], rules_revision: '3' }
+      ]
+    } as any)
+    const wrapper = mountModal({
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['apikey']
+    })
+    await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(true)
+    const selector = wrapper.getComponent(ModelWhitelistSelector)
+    selector.vm.$emit('update:modelMappings', [{ from: 'alias-b', to: 'vendor/model-b' }])
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(showSuccess).toHaveBeenCalledWith('admin.accounts.bulkEdit.autoAddedSummary')
+    wrapper.unmount()
   })
 
   it('全部目标为 Grok OAuth 时，官方主机 base_url 作为手动端点切换正常提交', async () => {

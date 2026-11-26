@@ -4,6 +4,19 @@ info:
   title: OmniHive API
   version: 2.0.0
 paths:
+  /api/v1/admin/accounts:
+    post:
+      operationId: createAdminAccount
+      description: Creates an account or confirms its reviewed OAuth credential draft.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AdminAccountCreate'}
+      responses:
+        '200': {description: Saved account}
+        '400': {description: Invalid account or model selection}
+        '409': {description: Credential draft or account configuration changed}
   /api/v1/admin/accounts/{id}:
     parameters:
       - name: id
@@ -21,8 +34,190 @@ paths:
       responses:
         '200':
           description: Updated account
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data:
+                    type: object
+                    required: [id, auto_added, rules_revision]
+                    additionalProperties: true
+                    properties:
+                      id: {type: integer, format: int64}
+                      auto_added:
+                        type: array
+                        items: {type: string}
+                        description: Upstream targets added to the account's range by this update
+                      rules_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
         '400':
           description: Invalid update, including conflicting model selection intent
+        '409':
+          description: Account model selection conflict, mapping change on deny_all, or a Connections-managed account
+  /api/v1/admin/accounts/{id}/apply-oauth-credentials:
+    post:
+      operationId: applyAdminAccountOAuthCredentials
+      description: Confirms a reviewed draft. Submit the same model selection used at review.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer, format: int64, minimum: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, credential_draft, credential_draft_revision]
+              properties:
+                type: {type: string, enum: [oauth, setup-token]}
+                credential_draft: {type: string}
+                credential_draft_revision: {type: string}
+                credentials: {$ref: '#/components/schemas/AdminAccountUpdateCredentials'}
+                extra: {type: object, additionalProperties: true}
+                model_selection: {$ref: '#/components/schemas/AdminAccountWorkflowModelSelection'}
+      responses:
+        '200': {description: Re-authorized account}
+        '400': {description: Invalid confirmation or model selection}
+        '409': {description: The confirmation differs from the reviewed credential draft or the account changed}
+  /api/v1/admin/accounts/{id}/models/allowlist:
+    parameters:
+      - $ref: '#/components/parameters/AdminModelSelectionAccountID'
+    put:
+      operationId: updateAdminAccountModelAllowlist
+      summary: Save the account's model scope and optional mapping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AdminAccountModelSelectionUpdate'}
+      responses:
+        '200':
+          description: Committed selection with the current rules revision
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data: {$ref: '#/components/schemas/AdminAccountModelSelectionSaved'}
+        '400':
+          description: Invalid selection, missing compatibility confirmation, or missing deny-all reason
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/AdminModelSelectionError'
+                  - type: object
+                    properties:
+                      reason:
+                        enum: [INVALID_MODEL_SELECTION, MODEL_SELECTION_CONFIRMATION_REQUIRED, MODEL_SELECTION_REASON_REQUIRED]
+        '401':
+          description: Administrator authentication required
+        '404':
+          description: Account not found in the current workspace
+        '409':
+          description: Rules revision is stale or the account is managed by Connections
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/AdminModelSelectionError'
+                  - type: object
+                    properties:
+                      reason:
+                        enum: [MODEL_SELECTION_CONFLICT, ACCOUNT_CONNECTION_MANAGED]
+  /api/v1/admin/accounts/{id}/models/catalog:
+    get:
+      operationId: getAdminAccountModelCatalog
+      summary: Read the account's saved model selection and catalog evidence
+      responses:
+        '200':
+          description: Model selection and catalog from the same account snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data: {$ref: '#/components/schemas/AdminAccountModelCatalog'}
+        '404':
+          description: Account not found in the current workspace
+    parameters:
+      - $ref: '#/components/parameters/AdminModelSelectionAccountID'
+  /api/v1/admin/accounts/batch:
+    post:
+      operationId: batchCreateAdminAccounts
+      description: Creates accounts or confirms reviewed OAuth credential drafts in a batch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [accounts]
+              properties:
+                accounts:
+                  type: array
+                  minItems: 1
+                  items: {$ref: '#/components/schemas/AdminAccountCreate'}
+      responses:
+        '200': {description: Batch result}
+        '400': {description: Invalid batch or model selection}
+        '409': {description: Credential draft or account configuration changed}
+  /api/v1/admin/accounts/bulk-update:
+    post:
+      operationId: bulkUpdateAdminAccounts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AdminAccountBulkUpdate'}
+      responses:
+        '200':
+          description: Bulk update counts and per-account results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data: {$ref: '#/components/schemas/AdminAccountBulkUpdateResult'}
+        '400':
+          description: Invalid bulk update, empty restricted scope, or missing deny-all reason or confirmation
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AdminModelSelectionError'}
+        '409':
+          description: Account model selection conflict, mapping change on deny_all, or a Connections-managed account
+  /api/v1/admin/accounts/credential-drafts/{draft}/review:
+    post:
+      operationId: reviewAdminAccountCredentialDraft
+      description: Binds the reviewed account request, including model selection, to the credential draft.
+      parameters:
+        - name: draft
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AdminAccountCreate'}
+      responses:
+        '200': {description: Reviewed credential draft}
+        '400': {description: Invalid review or model selection}
+        '409': {description: Credential draft changed}
   /api/v1/admin/backups/schedule:
     get:
       operationId: getAdminBackupSchedule
@@ -4810,6 +5005,11 @@ components:
       schema:
         type: string
         pattern: ^[1-9][0-9]*$
+    AdminModelSelectionAccountID:
+      name: id
+      in: path
+      required: true
+      schema: {type: integer, format: int64, minimum: 1}
     CatalogAvailability:
       name: availability
       in: query
@@ -5485,6 +5685,220 @@ components:
               message: {type: string}
               data: {$ref: '#/components/schemas/TelemetryExportConfig'}
   schemas:
+    AdminAccountBulkModelSelection:
+      type: object
+      required: [mode]
+      description: Applies one scope intent to every target account using that account's locked configuration.
+      properties:
+        mode: {$ref: '#/components/schemas/AdminModelSelectionMode'}
+        models:
+          type: array
+          items: {type: string}
+          description: Restricted requires at least one explicit model. The server adds each account's mapping targets. Inherit and deny_all require an empty or omitted list.
+        reason:
+          type: string
+          description: Required and non-blank for deny_all.
+        confirm_deny_all:
+          type: boolean
+          description: Must be true for deny_all.
+    AdminAccountBulkUpdate:
+      type: object
+      anyOf:
+        - required: [account_ids]
+        - required: [filters]
+      properties:
+        account_ids: {type: array, minItems: 1, items: {type: integer, format: int64}}
+        filters:
+          type: object
+          properties:
+            platform: {type: string}
+            type: {type: string}
+            status: {type: string}
+            group: {type: string}
+            search: {type: string}
+            privacy_mode: {type: string}
+        name: {type: string}
+        proxy_id: {type: [integer, 'null'], format: int64}
+        proxy_group_id: {type: [integer, 'null'], format: int64}
+        concurrency: {type: integer}
+        priority: {type: integer}
+        rate_multiplier: {type: number}
+        load_factor: {type: integer}
+        status: {type: string, enum: [active, inactive, error]}
+        schedulable: {type: boolean}
+        group_ids: {type: array, items: {type: integer, format: int64}}
+        credentials:
+          $ref: '#/components/schemas/AdminAccountUpdateCredentials'
+          description: Each explicit mapping replaces the map on every target account. Omission or null preserves the map. An empty object explicitly clears it.
+        model_selection:
+          $ref: '#/components/schemas/AdminAccountBulkModelSelection'
+        extra: {type: object, additionalProperties: true}
+        upstream_billing_probe_enabled: {type: boolean}
+        confirm_mixed_channel_risk: {type: boolean}
+        tpm_limit: {type: [integer, 'null'], format: int64}
+    AdminAccountBulkUpdateResult:
+      type: object
+      required: [success, failed, success_ids, failed_ids, results]
+      properties:
+        success: {type: integer}
+        failed: {type: integer}
+        success_ids: {type: array, items: {type: integer, format: int64}}
+        failed_ids: {type: array, items: {type: integer, format: int64}}
+        long_context_inherited_count: {type: integer}
+        results:
+          type: array
+          items:
+            type: object
+            required: [account_id, success]
+            properties:
+              account_id: {type: integer, format: int64}
+              success: {type: boolean}
+              error: {type: string}
+              auto_added:
+                type: array
+                items: {type: string}
+                description: Upstream targets added to this account's scope during a selection or mapping write. An empty array is returned when no targets were added.
+              rules_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
+    AdminAccountCreate:
+      type: object
+      additionalProperties: true
+      required: [name, platform, type, credentials]
+      properties:
+        name: {type: string}
+        platform: {type: string}
+        type: {type: string, enum: [oauth, setup-token, apikey, upstream, bedrock, service_account]}
+        existing_account_id: {type: integer, format: int64, minimum: 1}
+        credential_draft: {type: string}
+        credential_draft_revision: {type: string}
+        credentials: {$ref: '#/components/schemas/AdminAccountUpdateCredentials'}
+        model_selection: {$ref: '#/components/schemas/AdminAccountWorkflowModelSelection'}
+    AdminAccountModelAllowlistScope:
+      type: object
+      required: [enabled, models, identity_revision, confirmed_at, confirmed_by, reason]
+      properties:
+        enabled: {type: boolean}
+        models: {type: array, items: {type: string}}
+        identity_revision: {type: integer, format: int64}
+        confirmed_at: {type: string}
+        confirmed_by: {type: integer, format: int64}
+        reason: {type: string}
+    AdminAccountModelCatalog:
+      allOf:
+        - $ref: '#/components/schemas/AdminAccountModelSelection'
+        - type: object
+          required: [state, baseline, snapshot, effective_snapshot, synced, eligible_models]
+          properties:
+            state:
+              type: object
+              required: [identity_revision, rules_revision]
+              additionalProperties: true
+              properties:
+                identity_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
+                rules_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
+            baseline:
+              type: object
+              required: [identity_revision, rules_revision, snapshot_revision]
+              properties:
+                identity_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
+                rules_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
+                snapshot_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
+            snapshot: {$ref: '#/components/schemas/AdminAccountModelCatalogSnapshot'}
+            effective_snapshot: {$ref: '#/components/schemas/AdminAccountModelCatalogSnapshot'}
+            synced: {type: boolean}
+            complete: {type: boolean}
+            observed_at: {type: [string, 'null']}
+            snapshot_revision:
+              anyOf:
+                - $ref: '#/components/schemas/AdminModelSelectionRevision'
+                - type: 'null'
+            discovered_count: {type: integer}
+            eligible_count: {type: integer}
+            excluded_count: {type: integer}
+            last_error: {type: [string, 'null']}
+            warnings: {type: array, items: {type: string}}
+            staleness: {type: string}
+            last_success_at: {type: [string, 'null']}
+            last_attempt_at: {type: [string, 'null']}
+            eligible_models:
+              type: [array, 'null']
+              items: {$ref: '#/components/schemas/AdminAccountModelCatalogModel'}
+    AdminAccountModelCatalogModel:
+      type: object
+      required: [id, endpoints, evidence_kind, evidence_observed_at]
+      properties:
+        id: {type: string}
+        endpoints: {type: [array, 'null'], items: {type: string}}
+        category: {type: string}
+        evidence_kind: {type: string}
+        evidence_observed_at: {type: string}
+    AdminAccountModelCatalogSnapshot:
+      type: [object, 'null']
+      additionalProperties: true
+      properties:
+        revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
+        identity_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
+        rules_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
+        eligible_models:
+          type: [array, 'null']
+          items: {$ref: '#/components/schemas/AdminAccountModelCatalogModel'}
+        discovered_models: {type: [array, 'null'], items: {type: string}}
+    AdminAccountModelSelection:
+      type: object
+      required: [mode, models, model_mapping, rules_revision]
+      properties:
+        mode: {$ref: '#/components/schemas/AdminModelSelectionMode'}
+        models:
+          type: array
+          items: {type: string}
+          description: Saved concrete upstream IDs, in stable order for newly saved selections
+        model_mapping: {$ref: '#/components/schemas/AdminModelSelectionMapping'}
+        rules_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
+    AdminAccountModelSelectionSaved:
+      allOf:
+        - $ref: '#/components/schemas/AdminAccountModelSelection'
+        - type: object
+          required: [scope, not_discovered, auto_added]
+          properties:
+            scope: {$ref: '#/components/schemas/AdminAccountModelAllowlistScope'}
+            not_discovered:
+              type: array
+              items: {type: string}
+              description: IDs in the final restricted scope that lack current discovery evidence
+            auto_added:
+              type: array
+              items: {type: string}
+              description: Mapping targets added to the requested scope
+    AdminAccountModelSelectionUpdate:
+      type: object
+      required: [expected_rules_revision]
+      description: >-
+        With mode omitted, a nonempty models array means restricted regardless of enabled. An empty or omitted models array means inherit when enabled is omitted or false. An empty or omitted models array with enabled true requires confirm_deny_all true and a nonblank reason. When mode is supplied, it must agree with any supplied enabled value.
+      properties:
+        mode: {$ref: '#/components/schemas/AdminModelSelectionMode'}
+        enabled:
+          type: boolean
+          description: Compatibility field. Inherit corresponds to false. Restricted and deny_all correspond to true.
+        models:
+          type: array
+          items: {type: string}
+          description: >-
+            Concrete upstream IDs. The restricted scope is the union of these IDs and all explicit mapping targets. That union must be nonempty. Inherit and deny_all require an empty or omitted array.
+        model_mapping:
+          anyOf:
+            - $ref: '#/components/schemas/AdminModelSelectionMapping'
+            - type: 'null'
+          description: Omit or use null to retain the current mapping. An empty object clears it. Deny_all rejects a nonempty mapping.
+        reason:
+          type: string
+          description: A nonblank reason is required for explicit or inferred deny_all.
+        confirm_deny_all:
+          type: boolean
+          description: Required for the compatibility request with enabled true, an empty scope, and mode omitted.
+        expected_rules_revision:
+          description: Rules revision from the last read or save. Prefer a decimal string for full precision.
+          oneOf:
+            - $ref: '#/components/schemas/AdminModelSelectionRevision'
+            - {type: integer, format: int64, minimum: 0, maximum: 9223372036854775806}
     AdminAccountUpdate:
       type: object
       properties:
@@ -5495,7 +5909,7 @@ components:
         name: {type: string}
         notes: {type: [string, 'null']}
         type: {type: string, enum: [oauth, setup-token, apikey, upstream, bedrock, service_account]}
-        credentials: {type: object, additionalProperties: true}
+        credentials: {$ref: '#/components/schemas/AdminAccountUpdateCredentials'}
         extra: {type: object, additionalProperties: true}
         proxy_id: {type: [integer, 'null'], format: int64}
         proxy_group_id: {type: [integer, 'null'], format: int64}
@@ -5511,6 +5925,26 @@ components:
         upstream_billing_rate_sync_enabled: {type: boolean}
         confirm_mixed_channel_risk: {type: boolean}
         tpm_limit: {type: [integer, 'null'], format: int64}
+    AdminAccountUpdateCredentials:
+      type: object
+      additionalProperties: true
+      properties:
+        model_mapping:
+          anyOf:
+            - $ref: '#/components/schemas/AdminModelSelectionMapping'
+            - type: 'null'
+          description: >-
+            Replaces the account's entire explicit alias map and adds its targets to the saved scope. Omit or use null to keep the existing selection. An empty object clears the map and keeps the existing scope. On a deny_all account, choose a mode through the allowlist endpoint before changing the mapping.
+    AdminAccountWorkflowModelSelection:
+      type: object
+      required: [mode]
+      description: Set the upstream scope without creating identity aliases. Omit this object on existing accounts to keep the current scope unless explicitly editing the mapping.
+      properties:
+        mode: {type: string, enum: [inherit, restricted]}
+        models:
+          type: array
+          items: {type: string}
+          description: Restricted requires at least one concrete upstream model ID. The server adds stored mapping targets. Inherit requires an empty or omitted list.
     AdminBackupSchedule:
       type: object
       properties:
@@ -5776,6 +6210,26 @@ components:
     AdminCatalogRevision:
       type: string
       pattern: ^(0|[1-9][0-9]*)$
+    AdminModelSelectionError:
+      type: object
+      required: [code, message, reason, metadata]
+      properties:
+        code: {type: integer}
+        message: {type: string}
+        reason: {type: string}
+        metadata: {type: object, additionalProperties: true}
+    AdminModelSelectionMapping:
+      type: object
+      additionalProperties: {type: string}
+      description: Explicit request alias to upstream model ID mapping
+    AdminModelSelectionMode:
+      type: string
+      enum: [inherit, restricted, deny_all]
+      description: Inherit uses existing platform behavior, restricted filters to the saved upstream IDs, and deny_all disables all models.
+    AdminModelSelectionRevision:
+      type: string
+      pattern: '^[0-9]+$'
+      description: Lossless decimal rules revision
     AdminRollbackEligibility:
       type: object
       required: [database_floor, current_version, remote_status, versions, excluded_versions, local_versions]

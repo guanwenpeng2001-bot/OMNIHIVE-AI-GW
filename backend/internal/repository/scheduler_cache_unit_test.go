@@ -62,6 +62,11 @@ func TestSchedulerSnapshotPreservesCatalogBindingAndRevocation(t *testing.T) {
 	require.False(t, service.AccountSupportsResolvedModel(ctx, projected, "unseeded", options))
 	require.False(t, service.AccountSupportsResolvedModel(ctx, projected, "public", service.AccountModelBindingOptions{Endpoint: "embeddings"}))
 
+	account.Extra[service.UpstreamModelAllowlistExtraKey] = service.AccountModelAllowlist{Enabled: true, Models: []string{}, ConfirmedBy: 7, Reason: "maintenance"}
+	require.NoError(t, cache.SetAccount(ctx, &account))
+	require.Equal(t, service.ModelSelectionDenyAll, service.AccountModelSelectionView(read()).Mode)
+	require.False(t, service.AccountSupportsResolvedModel(ctx, read(), "public", options))
+
 	account.Extra[service.UpstreamModelAllowlistExtraKey] = service.AccountModelAllowlist{Enabled: true, Models: []string{"other"}}
 	require.NoError(t, cache.SetAccount(ctx, &account))
 	require.False(t, service.AccountSupportsResolvedModel(ctx, read(), "public", options), "snapshot refresh must retain allowlist denial")
@@ -79,9 +84,12 @@ func TestSchedulerSnapshotPreservesCatalogBindingAndRevocation(t *testing.T) {
 	require.False(t, service.AccountSupportsResolvedModel(ctx, read(), "public", options), "disabled status survives the cache round trip")
 	account.Schedulable = true
 	account.Credentials["model_mapping"] = map[string]string{}
-	service.NormalizeEmptyAccountModelSelection(&account)
+	delete(account.Extra, service.UpstreamModelAllowlistExtraKey)
+	account.Extra[service.UpstreamModelCatalogStateExtraKey] = service.AccountModelCatalogState{IdentityRevision: 3, RulesRevision: 2}
 	require.NoError(t, cache.SetAccount(ctx, &account))
-	require.False(t, service.AccountSupportsResolvedModel(ctx, read(), "public", options), "removing the selection survives the cache round trip")
+	projected = read()
+	require.Equal(t, service.ModelSelectionInherit, service.AccountModelSelectionView(projected).Mode)
+	require.False(t, service.AccountSupportsResolvedModel(ctx, projected, "public", options), "clearing the mapping revokes its alias")
 }
 
 func TestSchedulerProjectionPreservesCatalogInputs(t *testing.T) {

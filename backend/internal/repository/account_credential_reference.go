@@ -124,7 +124,8 @@ func (r *accountRepository) mutateReferencedOAuthIfUnchanged(ctx context.Context
 
 func (r *accountRepository) updateReferencedOAuthCredentials(ctx context.Context, accountID int64, platform string, expected map[string]any, proxyID *int64, proxyGroupID *int64, checkProxy bool, incoming map[string]any) (bool, error) {
 	return r.mutateReferencedOAuthIfUnchanged(ctx, accountID, platform, expected, proxyID, proxyGroupID, checkProxy, func(lockedCtx context.Context, repository *accountRepository, current *service.Account) (bool, error) {
-		if err := repository.UpdateCredentials(service.WithCredentialRevision(lockedCtx, current.CredentialRevision), accountID, incoming); err != nil {
+		refreshCtx := context.WithValue(service.WithCredentialRevision(lockedCtx, current.CredentialRevision), runtimeCredentialRefresh{}, true)
+		if err := repository.UpdateCredentials(refreshCtx, accountID, incoming); err != nil {
 			return false, err
 		}
 		return true, nil

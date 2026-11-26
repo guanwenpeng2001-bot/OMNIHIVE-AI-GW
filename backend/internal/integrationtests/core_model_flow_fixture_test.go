@@ -297,13 +297,21 @@ func (f *coreFlowFixture) savedAccount() *service.Account {
 	return account
 }
 
-func (f *coreFlowFixture) saveSelection(mapping map[string]string, enabled bool, models []string) {
+func (f *coreFlowFixture) saveSelection(mapping map[string]string, enabled bool, models []string) gjson.Result {
 	f.t.Helper()
 	request := map[string]any{"enabled": enabled, "models": models, "expected_rules_revision": fmt.Sprint(f.savedAccount().ModelCatalogState().RulesRevision)}
 	if mapping != nil {
 		request["model_mapping"] = mapping
 	}
-	f.ok("PUT", fmt.Sprintf("/api/v1/admin/accounts/%d/models/allowlist", f.accountID), request, false)
+	return f.ok("PUT", fmt.Sprintf("/api/v1/admin/accounts/%d/models/allowlist", f.accountID), request, false)
+}
+
+func stringValues(result gjson.Result) []string {
+	values := []string{}
+	for _, item := range result.Array() {
+		values = append(values, item.String())
+	}
+	return values
 }
 
 func (f *coreFlowFixture) refresh(models []string, fail bool) error {

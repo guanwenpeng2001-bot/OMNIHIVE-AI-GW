@@ -199,6 +199,6 @@ func TestLegacyEvidenceUpgradeAndFormatGuards(test *testing.T) {
 	require.False(test, UpgradeLegacyModelCatalogEvidence(&account), "empty discovery cannot become a seed")
 	require.True(test, AccountSupportsResolvedModel(context.Background(), &account, "public-model", AccountModelBindingOptions{Endpoint: "messages"}), "empty discovery cannot revoke a saved selection")
 	account.Credentials["model_mapping"] = map[string]string{}
-	NormalizeEmptyAccountModelSelection(&account)
+	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Reason: "explicit deny test"}
 	require.False(test, AccountSupportsResolvedModel(context.Background(), &account, "public-model", AccountModelBindingOptions{Endpoint: "messages"}), "removing the saved selection revokes access")
 }

@@ -350,7 +350,7 @@ func TestUpdateCredentialsAtomicallyClearsProbeForOpenAIAPIKeyIdentityChange(t *
 	mock.ExpectExec("INSERT INTO credential_secrets").WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec("INSERT INTO audit_logs").WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectQuery("(?s)SELECT id FROM accounts.*legacy-mapping-upgrade.*FOR UPDATE").WillReturnRows(sqlmock.NewRows([]string{"id"}))
-	mock.ExpectExec(`(?s)UPDATE accounts.*credentials IS DISTINCT FROM \$1::jsonb.*- 'upstream_billing_probe'`).
+	mock.ExpectExec(`(?s)UPDATE accounts.*credentials IS DISTINCT FROM incoming_credentials.*- 'upstream_billing_probe'`).
 		WithArgs(encryptedAccountDocument{}, int64(27)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO scheduler_outbox")).
@@ -452,7 +452,7 @@ func TestUpdateCredentialsRollsBackWhenOutboxFails(t *testing.T) {
 	mock.ExpectExec("INSERT INTO credential_secrets").WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec("INSERT INTO audit_logs").WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectQuery("(?s)SELECT id FROM accounts.*legacy-mapping-upgrade.*FOR UPDATE").WillReturnRows(sqlmock.NewRows([]string{"id"}))
-	mock.ExpectExec(`(?s)UPDATE accounts.*credentials IS DISTINCT FROM \$1::jsonb.*- 'upstream_billing_probe'`).
+	mock.ExpectExec(`(?s)UPDATE accounts.*credentials IS DISTINCT FROM incoming_credentials.*- 'upstream_billing_probe'`).
 		WithArgs(encryptedAccountDocument{}, int64(27)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO scheduler_outbox")).WillReturnError(errors.New("outbox failed"))

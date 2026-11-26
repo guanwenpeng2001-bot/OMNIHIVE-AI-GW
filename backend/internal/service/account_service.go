@@ -245,19 +245,21 @@ type AdminAccountRepository interface {
 // AccountBulkUpdate describes the fields that can be updated in a bulk operation.
 // Nil pointers mean "do not change".
 type AccountBulkUpdate struct {
-	TPMLimit       *int64
-	Name           *string
-	ProxyID        *int64
-	ProxyGroupID   *int64
-	Concurrency    *int
-	Priority       *int
-	RateMultiplier *float64
-	LoadFactor     *int
-	Status         *string
-	Schedulable    *bool
-	Credentials    map[string]any
-	Extra          map[string]any
-	ProbeEnabled   *bool
+	ModelSelectionCommand *ModelSelectionCommand
+	ModelSelectionResults map[int64]ModelSelectionResult
+	TPMLimit              *int64
+	Name                  *string
+	ProxyID               *int64
+	ProxyGroupID          *int64
+	Concurrency           *int
+	Priority              *int
+	RateMultiplier        *float64
+	LoadFactor            *int
+	Status                *string
+	Schedulable           *bool
+	Credentials           map[string]any
+	Extra                 map[string]any
+	ProbeEnabled          *bool
 	// EnsureCodexFingerprintSeed asks the repository to atomically preserve an
 	// existing valid Codex fingerprint seed or create one for eligible rows.
 	EnsureCodexFingerprintSeed bool
@@ -425,7 +427,13 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	}
 
 	if req.Credentials != nil {
-		account.Credentials = SanitizeStoredCredentials(account.Platform, *req.Credentials)
+		cmd, err := ModelSelectionCommandFromCredentials(*req.Credentials, 0)
+		if err != nil {
+			return nil, err
+		}
+		account.ModelSelectionCommand = cmd
+		credentials := SanitizeStoredCredentials(account.Platform, *req.Credentials)
+		account.Credentials = PreserveCurrentModelMapping(credentials, account.Credentials)
 	}
 
 	if req.Extra != nil {

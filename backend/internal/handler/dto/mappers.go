@@ -2,6 +2,7 @@
 package dto
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 	"time"
@@ -467,6 +468,90 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 	return out
 }
 
+type AccountModelSelection struct {
+	Mode          service.ModelSelectionMode `json:"mode"`
+	Models        []string                   `json:"models"`
+	ModelMapping  map[string]string          `json:"model_mapping"`
+	RulesRevision string                     `json:"rules_revision"`
+}
+
+func AccountModelSelectionFromService(account *service.Account) AccountModelSelection {
+	result := service.AccountModelSelectionView(account)
+	return AccountModelSelection{
+		Mode: result.Mode, Models: result.Models, ModelMapping: result.ModelMapping,
+		RulesRevision: strconv.FormatInt(result.RulesRevision, 10),
+	}
+}
+
+func AccountModelCatalogStateFromService(state service.AccountModelCatalogState) map[string]json.RawMessage {
+	return redactAccountModelCatalogState(struct {
+		service.AccountModelCatalogState
+		IdentityRevision string `json:"identity_revision"`
+		RulesRevision    string `json:"rules_revision"`
+	}{state, strconv.FormatInt(state.IdentityRevision, 10), strconv.FormatInt(state.RulesRevision, 10)})
+}
+
+// Preserve stored extension fields and lossless revision values in account extra.
+func redactAccountModelCatalogState(state any) map[string]json.RawMessage {
+	encoded, err := json.Marshal(state)
+	if err != nil {
+		return nil
+	}
+	var public map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &public); err != nil {
+		return nil
+	}
+	delete(public, "attempted_identity_revision")
+	return public
+}
+
+type AccountModelSelectionUpdate struct {
+	AutoAdded     []string `json:"auto_added"`
+	RulesRevision string   `json:"rules_revision"`
+}
+
+func AccountModelSelectionUpdateFromService(account *service.Account) *AccountModelSelectionUpdate {
+	if account == nil {
+		return nil
+	}
+	if result := account.ModelSelectionResult; result != nil {
+		return accountModelSelectionUpdate(result.AutoAdded, result.RulesRevision)
+	}
+	return accountModelSelectionUpdate(nil, account.ModelCatalogState().RulesRevision)
+}
+
+func accountModelSelectionUpdate(autoAdded []string, revision int64) *AccountModelSelectionUpdate {
+	return &AccountModelSelectionUpdate{
+		AutoAdded: append([]string{}, autoAdded...), RulesRevision: strconv.FormatInt(revision, 10),
+	}
+}
+
+type bulkAccountUpdateItem struct {
+	service.BulkUpdateAccountResult
+	// Override the embedded service fields with the HTTP representation.
+	AutoAdded     *[]string `json:"auto_added,omitempty"`
+	RulesRevision string    `json:"rules_revision,omitempty"`
+}
+
+func BulkAccountUpdateFromService(result *service.BulkUpdateAccountsResult) any {
+	if result == nil {
+		return nil
+	}
+	items := make([]bulkAccountUpdateItem, 0, len(result.Results))
+	for _, row := range result.Results {
+		item := bulkAccountUpdateItem{BulkUpdateAccountResult: row}
+		if row.RulesRevision != nil {
+			update := accountModelSelectionUpdate(row.AutoAdded, *row.RulesRevision)
+			item.AutoAdded, item.RulesRevision = &update.AutoAdded, update.RulesRevision
+		}
+		items = append(items, item)
+	}
+	return struct {
+		*service.BulkUpdateAccountsResult
+		Results []bulkAccountUpdateItem `json:"results"`
+	}{BulkUpdateAccountsResult: result, Results: items}
+}
+
 func redactAccountManagedExtra(extra map[string]any) map[string]any {
 	if extra == nil {
 		return nil
@@ -476,8 +561,11 @@ func redactAccountManagedExtra(extra map[string]any) map[string]any {
 		switch key {
 		case service.OllamaCloudUsageSessionExtraKey,
 			service.OllamaCloudUsageAutoRefreshExtraKey,
-			service.OllamaCloudUsageSnapshotExtraKey:
+			service.OllamaCloudUsageSnapshotExtraKey,
+			service.ModelSelectionRepairBackupExtraKey:
 			continue
+		case service.UpstreamModelCatalogStateExtraKey:
+			redacted[key] = redactAccountModelCatalogState(value)
 		default:
 			redacted[key] = value
 		}

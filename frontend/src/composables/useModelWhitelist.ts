@@ -1,6 +1,15 @@
 import { extractApiErrorCode, extractApiErrorStatus } from '@/utils/apiError'
 import { selectPlatformModelPresets } from './usePlatformModelPresets'
 import type { PlatformModelPreset } from '@/api/admin/platformModelPresets'
+import type {
+  AccountModelCatalogDetails,
+  AccountModelScopeMode,
+  AccountModelSelectionMode,
+  ModelAllowlist,
+  UpdateModelAllowlistRequest
+} from '@/types/model'
+
+export type { AccountModelSelectionMode, AccountModelScopeMode }
 
 // =====================
 // 常用错误码
@@ -67,6 +76,13 @@ export interface ModelMappingEntry {
   to: string
 }
 
+export interface AccountModelSelectionState {
+  mode: AccountModelSelectionMode
+  models: string[]
+  mappings: ModelMappingEntry[]
+  reason: string
+}
+
 export function splitModelMappingObject(
   modelMapping?: Record<string, unknown> | null
 ): { allowedModels: string[]; modelMappings: ModelMappingEntry[] } {
@@ -92,7 +108,13 @@ export function splitModelMappingObject(
 }
 
 export interface ModelRestrictionError {
-  code: 'exactIdRequired' | 'idsRequired' | 'invalidWildcard' | 'conflictingTarget'
+  code:
+    | 'exactIdRequired'
+    | 'idsRequired'
+    | 'invalidWildcard'
+    | 'conflictingTarget'
+    | 'emptyRestrictedSelection'
+    | 'denyAllReasonRequired'
   row: number
   model: string
   from: string
@@ -108,13 +130,28 @@ export function translateModelRestrictionErrors(
 
 // Validate before serialization so an invalid restriction never becomes unrestricted.
 export function validateModelRestrictions(
-  mode: ModelRestrictionMode,
+  mode: ModelRestrictionMode | AccountModelSelectionMode,
   allowedModels: string[],
-  modelMappings: ModelMappingEntry[]
+  modelMappings: ModelMappingEntry[],
+  options?: { reason?: string; requireNonEmptyRestricted?: boolean }
 ): ModelRestrictionError[] {
   const errors: ModelRestrictionError[] = []
+  if (mode === 'deny_all') {
+    if (options?.reason !== undefined && !options.reason.trim()) {
+      errors.push({ code: 'denyAllReasonRequired', row: 1, model: '', from: '', to: '' })
+    }
+    return errors
+  }
+  if (mode === 'restricted' && options?.requireNonEmptyRestricted) {
+    const hasModel = allowedModels.some(model => model.trim().length > 0)
+    const hasMapping = modelMappings.some(entry => entry.from.trim().length > 0 || entry.to.trim().length > 0)
+    if (!hasModel && !hasMapping) {
+      errors.push({ code: 'emptyRestrictedSelection', row: 1, model: '', from: '', to: '' })
+      return errors
+    }
+  }
   const targets = new Map<string, string>()
-  if (mode !== 'mapping') {
+  if (mode !== 'mapping' && mode !== 'inherit') {
     allowedModels.forEach((model, index) => {
       const value = model.trim()
       if (!value || value.includes('*')) errors.push({ code: 'exactIdRequired', row: index + 1, model, from: '', to: '' })
@@ -177,14 +214,249 @@ export function buildModelMappingObject(
   return Object.keys(mapping).length > 0 ? mapping : null
 }
 
+export function buildExplicitModelMappingObject(
+  modelMappings: ModelMappingEntry[]
+): Record<string, string> {
+  const mapping: Record<string, string> = {}
+  for (const entry of modelMappings) {
+    const from = entry.from.trim()
+    const to = entry.to.trim()
+    if (!from || !to || from === to) continue
+    if (!isValidWildcardPattern(from) || to.includes('*')) continue
+    mapping[from] = to
+  }
+  return mapping
+}
+
+export function mergeIdentityMappingsIntoModels(
+  models: string[],
+  mappings: ModelMappingEntry[]
+): string[] {
+  const identities = mappings.filter(entry => entry.from.trim() === entry.to.trim())
+  return [...new Set([...models, ...identities.map(entry => entry.to)].map(model => model.trim()).filter(Boolean))]
+}
+
+export function mergeMappingTargetsIntoModels(
+  models: string[],
+  mappings: ModelMappingEntry[]
+): string[] {
+  const merged = new Set<string>()
+  for (const model of models) {
+    const trimmed = model.trim()
+    if (trimmed && !trimmed.includes('*') && !trimmed.includes('?')) {
+      merged.add(trimmed)
+    }
+  }
+  for (const entry of mappings) {
+    const target = entry.to.trim()
+    if (target && !target.includes('*') && !target.includes('?')) {
+      merged.add(target)
+    }
+  }
+  return [...merged]
+}
+
+export function isLegacySystemFreezeAllowlist(
+  allowlist?: ModelAllowlist | null,
+  extra?: Record<string, unknown> | null
+): boolean {
+  if (!allowlist || !allowlist.enabled || (allowlist.models?.length ?? 0) > 0) {
+    return false
+  }
+  if (
+    allowlist.reason === 'system_upgrade_baseline_freeze' &&
+    (!allowlist.confirmed_by || allowlist.confirmed_by === 0) &&
+    !allowlist.confirmed_at
+  ) {
+    return true
+  }
+  if (
+    extra?.model_selection_baseline_frozen === true &&
+    (!allowlist.confirmed_by || allowlist.confirmed_by === 0) &&
+    !allowlist.confirmed_at &&
+    !allowlist.reason
+  ) {
+    return true
+  }
+  return false
+}
+
+export function normalizeAccountModelSelection(input?: {
+  account?: {
+    platform?: string
+    credentials?: Record<string, unknown> | null
+    extra?: Record<string, unknown> | null
+  } | null
+  catalog?: Partial<AccountModelCatalogDetails> | null
+  modelAllowlist?: ModelAllowlist | null
+  modelMapping?: Record<string, unknown> | null
+}): AccountModelSelectionState {
+  const allowlist = input?.modelAllowlist ?? accountModelAllowlist(input?.account)
+  const rawMapping =
+    (input?.catalog?.model_mapping ??
+      input?.modelMapping ??
+      (input?.account?.credentials?.model_mapping as Record<string, unknown> | undefined)) ??
+    null
+  const { allowedModels, modelMappings } = splitModelMappingObject(rawMapping)
+  const catalogModels = Array.isArray(input?.catalog?.models)
+    ? input!.catalog!.models!.map(model => String(model).trim()).filter(Boolean)
+    : []
+  const isFrozen = isLegacySystemFreezeAllowlist(allowlist, input?.account?.extra)
+  const allowlistModels =
+    allowlist?.enabled && !isFrozen
+      ? (allowlist.models ?? []).map(model => String(model).trim()).filter(Boolean)
+      : []
+  const reason =
+    typeof allowlist?.reason === 'string' && !isFrozen ? allowlist.reason.trim() : ''
+
+  if (
+    input?.catalog?.mode === 'deny_all' ||
+    (input?.catalog?.mode === undefined &&
+      allowlist?.enabled === true &&
+      !isFrozen &&
+      allowlistModels.length === 0 &&
+      catalogModels.length === 0)
+  ) {
+    return {
+      mode: 'deny_all',
+      models: [],
+      mappings: modelMappings,
+      reason
+    }
+  }
+
+  const mergedModels = [...new Set([...allowedModels, ...catalogModels, ...allowlistModels])]
+
+  if (input?.catalog?.mode === 'restricted') {
+    return {
+      mode: 'restricted',
+      models: mergedModels,
+      mappings: modelMappings,
+      reason
+    }
+  }
+
+  if (input?.catalog?.mode === 'inherit') {
+    if (mergedModels.length === 0 && modelMappings.length === 0) {
+      return { mode: 'inherit', models: [], mappings: [], reason }
+    }
+    if (mergedModels.length === 0 && allowlist?.enabled === false) {
+      return { mode: 'inherit', models: [], mappings: modelMappings, reason }
+    }
+  }
+
+  if (
+    (allowlist?.enabled === true && !isFrozen && mergedModels.length > 0) ||
+    mergedModels.length > 0 ||
+    modelMappings.length > 0
+  ) {
+    return {
+      mode: 'restricted',
+      models: mergedModels,
+      mappings: modelMappings,
+      reason
+    }
+  }
+
+  return {
+    mode: 'inherit',
+    models: [],
+    mappings: [],
+    reason
+  }
+}
+
+export function buildUpdateModelAllowlistRequest(input: {
+  mode: AccountModelSelectionMode
+  models: string[]
+  mappings?: ModelMappingEntry[]
+  reason?: string
+  expectedRulesRevision: string | number
+}): UpdateModelAllowlistRequest {
+  const reason = (input.reason ?? '').trim()
+  if (input.mode === 'inherit') {
+    return {
+      mode: 'inherit',
+      enabled: false,
+      models: [],
+      reason,
+      expected_rules_revision: input.expectedRulesRevision,
+      model_mapping: buildExplicitModelMappingObject(input.mappings ?? [])
+    }
+  }
+  if (input.mode === 'deny_all') {
+    return {
+      mode: 'deny_all',
+      enabled: true,
+      models: [],
+      reason,
+      confirm_deny_all: true,
+      expected_rules_revision: input.expectedRulesRevision
+    }
+  }
+  const mappings = input.mappings ?? []
+  return {
+    mode: 'restricted',
+    enabled: true,
+    models: mergeIdentityMappingsIntoModels(input.models, mappings),
+    reason,
+    expected_rules_revision: input.expectedRulesRevision,
+    model_mapping: buildExplicitModelMappingObject(mappings)
+  }
+}
+
+export function buildAccountWorkflowModelPayload(input: {
+  mode?: AccountModelSelectionMode
+  models: string[]
+  mappings?: ModelMappingEntry[]
+  reason?: string
+  clearMappingsOnInherit?: boolean
+}): {
+  mode: AccountModelSelectionMode
+  models: string[]
+  model_mapping?: Record<string, string>
+  reason?: string
+} {
+  const reason = (input.reason ?? '').trim()
+  if (input.mode === 'deny_all') {
+    return {
+      mode: 'deny_all',
+      models: [],
+      reason
+    }
+  }
+  const hasSelection =
+    input.models.some(model => model.trim().length > 0) ||
+    (input.mappings ?? []).some(entry => entry.from.trim().length > 0 && entry.to.trim().length > 0)
+  if (input.mode === 'restricted' || (input.mode === undefined && hasSelection)) {
+    const mergedModels = mergeMappingTargetsIntoModels(input.models, input.mappings ?? [])
+    const mapping = buildExplicitModelMappingObject(input.mappings ?? [])
+    return {
+      mode: 'restricted',
+      models: mergedModels,
+      ...(Object.keys(mapping).length > 0 ? { model_mapping: mapping } : {}),
+      ...(reason ? { reason } : {})
+    }
+  }
+  return {
+    mode: 'inherit',
+    models: [],
+    ...(input.clearMappingsOnInherit ? { model_mapping: {} } : {})
+  }
+}
 
 export function modelSyncWarningCode(warning: string | { code: string }): string {
   return typeof warning === 'string' ? warning : warning.code
 }
 
 export function modelSyncErrorKey(error: unknown): string {
-  if (extractApiErrorStatus(error) === 409) return 'modelSync.conflict'
   const reason = extractApiErrorCode(error) ?? ''
+  if (reason === 'MODEL_SELECTION_DENIED') return 'modelSync.deniedError'
+  if (extractApiErrorStatus(error) === 409) return 'modelSync.conflict'
+  if (reason === 'MODEL_SELECTION_REASON_REQUIRED') return 'modelValidation.denyAllReasonRequired'
+  if (reason === 'INVALID_MODEL_SELECTION' || reason === 'MODEL_SELECTION_CONFIRMATION_REQUIRED') {
+    return 'modelSync.invalidSelection'
+  }
   const reasons = ['not_synced', 'identity_changed', 'entitlement_unconfirmed', 'not_discovered', 'account_restricted', 'route_ambiguous', 'route_target_unavailable', 'endpoint_unsupported', 'retired', 'group_restricted', 'stale_evidence', 'metadata_incomplete']
   if (reasons.includes(reason)) return `modelSync.reasons.${reason}`
   const keys: Record<string, string> = {
@@ -206,9 +478,25 @@ export function modelSyncErrorKey(error: unknown): string {
 }
 
 /** Account filters live in protected extra, unlike group/API-key allowlists. */
-export function accountModelAllowlist(account: { extra?: Record<string, unknown> | null } | null | undefined) {
+export function accountModelAllowlist(
+  account: { extra?: Record<string, unknown> | null } | null | undefined
+): ModelAllowlist | undefined {
   const value = account?.extra?.upstream_model_allowlist
   if (!value || typeof value !== 'object') return undefined
-  const filter = value as { enabled?: boolean; models?: unknown }
-  return { enabled: filter.enabled === true, models: Array.isArray(filter.models) ? filter.models.filter((id): id is string => typeof id === 'string') : [] }
+  const filter = value as {
+    enabled?: boolean
+    models?: unknown
+    reason?: unknown
+    confirmed_by?: unknown
+    confirmed_at?: unknown
+    identity_revision?: unknown
+  }
+  return {
+    enabled: filter.enabled === true,
+    models: Array.isArray(filter.models) ? filter.models.filter((id): id is string => typeof id === 'string') : [],
+    ...(typeof filter.reason === 'string' ? { reason: filter.reason } : {}),
+    ...(typeof filter.confirmed_by === 'number' ? { confirmed_by: filter.confirmed_by } : {}),
+    ...(typeof filter.confirmed_at === 'string' ? { confirmed_at: filter.confirmed_at } : {}),
+    ...(typeof filter.identity_revision === 'number' ? { identity_revision: filter.identity_revision } : {})
+  }
 }

@@ -1,6 +1,6 @@
 package main
 
-//go:generate go run github.com/google/wire/cmd/wire
+//go:generate go run github.com/google/wire/cmd/wire@v0.7.0
 
 import (
 	"context"
@@ -198,6 +198,10 @@ func runMainServer(role string) error {
 	app, err := initializeApplication(handler.BuildInfo{Version: Version, BuildType: BuildType}, cfg, process.New(mode))
 	if err != nil {
 		return fmt.Errorf("initialize %s application: %w", mode, err)
+	}
+	if err := repairModelSelectionsBeforeStartup(ctx, app.Database); err != nil {
+		app.Cleanup()
+		return fmt.Errorf("repair account model selections: %w", err)
 	}
 	configureLifecycle(app)
 	if runtimeenv.Get("OMNIHIVE_PPROF", "SUB2API_PPROF") == "1" {

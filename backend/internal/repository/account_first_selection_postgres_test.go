@@ -59,7 +59,7 @@ func TestAccountFirstSelectionDedicatedPostgres(t *testing.T) {
 			require.NoError(t, repository.Create(ctx, account))
 			preview, err := repository.GetByID(ctx, account.ID)
 			require.NoError(t, err)
-			require.False(t, service.AccountModelSelectionNeedsFreeze(preview), "modern empty selection is already frozen")
+			require.Equal(t, service.ModelSelectionInherit, service.AccountModelSelectionView(preview).Mode)
 			baseline := preview.ModelCatalogBaseline()
 			require.Zero(t, baseline.RulesRevision)
 			if scenario == "cn_background_probe" || scenario == "cn_native_responses" {
@@ -121,7 +121,7 @@ func TestAccountSelectionConflictsDedicatedPostgres(t *testing.T) {
 	}
 }
 
-func TestAccountLegacyFreezeAndRefreshDedicatedPostgres(t *testing.T) {
+func TestAccountLegacyDiscoveryPreservesSelectionPostgres(t *testing.T) {
 	ctx := context.Background()
 	repository, client := firstSelectionRepository(t)
 	legacy := &service.Account{Name: "legacy-selection-fixture", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Credentials: map[string]any{"api_key": "fixture"}}
@@ -133,23 +133,26 @@ func TestAccountLegacyFreezeAndRefreshDedicatedPostgres(t *testing.T) {
 	require.NoError(t, err)
 	legacy, err = repository.GetByID(ctx, legacy.ID)
 	require.NoError(t, err)
-	require.True(t, service.AccountModelSelectionNeedsFreeze(legacy))
-	staleBaseline := legacy.ModelCatalogBaseline()
+	require.Equal(t, service.ModelSelectionInherit, service.AccountModelSelectionView(legacy).Mode)
+	originalBaseline := legacy.ModelCatalogBaseline()
 	snapshot := &service.AccountModelCatalogSnapshot{Revision: 2, Complete: true, DiscoveredModels: []string{"new-observation"}}
-	require.NoError(t, repository.CommitAccountModelCatalog(ctx, legacy.ID, staleBaseline, snapshot, legacy.ModelCatalogState(), nil, true))
+	require.NoError(t, repository.CommitAccountModelCatalog(ctx, legacy.ID, originalBaseline, snapshot, legacy.ModelCatalogState(), nil, false))
 	current, err := repository.GetByID(ctx, legacy.ID)
 	require.NoError(t, err)
-	require.Equal(t, map[string]string{"legacy-selected": "legacy-selected"}, current.GetModelMapping())
-	require.Equal(t, staleBaseline.RulesRevision+1, current.ModelCatalogState().RulesRevision)
+	require.Empty(t, current.GetModelMapping())
+	require.Equal(t, originalBaseline.RulesRevision, current.ModelCatalogState().RulesRevision)
 	manual := map[string]string{"manual": "manual"}
-	_, err = repository.ReplaceAccountModelSelectionScope(ctx, legacy.ID, staleBaseline, service.AccountModelAllowlist{Enabled: false}, &manual)
-	require.ErrorIs(t, err, service.ErrAccountModelCatalogConflict, "legacy migration changes saved selection, unlike discovery")
+	_, err = repository.ReplaceAccountModelSelectionScope(ctx, legacy.ID, originalBaseline, service.AccountModelAllowlist{Enabled: true, Models: []string{"manual"}}, &manual)
+	require.NoError(t, err, "catalog discovery does not invalidate a selection form")
+	current, err = repository.GetByID(ctx, legacy.ID)
+	require.NoError(t, err)
 	baseline := current.ModelCatalogBaseline()
+	require.Equal(t, originalBaseline.RulesRevision+1, baseline.RulesRevision)
 	snapshot.Revision++
 	snapshot.RulesRevision = baseline.RulesRevision
 	require.NoError(t, repository.CommitAccountModelCatalog(ctx, legacy.ID, baseline, snapshot, current.ModelCatalogState(), nil, false))
 	current, err = repository.GetByID(ctx, legacy.ID)
 	require.NoError(t, err)
 	require.Equal(t, baseline.RulesRevision, current.ModelCatalogState().RulesRevision)
-	require.Equal(t, map[string]string{"legacy-selected": "legacy-selected"}, current.GetModelMapping())
+	require.Equal(t, manual, current.GetModelMapping())
 }

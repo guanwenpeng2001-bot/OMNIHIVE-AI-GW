@@ -23,15 +23,20 @@ func TestLegacyCatalogResiliencePostgres(test *testing.T) {
 	if dsn == "" {
 		test.Skip("set UPSTREAM_JOB_TEST_DSN to isolated job_test")
 	}
+	migrated, err := testresources.OpenPostgres(context.Background(), dsn, "job_test")
+	require.NoError(test, err)
+	require.NoError(test, ApplyMigrations(context.Background(), migrated))
+	require.NoError(test, migrated.Close())
 	database := testresources.OpenSchema(test, dsn)
 	ctx := context.Background()
 	// Reuse the migrated test database's shape in an invocation-owned schema.
 	// No migration or test fixture can modify another runner's account rows.
-	_, err := database.ExecContext(ctx, `CREATE TABLE accounts (LIKE public.accounts INCLUDING ALL);
+	_, err = database.ExecContext(ctx, `CREATE TABLE accounts (LIKE public.accounts INCLUDING ALL);
 	CREATE TABLE scheduler_outbox (LIKE public.scheduler_outbox INCLUDING ALL);
 	CREATE TABLE account_groups (LIKE public.account_groups INCLUDING ALL);
 	CREATE TABLE groups (LIKE public.groups INCLUDING ALL);
 	CREATE TABLE credential_secrets (LIKE public.credential_secrets INCLUDING ALL);
+	CREATE TABLE provider_connections (LIKE public.provider_connections INCLUDING ALL);
 	CREATE TABLE audit_logs (LIKE public.audit_logs INCLUDING ALL);
 	CREATE TABLE proxies (LIKE public.proxies INCLUDING ALL);`)
 	require.NoError(test, err)
@@ -84,15 +89,21 @@ func TestLegacyCatalogResiliencePostgres(test *testing.T) {
 			require.EqualValues(test, 2, account.ModelCatalogState().IdentityRevision)
 			require.EqualValues(test, 2, account.ModelCatalogState().RulesRevision)
 			require.ErrorIs(test, repository.CommitAccountModelCatalog(ctx, account.ID, oldBaseline, nil, service.AccountModelCatalogState{}, nil, false), service.ErrAccountModelCatalogConflict)
+			selection := service.NewAccountModelSelectionService(repository)
+			editMapping := func(mapping map[string]string) {
+				_, err := selection.SaveModelSelection(ctx, account.ID, service.ModelSelectionCommand{ModelMapping: mapping, ActorID: 7, Source: service.ModelSelectionAccountWrite})
+				require.NoError(test, err)
+				account = get(test, account.ID)
+			}
 			account.Credentials["model_mapping"] = map[string]string{"changed-alias": "target"}
 			write(account)
 			account = get(test, account.ID)
+			require.Equal(test, "target", account.GetMappedModel("alias"), "credential refresh preserves the stored mapping")
+			editMapping(map[string]string{"changed-alias": "target"})
 			require.EqualValues(test, 1, account.ModelCatalogState().LegacyPolicyRevision)
 			require.NotNil(test, account.EffectiveUpstreamModelCatalog())
 			require.Equal(test, service.ModelEvidenceConfiguredSelection, account.EffectiveUpstreamModelCatalog().EligibleModels[0].EvidenceKind)
-			account.Credentials["model_mapping"] = map[string]string{"alias": "target"}
-			write(account)
-			account = get(test, account.ID)
+			editMapping(map[string]string{"alias": "target"})
 			require.EqualValues(test, 2, account.ModelCatalogState().LegacyPolicyRevision)
 			require.NotNil(test, account.EffectiveUpstreamModelCatalog())
 			require.Equal(test, service.ModelEvidenceConfiguredSelection, account.EffectiveUpstreamModelCatalog().EligibleModels[0].EvidenceKind)
@@ -113,7 +124,7 @@ func TestLegacyCatalogResiliencePostgres(test *testing.T) {
 		account := create(test)
 		require.NoError(test, repository.UpdateCredentials(ctx, account.ID, account.Credentials))
 		account = get(test, account.ID)
-		require.NoError(test, repository.UpdateAccountModelAllowlist(ctx, account.ID, account.ModelCatalogBaseline(), service.AccountModelAllowlist{Enabled: true, Models: []string{}}))
+		require.NoError(test, repository.UpdateAccountModelAllowlist(ctx, account.ID, account.ModelCatalogBaseline(), service.AccountModelAllowlist{Enabled: true, Models: []string{}, ConfirmedBy: 7, Reason: "maintenance"}))
 		account = get(test, account.ID)
 		require.Zero(test, account.ModelCatalogState().LegacyPolicyRevision)
 		require.NotEmpty(test, account.GetUpstreamModelCatalog().EligibleModels)

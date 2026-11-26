@@ -15,6 +15,7 @@ import type {
   OpenAIMessagesDispatchModelConfig,
   ReasoningEffortMapping,
   ModelAllowlist,
+  AccountWorkflowModelSelection,
   CodexModelsManifestConfig,
 } from './model'
 
@@ -927,6 +928,7 @@ export interface OpenAIResponsesState {
 }
 
 export interface CreateAccountRequest {
+  model_selection?: AccountWorkflowModelSelection
   status?: AccountStatus
   tpm_limit?: number
   name: string

@@ -448,7 +448,7 @@ func (r *Session) apply(c Connection, p Patch) error {
 			return e
 		}
 	}
-	if e := legacy.Activate(r.ctx, r.tx, r.Workspace, c.ID, c.Name, c.Endpoint, c.NetworkPolicyID, c.Limits.Concurrency, c.Models); e != nil {
+	if e := legacy.Activate(r.ctx, r.tx, r.Workspace, c.ID, r.Actor, c.Name, c.Endpoint, c.NetworkPolicyID, c.Limits.Concurrency, c.Models); e != nil {
 		return e
 	}
 	if e := r.members(c.ID, c.Pools); e != nil {

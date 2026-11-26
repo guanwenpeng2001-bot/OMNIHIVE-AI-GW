@@ -163,7 +163,7 @@ func TestCredentialDraftNewStatusPersistenceAndAfterCommitPrivacy(t *testing.T) 
 			require.NoError(t, err)
 			request.CredentialDraftRevision = review.Revision
 			err = pending.RunAccountWriteTransaction(ctx, func(txCtx context.Context) error {
-				account, err := confirmCredentialDraftWithBinding(txCtx, pending, admin, "browser", request, nil, false, false, "admin", false)
+				account, err := confirmCredentialDraftWithBinding(txCtx, pending, admin, "browser", request, nil, false, false, "admin", 7, false)
 				if err != nil {
 					return err
 				}

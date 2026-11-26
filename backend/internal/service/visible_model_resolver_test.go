@@ -334,7 +334,7 @@ func TestVisibleModelsStaleDeclarationPreservesSelectionUntilRemoved(t *testing.
 			}
 			require.False(t, declaration.ValidFor(&account, nil, time.Now()), "historical declaration still loses validity")
 			account.Credentials["model_mapping"] = map[string]string{}
-			NormalizeEmptyAccountModelSelection(&account)
+			account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Reason: "explicit deny test"}
 			repository.generation++
 			view, err = gateway.VisibleModels(context.Background(), nil, PlatformOpenAI)
 			require.NoError(t, err)

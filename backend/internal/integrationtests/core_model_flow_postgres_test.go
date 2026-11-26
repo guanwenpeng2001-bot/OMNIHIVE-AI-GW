@@ -219,7 +219,13 @@ func TestCoreModelFlowPostgres(t *testing.T) {
 	f.assertSuccessfulRequest(corePrivateModel)
 	f.saveSelection(selected, false, []string{})
 	f.assertModels(corePricedAlias, corePrivateModel)
-	f.saveSelection(nil, true, []string{corePricedModel})
+	// A restricted scope always includes the targets of retained aliases.
+	kept := f.saveSelection(nil, true, []string{corePricedModel})
+	require.ElementsMatch(t, []string{corePrivateModel}, stringValues(kept.Get("data.auto_added")))
+	require.Equal(t, selected, f.savedAccount().GetModelMapping())
+	f.assertModels(corePricedAlias, corePrivateModel)
+	// Narrowing below an alias target requires removing that alias in the same write.
+	f.saveSelection(map[string]string{corePricedAlias: corePricedModel}, true, []string{corePricedModel})
 	f.assertModels(corePricedAlias)
 	f.assertRejected(corePrivateModel)
 	f.assertSuccessfulRequest(corePricedAlias)

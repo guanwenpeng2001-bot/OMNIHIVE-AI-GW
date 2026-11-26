@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"maps"
 	"reflect"
 	"strconv"
 	"strings"
@@ -186,8 +187,9 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 		}
 	}
 
-	account.Extra = service.StripAccountModelCatalogExtra(account.Extra)
-	service.NormalizeEmptyAccountModelSelection(account)
+	if err := normalizeCreatedModelSelection(account); err != nil {
+		return err
+	}
 	for key, value := range service.ConfiguredCNResponsesSupport(account) {
 		account.Extra[key] = value
 	}
@@ -598,7 +600,15 @@ func (r *accountRepository) updateAccount(
 	if err != nil {
 		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
 	}
-	if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(account.GroupIDs)); err != nil {
+	payload := buildSchedulerGroupPayload(account.GroupIDs)
+	if selection := account.ModelSelectionResult; selection != nil && selection.Changed {
+		selectionPayload := map[string]any{"rules_revision": selection.RulesRevision}
+		if len(account.GroupIDs) > 0 {
+			selectionPayload["group_ids"] = account.GroupIDs
+		}
+		payload = selectionPayload
+	}
+	if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, payload); err != nil {
 		return err
 	}
 	if tx != nil {
@@ -667,6 +677,7 @@ func (r *accountRepository) updateLockedAccount(
 	if credentials, ok := service.MergeAccountCredentialChanges(ctx, current.Credentials); ok {
 		account.Credentials = credentials
 	}
+	account.Credentials = service.PreserveCurrentModelMapping(account.Credentials, current.Credentials)
 	if configurationOnly {
 		mergeAccountRuntimeExtra(extra, current.Extra)
 		account.LastUsedAt = current.LastUsedAt
@@ -686,14 +697,16 @@ func (r *accountRepository) updateLockedAccount(
 	if service.UpgradeLegacyModelCatalogEvidence(legacyAccount) {
 		current.Extra = legacyAccount.Extra
 	}
-	for _, key := range []string{service.UpstreamModelCatalogExtraKey, service.UpstreamModelCatalogStateExtraKey, service.UpstreamModelAllowlistExtraKey, service.UpstreamModelMetadataExtraKey, service.ModelAvailabilityExtraKey, service.ModelProbeBudgetExtraKey, service.ModelSelectionBaselineFrozenExtraKey} {
+	for _, key := range []string{service.UpstreamModelCatalogExtraKey, service.UpstreamModelCatalogStateExtraKey, service.UpstreamModelAllowlistExtraKey, service.UpstreamModelMetadataExtraKey, service.ModelAvailabilityExtraKey, service.ModelProbeBudgetExtraKey, service.ModelSelectionBaselineFrozenExtraKey, service.ModelSelectionRepairBackupExtraKey} {
 		delete(extra, key)
 		if value, exists := current.Extra[key]; exists {
 			extra[key] = value
 		}
 	}
 	account.Extra = extra
-	service.NormalizeAccountModelSelectionUpdate(accountEntityToService(current), account)
+	if err := mergeLockedAccountModelSelection(accountEntityToService(current), account, account.ModelSelectionCommand); err != nil {
+		return nil, err
+	}
 	persistedCredentials, err := prepareReferencedCredentials(ctx, client, r.credentialEncryptor, account.ID, current.WorkspaceID, current.Credentials, account.Credentials)
 	if err != nil {
 		return nil, err
@@ -721,7 +734,20 @@ func (r *accountRepository) updateLockedAccount(
 		extra = account.Extra
 	}
 	account.Credentials = persistedCredentials
-	service.AdvanceAccountModelCatalogRevisionsForUpdate(&service.Account{ParentAccountID: current.ParentAccountID, ProxyID: current.ProxyID, Platform: current.Platform, Type: current.Type, Credentials: current.Credentials, Extra: current.Extra}, account, configurationOnly)
+	revisionCurrent := &service.Account{ParentAccountID: current.ParentAccountID, ProxyID: current.ProxyID, Platform: current.Platform, Type: current.Type, Credentials: current.Credentials, Extra: current.Extra}
+	if account.ModelSelectionResult != nil && account.ModelSelectionResult.Changed {
+		currentSelection := service.AccountModelSelectionView(accountEntityToService(current))
+		revisionCurrent.Extra = copyJSONMap(current.Extra)
+		if !reflect.DeepEqual(currentSelection.Scope, account.ModelSelectionResult.Scope) {
+			revisionCurrent.Extra[service.UpstreamModelAllowlistExtraKey] = currentSelection.Scope
+		}
+	}
+	service.AdvanceAccountModelCatalogRevisionsForUpdate(revisionCurrent, account, configurationOnly)
+	if account.ModelSelectionResult != nil && account.ModelSelectionResult.Changed {
+		state := account.ModelCatalogState()
+		state.RulesRevision = account.ModelSelectionResult.RulesRevision
+		account.Extra[service.UpstreamModelCatalogStateExtraKey] = state
+	}
 
 	schedulable := account.Schedulable
 	if account.Status == service.StatusError {
@@ -1032,7 +1058,7 @@ func mergeAccountRuntimeExtra(incoming, current map[string]any) {
 		"codex_7d_used_percent", "codex_7d_reset_after_seconds", "codex_7d_window_minutes", "codex_7d_reset_at",
 		service.UpstreamModelMetadataExtraKey,
 		service.UpstreamModelCatalogExtraKey, service.UpstreamModelCatalogStateExtraKey, service.UpstreamModelAllowlistExtraKey,
-		service.ModelAvailabilityExtraKey, service.ModelProbeBudgetExtraKey, service.ModelSelectionBaselineFrozenExtraKey,
+		service.ModelAvailabilityExtraKey, service.ModelProbeBudgetExtraKey, service.ModelSelectionBaselineFrozenExtraKey, service.ModelSelectionRepairBackupExtraKey,
 	} {
 		delete(incoming, key)
 		if value, ok := current[key]; ok {
@@ -1102,18 +1128,26 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 		return err
 	}
 	var runtimeSQL accountExtraSQL
+	// Resolve selection against the row being updated, including unreferenced credentials.
+	incomingExpression := `(($1::jsonb - 'model_mapping') || CASE WHEN credentials ? 'model_mapping'
+		THEN jsonb_build_object('model_mapping', credentials->'model_mapping') ELSE '{}'::jsonb END)`
+	incoming := runtimeSQL.bind("incoming_credentials", incomingExpression)
 	manualCredentialUpdate := ctx.Value(runtimeCredentialRefresh{}) == nil
+	revisionPatch := accountCatalogRevisionPatchSQL(incoming, "", "", manualCredentialUpdate)
+	if ctx.Value(bulkSelectionRulesAlreadyAdvanced{}) != nil {
+		revisionPatch = "jsonb_set(" + revisionPatch + ", '{upstream_model_catalog_state,rules_revision}', to_jsonb(COALESCE((extra->'upstream_model_catalog_state'->>'rules_revision')::bigint, 0)))"
+	}
 	catalogExtra := runtimeSQL.bind("catalog_extra", `(COALESCE((CASE
 		-- 凭证整体未变化 ⇒ Ollama 组身份必然未变化；顶层 DISTINCT 守卫防止
 		-- 非 Ollama 账号的无变化持久化误清探测快照或重写 NULL extra。
 		WHEN platform IN (`+ollamaCloudUsagePlatformsSQL+`)
 			AND type = 'apikey'
-			AND credentials IS DISTINCT FROM $1::jsonb
+			AND credentials IS DISTINCT FROM `+incoming+`
 			AND (
-				credentials -> 'credential_secret_version' IS DISTINCT FROM $1::jsonb -> 'credential_secret_version' OR credentials -> 'api_key' IS DISTINCT FROM $1::jsonb -> 'api_key'
+				credentials -> 'credential_secret_version' IS DISTINCT FROM `+incoming+` -> 'credential_secret_version' OR credentials -> 'api_key' IS DISTINCT FROM `+incoming+` -> 'api_key'
 				OR NOT (
 					`+ollamaCloudBaseURLMatchesSQL("credentials ->> 'base_url'")+`
-					AND `+ollamaCloudBaseURLMatchesSQL("$1::jsonb ->> 'base_url'")+`
+					AND `+ollamaCloudBaseURLMatchesSQL(incoming+" ->> 'base_url'")+`
 				)
 			)
 		THEN COALESCE(extra, '{}'::jsonb)
@@ -1124,15 +1158,15 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 		-- 上游倍率探测已放宽到全部 API-key 平台：凭证变化即视为探测
 		-- 身份变化，丢弃 stale 快照。
 		WHEN (type = 'apikey' OR (platform = 'cursor' AND type = 'upstream'))
-			AND credentials IS DISTINCT FROM $1::jsonb
+			AND credentials IS DISTINCT FROM `+incoming+`
 		THEN COALESCE(extra, '{}'::jsonb) - 'upstream_billing_probe'
 		ELSE extra
-	END), '{}'::jsonb) || `+accountCatalogRevisionPatchSQL("$1::jsonb", "", "", manualCredentialUpdate)+`) - `+cloudQuotaInvalidationSQL("$1::jsonb"))
-	openCodeIdentityChanged := runtimeSQL.bind("opencode_identity_changed", openCodeQuotaIdentityChangeSQL("$1::jsonb", catalogExtra, ""))
+	END), '{}'::jsonb) || `+revisionPatch+`) - `+cloudQuotaInvalidationSQL(incoming))
+	openCodeIdentityChanged := runtimeSQL.bind("opencode_identity_changed", openCodeQuotaIdentityChangeSQL(incoming, catalogExtra, ""))
 	quotaColumns, quotaValues := openCodeQuotaInvalidationSQL(openCodeIdentityChanged)
-	runtimeExtra := runtimeSQL.bind("runtime_extra", clearChangedAccountRuntimeObservationsSQL("$1::jsonb", catalogExtra, ""))
+	runtimeExtra := runtimeSQL.bind("runtime_extra", clearChangedAccountRuntimeObservationsSQL(incoming, catalogExtra, ""))
 	if ctx.Value(runtimeCredentialRefresh{}) != nil {
-		runtimeExtra = runtimeSQL.bind("refreshed_runtime_extra", runtimeExtra+" || CASE WHEN credentials IS DISTINCT FROM $1::jsonb THEN jsonb_build_object('session_window_utilization',extra->'session_window_utilization') ELSE '{}'::jsonb END")
+		runtimeExtra = runtimeSQL.bind("refreshed_runtime_extra", runtimeExtra+" || CASE WHEN credentials IS DISTINCT FROM "+incoming+" THEN jsonb_build_object('session_window_utilization',extra->'session_window_utilization') ELSE '{}'::jsonb END")
 	}
 	runtimeExtra = clearOpenCodeModelQuotaLimitsSQL(runtimeExtra, openCodeIdentityChanged)
 	columns := append([]string{"extra"}, quotaColumns...)
@@ -1140,7 +1174,7 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 	result, err := client.ExecContext(ctx, `
 		UPDATE accounts
 		SET
-			credentials = $1::jsonb,
+			credentials = `+incomingExpression+`,
 			(`+strings.Join(columns, ", ")+`) = `+runtimeSQL.selectSQL(values...)+`,
 			updated_at = NOW()
 		WHERE id = $2 AND deleted_at IS NULL
@@ -1506,6 +1540,28 @@ func (r *accountRepository) ListActive(ctx context.Context) ([]service.Account, 
 		return nil, err
 	}
 	return r.accountsToService(ctx, accounts)
+}
+
+// Discovery reloads the account under its advisory lock. The scan needs only
+// catalog state and an ID, so it does not resolve or decrypt credentials.
+func (r *accountRepository) ListActiveWithInvalidatedModelCatalog(ctx context.Context) ([]service.Account, error) {
+	rows, err := r.client.Account.Query().
+		Where(dbaccount.StatusEQ(service.StatusActive), func(s *entsql.Selector) {
+			extra := s.C(dbaccount.FieldExtra)
+			s.Where(entsql.ExprP("COALESCE(" + extra + "->'upstream_model_catalog_state'->'identity_revision', '0'::jsonb) <> " +
+				"COALESCE(" + extra + "->'upstream_model_catalog'->'identity_revision', '0'::jsonb)"))
+		}).
+		Order(dbent.Asc(dbaccount.FieldPriority, dbaccount.FieldID)).
+		Select(dbaccount.FieldID, dbaccount.FieldStatus, dbaccount.FieldExtra).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	accounts := make([]service.Account, 0, len(rows))
+	for _, row := range rows {
+		accounts = append(accounts, service.Account{ID: row.ID, Status: row.Status, Extra: row.Extra})
+	}
+	return accounts, nil
 }
 
 func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, options service.OAuthRefreshPageOptions) (*service.OAuthRefreshCandidatePage, error) {
@@ -1877,7 +1933,7 @@ func (r *accountRepository) UpdateGrokOAuthCredentialsIfUnchanged(
 	if err != nil {
 		return false, err
 	}
-	credentialsJSON, err := json.Marshal(normalizeJSONMap(credentials))
+	credentialsJSON, err := json.Marshal(normalizeJSONMap(service.PreserveCurrentModelMapping(credentials, expectedCredentials)))
 	if err != nil {
 		return false, err
 	}
@@ -3155,7 +3211,7 @@ func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates m
 		})
 	}
 
-	updates = service.StripAccountModelCatalogExtra(stripCodexFingerprintSeedFromExtraUpdate(updates))
+	updates = stripModelSelectionRepairBackup(service.StripAccountModelCatalogExtra(stripCodexFingerprintSeedFromExtraUpdate(updates)))
 	if len(updates) == 0 {
 		return nil
 	}
@@ -3476,6 +3532,17 @@ func ollamaCloudUsageSnapshotClearRequested(extra map[string]any) bool {
 }
 
 func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates service.AccountBulkUpdate) (int64, error) {
+	if updates.ModelSelectionCommand == nil {
+		command, err := service.ModelSelectionCommandFromCredentials(updates.Credentials, 0)
+		if err != nil {
+			return 0, err
+		}
+		updates.ModelSelectionCommand = command
+	}
+	if _, present := updates.Credentials["model_mapping"]; present {
+		updates.Credentials = maps.Clone(updates.Credentials)
+		delete(updates.Credentials, "model_mapping")
+	}
 	// Management secrets require the per-account encrypted/reference write path;
 	// the generic bulk JSONB merge must never persist them inline.
 	if hasCredentialSecrets(updates.Credentials) {
@@ -3485,7 +3552,23 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	updates.Extra = service.StripAccountModelCatalogExtra(stripCodexFingerprintSeedFromExtraUpdate(updates.Extra))
+	baseCtx := ctx
+	selectionTx := dbent.TxFromContext(ctx)
+	if updates.ModelSelectionCommand != nil && selectionTx == nil {
+		transaction, err := r.client.Tx(ctx)
+		if err != nil {
+			return 0, err
+		}
+		selectionTx = transaction
+		defer func() { _ = transaction.Rollback() }()
+		ctx = dbent.NewTxContext(ctx, transaction)
+	}
+	baselines, err := lockBulkModelSelections(ctx, clientFromContext(ctx, r.client), ids, updates.ModelSelectionCommand)
+	if err != nil {
+		return 0, err
+	}
+	selectionRows := int64(len(baselines))
+	updates.Extra = stripModelSelectionRepairBackup(service.StripAccountModelCatalogExtra(stripCodexFingerprintSeedFromExtraUpdate(updates.Extra)))
 
 	setClauses := make([]string, 0, 8)
 	args := make([]any, 0, 8)
@@ -3675,7 +3758,16 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	}
 
 	if len(setClauses) == 0 {
-		return 0, nil
+		if err := r.applyBulkModelSelections(ctx, baselines, updates); err != nil {
+			return 0, err
+		}
+		if selectionTx != nil && dbent.TxFromContext(baseCtx) == nil {
+			if err := selectionTx.Commit(); err != nil {
+				return 0, err
+			}
+			r.syncSchedulerAccountSnapshots(baseCtx, ids)
+		}
+		return selectionRows, nil
 	}
 
 	setClauses = append(setClauses, "updated_at = NOW()")
@@ -3692,7 +3784,6 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	}
 	query := "UPDATE accounts SET " + joinClauses(setClauses, ", ") + whereClause
 
-	baseCtx := ctx
 	contextTx := dbent.TxFromContext(ctx)
 	exec := r.sql
 	var tx *dbent.Tx
@@ -3747,10 +3838,19 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 			return 0, err
 		}
 	}
+	if err := r.applyBulkModelSelections(ctx, baselines, updates); err != nil {
+		return 0, err
+	}
 	if tx != nil {
 		if err := tx.Commit(); err != nil {
 			return 0, err
 		}
+	}
+	if selectionTx != nil && dbent.TxFromContext(baseCtx) == nil {
+		if err := selectionTx.Commit(); err != nil {
+			return 0, err
+		}
+		r.syncSchedulerAccountSnapshots(baseCtx, ids)
 	}
 	if rows > 0 && contextTx == nil {
 		shouldSync := false
@@ -3763,6 +3863,9 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		if shouldSync {
 			r.syncSchedulerAccountSnapshots(baseCtx, ids)
 		}
+	}
+	if rows == 0 {
+		rows = selectionRows
 	}
 	return rows, nil
 }
@@ -4136,7 +4239,7 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 
 	rateMultiplier := m.RateMultiplier
 
-	return &service.Account{
+	account := &service.Account{
 		ID:                      m.ID,
 		WorkspaceID:             m.WorkspaceID,
 		TPMLimit:                m.TpmLimit,
@@ -4172,6 +4275,8 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 		ParentAccountID:         m.ParentAccountID,
 		QuotaDimension:          string(m.QuotaDimension),
 	}
+	account.Extra = stripModelSelectionRepairBackup(account.Extra)
+	return account
 }
 
 func normalizeJSONMap(in map[string]any) map[string]any {
@@ -4616,7 +4721,7 @@ func (r *accountRepository) ListShadowsByParent(ctx context.Context, parentID in
 
 // CommitAccountModelCatalog uses compare-and-swap inside a short transaction.
 // The UPDATE locks the current row; equal-baseline concurrent requests have one winner.
-func (r *accountRepository) CommitAccountModelCatalog(ctx context.Context, id int64, baseline service.AccountModelCatalogBaseline, snapshot *service.AccountModelCatalogSnapshot, state service.AccountModelCatalogState, metadata *service.UpstreamModelMetadataSnapshot, freezeSelectionBaseline bool) error {
+func (r *accountRepository) CommitAccountModelCatalog(ctx context.Context, id int64, baseline service.AccountModelCatalogBaseline, snapshot *service.AccountModelCatalogSnapshot, state service.AccountModelCatalogState, metadata *service.UpstreamModelMetadataSnapshot, _ bool) error {
 	if state.IdentityRevision != baseline.IdentityRevision || state.RulesRevision != baseline.RulesRevision {
 		return service.ErrAccountModelCatalogConflict
 	}
@@ -4657,14 +4762,12 @@ func (r *accountRepository) CommitAccountModelCatalog(ctx context.Context, id in
 			return service.ErrAccountModelCatalogConflict
 		}
 	}
-	frozenMapping := map[string]string{}
 	if snapshot != nil {
-		rows, err := tx.QueryContext(ctx, "SELECT COALESCE(extra, '{}'::jsonb), COALESCE(credentials, '{}'::jsonb), platform, type FROM accounts WHERE id = $1 AND deleted_at IS NULL FOR UPDATE", id)
+		rows, err := tx.QueryContext(ctx, "SELECT COALESCE(extra, '{}'::jsonb) FROM accounts WHERE id = $1 AND deleted_at IS NULL FOR UPDATE", id)
 		if err != nil {
 			return err
 		}
-		var currentJSON, credentialsJSON []byte
-		var platform, accountType string
+		var currentJSON []byte
 		if !rows.Next() {
 			readErr := rows.Err()
 			_ = rows.Close()
@@ -4673,7 +4776,7 @@ func (r *accountRepository) CommitAccountModelCatalog(ctx context.Context, id in
 			}
 			return service.ErrAccountModelCatalogConflict
 		}
-		err = rows.Scan(&currentJSON, &credentialsJSON, &platform, &accountType)
+		err = rows.Scan(&currentJSON)
 		_ = rows.Close()
 		if err != nil {
 			return err
@@ -4685,54 +4788,19 @@ func (r *accountRepository) CommitAccountModelCatalog(ctx context.Context, id in
 		if err := service.ValidateAccountModelCatalogVersion(currentExtra, snapshot); err != nil {
 			return err
 		}
-		var credentials map[string]any
-		if err := json.Unmarshal(credentialsJSON, &credentials); err != nil {
-			return err
-		}
-		current := &service.Account{ID: id, Platform: platform, Type: accountType, Credentials: credentials, Extra: currentExtra}
-		if freezeSelectionBaseline != service.AccountModelSelectionNeedsFreeze(current) {
-			return service.ErrAccountModelCatalogConflict
-		}
-		if freezeSelectionBaseline {
-			frozenMapping = service.FrozenAccountModelSelection(current, baseline)
-			patch[service.ModelSelectionBaselineFrozenExtraKey] = true
-			if len(frozenMapping) == 0 {
-				patch[service.UpstreamModelAllowlistExtraKey] = service.AccountModelAllowlist{Enabled: true, Models: []string{}, Reason: "system_upgrade_baseline_freeze"}
-			}
-			state.RulesRevision++
-			committedSnapshot := *snapshot
-			committedSnapshot.RulesRevision = state.RulesRevision
-			patch[service.UpstreamModelCatalogExtraKey] = &committedSnapshot
-			if metadata != nil {
-				patch[service.UpstreamModelMetadataExtraKey] = service.AccountModelMetadataEnvelope(&committedSnapshot, metadata)
-			}
-			patch[service.UpstreamModelCatalogStateExtraKey] = state
-			encoded, err = json.Marshal(patch)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	if snapshot == nil {
-		freezeSelectionBaseline = false
-	}
-	frozenJSON, err := json.Marshal(frozenMapping)
-	if err != nil {
-		return err
 	}
 	activePredicate := ""
 	if baseline.RequireActive {
 		activePredicate = " AND status = 'active'"
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE accounts SET credentials = CASE WHEN $6::boolean THEN jsonb_set(COALESCE(credentials,'{}'::jsonb), '{model_mapping}', $7::jsonb) ELSE credentials END, extra = COALESCE(extra, '{}'::jsonb) || $2::jsonb ||
+	result, err := tx.ExecContext(ctx, `UPDATE accounts SET extra = COALESCE(extra, '{}'::jsonb) || $2::jsonb ||
 	jsonb_build_object('upstream_model_catalog_state', ($2::jsonb->'upstream_model_catalog_state') ||
 	jsonb_build_object('legacy_policy_revision', COALESCE((extra->'upstream_model_catalog_state'->>'legacy_policy_revision')::bigint,0) +
 	CASE WHEN $2::jsonb ? 'upstream_model_catalog' OR $2::jsonb->'upstream_model_catalog_state'->>'result' = 'credentials_invalid' THEN 1 ELSE 0 END)), updated_at = NOW()
 	WHERE id = $1 AND deleted_at IS NULL
 	AND COALESCE((extra->'upstream_model_catalog_state'->>'identity_revision')::bigint, 0) = $3
 	AND COALESCE((extra->'upstream_model_catalog_state'->>'rules_revision')::bigint, 0) = $4
-	AND COALESCE((extra->'upstream_model_catalog'->>'revision')::bigint, 0) = $5
-    AND (NOT $6::boolean OR (COALESCE(credentials->'model_mapping','{}'::jsonb) IN ('{}'::jsonb,'null'::jsonb) AND COALESCE(extra->>'model_selection_baseline_frozen','false') <> 'true'))`+activePredicate, id, string(encoded), baseline.IdentityRevision, baseline.RulesRevision, baseline.SnapshotRevision, freezeSelectionBaseline, string(frozenJSON))
+	AND COALESCE((extra->'upstream_model_catalog'->>'revision')::bigint, 0) = $5`+activePredicate, id, string(encoded), baseline.IdentityRevision, baseline.RulesRevision, baseline.SnapshotRevision)
 	if err != nil {
 		return err
 	}
@@ -4754,66 +4822,24 @@ func (r *accountRepository) CommitAccountModelCatalog(ctx context.Context, id in
 	return nil
 }
 
-// UpdateAccountModelAllowlist retains the legacy scope-only entry point without allowing it to unlock deny-all.
-func (r *accountRepository) UpdateAccountModelAllowlist(ctx context.Context, id int64, baseline service.AccountModelCatalogBaseline, allowlist service.AccountModelAllowlist) error {
-	_, err := r.ReplaceAccountModelSelectionScope(ctx, id, baseline, allowlist, nil)
+// RecordAccountModelCatalogCommitFailure advances only the retry marker. A
+// rules edit may have caused the failed commit, so preserve the current rules
+// and diagnostics and check identity, publication, and the prior attempt.
+func (r *accountRepository) RecordAccountModelCatalogCommitFailure(ctx context.Context, id int64, baseline service.AccountModelCatalogBaseline, previousAttempt, attemptedAt string) error {
+	_, err := r.client.ExecContext(ctx, `WITH credential AS (
+		SELECT id FROM accounts WHERE id = $6 AND deleted_at IS NULL
+		AND COALESCE((extra->'upstream_model_catalog_state'->>'identity_revision')::bigint, 0) = $7 FOR SHARE
+	)
+	UPDATE accounts SET extra = jsonb_set(COALESCE(extra, '{}'::jsonb), '{upstream_model_catalog_state}',
+		COALESCE(extra->'upstream_model_catalog_state', '{}'::jsonb) ||
+		jsonb_build_object('attempted_identity_revision', $2::bigint, 'attempted_at', $5::text))
+	WHERE id = $1 AND deleted_at IS NULL AND status = 'active'
+	AND COALESCE((extra->'upstream_model_catalog_state'->>'identity_revision')::bigint, 0) = $2
+	AND COALESCE((extra->'upstream_model_catalog'->>'revision')::bigint, 0) = $3
+	AND COALESCE(extra->'upstream_model_catalog_state'->>'attempted_at', '') = $4
+	AND ($6 = 0 OR parent_account_id IN (SELECT id FROM credential))`,
+		id, baseline.IdentityRevision, baseline.SnapshotRevision, previousAttempt, attemptedAt, baseline.CredentialAccountID, baseline.CredentialIdentityRevision)
 	return err
-}
-
-func (r *accountRepository) ReplaceAccountModelSelectionScope(ctx context.Context, id int64, baseline service.AccountModelCatalogBaseline, allowlist service.AccountModelAllowlist, mapping *map[string]string) ([]string, error) {
-	if allowlist.Models == nil {
-		allowlist.Models = []string{}
-	}
-	encoded, err := json.Marshal(allowlist)
-	if err != nil {
-		return nil, err
-	}
-	mappingJSON := []byte("{}")
-	if mapping != nil && *mapping != nil {
-		mappingJSON, err = json.Marshal(*mapping)
-		if err != nil {
-			return nil, err
-		}
-	}
-	tx, err := r.client.Tx(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = tx.Rollback() }()
-	// Selection is explicit configuration, independent of discovery snapshots.
-	// Identity and rules still serialize genuine concurrent configuration edits.
-	result, err := tx.ExecContext(ctx, `UPDATE accounts SET
- credentials = CASE WHEN $5::boolean THEN jsonb_set(COALESCE(credentials,'{}'::jsonb),'{model_mapping}',$6::jsonb) ELSE credentials END,
- extra = COALESCE(extra,'{}'::jsonb) || jsonb_build_object(
- 'upstream_model_allowlist', CASE
- WHEN ($5::boolean AND $6::jsonb = '{}'::jsonb) OR
- (NOT $5::boolean AND (COALESCE(credentials->'model_mapping','{}'::jsonb) IN ('{}'::jsonb,'null'::jsonb) OR
- (COALESCE((extra->'upstream_model_allowlist'->>'enabled')::boolean,false) AND COALESCE(extra->'upstream_model_allowlist'->'models','[]'::jsonb) IN ('[]'::jsonb,'null'::jsonb))))
- THEN $2::jsonb || '{"enabled":true,"models":[]}'::jsonb ELSE $2::jsonb END,
- 'upstream_model_catalog_state', COALESCE(extra->'upstream_model_catalog_state','{}'::jsonb) || jsonb_build_object('rules_revision',$4::bigint+1)
- ) || CASE WHEN $5::boolean THEN '{"model_selection_baseline_frozen":true}'::jsonb ELSE '{}'::jsonb END,
- updated_at = NOW() WHERE id=$1 AND deleted_at IS NULL
- AND COALESCE((extra->'upstream_model_catalog_state'->>'identity_revision')::bigint,0)=$3
- AND COALESCE((extra->'upstream_model_catalog_state'->>'rules_revision')::bigint,0)=$4`, id, string(encoded), baseline.IdentityRevision, baseline.RulesRevision, mapping != nil, string(mappingJSON))
-	if err != nil {
-		return nil, err
-	}
-	count, err := result.RowsAffected()
-	if err != nil {
-		return nil, err
-	}
-	if count == 0 {
-		return nil, service.ErrAccountModelCatalogConflict
-	}
-	txContext := dbent.NewTxContext(ctx, tx)
-	if err := enqueueSchedulerOutbox(txContext, tx.Client(), service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	r.syncSchedulerAccountSnapshot(ctx, id)
-	return nil, nil
 }
 
 func clearChangedAccountRuntimeObservationsSQL(incomingCredentials, incomingExtra, proxyChanged string) string {
@@ -4860,21 +4886,15 @@ func accountCatalogRevisionPatchSQL(incoming, incomingExtra, proxyChanged string
 		changes = append(changes, "(platform = 'workbuddy' AND credentials->'"+field+"' IS DISTINCT FROM "+incoming+"->'"+field+"')")
 	}
 	changes = append(changes, "(platform = 'antigravity' AND credentials->'email' IS DISTINCT FROM "+incoming+"->'email')")
+	changes = append(changes, "(platform = 'grok' AND credentials->'team_id' IS DISTINCT FROM "+incoming+"->'team_id')")
 	legacyIdentity := "(" + strings.Join(changes, " OR ") + ")"
-	stable := "FALSE"
+	tokenChanged := "(" + versionChanged + " OR credentials->'access_token' IS DISTINCT FROM " + incoming + "->'access_token')"
 	if !manual {
-		// Every subject field is already compared in legacyIdentity above.
-		hasSubject := func(platform string) string {
-			terms := []string{}
-			for _, field := range service.AccountCatalogSubjectFields(platform) {
-				terms = append(terms, "COALESCE(credentials->>'"+field+"','') <> ''")
-			}
-			return "(" + strings.Join(terms, " OR ") + ")"
-		}
-		antigravityStable := "(COALESCE(credentials->>'project_id','') <> '')"
-		stable = "CASE WHEN platform = 'workbuddy' THEN " + hasSubject(service.PlatformWorkBuddy) + " WHEN platform = 'antigravity' THEN " + antigravityStable + " ELSE " + hasSubject("") + " END"
+		// A provider renewal is bound to the old credential by CAS. Even
+		// providers without a stable subject can rotate opaque OAuth tokens.
+		tokenChanged = "(type <> 'oauth' AND " + tokenChanged + ")"
 	}
-	changes = append(changes, "(("+versionChanged+" OR credentials->'access_token' IS DISTINCT FROM "+incoming+"->'access_token') AND NOT ("+stable+"))")
+	changes = append(changes, tokenChanged)
 	identity := "(" + strings.Join(changes, " OR ") + ")"
 	ruleChanges := []string{identity}
 	for _, field := range service.AccountCatalogRuleCredentialFields() {
@@ -4897,5 +4917,12 @@ func accountCatalogRevisionPatchSQL(incoming, incomingExtra, proxyChanged string
 		}
 	}
 	legacyPolicy := "(" + strings.Join(ruleChanges, " OR ") + ")"
-	return "jsonb_build_object('upstream_model_catalog_state', COALESCE(extra->'upstream_model_catalog_state','{}'::jsonb) || jsonb_build_object('identity_revision', COALESCE((extra->'upstream_model_catalog_state'->>'identity_revision')::bigint,0) + CASE WHEN " + identity + " THEN 1 ELSE 0 END, 'rules_revision', COALESCE((extra->'upstream_model_catalog_state'->>'rules_revision')::bigint,0) + CASE WHEN " + rules + " THEN 1 ELSE 0 END, 'legacy_policy_revision', COALESCE((extra->'upstream_model_catalog_state'->>'legacy_policy_revision')::bigint,0) + CASE WHEN " + legacyPolicy + " THEN 1 ELSE 0 END))" + " || CASE WHEN COALESCE(credentials->'model_mapping','{}'::jsonb) NOT IN ('{}'::jsonb,'null'::jsonb) AND COALESCE((" + incoming + ")->'model_mapping','{}'::jsonb) IN ('{}'::jsonb,'null'::jsonb) THEN '{\"upstream_model_allowlist\":{\"enabled\":true,\"models\":[]},\"model_selection_baseline_frozen\":true}'::jsonb ELSE '{}'::jsonb END"
+	state := "COALESCE(NULLIF(extra->'upstream_model_catalog_state','null'::jsonb),'{}'::jsonb)"
+	identityRevision := "COALESCE((" + state + "->>'identity_revision')::bigint,0)"
+	return "jsonb_build_object('upstream_model_catalog_state', (CASE WHEN " + identity +
+		" THEN jsonb_set(" + state + " - 'error', '{identity_revision}', to_jsonb(" + identityRevision + " + 1)) || " +
+		`'{"result":"identity_changed"}'::jsonb` +
+		" ELSE jsonb_set(" + state + ", '{identity_revision}', to_jsonb(" + identityRevision + ")) END) || jsonb_build_object(" +
+		"'rules_revision', COALESCE((" + state + "->>'rules_revision')::bigint,0) + CASE WHEN " + rules + " THEN 1 ELSE 0 END, " +
+		"'legacy_policy_revision', COALESCE((" + state + "->>'legacy_policy_revision')::bigint,0) + CASE WHEN " + legacyPolicy + " THEN 1 ELSE 0 END))"
 }

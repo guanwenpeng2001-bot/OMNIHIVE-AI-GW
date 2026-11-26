@@ -3,7 +3,6 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { defineComponent, ref } from 'vue'
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
 import AccountModelConfigurationSection from '../AccountModelConfigurationSection.vue'
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { splitModelMappingObject } from '@/composables/useModelWhitelist'
 const { update, read, catalog, preview, models } = vi.hoisted(() => ({ update: vi.fn(), read: vi.fn(), catalog: vi.fn(), preview: vi.fn(), models: vi.fn().mockResolvedValue([]) }))
 vi.mock('@/api/admin/accounts', () => ({ accountsAPI: { updateModelAllowlist: update, getById: read, getModelCatalog: catalog,
@@ -13,7 +12,7 @@ vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showInfo: vi.fn(), showEr
 vi.mock('@/composables/useClipboard', () => ({ useClipboard: () => ({ copyToClipboard: vi.fn() }) }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string, values?: Record<string, unknown>) => key + (values ? JSON.stringify(values) : '') }) }))
 const saved = (mapping: Record<string, string>, enabled = false, models: string[] = []) => ({ id: 12, credentials: { model_mapping: mapping }, extra: { upstream_model_allowlist: { enabled, models } } })
-const mountSelector = (props = {}) => mount(ModelWhitelistSelector, { props: { accountId: 12, platform: 'openai', modelValue: ['Exact.Case/ID'], ...props }, global: { stubs: { ModelIcon: true } } })
+const mountSelector = (props = {}) => mount(ModelWhitelistSelector, { props: { accountId: 12, platform: 'openai', modelValue: ['Exact.Case/ID'], ...props }, global: { stubs: { ModelIcon: true, Teleport: true } } })
 beforeEach(() => {
   vi.clearAllMocks()
   catalog.mockReset().mockResolvedValue({ synced: false, warnings: [], state: { rules_revision: '9007199254740993' } })
@@ -61,7 +60,7 @@ describe('atomic account model selection', () => {
     expect(wrapper.get('[data-testid="configured-model-summary"]').text()).toContain('"direct":88,"mappings":0,"wildcards":0')
     await wrapper.get('[data-testid="save-model-selection"]').trigger('click')
     await flushPromises()
-    expect(update).toHaveBeenCalledWith(12, expect.objectContaining({ model_mapping: mapping }))
+    expect(update).toHaveBeenCalledWith(12, expect.objectContaining({ mode: 'restricted', models: identities, model_mapping: {} }))
     wrapper.unmount()
   })
 
@@ -69,7 +68,7 @@ describe('atomic account model selection', () => {
     const Host = defineComponent({ components: { ModelWhitelistSelector },
       setup: () => ({ models: ref(['Exact']), mappings: ref([{ from: 'Alias', to: 'Target' }, { from: 'family-*', to: 'FamilyTarget' }]) }),
       template: '<ModelWhitelistSelector v-model="models" v-model:model-mappings="mappings" :account-id="12" platform="openai" />' })
-    const host = mount(Host, { global: { stubs: { ModelIcon: true } } })
+    const host = mount(Host, { global: { stubs: { ModelIcon: true, Teleport: true } } })
     await flushPromises()
     expect(host.get('[data-testid="selected-models"]').findAll('button')).toHaveLength(3)
     await host.get('button[aria-label="common.remove Alias"]').trigger('click')
@@ -79,7 +78,7 @@ describe('atomic account model selection', () => {
     await host.get('input[aria-label="admin.accounts.customModelName"]').trigger('keydown', { key: 'Enter' })
     await host.get('[data-testid="save-model-selection"]').trigger('click')
     await flushPromises()
-    expect(update).toHaveBeenCalledWith(12, expect.objectContaining({ model_mapping: { Exact: 'Exact', 'New/Exact': 'New/Exact', 'family-*': 'FamilyTarget' } }))
+    expect(update).toHaveBeenCalledWith(12, expect.objectContaining({ mode: 'restricted', models: ['Exact', 'New/Exact'], model_mapping: { 'family-*': 'FamilyTarget' } }))
     host.unmount()
   })
 
@@ -142,16 +141,17 @@ describe('atomic account model selection', () => {
     const wrapper = mountSelector({ modelValue: [], modelMappings: [{ from: 'Alias', to: 'Target' }] })
     await flushPromises()
     await wrapper.get('button[aria-label="common.remove Alias"]').trigger('click')
-    expect(wrapper.getComponent(ConfirmDialog).props('show')).toBe(true)
-    wrapper.getComponent(ConfirmDialog).vm.$emit('cancel')
+    expect(wrapper.findAll('[data-testid="confirm-deny-all-dialog"]')).toHaveLength(1)
+    await wrapper.get('[data-testid="confirm-deny-all-cancel"]').trigger('click')
     await flushPromises()
     expect(wrapper.emitted('update:modelMappings')).toBeUndefined()
     expect(update).not.toHaveBeenCalled()
     read.mockResolvedValue(saved({}, true))
     await wrapper.get('button[aria-label="common.remove Alias"]').trigger('click')
-    wrapper.getComponent(ConfirmDialog).vm.$emit('confirm')
+    await wrapper.get('[data-testid="confirm-deny-all-submit"]').trigger('click')
     await flushPromises()
-    expect(update.mock.calls).toEqual([[12, { enabled: true, models: [], reason: '', expected_rules_revision: '9007199254740993', model_mapping: {} }]])
+    expect(update.mock.calls).toEqual([[12, { mode: 'deny_all', enabled: true, models: [], reason: 'admin.accounts.modelSync.defaultDenyAllReason', confirm_deny_all: true, expected_rules_revision: '9007199254740993' }]])
+    expect(update.mock.calls[0]?.[1]).not.toHaveProperty('model_mapping')
     wrapper.unmount()
   })
 
@@ -191,7 +191,7 @@ describe('atomic account model selection', () => {
     await flushPromises()
     await wrapper.get('[data-testid="save-model-selection"]').trigger('click')
     await flushPromises()
-    expect(update.mock.calls).toEqual([[12, { enabled: false, models: [], reason: '', expected_rules_revision: '9007199254740993', model_mapping: mapping }]])
+    expect(update.mock.calls).toEqual([[12, { mode: 'restricted', enabled: true, models: ['Exact.Case/ID'], reason: '', expected_rules_revision: '9007199254740993', model_mapping: { Alias: 'Private/Target' } }]])
     expect(wrapper.get('[data-testid="selection-warning"]').text()).toContain('Private/Target')
     expect(wrapper.emitted('selection-saved')).toHaveLength(1)
     wrapper.unmount()
@@ -218,19 +218,54 @@ describe('atomic account model selection', () => {
     expect(wrapper.props('modelValue')).toEqual(['NewerDraft'])
     wrapper.unmount()
   })
-  it('confirms clearing, then sends one atomic deny-all write and clears aliases in the parent', async () => {
-    read.mockResolvedValue(saved({}, true))
+  it('replaces a saved scope when an exact model is removed', async () => {
+    catalog.mockResolvedValue({
+      mode: 'restricted',
+      models: ['Keep', 'Remove'],
+      state: { rules_revision: '9007199254740993' }
+    })
+    read.mockResolvedValue(saved({}, true, ['Keep']))
+    const wrapper = mountSelector({
+      modelValue: ['Keep', 'Remove'],
+      modelAllowlist: { enabled: true, models: ['Keep', 'Remove'] }
+    })
+    await flushPromises()
+    await wrapper.get('button[aria-label="common.remove Remove"]').trigger('click')
+    await wrapper.setProps({ modelValue: wrapper.emitted('update:modelValue')?.at(-1)?.[0] as string[] })
+    await wrapper.get('[data-testid="save-model-selection"]').trigger('click')
+    await flushPromises()
+    expect(update).toHaveBeenCalledWith(12, expect.objectContaining({ mode: 'restricted', models: ['Keep'] }))
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['Keep']])
+    wrapper.unmount()
+  })
+  it('keeps the current selection when the deny-all write conflicts', async () => {
+    update.mockRejectedValueOnce({ status: 409 })
+    const wrapper = mountSelector({ mode: 'restricted', modelMappings: [{ from: 'Alias', to: 'Target' }] })
+    await flushPromises()
+    await wrapper.get('[data-testid="clear-model-selection"]').trigger('click')
+    await wrapper.get('[data-testid="confirm-deny-all-submit"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="deny-all"]').exists()).toBe(false)
+    expect(wrapper.emitted('update:mode')).toBeUndefined()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(wrapper.emitted('update:modelMappings')).toBeUndefined()
+    wrapper.unmount()
+  })
+  it('confirms clearing, omits model_mapping on deny-all write, and echoes preserved aliases', async () => {
+    read.mockResolvedValue(saved({ Alias: 'Target' }, true))
     const Host = defineComponent({ components: { AccountModelConfigurationSection }, setup: () => ({ models: ref(['Exact']), mappings: ref([{ from: 'Alias', to: 'Target' }]) }),
       template: '<AccountModelConfigurationSection v-model="models" v-model:mappings="mappings" :account-id="12" platform="openai" />' })
-    const host = mount(Host, { global: { stubs: { ModelIcon: true } } })
+    const host = mount(Host, { global: { stubs: { ModelIcon: true, Teleport: true } } })
     await flushPromises()
     await host.get('[data-testid="clear-model-selection"]').trigger('click')
     expect(update).not.toHaveBeenCalled()
-    host.getComponent(ConfirmDialog).vm.$emit('confirm')
+    expect(host.findAll('[data-testid="confirm-deny-all-dialog"]')).toHaveLength(1)
+    await host.get('[data-testid="confirm-deny-all-submit"]').trigger('click')
     await flushPromises()
-    expect(update.mock.calls).toEqual([[12, { enabled: true, models: [], reason: '', expected_rules_revision: '9007199254740993', model_mapping: {} }]])
+    expect(update.mock.calls).toEqual([[12, { mode: 'deny_all', enabled: true, models: [], reason: 'admin.accounts.modelSync.defaultDenyAllReason', confirm_deny_all: true, expected_rules_revision: '9007199254740993' }]])
+    expect(update.mock.calls[0]?.[1]).not.toHaveProperty('model_mapping')
     expect(host.vm.models).toEqual([])
-    expect(host.vm.mappings).toEqual([])
+    expect(host.vm.mappings).toEqual([{ from: 'Alias', to: 'Target' }])
     expect(host.find('[data-testid="deny-all"]').exists()).toBe(true)
     host.unmount()
   })
@@ -238,8 +273,8 @@ describe('atomic account model selection', () => {
     const wrapper = mountSelector()
     await flushPromises()
     await wrapper.get('button[aria-label="common.remove Exact.Case/ID"]').trigger('click')
-    expect(wrapper.getComponent(ConfirmDialog).props('show')).toBe(true)
-    wrapper.getComponent(ConfirmDialog).vm.$emit('cancel')
+    expect(wrapper.findAll('[data-testid="confirm-deny-all-dialog"]')).toHaveLength(1)
+    await wrapper.get('[data-testid="confirm-deny-all-cancel"]').trigger('click')
     expect(update).not.toHaveBeenCalled()
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     wrapper.unmount()
@@ -250,7 +285,7 @@ describe('atomic account model selection', () => {
     expect(wrapper.get('[data-testid="save-model-selection"]').text()).toContain('reselect')
     await wrapper.get('[data-testid="save-model-selection"]').trigger('click')
     await flushPromises()
-    expect(update).toHaveBeenCalledWith(12, expect.objectContaining({ enabled: false, models: [], model_mapping: { 'Exact.Case/ID': 'Exact.Case/ID' } }))
+    expect(update).toHaveBeenCalledWith(12, expect.objectContaining({ mode: 'restricted', enabled: true, models: ['Exact.Case/ID'], model_mapping: {} }))
     expect(wrapper.find('[data-testid="deny-all"]').exists()).toBe(false)
     wrapper.unmount()
   })
@@ -262,29 +297,171 @@ describe('atomic account model selection', () => {
     await flushPromises()
     wrapper.unmount()
   })
-  it('reads normalized deny-all after a filter-only request to remove filtering', async () => {
-    read.mockResolvedValue(saved({}, true))
-    const wrapper = mountSelector({ modelAllowlist: { enabled: true, models: [] } })
+  it('switches across inherit, restricted and deny_all modes in a single unified editor without catalog-allowlist drawer', async () => {
+    const Host = defineComponent({
+      components: { AccountModelConfigurationSection },
+      setup: () => ({
+        models: ref(['Exact.Case/ID']),
+        mappings: ref([{ from: 'Alias', to: 'Exact.Case/ID' }]),
+        mode: ref<'inherit' | 'restricted' | 'deny_all'>('restricted'),
+        reason: ref('')
+      }),
+      template:
+        '<AccountModelConfigurationSection v-model="models" v-model:mappings="mappings" v-model:mode="mode" v-model:reason="reason" :account-id="12" platform="openai" />'
+    })
+    const host = mount(Host, { global: { stubs: { ModelIcon: true } } })
     await flushPromises()
-    await wrapper.get('[data-testid="catalog-allowlist"] input[type="checkbox"]').setValue(false)
-    await wrapper.get('[data-testid="save-allowlist"]').trigger('click')
+    expect(host.find('[data-testid="catalog-allowlist"]').exists()).toBe(false)
+    expect(host.get('[data-testid="mode-restricted"]').attributes('aria-pressed')).toBe('true')
+
+    // Switch to inherit mode -> clears draft and stashes previous restricted selection
+    await host.get('[data-testid="mode-inherit"]').trigger('click')
+    expect(host.vm.mode).toBe('inherit')
+    expect(host.vm.models).toEqual([])
+    expect(host.vm.mappings).toEqual([])
+    expect(host.find('[data-testid="mode-inherit-hint"]').exists()).toBe(true)
+
+    // Switch back to restricted before saving -> restores stashed selection
+    await host.get('[data-testid="mode-restricted"]').trigger('click')
+    expect(host.vm.mode).toBe('restricted')
+    expect(host.vm.models).toEqual(['Exact.Case/ID'])
+    expect(host.vm.mappings).toEqual([{ from: 'Alias', to: 'Exact.Case/ID' }])
+
+    // Switch to inherit and save
+    read.mockResolvedValueOnce(saved({}, false, []))
+    update.mockResolvedValueOnce({ mode: 'inherit', models: [], model_mapping: {}, rules_revision: '9007199254740994' })
+    await host.get('[data-testid="mode-inherit"]').trigger('click')
+    await host.get('[data-testid="save-model-selection"]').trigger('click')
     await flushPromises()
-    expect(update).toHaveBeenCalledWith(12, { enabled: false, models: [], reason: '', expected_rules_revision: '9007199254740993' })
-    expect(wrapper.get('[data-testid="deny-all"]').exists()).toBe(true)
-    expect(wrapper.get<HTMLInputElement>('[data-testid="catalog-allowlist"] input[type="checkbox"]').element.checked).toBe(true)
+    expect(update).toHaveBeenLastCalledWith(12, {
+      mode: 'inherit',
+      enabled: false,
+      models: [],
+      reason: '',
+      expected_rules_revision: '9007199254740993',
+      model_mapping: {}
+    })
+    expect(host.vm.mode).toBe('inherit')
+    host.unmount()
+  })
+  it('requires a non-empty reason in the single deny-all modal', async () => {
+    read.mockResolvedValue(saved({ Alias: 'Exact.Case/ID' }, true, []))
+    update.mockResolvedValue({
+      mode: 'deny_all',
+      models: [],
+      model_mapping: { Alias: 'Exact.Case/ID' },
+      rules_revision: '9007199254740994',
+      scope: { enabled: true, models: [], reason: '上游维护停用' }
+    })
+    const wrapper = mountSelector({ modelMappings: [{ from: 'Alias', to: 'Exact.Case/ID' }] })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="mode-deny-all"]').trigger('click')
+    expect(wrapper.findAll('[data-testid="confirm-deny-all-dialog"]')).toHaveLength(1)
+    expect(wrapper.findAll('[data-testid="confirm-deny-all-submit"]')).toHaveLength(1)
+    expect(wrapper.findAll('[data-testid="deny-all-reason-input"]')).toHaveLength(1)
+
+    // Empty reason disables confirm button and displays validation hint inside the same modal
+    expect(wrapper.get('[data-testid="confirm-deny-all-submit"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="deny-all-reason-error"]').text()).toContain('denyAllReasonRequired')
+
+    await wrapper.get('[data-testid="deny-all-reason-input"]').setValue('   ')
+    expect(wrapper.get('[data-testid="confirm-deny-all-submit"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="deny-all-reason-error"]').text()).toContain('denyAllReasonRequired')
+    await wrapper.get('[data-testid="confirm-deny-all-submit"]').trigger('click')
+    await flushPromises()
+    expect(update).not.toHaveBeenCalled()
+
+    // Providing a valid reason enables confirm and sends atomic deny_all payload without model_mapping
+    await wrapper.get('[data-testid="deny-all-reason-input"]').setValue(' 上游维护停用 ')
+    expect(wrapper.get('[data-testid="confirm-deny-all-submit"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('[data-testid="deny-all-reason-error"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="confirm-deny-all-submit"]').trigger('click')
+    await flushPromises()
+    expect(update).toHaveBeenCalledWith(12, {
+      mode: 'deny_all',
+      enabled: true,
+      models: [],
+      reason: '上游维护停用',
+      confirm_deny_all: true,
+      expected_rules_revision: '9007199254740993'
+    })
+    expect(update.mock.calls[0]?.[1]).not.toHaveProperty('model_mapping')
+    expect(wrapper.find('[data-testid="deny-all"]').exists()).toBe(true)
+    expect(wrapper.emitted('update:mode')?.at(-1)).toEqual(['deny_all'])
+    expect(wrapper.emitted('update:reason')?.at(-1)).toEqual(['上游维护停用'])
+    expect(wrapper.emitted('update:modelMappings')?.at(-1)).toEqual([[{ from: 'Alias', to: 'Exact.Case/ID' }]])
     wrapper.unmount()
   })
-  it('saves enabled empty filters and undiscovered filters without client-side blocking', async () => {
-    const wrapper = mountSelector({ modelAllowlist: { enabled: true, models: [] } })
+  it('displays auto_added and not_discovered notices and backfills auto_added targets into modelValue', async () => {
+    read.mockResolvedValue(
+      saved(
+        { 'Exact.Case/ID': 'Exact.Case/ID', 'Public/Alias': 'Auto/Target' },
+        true,
+        ['Exact.Case/ID', 'Auto/Target']
+      )
+    )
+    update.mockResolvedValue({
+      mode: 'restricted',
+      models: ['Exact.Case/ID', 'Auto/Target'],
+      model_mapping: { 'Exact.Case/ID': 'Exact.Case/ID', 'Public/Alias': 'Auto/Target' },
+      auto_added: ['Auto/Target'],
+      not_discovered: ['Auto/Target'],
+      rules_revision: '9007199254740994'
+    })
+    const wrapper = mountSelector({
+      modelValue: ['Exact.Case/ID'],
+      modelMappings: [{ from: 'Public/Alias', to: 'Auto/Target' }]
+    })
     await flushPromises()
-    await wrapper.get('[data-testid="save-allowlist"]').trigger('click')
+    await wrapper.get('[data-testid="save-model-selection"]').trigger('click')
     await flushPromises()
-    expect(update).toHaveBeenCalledWith(12, expect.objectContaining({ enabled: true, models: [], reason: '' }))
-    await wrapper.get('[data-testid="allowlist-models"]').setValue('Private/Unknown')
-    await wrapper.get('[data-testid="save-allowlist"]').trigger('click')
-    await flushPromises()
-    expect(update).toHaveBeenLastCalledWith(12, expect.objectContaining({ models: ['Private/Unknown'] }))
+
+    expect(wrapper.get('[data-testid="auto-added-notice"]').text()).toContain('Auto/Target')
+    expect(wrapper.get('[data-testid="selection-warning"]').text()).toContain('Auto/Target')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['Exact.Case/ID', 'Auto/Target']])
     wrapper.unmount()
+  })
+  it('never turns a scope-only save without mappings into deny_all (OpenRouter/OpenCode free account regression)', async () => {
+    // Server returns empty model_mapping {} and enabled scope with ['openrouter/free']
+    read.mockResolvedValue(saved({}, true, ['openrouter/free']))
+    update.mockResolvedValue({
+      mode: 'restricted',
+      models: ['openrouter/free'],
+      model_mapping: {},
+      auto_added: [],
+      not_discovered: [],
+      rules_revision: '9007199254740994',
+      scope: { enabled: true, models: ['openrouter/free'] }
+    })
+    const Host = defineComponent({
+      components: { AccountModelConfigurationSection },
+      setup: () => ({
+        models: ref(['openrouter/free']),
+        mappings: ref([]),
+        mode: ref<'inherit' | 'restricted' | 'deny_all'>('restricted')
+      }),
+      template:
+        '<AccountModelConfigurationSection v-model="models" v-model:mappings="mappings" v-model:mode="mode" :account-id="12" platform="openai" />'
+    })
+    const host = mount(Host, { global: { stubs: { ModelIcon: true } } })
+    await flushPromises()
+    await host.get('[data-testid="save-model-selection"]').trigger('click')
+    await flushPromises()
+
+    expect(update).toHaveBeenCalledWith(
+      12,
+      expect.objectContaining({
+        mode: 'restricted',
+        enabled: true,
+        models: ['openrouter/free'],
+        expected_rules_revision: '9007199254740993'
+      })
+    )
+    expect(host.vm.mode).toBe('restricted')
+    expect(host.vm.models).toEqual(['openrouter/free'])
+    expect(host.find('[data-testid="deny-all"]').exists()).toBe(false)
+    host.unmount()
   })
   it.each([400, 409])('shows HTTP %s and requires an explicit retry with the refreshed revision', async status => {
     update.mockRejectedValueOnce({ status })
@@ -365,7 +542,7 @@ it('still saves manually selected models when the optional model-list request fa
   expect(wrapper.get('[data-testid="save-model-selection"]').attributes('disabled')).toBeUndefined()
   await wrapper.get('[data-testid="save-model-selection"]').trigger('click')
   await flushPromises()
-  expect(update).toHaveBeenCalledWith(12, expect.objectContaining({ expected_rules_revision: '3', model_mapping: { 'Exact.Case/ID': 'Exact.Case/ID' } }))
+  expect(update).toHaveBeenCalledWith(12, expect.objectContaining({ mode: 'restricted', models: ['Exact.Case/ID'], expected_rules_revision: '3', model_mapping: {} }))
   wrapper.unmount()
 })
 
@@ -383,37 +560,26 @@ it('confirms deleting the final alias through the same atomic clear action', asy
   read.mockResolvedValue(saved({}, true))
   const Host = defineComponent({ components: { AccountModelConfigurationSection }, setup: () => ({ models: ref<string[]>([]), mappings: ref([{ from: 'Alias', to: 'Target' }]) }),
     template: '<AccountModelConfigurationSection v-model="models" v-model:mappings="mappings" :account-id="12" platform="openai" />' })
-  const host = mount(Host, { global: { stubs: { ModelIcon: true } } })
+  const host = mount(Host, { global: { stubs: { ModelIcon: true, Teleport: true } } })
   await flushPromises()
   await host.get('[data-testid="model-mappings"]').findAll('button').find(button => button.text() === 'common.delete')!.trigger('click')
   expect(update).not.toHaveBeenCalled()
-  expect(host.getComponent(ConfirmDialog).props('show')).toBe(true)
-  host.getComponent(ConfirmDialog).vm.$emit('confirm')
+  expect(host.findAll('[data-testid="confirm-deny-all-dialog"]')).toHaveLength(1)
+  await host.get('[data-testid="confirm-deny-all-submit"]').trigger('click')
   await flushPromises()
-  expect(update).toHaveBeenCalledWith(12, expect.objectContaining({ enabled: true, models: [], model_mapping: {} }))
+  expect(update).toHaveBeenCalledWith(12, expect.objectContaining({ mode: 'deny_all', enabled: true, models: [] }))
+  expect(update.mock.calls[0]?.[1]).not.toHaveProperty('model_mapping')
   expect(host.vm.mappings).toEqual([])
   host.unmount()
 })
 
 
-it('filter-only saves do not replace the model or alias draft', async () => {
-  read.mockResolvedValue(saved({ Old: 'Old' }, true, ['Old']))
-  const wrapper = mountSelector({ modelMappings: [{ from: 'NewAlias', to: 'NewTarget' }] })
-  await flushPromises()
-  await wrapper.get('[data-testid="allowlist-models"]').setValue('Old')
-  await wrapper.get('[data-testid="save-allowlist"]').trigger('click')
-  await flushPromises()
-  expect(wrapper.emitted('update:modelValue')).toBeUndefined()
-  expect(wrapper.emitted('update:modelMappings')).toBeUndefined()
-  expect(wrapper.emitted('selection-saved')).toBeUndefined()
-  wrapper.unmount()
-})
-
 it('does not carry locally refreshed deny-all state to another account without a filter', async () => {
   read.mockResolvedValue(saved({}, true))
   const wrapper = mountSelector()
   await flushPromises()
-  await wrapper.get('[data-testid="save-allowlist"]').trigger('click')
+  await wrapper.get('[data-testid="clear-model-selection"]').trigger('click')
+  await wrapper.get('[data-testid="confirm-deny-all-submit"]').trigger('click')
   await flushPromises()
   expect(wrapper.find('[data-testid="deny-all"]').exists()).toBe(true)
   await wrapper.setProps({ accountId: 13 })
@@ -473,8 +639,10 @@ it('syncs dirty status against persistedSelection and registers saveSelection ac
   await flushPromises()
   expect(result).toBe(true)
   expect(update).toHaveBeenCalledWith(12, expect.objectContaining({
+    mode: 'restricted',
+    models: ['Exact.Case/ID', 'Added/ID'],
     expected_rules_revision: '9007199254740993',
-    model_mapping: { 'Exact.Case/ID': 'Exact.Case/ID', 'Added/ID': 'Added/ID' }
+    model_mapping: {}
   }))
   expect(update.mock.calls[0]?.[1]).not.toHaveProperty('preserve_model_selection')
 

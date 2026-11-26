@@ -7,7 +7,7 @@ import (
 )
 
 func groupOnlyAccountUpdate(input *UpdateAccountInput) bool {
-	return input != nil && input.GroupIDs != nil &&
+	return input != nil && input.GroupIDs != nil && input.ModelSelection == nil &&
 		input.TPMLimit == nil && input.Name == "" && input.Notes == nil && input.Type == "" &&
 		len(input.Credentials) == 0 && input.Extra == nil && input.ProxyID == nil && input.ProxyGroupID == nil &&
 		input.Concurrency == nil && input.Priority == nil && input.RateMultiplier == nil && input.LoadFactor == nil &&

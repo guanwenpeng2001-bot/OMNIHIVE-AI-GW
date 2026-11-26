@@ -264,8 +264,12 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(selector.props('modelMappings')).toEqual([{ from: 'saved-alias', to: 'retired-model' }])
     expect((wrapper.vm as unknown as { presetMappings: { from: string }[] }).presetMappings.map(preset => preset.from)).toEqual(['current-model'])
     await confirmReview(wrapper)
+    expect(createAccountMock.mock.calls.at(-1)?.[0].model_selection).toEqual({
+      mode: 'restricted',
+      models: ['retired-model']
+    })
     expect(createAccountMock.mock.calls.at(-1)?.[0].credentials.model_mapping).toEqual({
-      'retired-model': 'retired-model', 'saved-alias': 'retired-model',
+      'saved-alias': 'retired-model'
     })
     wrapper.unmount()
     vi.mocked(getPlatformModelPresets).mockResolvedValue([])
@@ -495,7 +499,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('form#create-account-form input[type="text"]').setValue('Reviewed account')
     await wrapper.get('form#create-account-form input[type="password"]').setValue('test-key')
     await openReview(wrapper)
-    await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.clearAllModels')!.trigger('click')
+    await wrapper.get('[data-testid="mode-inherit"]').trigger('click')
     await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
     await flushPromises()
     await wrapper.get('[data-testid="add-preview-models"]').trigger('click')
@@ -503,7 +507,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await confirmReview(wrapper)
     await flushPromises()
     expect(createAccountMock).toHaveBeenCalledOnce()
-    expect(createAccountMock.mock.calls[0][0].credentials.model_mapping).toEqual({ 'public-glm': 'public-glm' })
+    expect(createAccountMock.mock.calls[0][0].model_selection).toEqual({ mode: 'restricted', models: ['public-glm'] })
+    expect(createAccountMock.mock.calls[0][0].credentials).not.toHaveProperty('model_mapping')
     expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
     expect(wrapper.emitted('close')).toBeUndefined()
     const panel = wrapper.get('[data-testid="created-catalog-accounts"]')
@@ -587,7 +592,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     const payload = createAccountMock.mock.calls[0]?.[0]
     expect(payload).toMatchObject({ platform: 'cursor', type: mode === 'official' ? 'apikey' : 'upstream', concurrency: 7 })
     expect(payload.credentials.api_key).toBe('crsr_test')
-    expect(payload.credentials.model_mapping).toEqual({ 'composer-2.5': 'composer-2.5' })
+    expect(payload.model_selection).toEqual({ mode: 'restricted', models: ['composer-2.5'] })
+    expect(payload.credentials).not.toHaveProperty('model_mapping')
     if (mode === 'official') expect(payload.credentials).not.toHaveProperty('base_url')
     else expect(payload.credentials).toMatchObject({ base_url: 'https://relay.example/v1', api_protocol: 'adaptive' })
     expect(payload.upstream_billing_probe_enabled).toBe(mode === 'relay' ? true : undefined)
@@ -736,7 +742,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(wrapper.emitted('close')).toBeUndefined()
   })
 
-  it('includes the current concrete model mapping in preview credentials', async () => {
+  it('omits identity model_mapping in preview credentials and sends model_selection on create', async () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'OpenAI')
     await selectButtonByText(wrapper, 'API Key')
@@ -745,13 +751,18 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('[data-testid="model-whitelist-selector"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('syncCredentials')).toMatchObject({
-      model_mapping: { 'public-glm': 'public-glm' }
+    expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('syncCredentials')).not.toHaveProperty('model_mapping')
+    await confirmReview(wrapper)
+    await flushPromises()
+    expect(createAccountMock.mock.calls[0]?.[0]?.model_selection).toEqual({
+      mode: 'restricted',
+      models: ['public-glm']
     })
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials).not.toHaveProperty('model_mapping')
   })
 
   it('retains the created account ID for confirmation with explicit mappings', async () => {
-    const wrapper = mountModal()
+    const wrapper = mountModal([], true)
     await selectButtonByText(wrapper, 'OpenAI')
     await selectButtonByText(wrapper, 'API Key')
     await wrapper.get('form#create-account-form input[type="text"]').setValue('Mapped account')
@@ -1206,7 +1217,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       expect(selector.props('modelMappings')).toEqual([{ from: 'Custom/Alias', to: 'Private/Target' }])
       expect(wrapper.get('[data-testid="selected-models"]').text()).not.toContain('Preset/Exact')
       await confirmReview(wrapper)
-      expect(createAccountMock.mock.calls[0][0].credentials.model_mapping).toEqual({ 'Custom/Direct': 'Custom/Direct', 'Custom/Alias': 'Private/Target' })
+      expect(createAccountMock.mock.calls[0][0].model_selection).toEqual({ mode: 'restricted', models: ['Custom/Direct', 'Private/Target'] })
+      expect(createAccountMock.mock.calls[0][0].credentials.model_mapping).toEqual({ 'Custom/Alias': 'Private/Target' })
     })
 
     it('seeds a still-pristine draft when delayed presets arrive', async () => {
@@ -1216,26 +1228,26 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       expect(wrapper.getComponent(ModelWhitelistSelector).props('modelMappings')).toEqual([])
     })
 
-    it.each(['confirm', 'cancel'] as const)('preserves selection after clear %s while presets are pending', async action => {
+    it('preserves inherit clear while presets are pending', async () => {
       await addCustomSelection()
-      await wrapper.get('[data-testid="clear-model-selection"]').trigger('click')
-      wrapper.getComponent(ModelWhitelistSelector).getComponent(ConfirmDialog).vm.$emit(action)
+      await wrapper.get('[data-testid="mode-inherit"]').trigger('click')
       await flushPromises()
       finishPresets()
       await flushPromises()
       const selector = wrapper.getComponent(ModelWhitelistSelector)
-      expect(selector.props('modelValue')).toEqual(action === 'confirm' ? [] : ['Custom/Direct'])
-      expect(selector.props('modelMappings')).toEqual(action === 'confirm' ? [] : [{ from: 'Custom/Alias', to: 'Private/Target' }])
+      expect(selector.props('modelValue')).toEqual([])
+      expect(selector.props('modelMappings')).toEqual([])
+      expect(selector.props('mode')).toBe('inherit')
     })
 
     it('preserves an explicit clear even when the selection was already empty', async () => {
-      await wrapper.get('[data-testid="clear-model-selection"]').trigger('click')
-      wrapper.getComponent(ModelWhitelistSelector).getComponent(ConfirmDialog).vm.$emit('confirm')
+      await wrapper.get('[data-testid="mode-inherit"]').trigger('click')
       await flushPromises()
       finishPresets()
       await flushPromises()
       expect(wrapper.getComponent(ModelWhitelistSelector).props('modelValue')).toEqual([])
       expect(wrapper.getComponent(ModelWhitelistSelector).props('modelMappings')).toEqual([])
+      expect(wrapper.getComponent(ModelWhitelistSelector).props('mode')).toBe('inherit')
     })
 
     it.each(['platform', 'reopen'] as const)('rejects an old response after %s changes draft identity', async change => {
@@ -1275,7 +1287,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(wrapper.get('[data-testid="selected-models"]').text()).not.toContain('public-glm')
     await confirmReview(wrapper)
     expect(createAccountMock).toHaveBeenCalledTimes(1)
-    expect(createAccountMock.mock.calls[0][0].credentials.model_mapping).toEqual({ 'Preset/Exact': 'Preset/Exact', Alias: 'PrivateTarget', 'family-*': 'FamilyTarget' })
+    expect(createAccountMock.mock.calls[0][0].model_selection).toEqual({ mode: 'restricted', models: ['Preset/Exact', 'PrivateTarget', 'FamilyTarget'] })
+    expect(createAccountMock.mock.calls[0][0].credentials.model_mapping).toEqual({ Alias: 'PrivateTarget', 'family-*': 'FamilyTarget' })
     wrapper.unmount()
     vi.mocked(getPlatformModelPresets).mockResolvedValue([])
   })
@@ -1728,7 +1741,8 @@ it.each(['anthropic', 'gemini'] as const)('stages %s OAuth with no writes, then 
   workflow.allowedModels = ['chosen-model']
   await confirmReview(wrapper)
   expect(createAccountMock).toHaveBeenCalledOnce()
-  expect(createAccountMock.mock.calls[0][0]).toMatchObject({ credential_draft: `${platform}-draft`, credential_draft_revision: 'reviewed', credentials: { model_mapping: { 'chosen-model': 'chosen-model' } } })
+  expect(createAccountMock.mock.calls[0][0]).toMatchObject({ credential_draft: `${platform}-draft`, credential_draft_revision: 'reviewed', model_selection: { mode: 'restricted', models: ['chosen-model'] } })
+  expect(createAccountMock.mock.calls[0][0].credentials).not.toHaveProperty('model_mapping')
   wrapper.unmount()
 })
 
@@ -2183,4 +2197,62 @@ it('creates BytePlus query keys only for the existing team billing plan', async 
   expect(createAccountMock.mock.calls[0][0].credentials).toMatchObject({ billing_plan: 'team', api_key: 'synthetic-inference', byteplus_access_key_id: 'synthetic-byteplus-id', byteplus_secret_access_key: 'synthetic-byteplus-secret', byteplus_seat_id: 'synthetic-seat' })
   expect(createAccountMock.mock.calls[0][0].credentials).not.toHaveProperty('byteplus_plan_edition')
   wrapper.unmount()
+})
+
+describe('v0.3.9 create account model selection defaults', () => {
+  it('defaults to inherit mode on API key create and omits empty model_mapping: {}', async () => {
+    createAccountMock.mockReset().mockResolvedValue({ id: 901, platform: 'anthropic', type: 'apikey' })
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'admin.accounts.claudeConsole')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Inherit API Key')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('sk-ant-inherit')
+    await openReview(wrapper)
+
+    const state = wrapper.vm as unknown as { modelSelectionMode: string }
+    expect(state.modelSelectionMode).toBe('inherit')
+    await confirmReview(wrapper)
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledOnce()
+    const payload = createAccountMock.mock.calls[0][0]
+    expect(payload.credentials).not.toHaveProperty('model_mapping')
+    wrapper.unmount()
+  })
+
+  it('defaults to inherit mode on OAuth review and omits empty model_mapping: {} from review and batchCreate', async () => {
+    createAccountMock.mockReset().mockResolvedValue({ id: 902, platform: 'anthropic', type: 'oauth' })
+    const wrapper = mountModal()
+    const workflow = wrapper.vm as unknown as {
+      createWithOptions: (payload: CreateAccountRequest) => Promise<never>
+      modelSelectionMode: string
+    }
+    await workflow.createWithOptions({
+      name: 'Inherit OAuth',
+      platform: 'anthropic',
+      type: 'oauth',
+      concurrency: 1,
+      priority: 1,
+      credentials: {
+        credential_draft: 'inherit-oauth-draft',
+        revision: 'initial',
+        platform: 'anthropic',
+        type: 'oauth',
+        expires_at: '2099-01-01T00:00:00Z'
+      }
+    }).catch(() => {})
+    await flushPromises()
+    expect(workflow.modelSelectionMode).toBe('inherit')
+
+    await confirmReview(wrapper)
+    await flushPromises()
+    expect(apiClient.post).toHaveBeenCalledWith(
+      '/admin/accounts/credential-drafts/inherit-oauth-draft/review',
+      expect.objectContaining({
+        credentials: expect.not.objectContaining({ model_mapping: expect.anything() })
+      })
+    )
+    expect(createAccountMock).toHaveBeenCalledOnce()
+    expect(createAccountMock.mock.calls[0][0].credentials).not.toHaveProperty('model_mapping')
+    wrapper.unmount()
+  })
 })

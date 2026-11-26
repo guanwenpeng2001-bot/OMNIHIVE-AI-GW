@@ -30,12 +30,14 @@ func accountExtraPostgresFixture(t *testing.T) (*sql.DB, *accountRepository) {
 		id bigserial PRIMARY KEY, platform text NOT NULL DEFAULT 'cursor', type text NOT NULL DEFAULT 'oauth',
 		credentials jsonb, extra jsonb, deleted_at timestamptz, updated_at timestamptz,
 		workspace_id bigint NOT NULL DEFAULT 1, proxy_id bigint, proxy_group_id bigint, proxy_fallback_origin_id bigint,
+		parent_account_id bigint,
 		temp_unschedulable_until timestamptz, temp_unschedulable_reason text,
 		rate_limited_at timestamptz, rate_limit_reset_at timestamptz
 	);
 	CREATE TABLE scheduler_outbox (
 		id bigserial PRIMARY KEY, event_type text, account_id bigint, group_id bigint, payload jsonb, dedup_key text
 	);
+	CREATE TABLE provider_connections (account_id bigint, workspace_id bigint, legacy_dirty boolean NOT NULL DEFAULT false);
 	CREATE UNIQUE INDEX ON scheduler_outbox (dedup_key) WHERE dedup_key IS NOT NULL`)
 	require.NoError(t, err)
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
@@ -111,8 +113,11 @@ func TestAccountExtraSQLPostgresMergeAndRevisions(t *testing.T) {
 			require.NotContains(t, extra, "upstream_billing_probe", "explicit null removes the probe key")
 			require.NotContains(t, extra, "codex_fingerprint_seed")
 			require.Equal(t, map[string]any{"identity_revision": float64(7), "rules_revision": float64(12), "legacy_policy_revision": float64(14), "result": "keep"}, extra["upstream_model_catalog_state"])
-			_, err := repo.ReplaceAccountModelSelectionScope(ctx, id, service.AccountModelCatalogBaseline{IdentityRevision: 7, RulesRevision: 11}, service.AccountModelAllowlist{}, nil)
-			require.ErrorIs(t, err, service.ErrAccountModelCatalogConflict, "stale catalog configuration must still conflict")
+			identity, revision := int64(7), int64(11)
+			_, err := service.NewAccountModelSelectionService(repo).SaveModelSelection(ctx, id, service.ModelSelectionCommand{
+				Mode: service.ModelSelectionInherit, ActorID: 7, ExpectedIdentityRevision: &identity, ExpectedRulesRevision: &revision,
+			})
+			require.ErrorIs(t, err, service.ErrModelSelectionConflict, "stale catalog configuration must still conflict")
 
 			legacyID := insertAccountExtraFixture(t, db, nil)
 			require.NoError(t, writeAccountExtraFixture(ctx, repo, bulk, legacyID, map[string]any{"note": "legacy"}))
@@ -208,7 +213,7 @@ func TestAccountExtraSQLPostgresBulkCredentialCleanup(t *testing.T) {
 				require.NoError(t, err)
 			}
 		})
-		_, err = db.Exec("UPDATE accounts SET extra=$2 WHERE id=$1", account.ID, initialExtra)
+		_, err = db.Exec("UPDATE accounts SET extra=COALESCE(extra,'{}'::jsonb) || $2::jsonb WHERE id=$1", account.ID, initialExtra)
 		require.NoError(t, err)
 	}
 	count, err := repo.BulkUpdate(ctx, ids, service.AccountBulkUpdate{
@@ -223,8 +228,11 @@ func TestAccountExtraSQLPostgresBulkCredentialCleanup(t *testing.T) {
 		require.Equal(t, "keep", extra["note"])
 		require.NotContains(t, extra, "upstream_billing_probe")
 		require.NotContains(t, extra, "codex_fingerprint_seed", "non-OpenAI-OAuth rows must not receive seeds")
-		require.Equal(t, true, extra["model_selection_baseline_frozen"])
-		require.Equal(t, map[string]any{"enabled": true, "models": []any{}}, extra["upstream_model_allowlist"])
+		require.NotContains(t, extra, service.ModelSelectionBaselineFrozenExtraKey)
+		scope, ok := extra[service.UpstreamModelAllowlistExtraKey].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, true, scope["enabled"])
+		require.Equal(t, []any{"target"}, scope["models"])
 		if i == 1 {
 			require.NotContains(t, extra, "ollama_cloud_usage_session")
 			require.NotContains(t, extra, "ollama_cloud_usage_auto_refresh")
@@ -239,8 +247,7 @@ func TestAccountExtraSQLPostgresBulkCredentialCleanup(t *testing.T) {
 		require.NoError(t, json.Unmarshal(raw, &credentials))
 		require.Equal(t, "credential", credentials["keep"])
 		require.NotContains(t, credentials, "billing_plan")
-		require.Contains(t, credentials, "model_mapping")
-		require.Nil(t, credentials["model_mapping"])
+		require.Equal(t, map[string]any{"alias": "target"}, credentials["model_mapping"])
 	}
 	proxy, err := f.client.Proxy.Create().SetName("bulk-credential-cleanup").SetHost("fixture.invalid").SetPort(8080).SetProtocol("http").SetStatus(service.StatusActive).Save(ctx)
 	require.NoError(t, err)

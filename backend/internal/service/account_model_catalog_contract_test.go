@@ -101,16 +101,6 @@ func TestAccountModelCatalogAntigravityPreviewPreservesNativeFacts(t *testing.T)
 	require.Nil(t, account.Extra)
 }
 
-type catalogAllowlistRecorder struct {
-	AccountRepository
-	calls int
-}
-
-func (r *catalogAllowlistRecorder) ReplaceAccountModelSelectionScope(context.Context, int64, AccountModelCatalogBaseline, AccountModelAllowlist, *map[string]string) ([]string, error) {
-	r.calls++
-	return nil, nil
-}
-
 func TestAccountModelCatalogAllowlistRejectsInvalidConfirmations(t *testing.T) {
 	for _, fixture := range []struct {
 		name            string
@@ -122,7 +112,7 @@ func TestAccountModelCatalogAllowlistRejectsInvalidConfirmations(t *testing.T) {
 	}{
 		{"valid", true, []string{"native"}, "confirmed", 7, 3, true},
 		{"disabled", false, nil, "confirmed", 7, 3, true},
-		{"empty", true, nil, "confirmed", 7, 3, true},
+		{"empty without confirmation", true, nil, "confirmed", 7, 3, false},
 		{"unknown", true, []string{"guessed"}, "confirmed", 7, 3, true},
 		{"wildcard", true, []string{"*"}, "confirmed", 7, 3, false},
 		{"missing actor", true, []string{"native"}, "confirmed", 0, 3, false},
@@ -130,16 +120,16 @@ func TestAccountModelCatalogAllowlistRejectsInvalidConfirmations(t *testing.T) {
 		{"stale", true, []string{"native"}, "confirmed", 7, 2, false},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
-			repo := &catalogAllowlistRecorder{}
+			account := Account{ID: 42, Extra: map[string]any{UpstreamModelCatalogStateExtraKey: AccountModelCatalogState{RulesRevision: 3}, UpstreamModelCatalogExtraKey: AccountModelCatalogSnapshot{Complete: true, DiscoveredModels: []string{"native"}}}}
+			repo := &selectionTestRepository{account: account}
 			svc := &AccountTestService{accountRepo: repo}
-			account := &Account{ID: 42, Extra: map[string]any{UpstreamModelCatalogStateExtraKey: AccountModelCatalogState{RulesRevision: 3}, UpstreamModelCatalogExtraKey: AccountModelCatalogSnapshot{Complete: true, DiscoveredModels: []string{"native"}}}}
-			_, err := svc.ConfigureAccountModelAllowlist(context.Background(), account, fixture.enabled, fixture.models, fixture.reason, fixture.actor, fixture.revision, nil)
+			_, err := svc.ConfigureAccountModelAllowlist(context.Background(), &account, fixture.enabled, fixture.models, fixture.reason, fixture.actor, fixture.revision, nil)
 			if fixture.valid {
 				require.NoError(t, err)
-				require.Equal(t, 1, repo.calls)
+				require.Equal(t, 1, repo.writes)
 			} else {
 				require.Error(t, err)
-				require.Zero(t, repo.calls)
+				require.Zero(t, repo.writes)
 			}
 		})
 	}

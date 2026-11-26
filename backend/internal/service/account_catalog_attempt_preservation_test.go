@@ -32,8 +32,8 @@ func TestScheduledCatalogVersionRejectionRecordsAttemptWithoutChangingSelection(
 	repository := &refreshCatalogRepository{catalogFixtureRepository: &catalogFixtureRepository{accounts: map[int64]*Account{account.ID: account}}, active: []Account{*account}}
 	upstream := &httpUpstreamRecorder{responses: []*http.Response{catalogFixtureResponse(`{"data":[]}`), catalogFixtureResponse(`{"data":[]}`)}}
 	accountTests := &AccountTestService{accountRepo: repository, httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}
-	runner := &ScheduledTestRunnerService{accountTestSvc: accountTests}
-	require.True(t, accountCatalogRefreshDue(account, now))
+	runner := &ScheduledTestRunnerService{catalogRefreshEnabled: true, accountTestSvc: accountTests}
+	require.True(t, accountCatalogScheduledRefreshDue(account, now, true))
 	runner.refreshDueCatalogs(context.Background(), now)
 	require.Equal(t, 1, repository.commits, "a completed discovery rejected by release validation must record its attempt")
 	require.Equal(t, "failed", account.ModelCatalogState().Result)
@@ -44,10 +44,10 @@ func TestScheduledCatalogVersionRejectionRecordsAttemptWithoutChangingSelection(
 	require.False(t, account.Schedulable)
 	require.Equal(t, map[string]string{}, account.Credentials["model_mapping"])
 	require.Equal(t, 0.1, account.Extra["commandcode_monthlyCredits"])
-	require.False(t, accountCatalogRefreshDue(account, now.Add(time.Minute)))
+	require.False(t, accountCatalogScheduledRefreshDue(account, now.Add(time.Minute), true))
 	runner.refreshDueCatalogs(context.Background(), now.Add(time.Minute))
 	require.Equal(t, 1, repository.commits)
-	require.True(t, accountCatalogRefreshDue(account, now.Add(7*time.Hour)))
+	require.True(t, accountCatalogScheduledRefreshDue(account, now.Add(7*time.Hour), true))
 }
 
 func TestScheduledCatalogRefreshPublishesCandidatesAndPreservesPausedSelection(t *testing.T) {
@@ -67,7 +67,7 @@ func TestScheduledCatalogRefreshPublishesCandidatesAndPreservesPausedSelection(t
 		catalogFixtureResponse(`{"data":[{"id":"chosen-model"},{"id":"new-candidate"}]}`),
 		catalogFixtureResponse(`{}`), // Optional metadata lookup stays offline.
 	}}
-	runner := &ScheduledTestRunnerService{accountTestSvc: &AccountTestService{accountRepo: repository, httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}}
+	runner := &ScheduledTestRunnerService{catalogRefreshEnabled: true, accountTestSvc: &AccountTestService{accountRepo: repository, httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}}
 	runner.refreshDueCatalogs(context.Background(), now)
 	require.Equal(t, 1, repository.commits)
 	require.Equal(t, "succeeded", account.ModelCatalogState().Result)
@@ -105,7 +105,7 @@ func TestScheduledCatalogRejectedAttemptCannotOverwriteNewerRulesOrIdentity(t *t
 			}}
 		repository := &catalogAttemptConflictRepository{catalogFixtureRepository: &catalogFixtureRepository{accounts: map[int64]*Account{account.ID: account}}, newerState: newerState}
 		accountTests := &AccountTestService{accountRepo: repository, httpUpstream: &httpUpstreamRecorder{resp: catalogFixtureResponse(`{"data":[]}`)}, cfg: upstreamModelSyncTestConfig()}
-		ctx := context.WithValue(context.Background(), catalogScheduledRefreshKey{}, true)
+		ctx := context.WithValue(context.Background(), catalogScheduledRefreshKey{}, catalogScheduledRefresh{periodic: true})
 		_, err := accountTests.ApplyAccountModelCatalog(ctx, account, nil)
 		require.ErrorIs(t, err, ErrAccountModelCatalogConflict)
 		require.Zero(t, repository.commits)
@@ -141,7 +141,7 @@ func TestScheduledCatalogRefreshRequiresGenerationAdvanceForChangedRelease(t *te
 			provider := &countedCapabilityProvider{snapshot: &ModelCapabilitySnapshot{generation: scenario.generation, version: changedVersion}}
 			accountTests := &AccountTestService{accountRepo: repository, modelCapabilityProvider: provider, cfg: upstreamModelSyncTestConfig(),
 				httpUpstream: &httpUpstreamRecorder{responses: []*http.Response{catalogFixtureResponse(`{"data":[{"id":"chosen-model"},{"id":"new-candidate"}]}`), catalogFixtureResponse(`{}`)}}}
-			ctx := context.WithValue(context.Background(), catalogScheduledRefreshKey{}, true)
+			ctx := context.WithValue(context.Background(), catalogScheduledRefreshKey{}, catalogScheduledRefresh{periodic: true})
 			_, err := accountTests.ApplyAccountModelCatalog(ctx, account, nil)
 			if scenario.result == "failed" {
 				require.ErrorIs(t, err, ErrAccountModelCatalogConflict)
@@ -155,7 +155,7 @@ func TestScheduledCatalogRefreshRequiresGenerationAdvanceForChangedRelease(t *te
 			require.Equal(t, 1, repository.commits)
 			require.Equal(t, scenario.result, account.ModelCatalogState().Result)
 			require.NotEqual(t, state.AttemptedAt, account.ModelCatalogState().AttemptedAt)
-			require.False(t, accountCatalogRefreshDue(account, time.Now().Add(time.Minute)))
+			require.False(t, accountCatalogScheduledRefreshDue(account, time.Now().Add(time.Minute), true))
 			require.Equal(t, map[string]string{"alias": "chosen-model"}, account.Credentials["model_mapping"])
 			require.True(t, account.Schedulable, "retain the latest explicit management choice")
 		})

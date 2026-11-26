@@ -88,7 +88,7 @@ func TestLegacyModelCatalogCurrentSelectionAndRevocation(t *testing.T) {
 		{"new account without migration", func(account *Account) { delete(account.Extra, UpstreamModelCatalogExtraKey) }, true},
 		{"removed selection", func(account *Account) {
 			account.Credentials["model_mapping"] = map[string]string{}
-			NormalizeEmptyAccountModelSelection(account)
+			account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Reason: "explicit deny test"}
 		}, false},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
@@ -138,7 +138,7 @@ func TestLegacyModelCatalogSeedReplacementAndCopy(t *testing.T) {
 	account.Extra = catalogEvidenceAccount(account.ID, account.Platform).Extra
 	require.True(t, AccountSupportsResolvedModel(context.Background(), &account, "public-model", AccountModelBindingOptions{Endpoint: "messages"}), "empty discovery does not revoke the saved mapping")
 	account.Credentials["model_mapping"] = map[string]string{}
-	NormalizeEmptyAccountModelSelection(&account)
+	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Reason: "explicit deny test"}
 	require.False(t, AccountSupportsResolvedModel(context.Background(), &account, "public-model", AccountModelBindingOptions{Endpoint: "messages"}), "removing the selection does revoke access")
 }
 

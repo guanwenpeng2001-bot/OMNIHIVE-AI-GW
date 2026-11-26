@@ -466,6 +466,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 		Audit:           auditHandler,
 		Supervisor:      supervisor,
 		Admission:       admission,
+		Database:        db,
 	}
 	return application, nil
 }
@@ -476,6 +477,7 @@ type Application struct {
 	Supervisor *runtime.Supervisor
 	Admission  *runtime.Admission
 	Audit      *audit.Handler
+	Database   *sql.DB
 
 	Status          *status.Handler
 	AsyncImages     *handler.AsyncImageHandler

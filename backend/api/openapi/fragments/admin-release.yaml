@@ -16,8 +16,56 @@ paths:
       responses:
         '200':
           description: Updated account
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data:
+                    type: object
+                    required: [id, auto_added, rules_revision]
+                    additionalProperties: true
+                    properties:
+                      id: {type: integer, format: int64}
+                      auto_added:
+                        type: array
+                        items: {type: string}
+                        description: Upstream targets added to the account's range by this update
+                      rules_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
         '400':
           description: Invalid update, including conflicting model selection intent
+        '409':
+          description: Account model selection conflict, mapping change on deny_all, or a Connections-managed account
+  /api/v1/admin/accounts/bulk-update:
+    post:
+      operationId: bulkUpdateAdminAccounts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AdminAccountBulkUpdate'}
+      responses:
+        '200':
+          description: Bulk update counts and per-account results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data: {$ref: '#/components/schemas/AdminAccountBulkUpdateResult'}
+        '400':
+          description: Invalid bulk update, empty restricted scope, or missing deny-all reason or confirmation
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AdminModelSelectionError'}
+        '409':
+          description: Account model selection conflict, mapping change on deny_all, or a Connections-managed account
   /api/v1/admin/system/rollback-versions:
     get:
       operationId: listAdminRollbackVersions
@@ -99,7 +147,7 @@ components:
         name: {type: string}
         notes: {type: [string, 'null']}
         type: {type: string, enum: [oauth, setup-token, apikey, upstream, bedrock, service_account]}
-        credentials: {type: object, additionalProperties: true}
+        credentials: {$ref: '#/components/schemas/AdminAccountUpdateCredentials'}
         extra: {type: object, additionalProperties: true}
         proxy_id: {type: [integer, 'null'], format: int64}
         proxy_group_id: {type: [integer, 'null'], format: int64}
@@ -115,6 +163,93 @@ components:
         upstream_billing_rate_sync_enabled: {type: boolean}
         confirm_mixed_channel_risk: {type: boolean}
         tpm_limit: {type: [integer, 'null'], format: int64}
+    AdminAccountUpdateCredentials:
+      type: object
+      additionalProperties: true
+      properties:
+        model_mapping:
+          anyOf:
+          - $ref: '#/components/schemas/AdminModelSelectionMapping'
+          - type: 'null'
+          description: >-
+            Replaces the account's entire explicit alias map and adds its targets to the saved scope.
+            Omit or use null to keep the existing selection. An empty object clears the map and keeps
+            the existing scope. On a deny_all account, choose a mode through the allowlist endpoint
+            before changing the mapping.
+    AdminAccountBulkUpdate:
+      type: object
+      anyOf:
+      - required: [account_ids]
+      - required: [filters]
+      properties:
+        account_ids: {type: array, minItems: 1, items: {type: integer, format: int64}}
+        filters:
+          type: object
+          properties:
+            platform: {type: string}
+            type: {type: string}
+            status: {type: string}
+            group: {type: string}
+            search: {type: string}
+            privacy_mode: {type: string}
+        name: {type: string}
+        proxy_id: {type: [integer, 'null'], format: int64}
+        proxy_group_id: {type: [integer, 'null'], format: int64}
+        concurrency: {type: integer}
+        priority: {type: integer}
+        rate_multiplier: {type: number}
+        load_factor: {type: integer}
+        status: {type: string, enum: [active, inactive, error]}
+        schedulable: {type: boolean}
+        group_ids: {type: array, items: {type: integer, format: int64}}
+        credentials:
+          $ref: '#/components/schemas/AdminAccountUpdateCredentials'
+          description: Each explicit mapping replaces the map on every target account. Omission or null preserves the map. An empty object explicitly clears it.
+        model_selection:
+          $ref: '#/components/schemas/AdminAccountBulkModelSelection'
+        extra: {type: object, additionalProperties: true}
+        upstream_billing_probe_enabled: {type: boolean}
+        confirm_mixed_channel_risk: {type: boolean}
+        tpm_limit: {type: [integer, 'null'], format: int64}
+    AdminAccountBulkModelSelection:
+      type: object
+      required: [mode]
+      description: Applies one scope intent to every target account using that account's locked configuration.
+      properties:
+        mode: {$ref: '#/components/schemas/AdminModelSelectionMode'}
+        models:
+          type: array
+          items: {type: string}
+          description: Restricted requires at least one explicit model. The server adds each account's mapping targets. Inherit and deny_all require an empty or omitted list.
+        reason:
+          type: string
+          description: Required and non-blank for deny_all.
+        confirm_deny_all:
+          type: boolean
+          description: Must be true for deny_all.
+    AdminAccountBulkUpdateResult:
+      type: object
+      required: [success, failed, success_ids, failed_ids, results]
+      properties:
+        success: {type: integer}
+        failed: {type: integer}
+        success_ids: {type: array, items: {type: integer, format: int64}}
+        failed_ids: {type: array, items: {type: integer, format: int64}}
+        long_context_inherited_count: {type: integer}
+        results:
+          type: array
+          items:
+            type: object
+            required: [account_id, success]
+            properties:
+              account_id: {type: integer, format: int64}
+              success: {type: boolean}
+              error: {type: string}
+              auto_added:
+                type: array
+                items: {type: string}
+                description: Upstream targets added to this account's scope during a selection or mapping write. An empty array is returned when no targets were added.
+              rules_revision: {$ref: '#/components/schemas/AdminModelSelectionRevision'}
     AdminRollbackVersion:
       type: object
       required: [version, effective_floor, published_at, html_url]

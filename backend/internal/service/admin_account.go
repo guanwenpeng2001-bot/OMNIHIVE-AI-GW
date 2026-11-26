@@ -453,19 +453,20 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 	delete(accountExtra, OllamaCloudUsageSnapshotExtraKey)
 	accountExtra = prepareCodexFingerprintExtraForCreate(input.Platform, input.Type, accountExtra)
 	account := &Account{
-		Name:         input.Name,
-		Notes:        normalizeAccountNotes(input.Notes),
-		Platform:     input.Platform,
-		Type:         input.Type,
-		Credentials:  input.Credentials,
-		Extra:        accountExtra,
-		ProxyID:      normalizedProxyID(input.ProxyID),
-		ProxyGroupID: normalizedProxyID(input.ProxyGroupID),
-		TPMLimit:     input.TPMLimit,
-		Concurrency:  normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
-		Priority:     input.Priority,
-		Status:       status,
-		Schedulable:  true,
+		ModelSelectionCommand: input.ModelSelection,
+		Name:                  input.Name,
+		Notes:                 normalizeAccountNotes(input.Notes),
+		Platform:              input.Platform,
+		Type:                  input.Type,
+		Credentials:           input.Credentials,
+		Extra:                 accountExtra,
+		ProxyID:               normalizedProxyID(input.ProxyID),
+		ProxyGroupID:          normalizedProxyID(input.ProxyGroupID),
+		TPMLimit:              input.TPMLimit,
+		Concurrency:           normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
+		Priority:              input.Priority,
+		Status:                status,
+		Schedulable:           true,
 	}
 	if err := validateExpandedPlatformAccount(account); err != nil {
 		return nil, err
@@ -511,7 +512,6 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		}
 		account.LoadFactor = input.LoadFactor
 	}
-	NormalizeEmptyAccountModelSelection(account)
 	return account, nil
 }
 
@@ -662,6 +662,14 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		return s.updateAccountGroupsOnly(ctx, account, input)
 	}
 	previousCredentials := account.Credentials
+	selectionCommand := input.ModelSelection
+	if selectionCommand == nil {
+		selectionCommand, err = ModelSelectionCommandFromCredentials(input.Credentials, input.ModelSelectionActorID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	account.ModelSelectionCommand = selectionCommand
 	if err := validateCompatibleSpecialAuthTransition(account, input.Credentials); err != nil {
 		return nil, err
 	}
@@ -746,7 +754,21 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		// 敏感子键采用"incoming 没提供就保留"的合并语义：前端响应已脱敏，
 		// 全对象 PUT 编辑时不会再带回 token，避免覆盖时清空已有凭证。
 		wasPublicLane := publicModelLane(account)
-		account.Credentials = MergePreservingSensitiveCreds(account.Credentials, input.Credentials)
+		credentials := MergePreservingSensitiveCreds(account.Credentials, input.Credentials)
+		_, mappingProvided := input.Credentials["model_mapping"]
+		if input.PatchCredentials || (mappingProvided && len(input.Credentials) == 1) {
+			patched := make(map[string]any, len(account.Credentials)+len(input.Credentials))
+			maps.Copy(patched, account.Credentials)
+			for key := range input.Credentials {
+				if value, ok := credentials[key]; ok {
+					patched[key] = value
+				} else {
+					delete(patched, key)
+				}
+			}
+			credentials = patched
+		}
+		account.Credentials = credentials
 		clearTransitionedPublicKey(account, input.Credentials, wasPublicLane)
 		// 校验并规范化请求头覆写配置（header 名小写化、格式检查）
 		if err := NormalizeHeaderOverrideCredentials(account.Credentials); err != nil {
@@ -980,6 +1002,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			cursorRefreshStateRecovered = true
 		}
 	}
+	account.Credentials = PreserveCurrentModelMapping(account.Credentials, previousCredentials)
 	ctx = WithAccountCredentialChanges(ctx, previousCredentials, account.Credentials)
 	billingSettingsAppliedAtomically := false
 	updater := s.accountBillingRepo
@@ -1072,6 +1095,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err != nil {
 		return nil, err
 	}
+	updated.ModelSelectionResult = account.ModelSelectionResult
 	return updated, nil
 }
 
@@ -1333,12 +1357,23 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	if input.TPMLimit != nil && *input.TPMLimit < 0 {
 		return nil, fmt.Errorf("tpm_limit must be non-negative")
 	}
+	selectionCommand := input.ModelSelection
+	if selectionCommand == nil {
+		selectionCommand, err = ModelSelectionCommandFromCredentials(input.Credentials, input.ModelSelectionActorID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	repoUpdates := AccountBulkUpdate{ProxyGroupID: input.ProxyGroupID,
 		TPMLimit:                   input.TPMLimit,
 		Credentials:                input.Credentials,
 		Extra:                      input.Extra,
 		ProbeEnabled:               input.ProbeEnabled,
 		EnsureCodexFingerprintSeed: ShouldEnsureCodexFingerprintSeedForExtraUpdates(input.Extra),
+	}
+	if selectionCommand != nil {
+		repoUpdates.ModelSelectionCommand = selectionCommand
+		repoUpdates.ModelSelectionResults = make(map[int64]ModelSelectionResult, len(input.AccountIDs))
 	}
 	if input.ProbeEnabled != nil {
 		if repoUpdates.Extra == nil {
@@ -1437,6 +1472,10 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	// Handle group bindings per account (requires individual operations).
 	for _, accountID := range input.AccountIDs {
 		entry := BulkUpdateAccountResult{AccountID: accountID}
+		if selection, ok := repoUpdates.ModelSelectionResults[accountID]; ok {
+			entry.AutoAdded = selection.AutoAdded
+			entry.RulesRevision = &selection.RulesRevision
+		}
 
 		if input.GroupIDs != nil {
 			if err := s.accountRepo.BindGroups(ctx, accountID, *input.GroupIDs); err != nil {
