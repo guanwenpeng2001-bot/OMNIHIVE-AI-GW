@@ -286,7 +286,7 @@
             <template v-if="bulkModelMode === 'restricted'">
               <BulkModelPreview :active="show && enableModelRestriction" :account-ids="accountIds" :filtered="targetMode === 'filtered'" v-model="allowedModels" :model-mappings="modelMappings" :connection-context="[baseUrl, enableBaseUrl, proxyId, proxyGroupId, enableProxy, enableHeaderOverride, headerOverrideEnabled, headerOverrideRows, modelMappings]" />
               <AccountModelConfigurationSection :active="show && enableModelRestriction" discovery-disabled
-                v-model="allowedModels" v-model:mappings="modelMappings" :mode="bulkModelMode" :allow-deny-all="false" :platforms="targetSelectedPlatforms" :presets="filteredPresets" />
+                v-model="allowedModels" v-model:mappings="modelMappings" v-model:public-targets="publicTargets" :mode="bulkModelMode" :allow-deny-all="false" :platforms="targetSelectedPlatforms" :presets="filteredPresets" />
               <div data-testid="bulk-restricted-mapping-panel" class="mt-3 space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)]/50 p-3">
                 <label class="flex cursor-pointer items-center gap-2 text-xs text-[var(--foreground)]">
                   <input
@@ -1618,8 +1618,9 @@ const clearMappingsOnInherit = ref(false)
 const clearMappingsOnRestricted = ref(false)
 const allowedModels = ref<string[]>([])
 const modelMappings = ref<ModelMapping[]>([])
+const publicTargets = ref<string[]>([])
 const hasExplicitBulkMappings = computed(
-  () => Object.keys(buildExplicitModelMappingObject(modelMappings.value)).length > 0
+  () => Object.keys(buildExplicitModelMappingObject(modelMappings.value, publicTargets.value)).length > 0
 )
 const selectedErrorCodes = ref<number[]>([])
 const customErrorCodeInput = ref<number | null>(null)
@@ -1935,11 +1936,9 @@ const buildUpdatePayload = (): BulkAccountFields | null => {
 
   if (enableModelRestriction.value && !isOpenAIModelRestrictionDisabled.value) {
     if (bulkModelMode.value === 'restricted') {
-      const mapping = buildExplicitModelMappingObject(modelMappings.value)
+      const mapping = buildExplicitModelMappingObject(modelMappings.value, publicTargets.value)
       const directModels = mergeIdentityMappingsIntoModels(allowedModels.value, modelMappings.value)
-      const models = directModels.length > 0
-        ? directModels
-        : [...new Set(Object.values(mapping))]
+      const models = [...new Set([...directModels, ...Object.values(mapping)])]
       if (models.length === 0) {
         return null
       }
@@ -2408,6 +2407,7 @@ watch(
       pendingDenyAllTargetRevision.value = ''
       allowedModels.value = []
       modelMappings.value = []
+      publicTargets.value = []
       selectedErrorCodes.value = []
       customErrorCodeInput.value = null
       interceptWarmupRequests.value = false

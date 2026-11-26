@@ -241,7 +241,8 @@ func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, accou
 				seen[model.ID] = true
 			}
 		}
-		for model := range account.GetModelMapping() {
+		names, _ := account.ConfiguredPublicModelNames()
+		for _, model := range names {
 			if IsGPTImageGenerationModel(model) && !strings.Contains(model, "*") && !seen[model] {
 				payload.Data = append(payload.Data, openai.Model{CatalogSource: "configured", ID: model, Object: "model", Type: "model", OwnedBy: "openai", DisplayName: openaiCodexDisplayName(model)})
 			}

@@ -348,10 +348,12 @@ func TestConfiguredSelectionPassthroughWireBoundary(t *testing.T) {
 	for _, unselected := range []string{"discovered-only", "compact-private"} {
 		require.ErrorIs(t, validateAccountPassthroughForwardModel(ctx, nil, &account, unselected), ErrAccountModelUnsupported)
 	}
+	routed := WithOpenAIForwardModel(ctx, "channel-name", false)
 	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{"ordinary-target"}}
-	require.ErrorIs(t, validateAccountPassthroughForwardModel(ctx, nil, &account, "channel-name"), ErrAccountModelUnsupported)
+	require.ErrorIs(t, validateAccountPassthroughForwardModel(routed, nil, &account, "channel-name"), ErrAccountModelUnsupported)
 	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{"channel-name"}}
-	require.NoError(t, validateAccountPassthroughForwardModel(ctx, nil, &account, "channel-name"))
+	require.ErrorIs(t, validateAccountPassthroughForwardModel(ctx, nil, &account, "channel-name"), ErrAccountModelUnsupported)
+	require.NoError(t, validateAccountPassthroughForwardModel(routed, nil, &account, "channel-name"))
 	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true}
 	require.ErrorIs(t, validateAccountPassthroughForwardModel(ctx, nil, &account, "channel-name"), ErrAccountModelUnsupported)
 	delete(account.Extra, UpstreamModelAllowlistExtraKey)

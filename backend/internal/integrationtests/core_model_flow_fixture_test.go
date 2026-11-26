@@ -128,6 +128,7 @@ type coreFlowFixture struct {
 	accounts                                       service.AccountRepository
 	users                                          service.UserRepository
 	discovery                                      *service.AccountTestService
+	composite                                      *service.CompositeRouteResolver
 	userID, otherUserID, accountID, groupID, keyID int64
 	secret                                         string
 }
@@ -180,7 +181,8 @@ func newCoreFlowFixture(t *testing.T) *coreFlowFixture {
 	settlement := service.NewUsageSettlementService(repository.NewUsageSettlementReceiptRepository(db), nil, billingCache)
 	cache := repository.NewGatewayCache(redisClient)
 	openAI := service.ProvideOpenAIGatewayService(accounts, usage, billingRepo, f.users, nil, rates, cache, cfg, nil, concurrency, billing, nil, billingCache, f.upstream, nil, nil, nil, pricing, nil, nil, nil, nil, settlement)
-	gateway := service.NewGatewayService(accounts, groups, usage, billingRepo, f.users, nil, rates, cache, cfg, nil, concurrency, billing, nil, billingCache, nil, f.upstream, nil, nil, nil, nil, nil, nil, nil, nil, pricing, nil, nil, nil)
+	f.composite = service.NewCompositeRouteResolver(repository.NewCompositeModelRouteRepository(client))
+	gateway := service.NewGatewayService(accounts, groups, usage, billingRepo, f.users, nil, rates, cache, cfg, nil, concurrency, billing, nil, billingCache, nil, f.upstream, nil, nil, nil, nil, nil, nil, nil, nil, pricing, f.composite, nil, nil)
 	adminService := service.NewAdminService(cfg, f.users, usage, repository.NewAdminGroupRepository(client, db), repository.ProvideAdminAccountRepositoryWithSecrets(client, db, nil, testutil.CredentialEncryptor(t), nil), nil, keys, nil, rates, nil, billingCache, nil, nil, keyService, client, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	f.discovery = service.NewAccountTestService(accounts, nil, nil, nil, nil, f.upstream, cfg, nil)
 	// Exercise the optional scheduled refresh deterministically below using the
@@ -248,6 +250,7 @@ func newCoreFlowFixture(t *testing.T) *coreFlowFixture {
 	panel.GET("/admin/usage", adminUsageHandler.List)
 	panel.PUT("/admin/accounts/:id", accountHandler.Update)
 	panel.GET("/admin/accounts/:id/models/catalog", catalogHandler.GetModelCatalog)
+	panel.GET("/admin/accounts/:id/models", catalogHandler.GetAvailableModels)
 	panel.POST("/admin/accounts/:id/models/sync-upstream", catalogHandler.SyncUpstreamModels)
 	panel.PUT("/admin/accounts/:id/models/allowlist", catalogHandler.UpdateModelAllowlist)
 	panel.POST("/admin/groups", groupHandler.Create)

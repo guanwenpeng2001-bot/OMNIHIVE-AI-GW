@@ -10,6 +10,51 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRestrictedScopeProvidesConcreteUpstreamEvidence(t *testing.T) {
+	const direct, private, outside = "direct-model", "private-model", "outside-model"
+	account := catalogEvidenceAccount(42, PlatformOpenAI, "native")
+	account.Credentials["model_mapping"] = map[string]string{"alias": private, "stale": outside}
+	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{direct, private}}
+	require.True(t, account.IsModelSupported(direct))
+	require.False(t, account.IsModelSupported(private))
+
+	require.Equal(t, []string{direct, private}, configuredUpstreamModelsForCapabilitySync(&account))
+	enricher, err := NewCapabilityReadOnlyEnricher(nil, nil)
+	require.NoError(t, err)
+	projection := enricher.Project(&account, false)
+	require.Contains(t, projection, direct)
+	require.Contains(t, projection, private)
+	require.NotContains(t, projection, outside)
+	require.NotContains(t, projection, "alias")
+
+	snapshot := account.GetUpstreamModelCatalog()
+	populateAccountCatalogCapabilities(&account, &UpstreamModelCatalog{}, snapshot)
+	require.Equal(t, 2, snapshot.CapabilitySummary.MappingTargets)
+	require.Equal(t, 3, snapshot.CapabilitySummary.Total)
+
+	candidates, err := BuildPlazaCandidates(&Channel{GroupIDs: []int64{7}}, 7, PlatformOpenAI, []Account{account})
+	require.NoError(t, err)
+	require.Equal(t, []PlazaModelIdentity{
+		{Platform: PlatformOpenAI, Name: direct},
+		{Platform: PlatformOpenAI, Name: "native"},
+		{Platform: PlatformOpenAI, Name: private},
+	}, candidates.Candidates)
+
+	now := time.Now()
+	change := ModelAvailabilityChange{AccountModelCatalogBaseline: account.ModelCatalogBaseline(),
+		Endpoint: CompositeRouteEndpointChatCompletions, Reason: "verified", Confirmed: true}
+	declaration := ModelAvailabilityDeclaration{AccountID: account.ID, IdentityRevision: change.IdentityRevision,
+		Endpoint: change.Endpoint, Reason: change.Reason, ConfirmedBy: 7, ConfirmedAt: now, EvidenceKind: ModelEvidenceAdministrator}
+	for _, model := range []string{direct, private} {
+		change.Model, declaration.Model = model, model
+		require.NoError(t, ValidateModelAvailabilityChange(&account, change, 7, false, now))
+		require.True(t, declaration.ValidFor(&account, nil, now))
+	}
+	change.Model, declaration.Model = outside, outside
+	require.ErrorIs(t, ValidateModelAvailabilityChange(&account, change, 7, false, now), ErrModelAvailabilityInvalid)
+	require.False(t, declaration.ValidFor(&account, nil, now))
+}
+
 func TestUnlistedModelEligibility(test *testing.T) {
 	fixture := func() Account {
 		account := catalogEvidenceAccount(42, PlatformOpenAI, "native")

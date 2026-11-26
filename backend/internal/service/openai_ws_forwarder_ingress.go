@@ -985,8 +985,11 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	var rejectedFieldRetryState *openAIResponsesRejectedFieldRetryState
 	sendAndRelay := func(turn int, lease *openAIWSConnLease, payload []byte, payloadBytes int, originalModel string, imageBillingModel string, imageSizeTier string, imageInputSize string, requestedReasoningEffort *string) (*OpenAIForwardResult, error) {
 		ctx := ctx
-		if hooks != nil && hooks.RequestPlan != nil {
-			ctx = WithGatewayRequestPlan(ctx, hooks.RequestPlan())
+		if hooks != nil {
+			if hooks.RequestPlan != nil {
+				ctx = WithGatewayRequestPlan(ctx, hooks.RequestPlan())
+			}
+			ctx = withOpenAIWSForwardModel(ctx, hooks.ForwardModel)
 		}
 		if err := validateAccountForwardModel(ctx, s.accountRepo, account, gjson.GetBytes(payload, "model").String(), "responses"); err != nil {
 			return nil, err

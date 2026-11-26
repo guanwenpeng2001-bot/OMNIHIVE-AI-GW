@@ -674,3 +674,194 @@ it('returns false from registered saveSelection on CAS conflict while keeping dr
   expect(wrapper.get('[data-testid="selected-models"]').text()).toContain('Draft/ID')
   wrapper.unmount()
 })
+
+it('defaults alias target original name toggle to off, updates available request names preview, and sends identity only when enabled', async () => {
+  read.mockResolvedValue(saved({ Alias: 'Target', Target: 'Target', Plain: 'Plain' }, true, ['Plain', 'Target']))
+  const Host = defineComponent({
+    components: { AccountModelConfigurationSection },
+    setup: () => ({
+      models: ref(['Plain', 'Target']),
+      mappings: ref([{ from: 'Alias', to: 'Target' }]),
+      publicTargets: ref<string[]>([])
+    }),
+    template:
+      '<AccountModelConfigurationSection v-model="models" v-model:mappings="mappings" v-model:public-targets="publicTargets" :account-id="12" platform="openai" />'
+  })
+  const host = mount(Host, { global: { stubs: { ModelIcon: true, Teleport: true } } })
+  await flushPromises()
+
+  const toggles = host.findAll('[data-testid="toggle-alias-target-public"]')
+  expect(toggles).toHaveLength(1)
+  expect(toggles[0]!.attributes('data-target')).toBe('Target')
+  expect((toggles[0]!.element as HTMLInputElement).checked).toBe(false)
+
+  const availableBefore = host.findAll('[data-testid="available-request-name"]').map(node => node.text())
+  expect(availableBefore).toEqual(['Alias', 'Plain'])
+  expect(host.get('[data-testid="model-save-status"]').text()).toBe('admin.accounts.modelSync.unchangedSelection')
+
+  await toggles[0]!.setValue(true)
+  await flushPromises()
+  expect(host.vm.publicTargets).toEqual(['Target'])
+  const availableAfter = host.findAll('[data-testid="available-request-name"]').map(node => node.text())
+  expect(availableAfter).toEqual(['Alias', 'Plain', 'Target'])
+  expect(host.get('[data-testid="model-save-status"]').text()).toBe('admin.accounts.modelSync.unsavedSelection')
+
+  await host.get('[data-testid="save-model-selection"]').trigger('click')
+  await flushPromises()
+  expect(update).toHaveBeenCalledWith(
+    12,
+    expect.objectContaining({
+      mode: 'restricted',
+      models: ['Plain', 'Target'],
+      model_mapping: { Alias: 'Target', Target: 'Target' }
+    })
+  )
+  expect(host.vm.publicTargets).toEqual(['Target'])
+  host.unmount()
+})
+
+it('hydrates identity declarations from catalog model_mapping onto alias targets without noise for non-alias models', async () => {
+  catalog.mockResolvedValue({
+    synced: true,
+    mode: 'restricted',
+    models: ['Plain', 'Target', 'PrivateTarget'],
+    model_mapping: {
+      Plain: 'Plain',
+      Alias: 'Target',
+      Target: 'Target',
+      PrivAlias: 'PrivateTarget'
+    },
+    warnings: [],
+    state: { rules_revision: '9007199254740993' }
+  })
+  const wrapper = mountSelector({
+    modelValue: ['Plain', 'Target', 'PrivateTarget'],
+    modelMappings: [
+      { from: 'Alias', to: 'Target' },
+      { from: 'PrivAlias', to: 'PrivateTarget' }
+    ]
+  })
+  await flushPromises()
+
+  const toggles = wrapper.findAll('[data-testid="toggle-alias-target-public"]')
+  expect(toggles).toHaveLength(2)
+  const targetToggle = toggles.find(node => node.attributes('data-target') === 'Target')!
+  const privateToggle = toggles.find(node => node.attributes('data-target') === 'PrivateTarget')!
+  expect((targetToggle.element as HTMLInputElement).checked).toBe(true)
+  expect((privateToggle.element as HTMLInputElement).checked).toBe(false)
+  expect(wrapper.findAll('[data-testid="available-request-name"]').map(node => node.text())).toEqual([
+    'Alias',
+    'Plain',
+    'PrivAlias',
+    'Target'
+  ])
+  expect(wrapper.get('[data-testid="model-save-status"]').text()).toBe('admin.accounts.modelSync.unchangedSelection')
+
+  read.mockResolvedValueOnce(
+    saved({ Alias: 'Target', Target: 'Target', PrivAlias: 'PrivateTarget' }, true, ['Plain', 'Target', 'PrivateTarget'])
+  )
+  await wrapper.get('[data-testid="save-model-selection"]').trigger('click')
+  await flushPromises()
+  expect(update).toHaveBeenCalledWith(
+    12,
+    expect.objectContaining({
+      mode: 'restricted',
+      models: ['Plain', 'Target', 'PrivateTarget'],
+      model_mapping: { Alias: 'Target', Target: 'Target', PrivAlias: 'PrivateTarget' }
+    })
+  )
+  wrapper.unmount()
+})
+
+it('renders inline identity models as request chips, keeps wildcards as separate rules, and narrows catalog-hydrated payload', async () => {
+  catalog.mockResolvedValue({
+    synced: true,
+    mode: 'restricted',
+    models: ['Target'],
+    model_mapping: {
+      'family-*': 'Target',
+      Target: 'Target'
+    },
+    warnings: [],
+    state: { rules_revision: '1' }
+  })
+  const wrapper = mountSelector({
+    modelValue: [],
+    modelMappings: [
+      { from: 'InlineOnly', to: 'InlineOnly' },
+      { from: 'family-*', to: 'Target' }
+    ],
+    publicTargets: []
+  })
+  await flushPromises()
+
+  expect(wrapper.emitted('catalog-hydrated')).toEqual([[{ publicTargets: ['Target'] }]])
+  expect(wrapper.findAll('[data-testid="available-request-name"]').map(node => node.text())).toEqual([
+    'InlineOnly'
+  ])
+  expect(wrapper.findAll('[data-testid="available-wildcard-rule"]').map(node => node.text())).toEqual([
+    'family-*'
+  ])
+  wrapper.unmount()
+})
+
+it('shows wildcard rules without inherit-all hint when inherit mode has only wildcard mappings', async () => {
+  const wrapper = mountSelector({
+    accountId: undefined,
+    mode: 'inherit',
+    modelValue: [],
+    modelMappings: [{ from: 'family-*', to: 'Target' }]
+  })
+  await flushPromises()
+
+  expect(wrapper.findAll('[data-testid="available-request-name"]')).toEqual([])
+  expect(wrapper.findAll('[data-testid="available-wildcard-rule"]').map(node => node.text())).toEqual([
+    'family-*'
+  ])
+  expect(wrapper.get('[data-testid="available-request-names"]').text()).not.toContain(
+    'admin.accounts.modelSync.availableRequestNamesInheritAll'
+  )
+  wrapper.unmount()
+})
+
+it('reflects inline alias-target identities in the toggle and folds them on uncheck, while ignoring invalid wildcards', async () => {
+  read.mockResolvedValue(saved({ Alias: 'Target' }, true, ['Target']))
+  const Host = defineComponent({
+    components: { AccountModelConfigurationSection },
+    setup: () => ({
+      models: ref<string[]>([]),
+      mappings: ref([
+        { from: 'Alias', to: 'Target' },
+        { from: 'Target', to: 'Target' },
+        { from: 'bad*wild', to: 'InvalidTarget' }
+      ]),
+      publicTargets: ref<string[]>([])
+    }),
+    template:
+      '<AccountModelConfigurationSection v-model="models" v-model:mappings="mappings" v-model:public-targets="publicTargets" :account-id="12" platform="openai" />'
+  })
+  const host = mount(Host, { global: { stubs: { ModelIcon: true, Teleport: true } } })
+  await flushPromises()
+
+  const toggles = host.findAll('[data-testid="toggle-alias-target-public"]')
+  expect(toggles).toHaveLength(1)
+  expect(toggles[0]!.attributes('data-target')).toBe('Target')
+  expect((toggles[0]!.element as HTMLInputElement).checked).toBe(true)
+  expect(host.findAll('[data-testid="available-request-name"]').map(node => node.text())).toEqual([
+    'Alias',
+    'Target'
+  ])
+  expect(host.findAll('[data-testid="available-wildcard-rule"]')).toEqual([])
+
+  await toggles[0]!.setValue(false)
+  await flushPromises()
+  expect(host.vm.publicTargets).toEqual([])
+  expect(host.vm.models).toEqual(['Target'])
+  expect(host.vm.mappings).toEqual([
+    { from: 'Alias', to: 'Target' },
+    { from: 'bad*wild', to: 'InvalidTarget' }
+  ])
+  expect((toggles[0]!.element as HTMLInputElement).checked).toBe(false)
+  expect(host.findAll('[data-testid="available-request-name"]').map(node => node.text())).toEqual(['Alias'])
+  host.unmount()
+})

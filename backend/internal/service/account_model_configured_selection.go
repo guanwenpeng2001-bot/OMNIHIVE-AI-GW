@@ -1,6 +1,10 @@
 package service
 
-import "strings"
+import (
+	"maps"
+	"slices"
+	"strings"
+)
 
 const (
 	ModelEvidenceConfiguredSelection        = "configured_selection"
@@ -12,9 +16,27 @@ func exactConfiguredModel(model string) bool {
 	return model != "" && model == strings.TrimSpace(model) && !strings.ContainsAny(model, "*?\r\n")
 }
 
+// configuredConcreteModelIDs returns explicitly selected upstream IDs, including
+// private alias targets. Inherit mode derives selection evidence from saved mappings.
+func configuredConcreteModelIDs(account *Account) []string {
+	if account == nil {
+		return nil
+	}
+	var ids []string
+	if selection := account.restrictedPublicModels(); selection != nil {
+		ids = slices.Collect(maps.Keys(selection.scope))
+	} else {
+		ids = slices.Collect(maps.Values(configuredModelMapping(account)))
+	}
+	return slices.DeleteFunc(ids, func(id string) bool { return !exactConfiguredModel(id) })
+}
+
 func configuredPassthroughModel(account *Account, wireModel string) bool {
 	if account == nil || account.Platform != PlatformOpenAI || !exactConfiguredModel(wireModel) {
 		return false
+	}
+	if selection := account.restrictedPublicModels(); selection != nil {
+		return selection.allowsWireModel(account, wireModel)
 	}
 	for name, target := range configuredModelMapping(account) {
 		if exactConfiguredModel(name) && exactConfiguredModel(target) && normalizeAccountBindingWireModel(account, name) == wireModel {
@@ -25,7 +47,13 @@ func configuredPassthroughModel(account *Account, wireModel string) bool {
 }
 
 func configuredSelectionEvidence(account *Account, member AccountCatalogModel) bool {
-	return member.EvidenceKind == ModelEvidenceConfiguredSelection && concreteMappedModel(account, member.ID)
+	if member.EvidenceKind != ModelEvidenceConfiguredSelection {
+		return false
+	}
+	if selection := account.restrictedPublicModels(); selection != nil {
+		return selection.scope[member.ID]
+	}
+	return concreteMappedModel(account, member.ID)
 }
 
 func configuredCompactSelectionEvidence(account *Account, member AccountCatalogModel) bool {
@@ -70,17 +98,21 @@ func adapterBoundCatalogFamilies(account *Account) []string {
 }
 
 func appendConfiguredSelectionModels(account, credentialAccount *Account, snapshot *AccountModelCatalogSnapshot) *AccountModelCatalogSnapshot {
-	return appendConfiguredModels(account, snapshot, configuredModelMapping(account), false)
+	return appendConfiguredModelTargets(account, snapshot, configuredConcreteModelIDs(account), false)
 }
 
 func appendConfiguredCompactSelectionModels(account, credentialAccount *Account, snapshot *AccountModelCatalogSnapshot) *AccountModelCatalogSnapshot {
 	return appendConfiguredModels(account, snapshot, account.GetCompactModelMapping(), true)
 }
 
-// Rebuild the member slice before widening endpoints: decoded snapshots share their backing arrays.
 func appendConfiguredModels(account *Account, snapshot *AccountModelCatalogSnapshot, mapping map[string]string, compact bool) *AccountModelCatalogSnapshot {
+	return appendConfiguredModelTargets(account, snapshot, slices.Collect(maps.Values(mapping)), compact)
+}
+
+// Rebuild the member slice before widening endpoints: decoded snapshots share their backing arrays.
+func appendConfiguredModelTargets(account *Account, snapshot *AccountModelCatalogSnapshot, models []string, compact bool) *AccountModelCatalogSnapshot {
 	targets := []string{}
-	for _, target := range mapping {
+	for _, target := range models {
 		if exactConfiguredModel(target) && zenFreeModelAllowed(account, target) {
 			targets = append(targets, target)
 		}

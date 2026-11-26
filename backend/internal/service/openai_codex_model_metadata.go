@@ -174,7 +174,7 @@ func groupCodexModelMetadata(
 			}
 			lookupModel = account.GetMappedModel(modelID)
 		} else {
-			if !account.IsModelSupported(upstreamModel) {
+			if !account.SupportsRoutedModelTarget(modelID, upstreamModel) {
 				continue
 			}
 			lookupModel = account.GetMappedModel(upstreamModel)

@@ -52,6 +52,30 @@ func TestAccountModelCatalogPlatformDefaultsAndConfiguredAliases(t *testing.T) {
 	require.Contains(t, rec.Body.String(), `"catalog_source":"configured"`)
 }
 
+func TestAccountHandlerGetAvailableModels_DenyAllOverridesPlatformCatalogs(t *testing.T) {
+	for _, platform := range domain.PlatformDescriptors() {
+		t.Run(platform.ID, func(t *testing.T) {
+			for _, kind := range []string{service.AccountTypeAPIKey, service.AccountTypeOAuth} {
+				svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: service.Account{
+					ID: 1, Platform: platform.ID, Type: kind,
+					Credentials: map[string]any{"model_mapping": map[string]any{"retained-alias": "retained-target"}},
+					Extra: map[string]any{service.UpstreamModelAllowlistExtraKey: map[string]any{
+						"enabled": true, "models": []any{}, "reason": "maintenance",
+					}},
+				}}
+				router := setupAvailableModelsRouter(svc)
+				for _, view := range []string{"", "?view=supported"} {
+					rec := httptest.NewRecorder()
+					router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/1/models"+view, nil))
+					require.Equal(t, http.StatusOK, rec.Code, "%s%s", kind, view)
+					require.Equal(t, "applied", rec.Header().Get("X-Model-Catalog-Source"))
+					require.JSONEq(t, "[]", gjson.Get(rec.Body.String(), "data").Raw)
+				}
+			}
+		})
+	}
+}
+
 type availableModelsAdminService struct {
 	*stubAdminService
 	account     service.Account

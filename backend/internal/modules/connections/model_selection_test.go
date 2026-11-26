@@ -40,7 +40,11 @@ func TestActivationUsesUnifiedModelSelectionPostgres(t *testing.T) {
 	var credentials, extra map[string]any
 	require.NoError(t, json.Unmarshal(rawCredentials, &credentials))
 	require.NoError(t, json.Unmarshal(rawExtra, &extra))
-	require.Equal(t, map[string]any{"target-a": "target-a", "target-b": "target-b"}, credentials["model_mapping"])
+	require.Empty(t, credentials["model_mapping"])
+	account := &service.Account{Platform: service.PlatformOpenAI, Credentials: credentials, Extra: extra}
+	require.True(t, account.IsModelSupported("target-a"))
+	require.True(t, account.IsModelSupported("target-b"))
+	require.False(t, account.IsModelSupported("unselected"))
 	scope := extra[service.UpstreamModelAllowlistExtraKey].(map[string]any)
 	require.Equal(t, true, scope["enabled"])
 	var models []string

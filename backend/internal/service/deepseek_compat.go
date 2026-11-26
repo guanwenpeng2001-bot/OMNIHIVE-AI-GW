@@ -8,7 +8,7 @@ import (
 // shouldNormalizeDeepSeekContextSuffix leaves explicit model namespaces alone.
 // This is an outbound compatibility rule, not a model admission policy.
 func shouldNormalizeDeepSeekContextSuffix(account *Account) bool {
-	if account == nil || account.Platform != PlatformDeepseek || account.IsOpenAIPassthroughEnabled() || len(account.GetModelMapping()) != 0 {
+	if account == nil || account.Platform != PlatformDeepseek || account.IsOpenAIPassthroughEnabled() || account.restrictedPublicModels() != nil || len(account.GetModelMapping()) != 0 {
 		return false
 	}
 	if !isOfficialDeepSeekContextEndpoint(account.GetOpenAIBaseURL()) {

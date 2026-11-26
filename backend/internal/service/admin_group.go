@@ -113,7 +113,8 @@ func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, id 
 		} else if !acc.MatchesPlatform(platform, "") {
 			continue
 		}
-		for model := range acc.GetModelMapping() {
+		names, _ := acc.ConfiguredPublicModelNames()
+		for _, model := range names {
 			model = strings.TrimSpace(model)
 			if model == "" {
 				continue

@@ -63,6 +63,14 @@
         {{ t('admin.accounts.modelSync.modeInheritHint') }}
       </p>
       <p
+        v-if="currentMode === 'restricted' && !denyAll"
+        role="status"
+        data-testid="mode-restricted-hint"
+        class="text-xs text-secondary"
+      >
+        {{ t('admin.accounts.modelSync.modeRestrictedHint') }}
+      </p>
+      <p
         v-if="isLegacyFrozen"
         role="status"
         data-testid="legacy-frozen-notice"
@@ -326,6 +334,7 @@
           :aria-label="t('admin.accounts.requestModel')"
           :placeholder="t('admin.accounts.requestModel')"
           @input="updateMapping(index, 'from', $event)"
+          @change="commitMappingEdits"
         />
         <input
           :value="mapping.to"
@@ -333,6 +342,7 @@
           :aria-label="t('admin.accounts.actualModel')"
           :placeholder="t('admin.accounts.actualModel')"
           @input="updateMapping(index, 'to', $event)"
+          @change="commitMappingEdits"
         />
         <button type="button" class="btn btn-secondary" @click="removeMapping(index)">
           {{ t('common.delete') }}
@@ -368,6 +378,78 @@
         </div>
       </div>
     </details>
+    <div
+      v-if="!catalogOnly && !isSimplePicker && currentMode === 'restricted' && !denyAll && aliasTargets.length > 0"
+      data-testid="alias-target-visibility"
+      class="mb-4 space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)]/40 p-3"
+    >
+      <div class="space-y-0.5">
+        <p class="text-xs font-medium text-[var(--foreground)]">{{ t('admin.accounts.modelSync.aliasTargetsTitle') }}</p>
+        <p class="text-xs text-secondary">{{ t('admin.accounts.modelSync.aliasTargetsHint') }}</p>
+      </div>
+      <div class="space-y-2">
+        <div
+          v-for="target in aliasTargets"
+          :key="target"
+          data-testid="alias-target-row"
+          :data-target="target"
+          class="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--border)] bg-[var(--card)] px-2.5 py-2 text-xs"
+        >
+          <div class="min-w-0 space-y-0.5">
+            <p class="break-all font-mono font-medium text-[var(--foreground)]">{{ target }}</p>
+            <p class="break-all text-secondary">{{ (aliasTargetsMap.get(target) ?? []).join(', ') }} → {{ target }}</p>
+          </div>
+          <label class="flex cursor-pointer items-center gap-2 text-xs text-[var(--foreground)]">
+            <input
+              type="checkbox"
+              data-testid="toggle-alias-target-public"
+              :data-target="target"
+              :checked="effectivePublicTargetSet.has(target)"
+              :disabled="!active || selectionBusy"
+              class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+              @change="toggleAliasTargetPublic(target, ($event.target as HTMLInputElement).checked)"
+            />
+            <span>{{ t('admin.accounts.modelSync.allowOriginalName') }}</span>
+          </label>
+        </div>
+      </div>
+    </div>
+    <div
+      v-if="!catalogOnly && !isSimplePicker"
+      data-testid="available-request-names"
+      class="mb-4 space-y-2 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3"
+    >
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <p class="text-xs font-medium text-[var(--foreground)]">{{ t('admin.accounts.modelSync.availableRequestNames') }}</p>
+        <span v-if="!denyAll && (currentMode === 'restricted' || availableRequestNames.length > 0)" class="text-xs text-secondary">{{ availableRequestNames.length }}</span>
+      </div>
+      <p v-if="denyAll" class="text-xs text-secondary">{{ t('admin.accounts.modelSync.availableRequestNamesDenyAll') }}</p>
+      <template v-else-if="availableRequestNames.length > 0 || wildcardRequestPatterns.length > 0">
+        <div v-if="availableRequestNames.length > 0" class="flex flex-wrap gap-1.5">
+          <span
+            v-for="name in availableRequestNames"
+            :key="name"
+            data-testid="available-request-name"
+            class="inline-flex max-w-full break-all rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 font-mono text-xs text-[var(--foreground)]"
+          >
+            {{ name }}
+          </span>
+        </div>
+        <div v-if="wildcardRequestPatterns.length > 0" data-testid="available-wildcard-rules" class="flex flex-wrap items-center gap-1.5 text-xs text-secondary">
+          <span>{{ t('admin.accounts.modelSync.availableWildcardRules') }}</span>
+          <span
+            v-for="pattern in wildcardRequestPatterns"
+            :key="pattern"
+            data-testid="available-wildcard-rule"
+            class="inline-flex max-w-full break-all rounded-md border border-dashed border-[var(--border)] bg-[var(--surface-2)]/60 px-2 py-0.5 font-mono text-xs text-[var(--foreground)]"
+          >
+            {{ pattern }}
+          </span>
+        </div>
+      </template>
+      <p v-else-if="currentMode === 'inherit'" class="text-xs text-secondary">{{ t('admin.accounts.modelSync.availableRequestNamesInheritAll') }}</p>
+      <p v-else class="text-xs text-secondary">{{ t('admin.accounts.modelSync.availableRequestNamesEmpty') }}</p>
+    </div>
     <div v-if="!catalogOnly" class="mb-4 space-y-2">
       <div class="flex flex-wrap items-center gap-3">
         <button v-if="accountId" type="button" data-testid="save-model-selection" class="btn btn-primary w-full sm:w-auto"
@@ -410,7 +492,11 @@ import Icon from '@/components/icons/Icon.vue'
 import {
   accountModelAllowlist,
   buildUpdateModelAllowlistRequest,
+  computePublicRequestNames,
+  computeWildcardAliasPatterns,
+  extractPublicAliasTargets,
   isLegacySystemFreezeAllowlist,
+  projectModelAliases,
   splitModelMappingObject,
   validateModelRestrictions,
   translateModelRestrictionErrors,
@@ -437,11 +523,13 @@ const props = withDefaults(defineProps<{
     mode?: AccountModelSelectionMode
     models: string[]
     mappings: ModelMappingEntry[]
+    publicTargets?: string[]
     reason?: string
   }
   registerActions?: (actions: { saveSelection: () => Promise<boolean>; canSaveSelection: () => boolean } | null) => void
   configurationDirty?: boolean
   modelMappings?: ModelMappingEntry[]
+  publicTargets?: string[]
   mode?: AccountModelSelectionMode
   reason?: string
   presets?: (ModelMappingEntry & { label?: string })[]
@@ -463,11 +551,13 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: string[]]
   'update:modelMappings': [mappings: ModelMappingEntry[]]
+  'update:publicTargets': [targets: string[]]
   'update:mode': [mode: AccountModelSelectionMode]
   'update:reason': [reason: string]
   'upstream-synced': []
   'catalog-applied': []
   'selection-saved': [account: Account]
+  'catalog-hydrated': [selection: { publicTargets: string[] }]
   'validation-failed': [errors: ModelRestrictionError[]]
 }>()
 
@@ -573,7 +663,33 @@ const autoAddedNotice = ref('')
 const savedAllowlist = ref(props.modelAllowlist)
 const localModeOverride = ref<AccountModelSelectionMode | null>(null)
 const localReason = ref(props.reason ?? props.modelAllowlist?.reason ?? '')
-const stashedRestrictedDraft = ref<{ models: string[]; mappings: ModelMappingEntry[] } | null>(null)
+const localPublicTargets = ref<string[]>([])
+const stashedRestrictedDraft = ref<{ models: string[]; mappings: ModelMappingEntry[]; publicTargets: string[] } | null>(null)
+const effectivePublicTargets = computed(() =>
+  props.publicTargets !== undefined ? props.publicTargets : localPublicTargets.value
+)
+const setPublicTargets = (next: string[]) => {
+  const normalized = [...new Set(next.map(target => target.trim()).filter(Boolean))]
+  if (props.publicTargets !== undefined) {
+    emit('update:publicTargets', normalized)
+  } else {
+    localPublicTargets.value = normalized
+  }
+}
+const aliasProjection = computed(() =>
+  projectModelAliases(props.modelMappings ?? [], effectivePublicTargets.value)
+)
+const aliasTargets = computed(() => aliasProjection.value.aliasTargets)
+const aliasTargetsMap = computed(() => aliasProjection.value.aliasTargetsMap)
+const effectivePublicTargetSet = computed(() => new Set(aliasProjection.value.effectivePublicTargets))
+watch(aliasTargets, (targets) => {
+  const targetSet = new Set(targets)
+  const current = effectivePublicTargets.value
+  const pruned = current.filter(target => targetSet.has(target.trim()))
+  if (pruned.length !== current.length) {
+    setPublicTargets(pruned)
+  }
+})
 const isSimplePicker = computed(
   () =>
     props.simplePicker ||
@@ -639,6 +755,7 @@ watch(() => [props.accountId, props.active], () => {
   savedAllowlist.value = props.modelAllowlist
   localModeOverride.value = null
   localReason.value = props.reason ?? props.modelAllowlist?.reason ?? ''
+  localPublicTargets.value = []
   stashedRestrictedDraft.value = null
 })
 const catalogState = ref<'idle' | 'loading' | 'failed' | 'empty' | 'stale' | 'ready' | 'unsynced' | 'invalidIdentity'>('idle')
@@ -649,8 +766,13 @@ const context = computed(() => {
   if (credentials) delete credentials.model_mapping
   return JSON.stringify([props.active !== false, props.accountId, normalizedPlatforms.value.map(platform => modelCandidateKey(platform, props.candidateIdentity)), credentials, props.connectionContext, props.savedRevision, props.discoveryDisabled])
 })
-const selectionContext = computed(() => JSON.stringify([props.modelValue, props.modelMappings, props.syncCredentials?.model_mapping, props.configurationDirty]))
-function selectionKey(models: string[], mappings: ModelMappingEntry[], mode?: AccountModelSelectionMode) {
+const selectionContext = computed(() => JSON.stringify([props.modelValue, props.modelMappings, effectivePublicTargets.value, props.syncCredentials?.model_mapping, props.configurationDirty]))
+function selectionKey(
+  models: string[],
+  mappings: ModelMappingEntry[],
+  mode?: AccountModelSelectionMode,
+  publicTargets: readonly string[] = []
+) {
   const hasEntries = models.length > 0 || mappings.length > 0
   const resolvedMode: AccountModelSelectionMode =
     mode === 'deny_all'
@@ -660,13 +782,29 @@ function selectionKey(models: string[], mappings: ModelMappingEntry[], mode?: Ac
         : hasEntries || mode === 'restricted'
           ? 'restricted'
           : 'inherit'
+  const normalizedPublicTargets = [...projectModelAliases(mappings, publicTargets).effectivePublicTargets].sort()
   return JSON.stringify({
     mode: resolvedMode,
     entries: [...models.map(model => [model, model]), ...mappings.map(mapping => [mapping.from, mapping.to])]
-      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
+    publicTargets: resolvedMode === 'restricted' ? normalizedPublicTargets : []
   })
 }
-const selectionFingerprint = computed(() => selectionKey(props.modelValue, props.modelMappings ?? [], currentMode.value))
+const selectionFingerprint = computed(() => selectionKey(props.modelValue, props.modelMappings ?? [], currentMode.value, effectivePublicTargets.value))
+const availableRequestNames = computed(() =>
+  computePublicRequestNames({
+    mode: currentMode.value,
+    models: props.modelValue,
+    mappings: props.modelMappings ?? [],
+    publicTargets: effectivePublicTargets.value
+  })
+)
+const wildcardRequestPatterns = computed(() =>
+  computeWildcardAliasPatterns({
+    mode: currentMode.value,
+    mappings: props.modelMappings ?? []
+  })
+)
 const savedSelectionFingerprint = ref(selectionFingerprint.value)
 const selectionSaved = ref(false)
 const selectionSaveFailed = ref(false)
@@ -677,7 +815,7 @@ watch(
   () => props.persistedSelection,
   (value) => {
     if (!value) return
-    savedSelectionFingerprint.value = selectionKey(value.models, value.mappings, value.mode)
+    savedSelectionFingerprint.value = selectionKey(value.models, value.mappings, value.mode, value.publicTargets ?? [])
   },
   { immediate: true, deep: true }
 )
@@ -685,7 +823,7 @@ watch(() => [props.accountId, props.active], async () => {
   selectionSaved.value = false
   selectionSaveFailed.value = false
   if (props.persistedSelection) {
-    savedSelectionFingerprint.value = selectionKey(props.persistedSelection.models, props.persistedSelection.mappings, props.persistedSelection.mode)
+    savedSelectionFingerprint.value = selectionKey(props.persistedSelection.models, props.persistedSelection.mappings, props.persistedSelection.mode, props.persistedSelection.publicTargets ?? [])
     return
   }
   await nextTick()
@@ -730,6 +868,7 @@ const persistSelection = async (requestBody: Parameters<typeof accountsAPI.updat
       ]
       emit('update:modelValue', immediateModels)
       emit('update:modelMappings', selection.modelMappings)
+      setPublicTargets(extractPublicAliasTargets(requestBody.model_mapping))
     }
     await nextTick()
     savedDraftContext = selectionContext.value
@@ -748,6 +887,7 @@ const persistSelection = async (requestBody: Parameters<typeof accountsAPI.updat
       result.model_mapping ??
       requestBody.model_mapping) as Record<string, unknown> | undefined
     const persisted = splitModelMappingObject(persistedMappingRaw)
+    const persistedPublicTargets = extractPublicAliasTargets(persistedMappingRaw)
     let persistedModels: string[] = []
     let persistedMappings: ModelMappingEntry[] = []
     if (effectiveMode === 'inherit') {
@@ -784,13 +924,15 @@ const persistSelection = async (requestBody: Parameters<typeof accountsAPI.updat
     }
     localModeOverride.value = effectiveMode
     emit('update:mode', effectiveMode)
-    savedSelectionFingerprint.value = selectionKey(persistedModels, persistedMappings, effectiveMode)
+    const resolvedPublicTargets = effectiveMode === 'inherit' ? [] : persistedPublicTargets
+    savedSelectionFingerprint.value = selectionKey(persistedModels, persistedMappings, effectiveMode, resolvedPublicTargets)
     selectionSaved.value = true
     if (result.not_discovered?.length) selectionWarning.value = t('admin.accounts.modelSync.notDiscoveredWarning', { models: result.not_discovered.join(', ') })
     if (result.auto_added?.length) autoAddedNotice.value = t('admin.accounts.modelSync.autoAddedNotice', { models: result.auto_added.join(', ') })
     if (!draftChanged && selectionContext.value === savedDraftContext) {
       emit('update:modelValue', persistedModels)
       emit('update:modelMappings', persistedMappings)
+      setPublicTargets(resolvedPublicTargets)
       if (effectiveMode === 'deny_all') {
         localReason.value = accountAllowlist?.reason ?? requestBody.reason ?? ''
         emit('update:reason', localReason.value)
@@ -870,6 +1012,7 @@ const saveSelection = async (clear: boolean, explicitReason?: string): Promise<b
       mode: 'restricted',
       models: props.modelValue,
       mappings: props.modelMappings ?? [],
+      publicTargets: effectivePublicTargets.value,
       reason: localReason.value,
       expectedRulesRevision: revision
     })
@@ -920,6 +1063,35 @@ const loadCatalog = async () => {
         !savedAllowlist.value
       ) {
         savedAllowlist.value = { enabled: true, models: [...summary.models] }
+      }
+      if (summary.model_mapping && typeof summary.model_mapping === 'object') {
+        const catalogPublicTargets = extractPublicAliasTargets(summary.model_mapping)
+        if (!selectionDirty.value) {
+          if (props.publicTargets === undefined) {
+            localPublicTargets.value = catalogPublicTargets
+            savedSelectionFingerprint.value = selectionKey(
+              props.modelValue,
+              props.modelMappings ?? [],
+              currentMode.value,
+              catalogPublicTargets
+            )
+          } else {
+            const currentSorted = [...effectivePublicTargetSet.value].sort()
+            const nextSorted = [...catalogPublicTargets].sort()
+            if (JSON.stringify(currentSorted) !== JSON.stringify(nextSorted)) {
+              emit('update:publicTargets', catalogPublicTargets)
+              emit('catalog-hydrated', {
+                publicTargets: catalogPublicTargets
+              })
+              savedSelectionFingerprint.value = selectionKey(
+                props.modelValue,
+                props.modelMappings ?? [],
+                currentMode.value,
+                catalogPublicTargets
+              )
+            }
+          }
+        }
       }
       catalog.value = [...new Set([...catalog.value, ...(summary.snapshot?.discovered_models ?? [])])]
       catalogState.value = catalog.value.length ? 'ready' : 'empty'
@@ -1031,6 +1203,60 @@ const ensureRestrictedModeOnEdit = () => {
   }
 }
 
+const foldAliasTargetInlineIdentities = (
+  excludedTargets: ReadonlySet<string> = new Set(),
+  targetPublicSet?: Set<string>
+): boolean => {
+  const currentMappings = props.modelMappings ?? []
+  const validTargets = new Set(aliasTargets.value)
+  const inlineTargetsToFold = new Set<string>()
+  const nextMappings = currentMappings.filter((entry) => {
+    const from = entry.from.trim()
+    const to = entry.to.trim()
+    if (from && from === to && validTargets.has(to)) {
+      inlineTargetsToFold.add(to)
+      return false
+    }
+    return true
+  })
+  if (inlineTargetsToFold.size === 0) return false
+  const nextModels = [...props.modelValue]
+  const existingModels = new Set(nextModels.map(model => model.trim()))
+  for (const foldedTarget of inlineTargetsToFold) {
+    if (!existingModels.has(foldedTarget)) {
+      nextModels.push(foldedTarget)
+      existingModels.add(foldedTarget)
+    }
+    if (targetPublicSet && !excludedTargets.has(foldedTarget)) {
+      targetPublicSet.add(foldedTarget)
+    }
+  }
+  if (nextModels.length !== props.modelValue.length) {
+    emit('update:modelValue', nextModels)
+  }
+  emit('update:modelMappings', nextMappings)
+  return true
+}
+
+const commitMappingEdits = () => {
+  const next = new Set(effectivePublicTargetSet.value)
+  if (foldAliasTargetInlineIdentities(new Set(), next)) {
+    setPublicTargets([...next])
+  }
+}
+
+const toggleAliasTargetPublic = (target: string, checked: boolean) => {
+  ensureRestrictedModeOnEdit()
+  const next = new Set(effectivePublicTargetSet.value)
+  if (checked) {
+    next.add(target)
+  } else {
+    next.delete(target)
+  }
+  foldAliasTargetInlineIdentities(checked ? new Set() : new Set([target]), next)
+  setPublicTargets([...next])
+}
+
 const selectMode = (nextMode: AccountModelSelectionMode) => {
   if (!props.active || selectionBusy.value) return
   syncError.value = ''
@@ -1042,13 +1268,15 @@ const selectMode = (nextMode: AccountModelSelectionMode) => {
     return
   }
   if (nextMode === 'inherit') {
-    if (props.modelValue.length > 0 || (props.modelMappings?.length ?? 0) > 0) {
+    if (props.modelValue.length > 0 || (props.modelMappings?.length ?? 0) > 0 || effectivePublicTargets.value.length > 0) {
       stashedRestrictedDraft.value = {
         models: [...props.modelValue],
-        mappings: (props.modelMappings ?? []).map(entry => ({ ...entry }))
+        mappings: (props.modelMappings ?? []).map(entry => ({ ...entry })),
+        publicTargets: [...effectivePublicTargets.value]
       }
       emit('update:modelValue', [])
       emit('update:modelMappings', [])
+      setPublicTargets([])
     }
     localModeOverride.value = 'inherit'
     emit('update:mode', 'inherit')
@@ -1059,6 +1287,7 @@ const selectMode = (nextMode: AccountModelSelectionMode) => {
   if (!props.modelValue.length && !(props.modelMappings?.length) && stashedRestrictedDraft.value) {
     emit('update:modelValue', [...stashedRestrictedDraft.value.models])
     emit('update:modelMappings', stashedRestrictedDraft.value.mappings.map(entry => ({ ...entry })))
+    setPublicTargets([...stashedRestrictedDraft.value.publicTargets])
   }
 }
 

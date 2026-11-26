@@ -3124,6 +3124,19 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		response.Success(c, entries)
 	}
 
+	names, configured := account.ConfiguredPublicModelNames()
+	if service.AccountModelSelectionView(account).Mode == service.ModelSelectionRestricted {
+		catalogSource = "configured"
+		models := make([]map[string]string, 0, len(names))
+		for _, name := range names {
+			if !strings.ContainsAny(name, "*?") {
+				models = append(models, map[string]string{"id": name, "display_name": name})
+			}
+		}
+		respond(models)
+		return
+	}
+
 	if account.IsCursor() {
 		ids := service.DefaultCursorModelIDs()
 		if h.accountTestService != nil {
@@ -3132,12 +3145,9 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 				catalogSource = "live"
 			}
 		}
-		if mapping := account.GetModelMapping(); len(mapping) > 0 {
-			ids = nil
+		if configured {
+			ids = names
 			catalogSource = "configured"
-			for model := range mapping {
-				ids = append(ids, model)
-			}
 		}
 		models := make([]map[string]string, 0, len(ids))
 		for _, id := range ids {
@@ -3164,15 +3174,14 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 			return
 		}
 
-		mapping := account.GetModelMapping()
-		if len(mapping) == 0 {
+		if !configured {
 			respond(service.OpenAIPresetModels())
 			return
 		}
 
 		// Return mapped models
 		var models []openai.Model
-		for requestedModel := range mapping {
+		for _, requestedModel := range names {
 			var found bool
 			for _, dm := range service.OpenAIPresetModels() {
 				if dm.ID == requestedModel {
@@ -3209,14 +3218,13 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		}
 
 		// For API Key accounts: return models based on model_mapping
-		mapping := account.GetModelMapping()
-		if len(mapping) == 0 {
+		if !configured {
 			respond(service.GeminiPresetModels())
 			return
 		}
 
 		var models []geminicli.Model
-		for requestedModel := range mapping {
+		for _, requestedModel := range names {
 			var found bool
 			for _, dm := range service.GeminiPresetModels() {
 				if dm.ID == requestedModel {
@@ -3249,20 +3257,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	if account.Platform == service.PlatformGrok {
 		defaultModels := service.GrokPresetModels()
 
-		hasExplicitMapping := false
-		switch rawMapping := account.Credentials["model_mapping"].(type) {
-		case map[string]any:
-			hasExplicitMapping = len(rawMapping) > 0
-		case map[string]string:
-			hasExplicitMapping = len(rawMapping) > 0
-		}
-		if !hasExplicitMapping {
-			respond(defaultModels)
-			return
-		}
-
-		mapping := account.GetModelMapping()
-		if len(mapping) == 0 {
+		if catalogSource != "configured" || !configured {
 			respond(defaultModels)
 			return
 		}
@@ -3272,14 +3267,8 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 			defaultByID[model.ID] = model
 		}
 
-		requestedModels := make([]string, 0, len(mapping))
-		for requestedModel := range mapping {
-			requestedModels = append(requestedModels, requestedModel)
-		}
-		sort.Strings(requestedModels)
-
 		var models []xai.Model
-		for _, requestedModel := range requestedModels {
+		for _, requestedModel := range names {
 			if defaultModel, found := defaultByID[requestedModel]; found {
 				models = append(models, defaultModel)
 				continue
@@ -3295,15 +3284,11 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
-	defaults := service.NewModelRegistry().Snapshot().CandidateIDs(account.Platform, "")
-	source := "preset"
-	if mapping := account.GetModelMapping(); len(mapping) > 0 {
-		defaults = make([]string, 0, len(mapping))
-		for id := range mapping {
-			defaults = append(defaults, id)
-		}
-		sort.Strings(defaults)
-		source = "configured"
+	defaults := names
+	source := "configured"
+	if !configured {
+		defaults = service.NewModelRegistry().Snapshot().CandidateIDs(account.Platform, "")
+		source = "preset"
 	}
 	models := make([]map[string]string, 0, len(defaults))
 	for _, id := range defaults {

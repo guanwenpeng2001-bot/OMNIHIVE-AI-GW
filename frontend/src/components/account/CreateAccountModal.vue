@@ -19,7 +19,7 @@
       <h2 class="input-label" tabindex="-1">{{ t('admin.accounts.modelSync.configureModels') }}</h2>
       <Select v-if="pendingAccountRequests.length > 1" v-model="selectedReviewIndex" :options="pendingAccountRequests.map((payload, index) => ({ value: index, label: payload.name }))" />
       <p v-else class="input-hint">{{ selectedReviewRequest?.name }}</p>
-      <AccountModelConfigurationSection v-model="allowedModels" v-model:mappings="modelMappings"
+      <AccountModelConfigurationSection v-model="allowedModels" v-model:mappings="modelMappings" v-model:public-targets="publicTargets"
         :mode="modelSelectionMode"
         @update:mode="handleCreateModelModeUpdate"
         :allow-deny-all="false"
@@ -3953,6 +3953,7 @@ function resetSupplierConnection() {
   apiKeyBaseUrl.value = ''
   allowedModels.value = []
   modelMappings.value = []
+  publicTargets.value = []
   modelSelectionMode.value = 'inherit'
 }
 function selectSupplierPlatform(platform: string) {
@@ -4270,6 +4271,7 @@ const editWeeklyResetDay = ref<number | null>(null)
 const editWeeklyResetHour = ref<number | null>(null)
 const editResetTimezone = ref<string | null>(null)
 const modelMappings = ref<ModelMapping[]>([])
+const publicTargets = ref<string[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
@@ -4622,6 +4624,7 @@ watch(cursorKeyMode, (mode) => {
   if (form.platform !== 'cursor') return
   allowedModels.value = []
   modelMappings.value = []
+  publicTargets.value = []
   modelSelectionMode.value = 'inherit'
   apiKeyBaseUrl.value = ''
   apiKeyValue.value = ''
@@ -4713,7 +4716,7 @@ const presetMappings = computed(() => getPresetMappingsByPlatform(form.platform,
 let mappingGeneration = 0
 watch(() => JSON.stringify([props.show, form.platform, form.type, apiKeyBaseUrl.value, accountMode.value, compatibleDraft.value, antigravityAccountType.value]), () => { mappingGeneration++ }, { flush: 'sync' })
 // A selection edit, including an intentional clear, ends pending default seeding.
-watch([allowedModels, modelMappings], () => { mappingGeneration++ }, { deep: true, flush: 'sync' })
+watch([allowedModels, modelMappings, publicTargets], () => { mappingGeneration++ }, { deep: true, flush: 'sync' })
 function handleCreateModelModeUpdate(mode: AccountModelSelectionMode) {
   mappingGeneration++
   modelSelectionMode.value = mode
@@ -4726,6 +4729,7 @@ const loadAntigravityMappings = async () => {
     const selection = splitModelMappingObject(Object.fromEntries(mappings.map(({ from, to }) => [from, to])))
     allowedModels.value = selection.allowedModels
     modelMappings.value = selection.modelMappings
+    publicTargets.value = []
     modelSelectionMode.value = selection.allowedModels.length || selection.modelMappings.length ? 'restricted' : 'inherit'
   }
 }
@@ -4742,6 +4746,7 @@ watch(
       // Start with an explicit empty selection; candidates remain available in the picker.
       allowedModels.value = []
       modelMappings.value = []
+      publicTargets.value = []
       modelSelectionMode.value = 'inherit'
       // Seed Antigravity presets through the shared identity/alias split.
       if (form.platform === 'antigravity') {
@@ -4833,6 +4838,7 @@ watch(
     // Clear model-related settings
     allowedModels.value = []
     modelMappings.value = []
+    publicTargets.value = []
     modelSelectionMode.value = 'inherit'
     // Seed Antigravity presets through the shared identity/alias split.
     if (newPlatform === 'antigravity') {
@@ -5124,7 +5130,8 @@ const buildCreateModelConfig = (
   const workflow = buildAccountWorkflowModelPayload({
     mode: 'restricted',
     models: allowedModels.value,
-    mappings: modelMappings.value
+    mappings: modelMappings.value,
+    publicTargets: publicTargets.value
   })
   return {
     modelSelection: {
@@ -5353,6 +5360,7 @@ const resetForm = () => {
   editWeeklyResetHour.value = null
   editResetTimezone.value = null
   modelMappings.value = []
+  publicTargets.value = []
   openAICompactModelMappings.value = []
   modelRestrictionMode.value = 'whitelist'
   allowedModels.value = []

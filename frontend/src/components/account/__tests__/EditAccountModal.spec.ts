@@ -1459,6 +1459,7 @@ describe('EditAccountModal', () => {
     const selector = wrapper.getComponent(ModelWhitelistSelector)
     expect(selector.props('modelValue')).toEqual(['gpt-5.2'])
     expect(selector.props('modelMappings')).toEqual([{ from: 'gpt-latest', to: 'gpt-5.2' }])
+    expect(selector.props('publicTargets')).toEqual(['gpt-5.2'])
 
     selector.vm.$emit('update:modelValue', ['gpt-5.2-2025-12-11'])
     await flushPromises()
@@ -1475,9 +1476,10 @@ describe('EditAccountModal', () => {
     await flushPromises()
     expect(allowlistWrite).toHaveBeenCalledWith(account.id, expect.objectContaining({
       mode: 'restricted',
-      models: ['gpt-5.2-2025-12-11'],
+      models: ['gpt-5.2-2025-12-11', 'gpt-5.2'],
       model_mapping: {
-        'gpt-latest': 'gpt-5.2'
+        'gpt-latest': 'gpt-5.2',
+        'gpt-5.2': 'gpt-5.2'
       }
     }))
     wrapper.unmount()

@@ -109,7 +109,7 @@
         </div>
       </div>
 
-      <AccountModelConfigurationSection v-if="pendingAuthorization" v-model="authorizationModels" v-model:mappings="authorizationMappings" v-model:mode="authorizationMode" :allow-deny-all="false" :platform="account.platform" :candidate-identity="authorizationCandidateIdentity" :sync-credentials="authorizationPreview" :active="show" />
+      <AccountModelConfigurationSection v-if="pendingAuthorization" v-model="authorizationModels" v-model:mappings="authorizationMappings" v-model:public-targets="authorizationPublicTargets" v-model:mode="authorizationMode" :allow-deny-all="false" :platform="account.platform" :candidate-identity="authorizationCandidateIdentity" :sync-credentials="authorizationPreview" :active="show" />
       <p v-if="authorizationError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ authorizationError }}</p>
       <WorkBuddyAuthFields
         v-if="isWorkBuddy && !pendingAuthorization"
@@ -213,7 +213,7 @@ import WorkBuddyAuthFields from '@/components/account/WorkBuddyAuthFields.vue'
 import { buildWorkBuddyCredentials, extractWorkBuddyOAuthDraft, extractWorkBuddySite, type WorkBuddyOAuthDraft } from '@/components/account/credentialsBuilder'
 import type { WorkBuddySite } from '@/api/admin/workbuddy'
 import { readAccountCredentialDraft, credentialsFromAuthorization, type AccountCredentialDraft } from '@/components/account/accountCredentialDraft'
-import { accountModelAllowlist, buildAccountWorkflowModelPayload, normalizeAccountModelSelection, validateModelRestrictions, translateModelRestrictionErrors, type AccountModelSelectionMode, type ModelMappingEntry } from '@/composables/useModelWhitelist'
+import { accountModelAllowlist, buildAccountWorkflowModelPayload, normalizeAccountModelSelection, projectModelAliases, validateModelRestrictions, translateModelRestrictionErrors, type AccountModelSelectionMode, type ModelMappingEntry } from '@/composables/useModelWhitelist'
 
 import { extractApiErrorMessage } from '@/utils/apiError'
 
@@ -264,6 +264,7 @@ const pendingAuthorization = ref<{ accountId: number; draft: AccountCredentialDr
 const authorizationMode = ref<AccountModelSelectionMode>('inherit')
 const authorizationModels = ref<string[]>([])
 const authorizationMappings = ref<ModelMappingEntry[]>([])
+const authorizationPublicTargets = ref<string[]>([])
 const confirmingAuthorization = ref(false)
 const authorizationError = ref('')
 const authorizationCandidateIdentity = computed(() => ({
@@ -288,22 +289,26 @@ const effectiveAuthorizationMode = computed<AccountModelSelectionMode>(() => {
 const authorizationSelectionKey = (
   mode: AccountModelSelectionMode,
   models: string[],
-  mappings: ModelMappingEntry[]
-) =>
-  JSON.stringify({
+  mappings: ModelMappingEntry[],
+  publicTargets: string[] = []
+) => {
+  const normalizedTargets = [...projectModelAliases(mappings, publicTargets).effectivePublicTargets].sort()
+  return JSON.stringify({
     mode,
     models: [...models].sort(),
     mappings: [...mappings].sort((left, right) =>
       `${left.from}\0${left.to}`.localeCompare(`${right.from}\0${right.to}`)
-    )
+    ),
+    publicTargets: mode === 'restricted' ? normalizedTargets : []
   })
+}
 const buildAuthorizationModelPatch = (): {
   credentials: Record<string, unknown>
   modelSelection?: AccountWorkflowModelSelection
 } => {
   const mode = effectiveAuthorizationMode.value
   if (
-    authorizationSelectionKey(mode, authorizationModels.value, authorizationMappings.value) ===
+    authorizationSelectionKey(mode, authorizationModels.value, authorizationMappings.value, authorizationPublicTargets.value) ===
     initialAuthorizationSelectionKey
   ) {
     return { credentials: {} }
@@ -315,6 +320,7 @@ const buildAuthorizationModelPatch = (): {
     mode,
     models: authorizationModels.value,
     mappings: authorizationMappings.value,
+    publicTargets: authorizationPublicTargets.value,
     clearMappingsOnInherit: initialAuthorizationHadMapping
   })
   const modelSelection: AccountWorkflowModelSelection = {
@@ -349,6 +355,7 @@ async function stageReauthorization(accountId: number, payload: { type: 'oauth' 
   authorizationMode.value = selection.mode
   authorizationModels.value = selection.models
   authorizationMappings.value = selection.mappings
+  authorizationPublicTargets.value = selection.publicTargets
   initialAuthorizationHadMapping = Boolean(
     props.account?.credentials?.model_mapping &&
     typeof props.account.credentials.model_mapping === 'object' &&
@@ -357,7 +364,8 @@ async function stageReauthorization(accountId: number, payload: { type: 'oauth' 
   initialAuthorizationSelectionKey = authorizationSelectionKey(
     selection.mode,
     selection.models,
-    selection.mappings
+    selection.mappings,
+    selection.publicTargets
   )
   pendingAuthorization.value = { accountId, draft, type: payload.type, extra: payload.extra }
   reviewedAuthorization = ''

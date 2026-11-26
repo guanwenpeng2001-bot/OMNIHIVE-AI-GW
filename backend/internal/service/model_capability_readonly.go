@@ -43,7 +43,7 @@ func NewCapabilityReadOnlyEnricher(provider ModelCapabilityProvider, client *htt
 	return &CapabilityReadOnlyEnricher{provider: provider, client: client, sources: make(map[string]*capabilityDisplaySource), now: time.Now}, nil
 }
 
-// Project returns D union concrete mapping targets, including mapped-only rows.
+// Project returns discovered IDs and concrete configured upstream IDs.
 // These rows are DISPLAY scope, never a list of authorized or discovered models.
 // Do not persist them into extra, sync/review summaries or a catalog CAS payload.
 // A cold/expired read immediately returns existing facts; collection is detached
@@ -53,14 +53,7 @@ func (enricher *CapabilityReadOnlyEnricher) Project(account *Account, online boo
 	if account == nil {
 		return result
 	}
-	// Read explicit targets, not GetModelMapping's platform defaults/cache.
-	var ids []string
-	for _, target := range configuredModelMapping(account) {
-		target = strings.TrimSpace(target)
-		if target != "" && !strings.ContainsAny(target, "*?") {
-			ids = append(ids, target)
-		}
-	}
+	ids := configuredConcreteModelIDs(account)
 	var catalog AccountModelCatalogSnapshot
 	if decodeCatalogExtra(account.Extra, UpstreamModelCatalogExtraKey, &catalog) {
 		// Partial/stale observations remain in the coverage denominator. They

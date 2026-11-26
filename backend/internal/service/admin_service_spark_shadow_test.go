@@ -971,7 +971,10 @@ func TestUpdateAccount_ShadowAllowsModelMappingAndGroupUpdate(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, []int64{7}, repo.groupsOf[shadow.ID])
-	require.Equal(t, map[string]any{"gpt-5.3-codex-spark": "gpt-5.3-codex-spark"}, updated.Credentials["model_mapping"])
+	selection := AccountModelSelectionView(updated)
+	require.Empty(t, selection.ModelMapping)
+	require.Equal(t, []string{"gpt-5.3-codex-spark"}, selection.Models)
+	require.True(t, updated.IsModelSupported("gpt-5.3-codex-spark"))
 	require.Empty(t, updated.GetOpenAIAccessToken(), "影子账号不可持有母账号 access_token")
 }
 

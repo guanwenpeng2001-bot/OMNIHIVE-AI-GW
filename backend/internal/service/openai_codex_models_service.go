@@ -319,7 +319,8 @@ func openAIConfiguredCodexModelIDs(accounts []Account) []string {
 		if account.Platform != PlatformOpenAI {
 			continue
 		}
-		for modelID := range account.GetModelMapping() {
+		names, _ := account.ConfiguredPublicModelNames()
+		for _, modelID := range names {
 			modelID = strings.TrimSpace(modelID)
 			if modelID == "" || strings.Contains(modelID, "*") {
 				continue
@@ -1126,7 +1127,7 @@ func groupCodexModelSupportsImageInput(
 	candidates := 0
 	for i := range accounts {
 		account := &accounts[i]
-		if account.Platform != platform || !account.IsModelSupported(upstreamModel) {
+		if account.Platform != platform || !account.SupportsRoutedModelTarget(modelID, upstreamModel) {
 			continue
 		}
 		candidates++
@@ -1172,7 +1173,7 @@ func groupCodexModelSupportsSearchTool(
 	candidates := 0
 	for i := range accounts {
 		account := &accounts[i]
-		if account.Platform != platform || !account.IsModelSupported(upstreamModel) {
+		if account.Platform != platform || !account.SupportsRoutedModelTarget(modelID, upstreamModel) {
 			continue
 		}
 		candidates++
@@ -1246,6 +1247,9 @@ func codexCompositeRouteMatchesModel(routes []CompositeModelRoute, modelID strin
 }
 
 func codexExplicitModelMappingClaims(account Account, modelID string) bool {
+	if claimed, handled := account.modelSelectionClaim(modelID); handled {
+		return claimed
+	}
 	if account.Credentials == nil || strings.TrimSpace(modelID) == "" {
 		return false
 	}

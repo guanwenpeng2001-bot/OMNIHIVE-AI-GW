@@ -58,7 +58,7 @@ func (s *OpenAIGatewayService) DiagnoseModelAvailabilityForPlatform(
 		diag.HasAccountsInPool = true
 		// Mapping and explicit scope are persistent configuration; runtime
 		// availability and capability evidence must not decide a 404 here.
-		if accounts[i].IsModelSupported(requestedModel) && accountModelScopeAllowsDiagnosis(ctx, &accounts[i], requestedModel) {
+		if accounts[i].supportsRoutedModel(ctx, requestedModel) && accountModelScopeAllowsDiagnosis(ctx, &accounts[i], requestedModel) {
 			if gatewayRequiredAction(ctx) == "embeddings" {
 				account, err := accountForCatalogSelection(ctx, s.accountRepo, &accounts[i])
 				if err != nil {

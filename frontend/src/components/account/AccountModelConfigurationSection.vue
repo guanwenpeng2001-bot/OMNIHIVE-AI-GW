@@ -13,6 +13,7 @@ defineOptions({ inheritAttrs: false })
 const props = withDefaults(defineProps<{
   modelValue: string[]
   mappings: ModelMappingEntry[]
+  publicTargets?: string[]
   mode?: AccountModelSelectionMode
   reason?: string
   presets?: (ModelMappingEntry & { label?: string })[]
@@ -20,9 +21,11 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [models: string[]]
   'update:mappings': [mappings: ModelMappingEntry[]]
+  'update:publicTargets': [targets: string[]]
   'update:mode': [mode: AccountModelSelectionMode]
   'update:reason': [reason: string]
   'selection-saved': [account: Account]
+  'catalog-hydrated': [selection: { publicTargets: string[] }]
 }>()
 const { t } = useI18n()
 const selector = ref<InstanceType<typeof ModelWhitelistSelector>>()
@@ -45,14 +48,17 @@ defineExpose({ revealValidation })
       v-bind="$attrs"
       :model-value="modelValue"
       :model-mappings="mappings"
+      :public-targets="props.publicTargets"
       :mode="props.mode"
       :reason="props.reason"
       :presets="props.presets"
       @update:model-value="emit('update:modelValue', $event)"
       @update:model-mappings="emit('update:mappings', $event)"
+      @update:public-targets="emit('update:publicTargets', $event)"
       @update:mode="emit('update:mode', $event)"
       @update:reason="emit('update:reason', $event)"
       @selection-saved="emit('selection-saved', $event)"
+      @catalog-hydrated="emit('catalog-hydrated', $event)"
       @validation-failed="revealValidation"
     />
     <slot name="model-rules" />

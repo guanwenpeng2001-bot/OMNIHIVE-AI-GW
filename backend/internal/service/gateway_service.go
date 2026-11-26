@@ -1550,7 +1550,8 @@ func (s *GatewayService) GetAvailableModelsChecked(ctx context.Context, groupID 
 		// Passthrough routing accepts models independently of model_mapping. A stale
 		// mapping on any eligible passthrough account therefore cannot define the
 		// public whitelist; return nil so the handler uses its default model set.
-		if platform == PlatformOpenAI && acc.IsOpenAIPassthroughEnabled() && len(acc.GetModelMapping()) == 0 {
+		names, configured := acc.ConfiguredPublicModelNames()
+		if platform == PlatformOpenAI && acc.IsOpenAIPassthroughEnabled() && !configured {
 			if s.modelsListCache != nil && versionErr == nil {
 				s.modelsListCache.Set(cacheKey, []string(nil), s.modelsListCacheTTL)
 				modelsListCacheStoreTotal.Add(1)
@@ -1558,10 +1559,9 @@ func (s *GatewayService) GetAvailableModelsChecked(ctx context.Context, groupID 
 			return nil, nil
 		}
 
-		mapping := acc.GetModelMapping()
-		if len(mapping) > 0 {
+		if configured {
 			hasAnyMapping = true
-			for model := range mapping {
+			for _, model := range names {
 				modelSet[model] = struct{}{}
 			}
 		}
@@ -1644,6 +1644,9 @@ func (s *GatewayService) resolveCompositeModelOwnership(ctx context.Context, gro
 }
 
 func explicitModelMappingClaims(account Account, model string) bool {
+	if claimed, handled := account.modelSelectionClaim(model); handled {
+		return claimed
+	}
 	if account.Credentials == nil || model == "" {
 		return false
 	}

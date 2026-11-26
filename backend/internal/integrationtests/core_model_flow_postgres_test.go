@@ -220,9 +220,9 @@ func TestCoreModelFlowPostgres(t *testing.T) {
 	f.saveSelection(selected, false, []string{})
 	f.assertModels(corePricedAlias, corePrivateModel)
 	// A restricted scope always includes the targets of retained aliases.
-	kept := f.saveSelection(nil, true, []string{corePricedModel})
-	require.ElementsMatch(t, []string{corePrivateModel}, stringValues(kept.Get("data.auto_added")))
-	require.Equal(t, selected, f.savedAccount().GetModelMapping())
+	kept := f.saveSelection(nil, true, []string{corePrivateModel})
+	require.Equal(t, []string{corePricedModel}, stringValues(kept.Get("data.auto_added")))
+	require.Equal(t, map[string]string{corePricedAlias: corePricedModel}, f.savedAccount().GetModelMapping())
 	f.assertModels(corePricedAlias, corePrivateModel)
 	// Narrowing below an alias target requires removing that alias in the same write.
 	f.saveSelection(map[string]string{corePricedAlias: corePricedModel}, true, []string{corePricedModel})
@@ -255,6 +255,122 @@ func TestCoreModelFlowPostgres(t *testing.T) {
 	require.NoError(t, f.db.QueryRowContext(f.ctx, `SELECT count(*) FROM usage_settlement_receipts WHERE api_key_id=$1`, f.keyID).Scan(&receipts))
 	require.Equal(t, 13, receipts, "rejected requests must not create inference receipts")
 	t.Log("refresh invariance, deletion, allowlist narrowing, warmed-key revocation and owner isolation passed")
+}
+
+func TestRestrictedAliasPublicationPostgres(t *testing.T) {
+	f := newCoreFlowFixture(t)
+	const restricted = "/api/v1/admin/accounts/%d/models/allowlist"
+	created := f.ok("POST", "/api/v1/admin/accounts", map[string]any{
+		"name": "restricted-alias-account", "platform": service.PlatformOpenAI, "type": service.AccountTypeAPIKey,
+		"credentials": map[string]any{"api_key": "upstream-fixture-only", "base_url": f.upstream.server.URL},
+		"extra":       map[string]any{"openai_responses_supported": true, "openai_passthrough": false},
+	}, false)
+	f.accountID = created.Get("data.id").Int()
+	group := f.ok("POST", "/api/v1/admin/groups", map[string]any{
+		"name": "restricted-alias-group", "platform": service.PlatformOpenAI, "subscription_type": "standard", "rate_multiplier": 1,
+	}, false)
+	f.groupID = group.Get("data.id").Int()
+	f.ok("PUT", fmt.Sprintf("/api/v1/admin/accounts/%d", f.accountID), map[string]any{"group_ids": []int64{f.groupID}}, false)
+	issued := f.ok("POST", "/api/v1/keys", map[string]any{"name": "restricted-alias-key", "group_id": f.groupID}, false)
+	f.keyID, f.secret = issued.Get("data.api_key.id").Int(), issued.Get("data.secret").String()
+
+	scope := []string{corePricedModel, corePrivateModel}
+	aliases := map[string]string{corePricedAlias: corePricedModel}
+	f.saveSelection(aliases, true, scope)
+	f.assertModels(corePricedAlias, corePrivateModel)
+	f.assertRejected(corePricedModel)
+	f.assertSuccessfulRequest(corePrivateModel)
+	f.assertSuccessfulRequest(corePricedAlias)
+
+	// Persist the v0.3.9 shape directly so the runtime sees all legacy
+	// identities before the v0.3.10 normalizer has a chance to prune them.
+	legacy := map[string]string{corePricedAlias: corePricedModel, corePricedModel: corePricedModel, corePrivateModel: corePrivateModel}
+	encoded, err := json.Marshal(legacy)
+	require.NoError(t, err)
+	_, err = f.db.ExecContext(f.ctx, `UPDATE accounts SET credentials = jsonb_set(credentials, '{model_mapping}', $2::jsonb) WHERE id=$1`, f.accountID, string(encoded))
+	require.NoError(t, err)
+	f.assertModels(corePricedModel, corePrivateModel, corePricedAlias)
+
+	// An exact identity for the alias target is retained. Other identities
+	// are redundant or outside the scope and the write does not widen it.
+	legacy["Outside-Scope"] = "Outside-Scope"
+	saved := f.saveSelection(legacy, true, scope)
+	require.ElementsMatch(t, scope, stringValues(saved.Get("data.models")))
+	require.Empty(t, stringValues(saved.Get("data.auto_added")))
+	require.Equal(t, map[string]string{corePricedAlias: corePricedModel, corePricedModel: corePricedModel}, f.savedAccount().GetModelMapping())
+	f.assertModels(corePricedModel, corePrivateModel, corePricedAlias)
+	f.assertSuccessfulRequest(corePricedModel)
+	picker := f.ok("GET", fmt.Sprintf("/api/v1/admin/accounts/%d/models", f.accountID), nil, false)
+	require.ElementsMatch(t, []string{corePricedModel, corePrivateModel, corePricedAlias}, stringValues(picker.Get("data.#.id")))
+
+	f.saveSelection(aliases, false, []string{})
+	f.assertModels(corePricedAlias)
+	f.assertRejected(corePrivateModel)
+	f.assertRejected(corePricedModel)
+	f.assertSuccessfulRequest(corePricedAlias)
+	denied := f.ok("PUT", fmt.Sprintf(restricted, f.accountID), map[string]any{
+		"mode": "deny_all", "models": []string{}, "reason": "maintenance",
+		"expected_rules_revision": fmt.Sprint(f.savedAccount().ModelCatalogState().RulesRevision),
+	}, false)
+	require.Equal(t, "deny_all", denied.Get("data.mode").String())
+	f.assertModels()
+	f.assertRejected(corePricedAlias)
+
+	// Use the real repository and route resolver against a second platform
+	// with a stale identity for the first account's public alias.
+	f.saveSelection(aliases, true, scope)
+	composite := f.ok("POST", "/api/v1/admin/groups", map[string]any{
+		"name": "restricted-alias-composite", "platform": service.PlatformComposite, "subscription_type": "standard", "rate_multiplier": 1,
+	}, false).Get("data.id").Int()
+	t.Cleanup(func() {
+		_, err := f.db.ExecContext(f.ctx, `DELETE FROM groups WHERE id=$1`, composite)
+		require.NoError(t, err)
+	})
+	f.ok("PUT", fmt.Sprintf("/api/v1/admin/accounts/%d", f.accountID), map[string]any{"group_ids": []int64{f.groupID, composite}}, false)
+	competitor := f.ok("POST", "/api/v1/admin/accounts", map[string]any{
+		"name": "restricted-alias-competitor", "platform": service.PlatformGrok, "type": service.AccountTypeAPIKey,
+		"credentials":     map[string]any{"api_key": "unused-fixture", "base_url": f.upstream.server.URL},
+		"model_selection": map[string]any{"mode": "restricted", "models": []string{"grok-4"}},
+		"group_ids":       []int64{composite},
+	}, false).Get("data.id").Int()
+	t.Cleanup(func() {
+		_, err := f.db.ExecContext(f.ctx, `DELETE FROM credential_secrets WHERE account_id=$1`, competitor)
+		require.NoError(t, err)
+		_, err = f.db.ExecContext(f.ctx, `DELETE FROM accounts WHERE id=$1`, competitor)
+		require.NoError(t, err)
+	})
+	staleIdentity := map[string]string{corePricedAlias: corePricedAlias}
+	encoded, err = json.Marshal(staleIdentity)
+	require.NoError(t, err)
+	_, err = f.db.ExecContext(f.ctx, `UPDATE accounts SET credentials = jsonb_set(credentials, '{model_mapping}', $2::jsonb) WHERE id=$1`, competitor, string(encoded))
+	require.NoError(t, err)
+	otherAccount, err := f.accounts.GetByID(f.ctx, competitor)
+	require.NoError(t, err)
+	require.Equal(t, []int64{composite}, otherAccount.GroupIDs)
+	require.Equal(t, staleIdentity, service.AccountModelSelectionView(otherAccount).ModelMapping)
+	decision, err := f.composite.Resolve(f.ctx, composite, corePricedAlias, service.CompositeRouteEndpointResponses)
+	require.NoError(t, err)
+	require.True(t, decision.Matched, "%+v", decision)
+	require.Equal(t, service.CompositeRouteSourceAccount, decision.Source)
+	require.Equal(t, service.PlatformOpenAI, decision.TargetPlatform)
+
+	compositeKey := f.ok("POST", "/api/v1/keys", map[string]any{"name": "restricted-alias-composite-key", "group_id": composite}, false)
+	t.Cleanup(func() {
+		_, err := f.db.ExecContext(f.ctx, `DELETE FROM api_keys WHERE id=$1`, compositeKey.Get("data.api_key.id").Int())
+		require.NoError(t, err)
+	})
+	f.secret = compositeKey.Get("data.secret").String()
+	for _, path := range []string{"/v1/models", "/v1/models/catalog"} {
+		result := f.ok("GET", path, nil, true)
+		names := stringValues(result.Get("data.#.id"))
+		require.Contains(t, names, corePricedAlias, path)
+		require.NotContains(t, names, corePricedModel, path)
+	}
+	require.Eventually(t, func() bool {
+		var count int
+		err := f.db.QueryRowContext(f.ctx, `SELECT count(*) FROM usage_settlement_receipts WHERE api_key_id=$1`, f.keyID).Scan(&count)
+		return err == nil && count == 4
+	}, 5*time.Second, 20*time.Millisecond)
 }
 
 func (f *coreFlowFixture) assertModels(expected ...string) {

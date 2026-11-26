@@ -1317,12 +1317,12 @@ func batchImageModelsFromAccountMapping(account *Account) []string {
 	if account == nil {
 		return nil
 	}
-	mapping := account.GetModelMapping()
-	if len(mapping) == 0 {
+	names, _ := account.ConfiguredPublicModelNames()
+	if len(names) == 0 {
 		return nil
 	}
 	models := make(map[string]struct{})
-	for model := range mapping {
+	for _, model := range names {
 		model = strings.TrimSpace(model)
 		if model == "" {
 			continue

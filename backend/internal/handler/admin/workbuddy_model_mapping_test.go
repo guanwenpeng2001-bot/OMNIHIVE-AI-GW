@@ -56,11 +56,13 @@ func TestAccountModelMappingSaveReread(t *testing.T) {
 			repo.account.Credentials["access_token"] = "synthetic-private-token"
 			repo.account.Credentials["api_key"] = "synthetic-private-token"
 			router := mappingRoundTripRouter(repo)
-			mapping := map[string]any{"native": "native", "PublicAlias": "private-target"}
+			mapping := map[string]any{"PublicAlias": "private-target"}
 			saved := selectionHTTPRequest(router, "/roundtrip/42", `{"credentials":{"model_mapping":{"native":"native","PublicAlias":"private-target"}}}`)
 			require.Equal(t, 200, saved.Code, saved.Body.String())
 			require.NotContains(t, saved.Body.String(), "synthetic-private-token")
 			require.Equal(t, mapping, rereadMapping(t, router)["model_mapping"])
+			require.Equal(t, []string{"native", "private-target"}, service.AccountModelSelectionView(&repo.account).Models)
+			require.True(t, repo.account.IsModelSupported("native"))
 
 			// Auth/metadata edits omit selection, and must retain the saved mapping.
 			saved = selectionHTTPRequest(router, "/roundtrip/42", `{"name":"renamed","preserve_model_selection":true,"credentials":{"site":"cn"}}`)

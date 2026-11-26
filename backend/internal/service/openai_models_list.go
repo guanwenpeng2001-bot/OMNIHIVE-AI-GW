@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 
 	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
@@ -181,7 +180,10 @@ func standardOpenAIModelsBody(body []byte, fromManifest bool) ([]byte, error) {
 // representations while retaining the source entry's metadata. It never changes
 // the shared response and never synthesizes models absent from this account.
 func projectAccountModelsBody(body []byte, account *Account, group *Group, codex bool) ([]byte, error) {
-	if account.IsOpenAIPassthroughEnabled() || len(account.GetModelMapping()) == 0 {
+	names, configured := account.ConfiguredPublicModelNames()
+	denied := account.ModelSelectionDeniesAll()
+	selection := account.restrictedPublicModels()
+	if !configured || (account.IsOpenAIPassthroughEnabled() && !denied && selection == nil) {
 		return body, nil
 	}
 	field, idField := "data", "id"
@@ -221,12 +223,7 @@ func projectAccountModelsBody(body []byte, account *Account, group *Group, codex
 			candidates = append(candidates, id)
 		}
 	}
-	aliases := make([]string, 0, len(account.GetModelMapping()))
-	for alias := range account.GetModelMapping() {
-		aliases = append(aliases, alias)
-	}
-	sort.Strings(aliases)
-	candidates = append(candidates, aliases...)
+	candidates = append(candidates, names...)
 	if group.ModelAllowlistEnabled() {
 		candidates = append(candidates, group.ModelAllowlist.Models...)
 	}
@@ -241,6 +238,9 @@ func projectAccountModelsBody(body []byte, account *Account, group *Group, codex
 			continue
 		}
 		target, matched := account.ResolveMappedModel(id)
+		if denied || (selection != nil && !selection.allows(account, id, false)) {
+			continue
+		}
 		raw, available := byID[strings.TrimSpace(target)]
 		if !matched || !available {
 			continue

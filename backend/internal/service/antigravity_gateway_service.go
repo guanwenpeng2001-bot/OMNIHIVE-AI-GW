@@ -257,7 +257,13 @@ func mapAntigravityModel(account *Account, requestedModel string) string {
 		return ""
 	}
 	requestedModel = strings.TrimPrefix(requestedModel, "models/")
-	// Scheduling and forwarding share the same evidence-backed default target.
+	if selection := account.restrictedPublicModels(); selection != nil {
+		if model, ok := selection.resolve(requestedModel); ok {
+			return model
+		}
+		return ""
+	}
+	// Inherited names may use the evidence-backed default thinking variant.
 	if variant, resolved := resolveGeminiThinkingVariantForLevel(account, requestedModel, ""); resolved {
 		return variant
 	}
@@ -305,8 +311,10 @@ func (s *AntigravityGatewayService) getMappedModel(account *Account, requestedMo
 // getMappedModelForThinkingLevel resolves bare Gemini names only through the
 // account's approved catalog; all callers retain the existing send-time check.
 func (s *AntigravityGatewayService) getMappedModelForThinkingLevel(account *Account, requestedModel string, thinkingLevel string) string {
-	if mapped, ok := resolveGeminiThinkingVariantForLevel(account, requestedModel, thinkingLevel); ok {
-		return mapped
+	if account != nil && account.restrictedPublicModels() == nil {
+		if mapped, ok := resolveGeminiThinkingVariantForLevel(account, requestedModel, thinkingLevel); ok {
+			return mapped
+		}
 	}
 	return mapAntigravityModel(account, requestedModel)
 }

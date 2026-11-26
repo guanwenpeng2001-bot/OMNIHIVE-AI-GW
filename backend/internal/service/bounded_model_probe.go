@@ -43,8 +43,8 @@ func boundedModelProbeTargets(account *Account, now time.Time) []boundedModelPro
 	}
 	targets := []boundedModelProbeTarget{}
 	seen := map[boundedModelProbeTarget]bool{}
-	for _, model := range configuredModelMapping(account) {
-		if !concreteMappedModel(account, model) || slices.Contains(snapshot.DiscoveredModels, model) {
+	for _, model := range configuredConcreteModelIDs(account) {
+		if slices.Contains(snapshot.DiscoveredModels, model) {
 			continue
 		}
 		for _, endpoint := range accountCatalogNativeTextEndpoints(account, model) {

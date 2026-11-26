@@ -120,6 +120,11 @@ func classifyModelSelectionRepair(account *service.Account, rawExtra map[string]
 	command := service.ModelSelectionCommand{Mode: service.ModelSelectionInherit, Reason: modelSelectionRepairReason, Source: service.ModelSelectionRepair}
 	if len(mapping) > 0 {
 		command.Mode = service.ModelSelectionRestricted
+		for name, target := range mapping {
+			if name == target {
+				command.Models = append(command.Models, target)
+			}
+		}
 	}
 	result, err := service.NormalizeModelSelection(scope, mapping, command)
 	if err != nil {
@@ -330,6 +335,10 @@ func repairNextAccountModelSelection(ctx context.Context, connection *sql.Conn, 
 		if err != nil {
 			return result, err
 		}
+		// This repair and its rollback only replace the scope. Keep legacy
+		// credentials intact until an administrator actually edits selection.
+		result.ModelMapping = service.AccountModelSelectionView(current).ModelMapping
+		result.MappingChanged = false
 		backup, err := newModelSelectionRepairBackup(current, extra, classification, result, now)
 		if err != nil {
 			return result, err

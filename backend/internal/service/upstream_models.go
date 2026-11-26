@@ -551,6 +551,10 @@ func configuredUpstreamModelsForCapabilitySync(account *Account) []string {
 	if account == nil {
 		return nil
 	}
+	if account.restrictedPublicModels() != nil {
+		return dedupeAndSortModelIDs(configuredConcreteModelIDs(account))
+	}
+	// Inherited capability sync also enriches effective provider defaults.
 	models := make([]string, 0)
 	for _, mappedModel := range account.GetModelMapping() {
 		mappedModel = strings.TrimSpace(mappedModel)

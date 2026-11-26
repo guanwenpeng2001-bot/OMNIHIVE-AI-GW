@@ -80,6 +80,7 @@ export interface AccountModelSelectionState {
   mode: AccountModelSelectionMode
   models: string[]
   mappings: ModelMappingEntry[]
+  publicTargets: string[]
   reason: string
 }
 
@@ -214,8 +215,134 @@ export function buildModelMappingObject(
   return Object.keys(mapping).length > 0 ? mapping : null
 }
 
+export interface ModelAliasProjection {
+  aliasTargets: string[]
+  aliasTargetsMap: Map<string, string[]>
+  literalAliasKeys: string[]
+  wildcardAliasKeys: string[]
+  inlineIdentities: string[]
+  effectivePublicTargets: string[]
+}
+
+export function projectModelAliases(
+  modelMappings: readonly ModelMappingEntry[] = [],
+  publicTargets: readonly string[] = []
+): ModelAliasProjection {
+  const aliasTargetsSet = new Set<string>()
+  const aliasTargetsMap = new Map<string, string[]>()
+  const literalAliasKeysSet = new Set<string>()
+  const wildcardAliasKeysSet = new Set<string>()
+  const inlineIdentitiesSet = new Set<string>()
+
+  for (const entry of modelMappings) {
+    const from = entry.from.trim()
+    const to = entry.to.trim()
+    if (!from || !to) continue
+    if (from === to) {
+      if (!from.includes('*') && !from.includes('?')) {
+        inlineIdentitiesSet.add(from)
+      }
+      continue
+    }
+    if (!isValidWildcardPattern(from) || to.includes('*')) continue
+    aliasTargetsSet.add(to)
+    const list = aliasTargetsMap.get(to) ?? []
+    if (!list.includes(from)) {
+      list.push(from)
+    }
+    aliasTargetsMap.set(to, list)
+    if (from.includes('*')) {
+      wildcardAliasKeysSet.add(from)
+    } else {
+      literalAliasKeysSet.add(from)
+    }
+  }
+
+  const effectivePublicTargetsSet = new Set<string>()
+  for (const rawTarget of [...inlineIdentitiesSet, ...publicTargets]) {
+    const target = rawTarget.trim()
+    if (target && aliasTargetsSet.has(target)) {
+      effectivePublicTargetsSet.add(target)
+    }
+  }
+
+  return {
+    aliasTargets: [...aliasTargetsSet],
+    aliasTargetsMap,
+    literalAliasKeys: [...literalAliasKeysSet].sort(),
+    wildcardAliasKeys: [...wildcardAliasKeysSet].sort(),
+    inlineIdentities: [...inlineIdentitiesSet],
+    effectivePublicTargets: [...effectivePublicTargetsSet]
+  }
+}
+
+export function extractAliasTargets(modelMappings: readonly ModelMappingEntry[]): string[] {
+  return projectModelAliases(modelMappings).aliasTargets
+}
+
+export function extractPublicAliasTargets(modelMapping?: Record<string, unknown> | null): string[] {
+  if (!modelMapping || typeof modelMapping !== 'object') {
+    return []
+  }
+  const { allowedModels, modelMappings } = splitModelMappingObject(modelMapping)
+  return projectModelAliases(modelMappings, allowedModels).effectivePublicTargets
+}
+
+export function computePublicRequestNames(input: {
+  mode: AccountModelSelectionMode
+  models: readonly string[]
+  mappings?: readonly ModelMappingEntry[]
+  publicTargets?: readonly string[]
+}): string[] {
+  if (input.mode === 'deny_all') {
+    return []
+  }
+  const projection = projectModelAliases(input.mappings ?? [], input.publicTargets ?? [])
+  if (input.mode === 'inherit') {
+    return [...new Set([...projection.literalAliasKeys, ...projection.inlineIdentities])].sort()
+  }
+  const aliasTargets = new Set(projection.aliasTargets)
+  const literalAliasKeys = new Set(projection.literalAliasKeys)
+  const scope = new Set<string>()
+  for (const model of [...input.models, ...projection.inlineIdentities]) {
+    const trimmed = model.trim()
+    if (trimmed && !trimmed.includes('*') && !trimmed.includes('?')) {
+      scope.add(trimmed)
+    }
+  }
+  for (const target of aliasTargets) {
+    scope.add(target)
+  }
+  const names = new Set<string>()
+  for (const model of scope) {
+    if (!aliasTargets.has(model) && !literalAliasKeys.has(model)) {
+      names.add(model)
+    }
+  }
+  for (const alias of literalAliasKeys) {
+    names.add(alias)
+  }
+  for (const target of projection.effectivePublicTargets) {
+    if (!literalAliasKeys.has(target)) {
+      names.add(target)
+    }
+  }
+  return [...names].sort()
+}
+
+export function computeWildcardAliasPatterns(input: {
+  mode: AccountModelSelectionMode
+  mappings?: readonly ModelMappingEntry[]
+}): string[] {
+  if (input.mode === 'deny_all') {
+    return []
+  }
+  return projectModelAliases(input.mappings ?? []).wildcardAliasKeys
+}
+
 export function buildExplicitModelMappingObject(
-  modelMappings: ModelMappingEntry[]
+  modelMappings: ModelMappingEntry[],
+  publicTargets: readonly string[] = []
 ): Record<string, string> {
   const mapping: Record<string, string> = {}
   for (const entry of modelMappings) {
@@ -224,6 +351,12 @@ export function buildExplicitModelMappingObject(
     if (!from || !to || from === to) continue
     if (!isValidWildcardPattern(from) || to.includes('*')) continue
     mapping[from] = to
+  }
+  const { effectivePublicTargets } = projectModelAliases(modelMappings, publicTargets)
+  for (const target of effectivePublicTargets) {
+    if (!(target in mapping)) {
+      mapping[target] = target
+    }
   }
   return mapping
 }
@@ -298,6 +431,7 @@ export function normalizeAccountModelSelection(input?: {
       (input?.account?.credentials?.model_mapping as Record<string, unknown> | undefined)) ??
     null
   const { allowedModels, modelMappings } = splitModelMappingObject(rawMapping)
+  const publicTargets = extractPublicAliasTargets(rawMapping)
   const catalogModels = Array.isArray(input?.catalog?.models)
     ? input!.catalog!.models!.map(model => String(model).trim()).filter(Boolean)
     : []
@@ -321,6 +455,7 @@ export function normalizeAccountModelSelection(input?: {
       mode: 'deny_all',
       models: [],
       mappings: modelMappings,
+      publicTargets,
       reason
     }
   }
@@ -332,16 +467,17 @@ export function normalizeAccountModelSelection(input?: {
       mode: 'restricted',
       models: mergedModels,
       mappings: modelMappings,
+      publicTargets: publicTargets.filter(target => mergedModels.includes(target)),
       reason
     }
   }
 
   if (input?.catalog?.mode === 'inherit') {
     if (mergedModels.length === 0 && modelMappings.length === 0) {
-      return { mode: 'inherit', models: [], mappings: [], reason }
+      return { mode: 'inherit', models: [], mappings: [], publicTargets: [], reason }
     }
     if (mergedModels.length === 0 && allowlist?.enabled === false) {
-      return { mode: 'inherit', models: [], mappings: modelMappings, reason }
+      return { mode: 'inherit', models: [], mappings: modelMappings, publicTargets: [], reason }
     }
   }
 
@@ -354,6 +490,7 @@ export function normalizeAccountModelSelection(input?: {
       mode: 'restricted',
       models: mergedModels,
       mappings: modelMappings,
+      publicTargets: publicTargets.filter(target => mergedModels.includes(target)),
       reason
     }
   }
@@ -362,6 +499,7 @@ export function normalizeAccountModelSelection(input?: {
     mode: 'inherit',
     models: [],
     mappings: [],
+    publicTargets: [],
     reason
   }
 }
@@ -370,6 +508,7 @@ export function buildUpdateModelAllowlistRequest(input: {
   mode: AccountModelSelectionMode
   models: string[]
   mappings?: ModelMappingEntry[]
+  publicTargets?: readonly string[]
   reason?: string
   expectedRulesRevision: string | number
 }): UpdateModelAllowlistRequest {
@@ -395,13 +534,19 @@ export function buildUpdateModelAllowlistRequest(input: {
     }
   }
   const mappings = input.mappings ?? []
+  const mappingObject = buildExplicitModelMappingObject(mappings, input.publicTargets ?? [])
+  const explicitPublicTargets = Object.entries(mappingObject)
+    .filter(([from, to]) => from === to)
+    .map(([from]) => from)
   return {
     mode: 'restricted',
     enabled: true,
-    models: mergeIdentityMappingsIntoModels(input.models, mappings),
+    models: [
+      ...new Set([...mergeIdentityMappingsIntoModels(input.models, mappings), ...explicitPublicTargets])
+    ],
     reason,
     expected_rules_revision: input.expectedRulesRevision,
-    model_mapping: buildExplicitModelMappingObject(mappings)
+    model_mapping: mappingObject
   }
 }
 
@@ -409,6 +554,7 @@ export function buildAccountWorkflowModelPayload(input: {
   mode?: AccountModelSelectionMode
   models: string[]
   mappings?: ModelMappingEntry[]
+  publicTargets?: readonly string[]
   reason?: string
   clearMappingsOnInherit?: boolean
 }): {
@@ -430,7 +576,7 @@ export function buildAccountWorkflowModelPayload(input: {
     (input.mappings ?? []).some(entry => entry.from.trim().length > 0 && entry.to.trim().length > 0)
   if (input.mode === 'restricted' || (input.mode === undefined && hasSelection)) {
     const mergedModels = mergeMappingTargetsIntoModels(input.models, input.mappings ?? [])
-    const mapping = buildExplicitModelMappingObject(input.mappings ?? [])
+    const mapping = buildExplicitModelMappingObject(input.mappings ?? [], input.publicTargets ?? [])
     return {
       mode: 'restricted',
       models: mergedModels,

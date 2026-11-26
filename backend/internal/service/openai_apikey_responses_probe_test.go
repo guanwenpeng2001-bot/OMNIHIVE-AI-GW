@@ -162,6 +162,11 @@ func TestSelectResponsesProbeModel(t *testing.T) {
 	}}
 	require.Equal(t, "real-model", selectResponsesProbeModel(acctWild))
 
+	acct.Extra = map[string]any{
+		UpstreamModelAllowlistExtraKey: AccountModelAllowlist{Enabled: true, Models: []string{"gpt-direct-model"}},
+	}
+	require.Equal(t, "gpt-direct-model", selectResponsesProbeModel(acct))
+
 	// Only wildcard mappings -> DefaultTestModel.
 	acctAllWild := &Account{Credentials: map[string]any{
 		"model_mapping": map[string]any{"a": "gpt-*"},

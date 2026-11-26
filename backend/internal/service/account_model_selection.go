@@ -213,7 +213,7 @@ func NormalizeModelSelection(currentScope AccountModelAllowlist, currentMapping 
 	reason := strings.TrimSpace(cmd.Reason)
 	mappingEdit := mode == ""
 	if mappingEdit {
-		if !result.MappingChanged {
+		if !result.MappingChanged && (cmd.ModelMapping == nil || result.Mode != ModelSelectionRestricted) {
 			return result, nil
 		}
 		if result.Mode == ModelSelectionDenyAll {
@@ -226,6 +226,9 @@ func NormalizeModelSelection(currentScope AccountModelAllowlist, currentMapping 
 			models = nil
 		}
 		if len(result.ModelMapping) > 0 {
+			if mode == ModelSelectionInherit {
+				models = legacyIdentitySelections(result.ModelMapping)
+			}
 			mode = ModelSelectionRestricted
 		}
 	}
@@ -250,10 +253,15 @@ func NormalizeModelSelection(currentScope AccountModelAllowlist, currentMapping 
 		if err != nil {
 			return ModelSelectionResult{}, err
 		}
+		targets := modelAliasTargets(result.ModelMapping)
+		maps.DeleteFunc(result.ModelMapping, func(name, target string) bool {
+			return name == target && (!targets[target] || !slices.Contains(models, target))
+		})
 	default:
 		return ModelSelectionResult{}, ErrModelSelectionInvalid
 	}
 
+	result.MappingChanged = !maps.Equal(currentMapping, result.ModelMapping)
 	enabled := mode != ModelSelectionInherit
 	result.Mode, result.Models = mode, models
 	result.Changed = result.MappingChanged || currentScope.Enabled != enabled || !slices.Equal(currentScope.Models, models) || (reason != "" && currentScope.Reason != reason)
@@ -277,7 +285,10 @@ func restrictedModelSelection(models []string, mapping map[string]string) ([]str
 		}
 		members[model] = true
 	}
-	for _, target := range mapping {
+	for name, target := range mapping {
+		if name == target {
+			continue
+		}
 		if !exactConfiguredModel(target) || !validModelSelectionName(target) {
 			return nil, nil, ErrModelSelectionInvalid
 		}
@@ -296,6 +307,18 @@ func restrictedModelSelection(models []string, mapping map[string]string) ([]str
 	slices.Sort(selected)
 	slices.Sort(autoAdded)
 	return selected, autoAdded, nil
+}
+
+// A legacy credentials-only request has no scope field, so its identity keys
+// supply the initial direct selections.
+func legacyIdentitySelections(mapping map[string]string) []string {
+	var models []string
+	for name, target := range mapping {
+		if name == target {
+			models = append(models, name)
+		}
+	}
+	return models
 }
 
 func validModelSelectionName(name string) bool {
@@ -358,6 +381,7 @@ func InitializeAccountModelSelection(account *Account) error {
 		initial.Mode = ModelSelectionInherit
 		if len(initial.ModelMapping) > 0 {
 			initial.Mode = ModelSelectionRestricted
+			initial.Models = legacyIdentitySelections(initial.ModelMapping)
 		}
 		cmd = &initial
 	}
